@@ -1,0 +1,10 @@
+node_modules
+dist
+out
+.env
+.env.*
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log*
+.eslintcache
