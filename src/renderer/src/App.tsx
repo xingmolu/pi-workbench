@@ -16,6 +16,7 @@ export default function App(): React.JSX.Element {
   const setClientError = usePiStore((state) => state.setClientError)
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
   const [mode, setMode] = useState<WorkbenchMode>('files')
+  const [workbenchOpen, setWorkbenchOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -32,6 +33,12 @@ export default function App(): React.JSX.Element {
           })
       }
     })
+    const unsubscribeBrowser = window.pi.onBrowserEvent((event) => {
+      if (event.type !== 'agent-open') return
+      dispatchLayout({ type: 'settings:close' })
+      setMode('browser')
+      setWorkbenchOpen(true)
+    })
 
     void window.pi
       .getState()
@@ -45,6 +52,7 @@ export default function App(): React.JSX.Element {
     return () => {
       cancelled = true
       unsubscribe()
+      unsubscribeBrowser()
     }
   }, [applyPatch, setClientError, setSnapshot])
 
@@ -81,6 +89,7 @@ export default function App(): React.JSX.Element {
   }, [setClientError, setSnapshot])
 
   const openSettings = useCallback((): void => {
+    setWorkbenchOpen(false)
     dispatchLayout({ type: 'settings:open' })
   }, [])
 
@@ -137,15 +146,19 @@ export default function App(): React.JSX.Element {
       />
 
       <Workbench
-        collapsed={!layout.settingsOpen}
+        collapsed={!layout.settingsOpen && !workbenchOpen}
         mode={mode}
         settingsOpen={layout.settingsOpen}
         snapshot={snapshot}
         onModeChange={(nextMode) => {
           closeSettings()
           setMode(nextMode)
+          setWorkbenchOpen(true)
         }}
-        onToggle={closeSettings}
+        onToggle={() => {
+          if (layout.settingsOpen) closeSettings()
+          else setWorkbenchOpen(false)
+        }}
         onCloseSettings={closeSettings}
         onLogin={login}
         onAddAlias={(slug) => void send({ type: 'account:alias:add', slug })}

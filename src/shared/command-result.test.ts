@@ -18,7 +18,8 @@ describe('command result kinds', () => {
       { type: 'account:login', providerId: 'openai-codex', method: 'browser' },
       { type: 'account:login:respond', promptId: 'prompt-1' },
       { type: 'account:alias:add', slug: 'work' },
-      { type: 'model:set', providerId: 'openai-codex', modelId: 'gpt-5' }
+      { type: 'model:set', providerId: 'openai-codex', modelId: 'gpt-5' },
+      { type: 'browser:e2e', operation: { action: 'snapshot' } }
     ]
 
     expect(commands.map(expectedHostResultKind)).toEqual([
@@ -27,6 +28,7 @@ describe('command result kinds', () => {
       'snapshot',
       'snapshot',
       'snapshot',
+      'ack',
       'ack',
       'ack',
       'ack',

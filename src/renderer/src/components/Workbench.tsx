@@ -18,6 +18,7 @@ import {
   X
 } from 'lucide-react'
 import type { AgentSnapshot, LoginMethod, LoginPrompt } from '../../../shared/contracts'
+import BrowserPane from './BrowserPane'
 
 export type WorkbenchMode = 'files' | 'review' | 'terminal' | 'browser'
 
@@ -32,7 +33,7 @@ const MODE_HINT: Record<WorkbenchMode, { title: string; copy: string }> = {
   files: { title: '文件面板', copy: '本轮保持占位，不读取或复制项目文件树。' },
   review: { title: 'Git Review', copy: '本轮保持占位，不接入 Git diff 或审查工作流。' },
   terminal: { title: '用户终端', copy: '本轮保持占位。Agent 命令会作为对话工具卡片显示。' },
-  browser: { title: '内嵌浏览器', copy: '本轮保持占位。Codex 登录会打开系统浏览器。' }
+  browser: { title: '内嵌浏览器', copy: '与 Agent 共享当前标签页。' }
 }
 
 type WorkbenchProps = {
@@ -404,6 +405,8 @@ export default function Workbench({
           onAddAlias={onAddAlias}
           onLoginPrompt={onLoginPrompt}
         />
+      ) : mode === 'browser' ? (
+        <BrowserPane projectReady={Boolean(snapshot.project)} />
       ) : (
         <div className="workbench-body">
           <MonitorCog size={23} />

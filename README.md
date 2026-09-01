@@ -3,7 +3,7 @@
 Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 `@earendil-works/pi-coding-agent`。它不加载 DSH Web UI，也不复制 Pi 的会话或凭证。
 
-当前 MVP 聚焦 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2 和 2b：
+当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b 和 3：
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
 - composer：Open / Ask、账号 → 模型、ContextMeter、Send / Stop / Queue；
@@ -12,15 +12,18 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - Codex（ChatGPT Plus / Pro）浏览器登录与 device code；
 - Pi 多账号 provider 别名 `openai-codex-<slug>`；
 - 按 `cwd` 分桶的 Pi JSONL 会话列表、新建与恢复；
-- 默认 52px 的 Workbench mode rail，以及按需展开的账号与模型设置。
+- 默认 52px 的 Workbench mode rail，以及按需展开的账号与模型设置；
+- 右栏原生 Browser：多标签页、按 project 隔离的持久 profile、用户与 agent 共享控制；
+- Pi `browser` 工具：snapshot/ref、click/fill/select、导航、wait、screenshot 与 Stop。
 
-Files、Git Review、用户 PTY、Browser、Trace、手机网关和 worktree / 并行 agent
-仍是后续边界；当前右侧相应 mode 只是占位，不代表功能已经实现。`@` 文件/会话引用、
+Files、Git Review、用户 PTY、Trace、手机网关和 worktree / 并行 agent 仍是后续边界；
+当前右侧相应 mode 只是占位，不代表功能已经实现。`@` 文件/会话引用、
 图片粘贴附件、用户可拖内容轴、`~/.codex/auth.json` 便利导入，以及自定义兼容端点的
 管理 UI 也明确延期。
 
 技术选型与取舍见 [docs/TECH_STACK_RESEARCH.md](./docs/TECH_STACK_RESEARCH.md)，本轮竞品调研与落地映射见
-[docs/COMPETITIVE_RESEARCH.md](./docs/COMPETITIVE_RESEARCH.md)。
+[docs/COMPETITIVE_RESEARCH.md](./docs/COMPETITIVE_RESEARCH.md)，Workbench / Agent Browser
+专项调研与实施结果见 [docs/WORKBENCH_AGENT_RESEARCH.md](./docs/WORKBENCH_AGENT_RESEARCH.md)。
 
 ## 本地运行
 
@@ -52,7 +55,7 @@ npm run smoke:electron-store
 - `npm run smoke:electron-store`：先 build，再在 Electron 主进程环境验证构建后的
   `electron-store` 可以读写。
 
-E2E 会把空态、设置和项目门禁截图写入 `artifacts/e2e/`；该目录已加入
+E2E 会把空态、设置、项目门禁、Browser chrome 和网页执行证据截图写入 `artifacts/e2e/`；该目录已加入
 `.gitignore`，只作为本地验证产物。
 
 如需生成本地安装目录，可另外运行：
@@ -74,6 +77,7 @@ npx electron-builder --dir
    Open 允许 Pi 在本次运行中直接调用工具。重启后恢复为 Ask；它们不是 OS sandbox
    或持久 allow/deny 规则。
 6. agent 运行中发送的新输入进入 Pi follow-up 队列；界面显示完整待发送文本，并支持清空全部队列。单项编辑、删除和 steer 尚未实现。
+7. 点击右栏 Browser 后可以手动浏览；Pi agent 使用同一个可见 tab。Ask 模式下交互动作会进入现有审批卡，Open 模式下直接执行；浏览器工具条会显示控制方，用户可随时 Stop 或直接接管。
 
 ## 数据与隐私边界
 
@@ -89,14 +93,17 @@ npx electron-builder --dir
 客户名或项目名，应按本地隐私数据对待。测试专用 agentDir 覆盖只允许在未打包的显式
 E2E 模式中使用，生产构建会拒绝该模式并忽略其他路径覆盖值。
 
+Browser 使用 project 路径的不可逆 hash 生成独立 Electron partition；cookie、localStorage
+等网站会话数据留在该 profile，不写入 Pi 的 `auth.json`，也不会通过 snapshot 返回给 agent。
+
 ## 架构
 
-| 进程       | 职责                                                                                            |
-| ---------- | ----------------------------------------------------------------------------------------------- |
-| Main       | 窗口、文件夹选择、最近项目偏好、OAuth 外链 allowlist、Zod IPC broker、`utilityProcess` 生命周期 |
-| Agent Host | Pi `AgentSessionRuntime` / `ModelRuntime` / `SessionManager`、登录、流式投影、权限 hook         |
-| Preload    | 只暴露窄的 `window.pi` 请求与事件 API                                                           |
-| Renderer   | React 文档流、Radix 交互原语、Zustand 内存状态；零 Node、零 Pi import                           |
+| 进程       | 职责                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| Main       | 窗口、项目偏好、OAuth 外链、BrowserManager、安全边界、typed IPC、`utilityProcess` 生命周期 |
+| Agent Host | Pi runtime、登录、流式投影、权限 hook，以及窄化的 browser capability client                |
+| Preload    | 只暴露窄的 `window.pi` 请求与事件 API                                                      |
+| Renderer   | React 文档流、Radix 交互原语、Zustand 内存状态；零 Node、零 Pi import                      |
 
 Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot；随后发送带
 `sessionId + generation + baseRevision + revision` 的节点 patch。Renderer 只按连续 revision
@@ -107,5 +114,7 @@ Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot�
 - `src/agent-host/index.ts`：Pi runtime、登录、会话、权限与节点投影
 - `src/shared/contracts.ts`：跨进程 DTO 与 snapshot / patch 协议
 - `src/main/index.ts`：`utilityProcess` broker、最近项目与 Electron 安全边界
+- `src/main/browser-manager.ts`：原生 Browser tab/profile、动作、生命周期与页面隔离
 - `src/renderer/src/components/Conversation.tsx`：对话、状态、Context、Queue 与 composer
-- `src/renderer/src/components/Workbench.tsx`：账号设置与右栏占位
+- `src/renderer/src/components/BrowserPane.tsx`：Browser chrome 与共享控制状态
+- `src/renderer/src/components/Workbench.tsx`：账号设置、Browser 和其余右栏占位

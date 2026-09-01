@@ -17,6 +17,7 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'account:login:respond':
     case 'account:alias:add':
     case 'model:set':
+    case 'browser:e2e':
       return 'ack'
   }
 }

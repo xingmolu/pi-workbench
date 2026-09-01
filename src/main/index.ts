@@ -5,6 +5,7 @@ import {
   ipcMain,
   shell,
   utilityProcess,
+  type BrowserWindow as BrowserWindowType,
   type IpcMainInvokeEvent,
   type UtilityProcess
 } from 'electron'
@@ -15,13 +16,21 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type ElectronStore from 'electron-store'
 import type {
   AgentSnapshot,
+  BrowserCapabilityResponse,
+  BrowserCommand,
   HostCommand,
   HostEvent,
   HostRequest,
   HostResult,
   SnapshotHostCommand
 } from '../shared/contracts'
-import { hostCommandSchema } from '../shared/schemas'
+import {
+  browserCapabilityCancelSchema,
+  browserCapabilityRequestSchema,
+  browserCommandSchema,
+  hostCommandSchema
+} from '../shared/schemas'
+import { BrowserManager } from './browser-manager'
 import { HostResponseBroker } from './host-response-broker'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
 import { loadElectronStoreConstructor } from './electron-store-interop'
@@ -47,6 +56,12 @@ let hostReady: Promise<void> | null = null
 let resolveHostReady: (() => void) | null = null
 let rejectHostReady: ((error: Error) => void) | null = null
 let preferences: ElectronStore<Preferences> | null = null
+let browserManager: BrowserManager | null = null
+let browserOwner: BrowserWindowType | null = null
+let activeHostIdentity: Pick<AgentSnapshot, 'sessionId' | 'generation'> = {
+  sessionId: null,
+  generation: 0
+}
 const AUTH_EXTERNAL_HOSTS = new Set(['auth.openai.com'])
 const responseBroker = new HostResponseBroker({
   onInvalid: (message) => console.warn('忽略无效 Agent Host 消息', message)
@@ -62,6 +77,16 @@ function errorMessage(error: unknown): string {
 }
 
 function forwardEvent(event: HostEvent): void {
+  if (event.event === 'snapshot' || event.event === 'patch') {
+    activeHostIdentity = {
+      sessionId: event.data.sessionId,
+      generation: event.data.generation
+    }
+    if (event.event === 'snapshot') browserManager?.setProject(event.data.project?.path ?? null)
+    if (event.event === 'patch' && 'project' in event.data.meta) {
+      browserManager?.setProject(event.data.meta.project?.path ?? null)
+    }
+  }
   if (event.event === 'open-external') {
     try {
       const target = new URL(event.data.url)
@@ -79,6 +104,61 @@ function forwardEvent(event: HostEvent): void {
 }
 
 function handleHostMessage(message: unknown): void {
+  const capabilityRequest = browserCapabilityRequestSchema.safeParse(message)
+  if (capabilityRequest.success) {
+    const request = capabilityRequest.data
+    if (
+      request.generation !== activeHostIdentity.generation ||
+      request.sessionId !== activeHostIdentity.sessionId
+    ) {
+      agentHost?.postMessage({
+        type: 'capability-response',
+        capability: 'browser',
+        requestId: request.requestId,
+        ok: false,
+        error: '会话已切换，浏览器操作已取消'
+      } satisfies BrowserCapabilityResponse)
+      return
+    }
+    const manager = browserManager
+    if (!manager) {
+      agentHost?.postMessage({
+        type: 'capability-response',
+        capability: 'browser',
+        requestId: request.requestId,
+        ok: false,
+        error: '浏览器工作台尚未就绪'
+      } satisfies BrowserCapabilityResponse)
+      return
+    }
+    browserOwner?.webContents.send('pi:browser:event', { type: 'agent-open' })
+    void manager
+      .executeAgent(request.operation, request.requestId)
+      .then((data) => {
+        agentHost?.postMessage({
+          type: 'capability-response',
+          capability: 'browser',
+          requestId: request.requestId,
+          ok: true,
+          data
+        } satisfies BrowserCapabilityResponse)
+      })
+      .catch((error) => {
+        agentHost?.postMessage({
+          type: 'capability-response',
+          capability: 'browser',
+          requestId: request.requestId,
+          ok: false,
+          error: errorMessage(error)
+        } satisfies BrowserCapabilityResponse)
+      })
+    return
+  }
+  const capabilityCancel = browserCapabilityCancelSchema.safeParse(message)
+  if (capabilityCancel.success) {
+    browserManager?.abortAgent(capabilityCancel.data.requestId)
+    return
+  }
   const event = responseBroker.accept(message)
   if (event) forwardEvent(event)
 }
@@ -101,6 +181,11 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   if (result.kind !== 'snapshot') {
     throw new Error(`Agent Host 未返回状态快照：${command.type}`)
   }
+  activeHostIdentity = {
+    sessionId: result.snapshot.sessionId,
+    generation: result.snapshot.generation
+  }
+  browserManager?.setProject(result.snapshot.project?.path ?? null)
   return result.snapshot
 }
 
@@ -177,11 +262,16 @@ function startAgentHost(): void {
     rejectHostReady = null
     agentHost?.postMessage({ type: 'bootstrap', requestId: randomUUID() } satisfies HostRequest)
   })
+  agentHost.on('error', (error) => {
+    console.error('Agent Host 进程错误', errorMessage(error))
+  })
   agentHost.on('message', handleHostMessage)
   agentHost.on('exit', (code) => {
     hostSpawned = false
     agentHost = null
+    browserManager?.abortAgent()
     const failure = new Error(`Agent Host 已退出（code ${code}）`)
+    if (code !== 0) console.error(failure.message)
     rejectHostReady?.(failure)
     resolveHostReady = null
     rejectHostReady = null
@@ -221,6 +311,9 @@ function registerIpc(): void {
       const snapshot = await openUserProject(parsed.data.cwd)
       return { kind: 'snapshot', snapshot } satisfies HostResult
     }
+    if (parsed.data.type === 'browser:e2e' && !E2E_MODE) {
+      throw new Error('该 Agent Browser 测试命令只在 E2E 模式可用')
+    }
     return callHost(parsed.data)
   })
   ipcMain.handle('pi:select-project', async (event) => {
@@ -239,6 +332,32 @@ function registerIpc(): void {
     const cwd = result.filePaths[0]
     if (result.canceled || !cwd) return null
     return openUserProject(cwd)
+  })
+  ipcMain.handle('pi:browser', async (event, command: BrowserCommand) => {
+    assertTrustedRenderer(event)
+    const parsed = browserCommandSchema.safeParse(command)
+    if (!parsed.success) throw new Error('无效的浏览器 IPC 请求')
+    const manager = browserManager
+    if (!manager) throw new Error('浏览器工作台尚未就绪')
+    switch (parsed.data.type) {
+      case 'state:get':
+        return { state: manager.getState() }
+      case 'view:set':
+        await manager.setView(parsed.data.visible, parsed.data.bounds)
+        return { state: manager.getState() }
+      case 'operate': {
+        const result = await manager.executeUser(parsed.data.operation)
+        return { state: manager.getState(), result }
+      }
+      case 'agent:stop':
+        manager.abortAgent()
+        return { state: manager.getState() }
+      case 'e2e:agent': {
+        if (!E2E_MODE) throw new Error('该浏览器测试命令只在 E2E 模式可用')
+        const result = await manager.executeAgent(parsed.data.operation, randomUUID())
+        return { state: manager.getState(), result }
+      }
+    }
   })
 }
 
@@ -261,6 +380,13 @@ function createWindow(): void {
     }
   })
 
+  browserOwner = mainWindow
+  browserManager = new BrowserManager(mainWindow, (state) => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pi:browser:event', { type: 'state', data: state })
+    }
+  })
+
   mainWindow.on('ready-to-show', () => mainWindow.show())
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
@@ -277,6 +403,12 @@ function createWindow(): void {
     const current = mainWindow.webContents.getURL()
     if (current && url === current) return
     event.preventDefault()
+  })
+  mainWindow.on('closed', () => {
+    if (browserOwner !== mainWindow) return
+    browserManager?.dispose()
+    browserManager = null
+    browserOwner = null
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -312,6 +444,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  browserManager?.dispose()
+  browserManager = null
   agentHost?.kill()
   agentHost = null
 })

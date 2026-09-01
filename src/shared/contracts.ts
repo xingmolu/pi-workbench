@@ -145,6 +145,127 @@ export type LoginStatus =
   | { phase: 'success'; providerId: string }
   | { phase: 'error'; providerId: string; message: string }
 
+export type BrowserBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BrowserPageSummary = {
+  id: string
+  title: string
+  url: string
+  active: boolean
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type BrowserState = {
+  available: boolean
+  visible: boolean
+  pages: BrowserPageSummary[]
+  activePageId: string | null
+  controller: 'idle' | 'user' | 'agent'
+  lastAction?: string
+  error?: string
+}
+
+export type BrowserOperation =
+  | { action: 'tabs' }
+  | { action: 'new_tab'; url?: string }
+  | { action: 'select_tab'; pageId: string }
+  | { action: 'close_tab'; pageId: string }
+  | { action: 'navigate'; url: string; pageId?: string }
+  | { action: 'back' | 'forward' | 'reload' | 'snapshot' | 'screenshot'; pageId?: string }
+  | { action: 'click'; ref: string; pageId?: string }
+  | { action: 'fill' | 'select'; ref: string; value: string; pageId?: string }
+  | { action: 'keypress'; key: string; pageId?: string }
+  | {
+      action: 'scroll'
+      direction: 'up' | 'down' | 'left' | 'right'
+      amount?: number
+      pageId?: string
+    }
+  | { action: 'wait'; text?: string; url?: string; timeoutMs?: number; pageId?: string }
+
+export type BrowserSnapshotResult = {
+  kind: 'snapshot'
+  pageId: string
+  pageRevision: number
+  url: string
+  title: string
+  text: string
+}
+
+export type BrowserScreenshotResult = {
+  kind: 'screenshot'
+  pageId: string
+  url: string
+  mimeType: 'image/png'
+  data: string
+}
+
+export type BrowserActionResult = {
+  kind: 'action'
+  pageId: string
+  pageRevision: number
+  url: string
+  message: string
+}
+
+export type BrowserOperationResult =
+  | { kind: 'state'; state: BrowserState }
+  | BrowserSnapshotResult
+  | BrowserScreenshotResult
+  | BrowserActionResult
+
+export type BrowserCommand =
+  | { type: 'state:get' }
+  | { type: 'view:set'; visible: boolean; bounds?: BrowserBounds }
+  | { type: 'operate'; operation: BrowserOperation }
+  | { type: 'agent:stop' }
+  | { type: 'e2e:agent'; operation: BrowserOperation }
+
+export type BrowserCommandResult = {
+  state: BrowserState
+  result?: BrowserOperationResult
+}
+
+export type BrowserEvent = { type: 'state'; data: BrowserState } | { type: 'agent-open' }
+
+export type BrowserCapabilityRequest = {
+  type: 'capability-request'
+  capability: 'browser'
+  requestId: string
+  sessionId: string | null
+  generation: number
+  operation: BrowserOperation
+}
+
+export type BrowserCapabilityCancel = {
+  type: 'capability-cancel'
+  capability: 'browser'
+  requestId: string
+}
+
+export type BrowserCapabilityResponse =
+  | {
+      type: 'capability-response'
+      capability: 'browser'
+      requestId: string
+      ok: true
+      data: BrowserOperationResult
+    }
+  | {
+      type: 'capability-response'
+      capability: 'browser'
+      requestId: string
+      ok: false
+      error: string
+    }
+
 export type AgentSnapshot = {
   sessionId: string | null
   generation: number
@@ -208,6 +329,7 @@ export type HostCommand =
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'model:set'; providerId: string; modelId: string }
+  | { type: 'browser:e2e'; operation: BrowserOperation }
 
 export type HostRequest = HostCommand & { requestId: string }
 
@@ -255,4 +377,6 @@ export type PiDesktopAPI = {
   selectProject: () => Promise<AgentSnapshot | null>
   send: <Command extends HostCommand>(command: Command) => Promise<HostResultFor<Command>>
   onEvent: (listener: (event: HostEvent) => void) => () => void
+  browser: (command: BrowserCommand) => Promise<BrowserCommandResult>
+  onBrowserEvent: (listener: (event: BrowserEvent) => void) => () => void
 }

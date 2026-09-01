@@ -3,6 +3,11 @@ import { AGENT_ENGINE } from './contracts'
 import type {
   AgentSnapshot,
   AgentStatePatch,
+  BrowserCapabilityCancel,
+  BrowserCapabilityRequest,
+  BrowserCapabilityResponse,
+  BrowserCommand,
+  BrowserOperation,
   HostCommand,
   HostEvent,
   HostMessage,
@@ -174,6 +179,174 @@ const loginPromptSchema = z
   })
   .strict()
 
+const browserBoundsSchema = z
+  .object({
+    x: nonNegativeInteger,
+    y: nonNegativeInteger,
+    width: nonNegativeInteger,
+    height: nonNegativeInteger
+  })
+  .strict()
+
+const browserPageTargetShape = { pageId: z.string().min(1).optional() }
+
+export const browserOperationSchema: z.ZodType<BrowserOperation> = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('tabs') }).strict(),
+  z.object({ action: z.literal('new_tab'), url: z.string().min(1).optional() }).strict(),
+  z.object({ action: z.literal('select_tab'), pageId: z.string().min(1) }).strict(),
+  z.object({ action: z.literal('close_tab'), pageId: z.string().min(1) }).strict(),
+  z
+    .object({ action: z.literal('navigate'), url: z.string().min(1), ...browserPageTargetShape })
+    .strict(),
+  ...(['back', 'forward', 'reload', 'snapshot', 'screenshot'] as const).map((action) =>
+    z.object({ action: z.literal(action), ...browserPageTargetShape }).strict()
+  ),
+  z
+    .object({ action: z.literal('click'), ref: z.string().min(1), ...browserPageTargetShape })
+    .strict(),
+  ...(['fill', 'select'] as const).map((action) =>
+    z
+      .object({
+        action: z.literal(action),
+        ref: z.string().min(1),
+        value: z.string(),
+        ...browserPageTargetShape
+      })
+      .strict()
+  ),
+  z
+    .object({ action: z.literal('keypress'), key: z.string().min(1), ...browserPageTargetShape })
+    .strict(),
+  z
+    .object({
+      action: z.literal('scroll'),
+      direction: z.enum(['up', 'down', 'left', 'right']),
+      amount: z.number().int().positive().max(4000).optional(),
+      ...browserPageTargetShape
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('wait'),
+      text: z.string().min(1).optional(),
+      url: z.string().min(1).optional(),
+      timeoutMs: z.number().int().positive().max(30_000).optional(),
+      ...browserPageTargetShape
+    })
+    .strict()
+])
+
+export const browserCommandSchema: z.ZodType<BrowserCommand> = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('state:get') }).strict(),
+  z
+    .object({
+      type: z.literal('view:set'),
+      visible: z.boolean(),
+      bounds: browserBoundsSchema.optional()
+    })
+    .strict(),
+  z.object({ type: z.literal('operate'), operation: browserOperationSchema }).strict(),
+  z.object({ type: z.literal('agent:stop') }).strict(),
+  z.object({ type: z.literal('e2e:agent'), operation: browserOperationSchema }).strict()
+])
+
+export const browserCapabilityRequestSchema: z.ZodType<BrowserCapabilityRequest> = z
+  .object({
+    type: z.literal('capability-request'),
+    capability: z.literal('browser'),
+    requestId: z.string().min(1),
+    sessionId: z.string().nullable(),
+    generation: nonNegativeInteger,
+    operation: browserOperationSchema
+  })
+  .strict()
+
+export const browserCapabilityCancelSchema: z.ZodType<BrowserCapabilityCancel> = z
+  .object({
+    type: z.literal('capability-cancel'),
+    capability: z.literal('browser'),
+    requestId: z.string().min(1)
+  })
+  .strict()
+
+const browserStateSchema = z
+  .object({
+    available: z.boolean(),
+    visible: z.boolean(),
+    pages: z.array(
+      z
+        .object({
+          id: z.string(),
+          title: z.string(),
+          url: z.string(),
+          active: z.boolean(),
+          loading: z.boolean(),
+          canGoBack: z.boolean(),
+          canGoForward: z.boolean()
+        })
+        .strict()
+    ),
+    activePageId: z.string().nullable(),
+    controller: z.enum(['idle', 'user', 'agent']),
+    lastAction: z.string().optional(),
+    error: z.string().optional()
+  })
+  .strict()
+
+const browserOperationResultSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('state'), state: browserStateSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('snapshot'),
+      pageId: z.string(),
+      pageRevision: nonNegativeInteger,
+      url: z.string(),
+      title: z.string(),
+      text: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('screenshot'),
+      pageId: z.string(),
+      url: z.string(),
+      mimeType: z.literal('image/png'),
+      data: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('action'),
+      pageId: z.string(),
+      pageRevision: nonNegativeInteger,
+      url: z.string(),
+      message: z.string()
+    })
+    .strict()
+])
+
+export const browserCapabilityResponseSchema: z.ZodType<BrowserCapabilityResponse> =
+  z.discriminatedUnion('ok', [
+    z
+      .object({
+        type: z.literal('capability-response'),
+        capability: z.literal('browser'),
+        requestId: z.string().min(1),
+        ok: z.literal(true),
+        data: browserOperationResultSchema
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal('capability-response'),
+        capability: z.literal('browser'),
+        requestId: z.string().min(1),
+        ok: z.literal(false),
+        error: z.string()
+      })
+      .strict()
+  ])
+
 const agentSnapshotMetaShape = {
   ready: z.boolean(),
   engine: z.literal(AGENT_ENGINE),
@@ -280,6 +453,9 @@ const modelSetCommandSchema = z
     modelId: z.string().min(1)
   })
   .strict()
+const browserE2ECommandSchema = z
+  .object({ type: z.literal('browser:e2e'), operation: browserOperationSchema })
+  .strict()
 
 const commandSchemas = [
   bootstrapCommandSchema,
@@ -295,7 +471,8 @@ const commandSchemas = [
   accountLoginCommandSchema,
   accountLoginRespondCommandSchema,
   accountAliasAddCommandSchema,
-  modelSetCommandSchema
+  modelSetCommandSchema,
+  browserE2ECommandSchema
 ] as const
 
 export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
@@ -316,7 +493,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   accountLoginCommandSchema.extend(requestIdShape),
   accountLoginRespondCommandSchema.extend(requestIdShape),
   accountAliasAddCommandSchema.extend(requestIdShape),
-  modelSetCommandSchema.extend(requestIdShape)
+  modelSetCommandSchema.extend(requestIdShape),
+  browserE2ECommandSchema.extend(requestIdShape)
 ])
 
 export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kind', [

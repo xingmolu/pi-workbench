@@ -58,7 +58,7 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 
 - **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
-- **Workbench**：学 Codex。本 MVP 默认只显示 **52px mode rail**；打开设置时展开设置面板，关闭设置后回到 rail。Files / Review / Terminal / Browser（+ Trace）仍是占位；未来第一个真实 mode 完成后，也只由用户显式触发展开。禁止 hover 打开。按工作区记宽度留待真实 mode 实现时再做。
+- **Workbench**：学 Codex。默认只显示 **52px mode rail**；设置与 Browser 由用户显式触发展开，禁止 hover 打开。Browser 已是首个真实 mode；Files / Review / Terminal（+ Trace）仍是占位。按工作区记宽度和 tab 恢复后做。
 
 这是基于 2026-09-01 竞品调研的阶段性覆盖：当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
 
@@ -70,9 +70,11 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 
 Composer：`+` · 权限芯片（Open / Ask）· 账号 · 模型 · ContextMeter · 蓝色圆 Send（Send↔Stop↔Queue）。Ask / Open 是本次本地运行期审批策略，重启回 Ask，不等同于 OS sandbox 或持久 allow/deny 规则。运行中发送进入 Pi follow-up 队列；MVP 展示完整队列并支持清空全部，单项编辑、删除和 steer 后做。Context popover 只展示 Pi `getSessionStats()` 的 context tokens/window 与累计 input/output/cache，以及 Host 本次运行实测；缺失值显示未知，不伪造分类或美元费用。
 
-## 4. 右侧 Workbench（目标形态，本 MVP 未实现）
+## 4. 右侧 Workbench
 
-Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走对话卡片。Review：Git，Last turn | Working tree。Browser：WebContentsView，独立 profile。跟随产物克制：不因每次 write 切 Review。
+Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走对话卡片。Review：Git，Last turn | Working tree；这三项尚未实现。Browser 已实现为 main process 持有的 `WebContentsView`：按 project 隔离持久 profile、多标签页、窄化 typed action、短寿命 snapshot ref，以及用户/agent 同页共享控制。Renderer 不持有 Node、Pi、CDP 或任意 eval；Agent Host 只能经 main capability bridge 请求固定操作。跟随产物克制：不因每次 write 切 Review。
+
+Browser 网页内容明确标记为不可信。remote content 保持 sandbox、context isolation、关闭 Node integration；权限默认拒绝、下载阻止、popup 转受管 tab、远端仅 HTTPS（localhost 允许 HTTP）。用户操作优先并会取消 agent 在途动作，控制条提供 Stop。Open / Ask 继续决定普通 agent 交互是否进入批准卡；上传、下载、cookie/凭证导出和任意脚本执行不在工具面内。
 
 ## 5. 账号
 
@@ -80,7 +82,7 @@ Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走�
 
 **Codex（ChatGPT Plus/Pro）— 直登必须有，导入只是顺手**
 
-- 主路：设置「登录 Codex」→ Pi `/login` → `openai-codex`（Codex for OSS）。当前只使用系统浏览器；loopback 失败走 device code。右栏 Browser 登录路线随 Browser mode 延期，本轮未实现。
+- 主路：设置「登录 Codex」→ Pi `/login` → `openai-codex`（Codex for OSS）。OAuth 当前仍使用系统浏览器；loopback 失败走 device code。不会让 agent 借右栏 Browser 读取 provider 凭证。
 - 多号：别名槽 `openai-codex-<slug>`，不覆盖主机 `~/.codex`。
 - 延期：检测并导入 `~/.codex/auth.json` 只是便利能力，本轮未实现；没装 CLI 的人已经可以通过 Pi `/login` 直登。
 
@@ -96,7 +98,7 @@ Composer 两级：账号 → 模型。浏览账号不创建会话；已有 trans
 
 ## 7. 进程与数据
 
-Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最近项目偏好和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime，生产 `agentDir = ~/.pi/agent`。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 只保存最近项目路径；这是本地偏好数据，不含 token/transcript，但路径本身可能暴露用户名、客户名或项目名，应按本地隐私数据对待。
+Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最近项目偏好、BrowserManager 和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime 与 browser capability client，生产 `agentDir = ~/.pi/agent`。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 只保存最近项目路径；Browser profile 由 Electron partition 按 project 隔离。这些本地数据不含 Pi token/transcript，但路径本身和网站登录态仍应按本地隐私数据对待。
 
 流式同步先发送带 `sessionId + generation + revision` 的完整 snapshot，之后发送带 `baseRevision + revision` 的节点 upsert / removal / order patch 和轻量元数据。token 更新按短窗口合并，completed / settled 强制刷新；Renderer 对旧 patch 幂等忽略，对会话代际不匹配、乱序或 revision 缺口重新拉 snapshot。完整 snapshot 用于 bootstrap、项目/会话切换与恢复同步，不在每个 token 上重复传整份 transcript。
 
@@ -106,11 +108,11 @@ Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最�
 
 ## 9. 建议落地顺序
 
-1. 壳：三栏 + Hero + 工作区会话树（MVP 已覆盖；Workbench 真实 mode 未实现）
+1. 壳：三栏 + Hero + 工作区会话树（MVP 已覆盖）
 2. 对话节点流 + composer + metrics（MVP 已覆盖 snapshot + revision patch、状态、Context 与 Queue；`@` / 图片附件和可拖内容轴延期）
    - **2b.** 账号：Codex 直登 + composer 两级切换（MVP 已覆盖显式选择与 session pinning；`~/.codex/auth.json` 导入和自定义兼容端点 UI 延期）
    - **2c.** 手机：gateway + 配对 + LAN QR + Quick Tunnel
-3. Files + Review
-4. 用户 PTY
-5. Browser
+3. Browser + agent 共享控制（已覆盖首个真实 Workbench mode、隔离 profile、typed capability 与 E2E）
+4. Files + Review
+5. 用户 PTY
 6. Trace 等
