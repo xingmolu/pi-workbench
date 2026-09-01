@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AccountSummary, ModelSummary } from '../shared/contracts'
 import {
   applyExactModelSelection,
+  composeBlockReasonForSnapshot,
   completeLoginSuccess,
   createOneShotRecoveryModelSelector,
   prepareNewSessionModelSelection,
@@ -214,6 +215,14 @@ describe('model selection transition', () => {
 })
 
 describe('canonical session model projection', () => {
+  it('keeps an available selected model unblocked in the host snapshot', () => {
+    expect(
+      composeBlockReasonForSnapshot(true, {
+        composeBlockReason: null
+      })
+    ).toBeNull()
+  })
+
   it('preserves an explicit empty-session model through runtime recovery', () => {
     const recovery = prepareSessionRecoveryModelSelection(
       { providerId: 'openai-codex-work', modelId: 'gpt-5.6-sol' },

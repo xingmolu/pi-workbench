@@ -51,6 +51,14 @@ export type SessionModelProjection = {
   composeBlockReason: ComposeBlockReason
 }
 
+export function composeBlockReasonForSnapshot(
+  projectSelected: boolean,
+  projection: Pick<SessionModelProjection, 'composeBlockReason'> | null
+): ComposeBlockReason {
+  if (!projectSelected) return 'project-required'
+  return projection ? projection.composeBlockReason : 'model-required'
+}
+
 function modelIsAvailable(
   accounts: readonly AccountSummary[],
   models: readonly ModelSummary[],

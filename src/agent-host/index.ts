@@ -84,6 +84,7 @@ import { buildStreamingPatch } from './streaming-patch'
 import { requiresToolApproval, ToolExecutionState } from './tool-execution-state'
 import {
   applyExactModelSelection,
+  composeBlockReasonForSnapshot,
   completeLoginSuccess,
   createOneShotRecoveryModelSelector,
   hasPersistentTranscript,
@@ -1574,9 +1575,7 @@ class PiDesktopHost {
       activeProvider: modelProjection?.identity?.providerId ?? null,
       activeModel: modelProjection?.identity?.modelId ?? null,
       modelAvailability: modelProjection?.modelAvailability ?? 'unselected',
-      composeBlockReason: this.projectPath
-        ? (modelProjection?.composeBlockReason ?? 'model-required')
-        : 'project-required',
+      composeBlockReason: composeBlockReasonForSnapshot(Boolean(this.projectPath), modelProjection),
       busy: session?.isStreaming ?? false,
       status,
       approvals,
