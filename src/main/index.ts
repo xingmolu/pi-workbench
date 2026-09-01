@@ -10,31 +10,52 @@ import {
 } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import type ElectronStore from 'electron-store'
 import type {
   AgentSnapshot,
   HostCommand,
   HostEvent,
-  HostMessage,
   HostRequest,
-  HostResponse
+  HostResult,
+  SnapshotHostCommand
 } from '../shared/contracts'
-import { hostCommandSchema, hostMessageSchema } from '../shared/schemas'
+import { hostCommandSchema } from '../shared/schemas'
+import { HostResponseBroker } from './host-response-broker'
+import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
+import { loadElectronStoreConstructor } from './electron-store-interop'
+import { ProjectOpenCoordinator } from './project-open-coordinator'
+import { pathToPersistAfterOpen, resolveExistingProjectPath } from './recent-project'
 import icon from '../../resources/icon.png?asset'
 
-type PendingRequest = {
-  resolve: (snapshot: AgentSnapshot) => void
-  reject: (error: Error) => void
-  timer: NodeJS.Timeout
+const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
+assertE2EModeAllowed(E2E_MODE, app.isPackaged)
+
+function requiredE2ETempPath(
+  name: 'PI_DESKTOP_E2E_USER_DATA' | 'PI_DESKTOP_E2E_AGENT_DIR'
+): string {
+  return canonicalExistingTempDirectory(process.env[name], name)
 }
+
+const e2eAgentDir = E2E_MODE ? requiredE2ETempPath('PI_DESKTOP_E2E_AGENT_DIR') : null
+if (E2E_MODE) app.setPath('userData', requiredE2ETempPath('PI_DESKTOP_E2E_USER_DATA'))
 
 let agentHost: UtilityProcess | null = null
 let hostSpawned = false
 let hostReady: Promise<void> | null = null
 let resolveHostReady: (() => void) | null = null
 let rejectHostReady: ((error: Error) => void) | null = null
-const pendingRequests = new Map<string, PendingRequest>()
+let preferences: ElectronStore<Preferences> | null = null
 const AUTH_EXTERNAL_HOSTS = new Set(['auth.openai.com'])
+const responseBroker = new HostResponseBroker({
+  onInvalid: (message) => console.warn('忽略无效 Agent Host 消息', message)
+})
+const projectOpenCoordinator = new ProjectOpenCoordinator<AgentSnapshot>()
+
+type Preferences = {
+  lastProjectPath?: string
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -58,48 +79,68 @@ function forwardEvent(event: HostEvent): void {
 }
 
 function handleHostMessage(message: unknown): void {
-  const parsed = hostMessageSchema.safeParse(message)
-  if (!parsed.success) {
-    console.warn('忽略无效 Agent Host 消息', parsed.error.message)
-    return
-  }
-  const value = parsed.data as HostMessage
-  if (value?.type === 'event') {
-    forwardEvent(value)
-    return
-  }
-
-  if (value?.type !== 'response') return
-  const response = value as HostResponse
-  const pending = pendingRequests.get(response.requestId)
-  if (!pending) return
-
-  clearTimeout(pending.timer)
-  pendingRequests.delete(response.requestId)
-  if (response.ok && response.data) {
-    pending.resolve(response.data as AgentSnapshot)
-  } else {
-    pending.reject(new Error(response.error ?? 'Agent Host 请求失败'))
-  }
+  const event = responseBroker.accept(message)
+  if (event) forwardEvent(event)
 }
 
-async function callHost(command: HostCommand): Promise<AgentSnapshot> {
+async function callHost(command: HostCommand): Promise<HostResult> {
   if (!hostSpawned) {
     if (!hostReady) throw new Error('Agent Host 尚未启动')
     await hostReady
   }
   if (!agentHost) throw new Error('Agent Host 尚未就绪')
 
-  const requestId = randomUUID()
-  const request: HostRequest = { ...command, requestId }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingRequests.delete(requestId)
-      reject(new Error(`Agent Host 请求超时：${command.type}`))
-    }, 30_000)
-    pendingRequests.set(requestId, { resolve, reject, timer })
-    agentHost?.postMessage(request)
+  return responseBroker.request(command, (request) => {
+    if (!agentHost) throw new Error('Agent Host 尚未就绪')
+    agentHost.postMessage(request)
   })
+}
+
+async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnapshot> {
+  const result = await callHost(command)
+  if (result.kind !== 'snapshot') {
+    throw new Error(`Agent Host 未返回状态快照：${command.type}`)
+  }
+  return result.snapshot
+}
+
+function preferenceStore(): ElectronStore<Preferences> {
+  if (!preferences) throw new Error('偏好存储尚未就绪')
+  return preferences
+}
+
+async function openCanonicalProject(canonicalPath: string): Promise<AgentSnapshot> {
+  const snapshot = await callHostSnapshot({ type: 'project:open', cwd: canonicalPath })
+  const persistedPath = pathToPersistAfterOpen(canonicalPath, snapshot)
+  if (!persistedPath) throw new Error('Agent Host 未确认所选工作区')
+  preferenceStore().set('lastProjectPath', persistedPath)
+  return snapshot
+}
+
+async function openUserProject(candidatePath: unknown): Promise<AgentSnapshot> {
+  const canonicalPath = await resolveExistingProjectPath(candidatePath)
+  if (!canonicalPath) throw new Error('所选工作区不存在或不是文件夹')
+  return projectOpenCoordinator.runUserOpen(() => openCanonicalProject(canonicalPath))
+}
+
+async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
+  const store = preferenceStore()
+  const storedPath = store.get('lastProjectPath')
+  if (storedPath === undefined) return null
+
+  const canonicalPath = await resolveExistingProjectPath(storedPath)
+  if (!canonicalPath) {
+    store.delete('lastProjectPath')
+    return null
+  }
+
+  try {
+    return await openCanonicalProject(canonicalPath)
+  } catch (error) {
+    store.delete('lastProjectPath')
+    console.warn('无法恢复最近工作区', errorMessage(error))
+    return null
+  }
 }
 
 function startAgentHost(): void {
@@ -111,7 +152,16 @@ function startAgentHost(): void {
   const script = join(__dirname, 'agent-host.js')
   agentHost = utilityProcess.fork(script, [], {
     serviceName: 'Pi Agent Host',
-    stdio: 'pipe'
+    stdio: 'pipe',
+    ...(e2eAgentDir
+      ? {
+          env: {
+            ...process.env,
+            PI_DESKTOP_E2E: '1',
+            PI_DESKTOP_E2E_AGENT_DIR: e2eAgentDir
+          }
+        }
+      : {})
   })
 
   agentHost.stdout?.on('data', (chunk) => {
@@ -136,11 +186,7 @@ function startAgentHost(): void {
     resolveHostReady = null
     rejectHostReady = null
     hostReady = null
-    for (const pending of pendingRequests.values()) {
-      clearTimeout(pending.timer)
-      pending.reject(failure)
-    }
-    pendingRequests.clear()
+    responseBroker.rejectAll(failure)
   })
 }
 
@@ -150,25 +196,31 @@ function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
     throw new Error('拒绝非主窗口 IPC 请求')
   }
   const source = new URL(event.senderFrame.url)
-  if (is.dev) {
-    const rendererUrl = process.env['ELECTRON_RENDERER_URL']
-    if (!rendererUrl || source.origin !== new URL(rendererUrl).origin) {
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (is.dev && rendererUrl) {
+    if (source.origin !== new URL(rendererUrl).origin) {
       throw new Error('拒绝非本地开发页面 IPC 请求')
     }
-  } else if (source.protocol !== 'file:') {
+  } else if (source.href !== pathToFileURL(join(__dirname, '../renderer/index.html')).href) {
     throw new Error('拒绝非应用页面 IPC 请求')
   }
 }
 
 function registerIpc(): void {
-  ipcMain.handle('pi:state', (event) => {
+  ipcMain.handle('pi:state', async (event) => {
     assertTrustedRenderer(event)
-    return callHost({ type: 'state:get' })
+    return projectOpenCoordinator.restoreThenRead(attemptRecentProjectRestore, () =>
+      callHostSnapshot({ type: 'state:get' })
+    )
   })
-  ipcMain.handle('pi:command', (event, command: HostCommand) => {
+  ipcMain.handle('pi:command', async (event, command: HostCommand) => {
     assertTrustedRenderer(event)
     const parsed = hostCommandSchema.safeParse(command)
     if (!parsed.success) throw new Error('无效的 Pi Desktop IPC 请求')
+    if (parsed.data.type === 'project:open') {
+      const snapshot = await openUserProject(parsed.data.cwd)
+      return { kind: 'snapshot', snapshot } satisfies HostResult
+    }
     return callHost(parsed.data)
   })
   ipcMain.handle('pi:select-project', async (event) => {
@@ -186,7 +238,7 @@ function registerIpc(): void {
 
     const cwd = result.filePaths[0]
     if (result.canceled || !cwd) return null
-    return callHost({ type: 'project:open', cwd })
+    return openUserProject(cwd)
   })
 }
 
@@ -234,9 +286,17 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('works.pi.desktop')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+
+  const Store = await loadElectronStoreConstructor()
+  preferences = new Store<Preferences>({
+    name: 'pi-desktop-preferences',
+    schema: {
+      lastProjectPath: { type: 'string' }
+    }
+  })
 
   registerIpc()
   startAgentHost()

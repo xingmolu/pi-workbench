@@ -12,11 +12,13 @@ import type {
 import type {
   AuthInteraction,
   AuthPrompt,
+  AssistantMessage,
   CredentialInfo,
   Message,
   Model,
   Provider,
-  ToolResultMessage
+  ToolResultMessage,
+  UserMessage
 } from '@earendil-works/pi-ai'
 import { randomUUID } from 'node:crypto'
 import {
@@ -28,47 +30,84 @@ import {
   statSync,
   writeFileSync
 } from 'node:fs'
-import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import {
   AGENT_ENGINE,
   type AccountSummary,
   type AgentSnapshot,
+  type AgentStatePatch,
   type ApprovalRequest,
   type ConversationNode,
   type HostMessage,
   type HostRequest,
+  type HostResult,
   type LoginMethod,
   type LoginPrompt,
   type LoginStatus,
   type ModelSummary,
   type PermissionMode,
+  type SessionStatus,
   type SessionSummary,
   type ToolIntent,
   type ToolStatus,
   type UsageMetrics
 } from '../shared/contracts'
+import { hostResultMatchesCommand } from '../shared/command-result'
 import { hostRequestSchema } from '../shared/schemas'
+import { projectedSessionStatus, projectSessionTitle } from '../shared/session-presentation'
+import { createStatePatch } from '../shared/state-patch'
+import { resolveAgentDirectory } from '../main/e2e-temp-directory'
+import { ApprovalRegistry } from './approval-registry'
+import { ConversationProjection } from './conversation-projection'
+import { LoginPromptRegistry } from './login-prompt-registry'
+import { PatchBatcher } from './patch-batcher'
+import { clearFollowUpQueue } from './queue-state'
+import { SerialExecutor } from './serial-executor'
+import {
+  runPreparedSessionReplacement,
+  runSessionReplacement,
+  usesSessionTransition
+} from './session-transition'
+import { buildStreamingPatch } from './streaming-patch'
+import { requiresToolApproval, ToolExecutionState } from './tool-execution-state'
+import {
+  applyExactModelSelection,
+  completeLoginSuccess,
+  createOneShotRecoveryModelSelector,
+  hasPersistentTranscript,
+  prepareNewSessionModelSelection,
+  prepareSessionRecoveryModelSelection,
+  projectSessionModelPin,
+  type ExactModelSelection,
+  type PreparedModelSelection,
+  type SessionModelMutationTarget,
+  type SessionModelProjection
+} from './session-model'
 
-const AGENT_DIR = join(homedir(), '.pi', 'agent')
+const AGENT_DIR = resolveAgentDirectory({
+  e2eMode: process.env.PI_DESKTOP_E2E === '1',
+  override: process.env.PI_DESKTOP_E2E_AGENT_DIR
+})
 const MULTI_LOGIN_CONFIG = join(AGENT_DIR, 'pi-multi-login.json')
+process.env.PI_CODING_AGENT_DIR = AGENT_DIR
+process.env.PI_MULTI_LOGIN_CONFIG = MULTI_LOGIN_CONFIG
+delete process.env.PI_CODING_AGENT_SESSION_DIR
+
+function projectSessionDirectory(cwd: string): string {
+  const safePath = `--${resolve(cwd)
+    .replace(/^[/\\]/, '')
+    .replace(/[/\\:]/g, '-')}--`
+  return join(AGENT_DIR, 'sessions', safePath)
+}
 const ALIAS_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_TOOL_OUTPUT = 12_000
+const MESSAGE_UPDATE_BATCH_MS = 32
 
 type PiSdk = typeof import('@earendil-works/pi-coding-agent')
 
-type PendingApproval = {
-  resolve: (allow: boolean) => void
-  timer: NodeJS.Timeout
-  toolCallId: string
-}
-
-type PendingLoginPrompt = {
-  resolve: (value: string) => void
-  signal?: AbortSignal
-}
+type ApprovalMetadata = Omit<ApprovalRequest, 'id' | 'generation'>
 
 type RunTiming = {
   llmStartedAt?: number
@@ -88,6 +127,20 @@ function send(message: HostMessage): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPiMessage(value: unknown): value is Message {
+  if (!isRecord(value) || typeof value.timestamp !== 'number') return false
+  if (value.role === 'user')
+    return typeof value.content === 'string' || Array.isArray(value.content)
+  if (value.role === 'assistant') return Array.isArray(value.content)
+  return (
+    value.role === 'toolResult' &&
+    typeof value.toolCallId === 'string' &&
+    typeof value.toolName === 'string' &&
+    typeof value.isError === 'boolean' &&
+    Array.isArray(value.content)
+  )
 }
 
 function isConcreteModel(model: { provider: string; id: string } | undefined): boolean {
@@ -184,24 +237,49 @@ class PiDesktopHost {
   private runtime: AgentSessionRuntime | null = null
   private projectPath: string | null = null
   private permissionMode: PermissionMode = 'ask'
-  private preferredProvider: string | null = null
-  private preferredModel: string | null = null
+  private activeExplicitModel: ExactModelSelection | null = null
+  private pendingNewSessionModel: ExactModelSelection | null = null
+  private pendingNewSessionRuntimeModel: Model<string> | null = null
   private accounts: AccountSummary[] = []
   private models: ModelSummary[] = []
   private sessions: SessionSummary[] = []
   private login: LoginStatus = { phase: 'idle' }
+  private loginPrompt: LoginPrompt | null = null
   private lastError: string | undefined
   private initialized = false
   private initializing: Promise<void> | null = null
   private unsubscribeSession: (() => void) | undefined
   private sessionGeneration = 0
-  private toolStatuses = new Map<string, ToolStatus>()
-  private pendingApprovals = new Map<string, PendingApproval>()
-  private pendingLoginPrompts = new Map<string, PendingLoginPrompt>()
+  private sessionInvalidationSequence = 0
+  private revision = 0
+  private publishedSnapshot: AgentSnapshot | null = null
+  private patchesSuspended = false
+  private toolExecution = new ToolExecutionState()
+  private conversationProjection = new ConversationProjection()
+  private approvalRegistry = new ApprovalRegistry((change) => {
+    const state =
+      change.status === 'pending'
+        ? this.toolExecution.approvalPending(change.request.toolCallId)
+        : change.status === 'allowed'
+          ? this.toolExecution.approvalAllowed(change.request.toolCallId, Date.now())
+          : this.toolExecution.approvalBlocked(change.request.toolCallId)
+    this.updateToolNode(change.request.toolCallId, state)
+    this.emitPatch()
+  })
+  private loginPrompts = new LoginPromptRegistry((prompt) => {
+    this.loginPrompt = prompt
+    this.emitPatch()
+  })
   private loginAbort: AbortController | null = null
-  private approvalMetadata: ApprovalRequest | null = null
+  private approvalMetadata: ApprovalMetadata | null = null
   private timing: RunTiming | null = null
   private lastTiming: RunTiming | null = null
+  private followUp: string[] = []
+  private sessionTransition = new SerialExecutor()
+  private modelMutationInProgress = false
+  private pendingPromptsBySession = new Map<string, number>()
+  private patchBatcher = new PatchBatcher(() => this.emitStreamingPatch(), MESSAGE_UPDATE_BATCH_MS)
+  private pendingStreamingMessage: AssistantMessage | null = null
 
   async initialize(): Promise<void> {
     if (this.initialized) return
@@ -216,7 +294,7 @@ class PiDesktopHost {
       })
       await this.refreshAuthProjection()
       this.initialized = true
-      this.emitState()
+      this.emitSnapshot()
     })()
     try {
       await this.initializing
@@ -225,9 +303,16 @@ class PiDesktopHost {
     }
   }
 
-  async handle(request: HostRequest): Promise<AgentSnapshot> {
+  async handle(request: HostRequest): Promise<HostResult> {
     await this.initialize()
-    this.lastError = undefined
+    if (usesSessionTransition(request)) {
+      return this.sessionTransition.run(() => this.handleInitialized(request))
+    }
+    return this.handleInitialized(request)
+  }
+
+  private async handleInitialized(request: HostRequest): Promise<HostResult> {
+    if (request.type !== 'bootstrap' && request.type !== 'state:get') this.lastError = undefined
 
     switch (request.type) {
       case 'bootstrap':
@@ -237,7 +322,10 @@ class PiDesktopHost {
         await this.openProject(request.cwd)
         break
       case 'session:new':
-        await this.newSession(request.providerId, request.modelId)
+        await this.newSession(
+          'providerId' in request ? request.providerId : undefined,
+          'modelId' in request ? request.modelId : undefined
+        )
         break
       case 'session:open':
         await this.openSession(request.path)
@@ -248,11 +336,14 @@ class PiDesktopHost {
       case 'prompt:abort':
         await this.abortPrompt()
         break
+      case 'queue:clear':
+        this.clearQueue()
+        break
       case 'permission:set':
         this.permissionMode = request.mode
         break
       case 'permission:respond':
-        this.resolveApproval(request.requestId, request.allow)
+        this.resolveApproval(request.approvalId, request.allow)
         break
       case 'account:login':
         await this.startLogin(request.providerId, request.method)
@@ -268,9 +359,22 @@ class PiDesktopHost {
         break
     }
 
-    const snapshot = this.snapshot()
-    this.emitState(snapshot)
-    return snapshot
+    if (
+      request.type === 'bootstrap' ||
+      request.type === 'state:get' ||
+      request.type === 'project:open' ||
+      request.type === 'session:new' ||
+      request.type === 'session:open'
+    ) {
+      return { kind: 'snapshot', snapshot: this.emitSnapshot() }
+    }
+    const snapshot = this.emitPatch()
+    return {
+      kind: 'ack',
+      sessionId: snapshot.sessionId,
+      generation: snapshot.generation,
+      revision: snapshot.revision
+    }
   }
 
   private permissionExtension(): InlineExtension {
@@ -283,7 +387,6 @@ class PiDesktopHost {
 
           const presentation = toolPresentation(event.toolName, event.input)
           this.approvalMetadata = {
-            id: '',
             toolCallId: event.toolCallId,
             toolName: event.toolName,
             intent: toolIntent(event.toolName),
@@ -310,7 +413,7 @@ class PiDesktopHost {
       input: unsupported,
       notify: (message, type) => {
         if (type === 'error') this.lastError = message
-        this.emitState()
+        this.emitPatch()
       },
       onTerminalInput: () => () => undefined,
       setStatus: () => undefined,
@@ -341,13 +444,18 @@ class PiDesktopHost {
     }
   }
 
-  private async createRuntime(sessionManager: SessionManager): Promise<AgentSessionRuntime> {
-    if (!this.sdk || !this.modelRuntime || !this.projectPath) {
+  private async createRuntime(
+    sessionManager: SessionManager,
+    projectPath: string,
+    recoveryModel: PreparedModelSelection<Model<string>> | null = null
+  ): Promise<AgentSessionRuntime> {
+    if (!this.sdk || !this.modelRuntime) {
       throw new Error('Agent Host 尚未选择工作区')
     }
     const sdk = this.sdk
     const fixedModelRuntime = this.modelRuntime
     const extensionPath = multiLoginExtensionPath()
+    const selectModelOverride = createOneShotRecoveryModelSelector(recoveryModel)
     const createRuntime = async ({
       cwd,
       sessionManager: nextManager,
@@ -367,24 +475,48 @@ class PiDesktopHost {
           extensionFactories: [this.permissionExtension()]
         }
       })
-      const preferred = this.preferredModel
-        ? fixedModelRuntime.getAvailableSnapshot().find((model) => {
-            return model.provider === this.preferredProvider && model.id === this.preferredModel
-          })
-        : undefined
-      const isNew = nextManager.getEntries().length === 0
+      const entries = nextManager.buildContextEntries()
+      const context = nextManager.buildSessionContext()
+      const emptySessionSelection =
+        entries.length === 0 && this.pendingNewSessionModel && this.pendingNewSessionRuntimeModel
+          ? {
+              identity: this.pendingNewSessionModel,
+              runtimeModel: this.pendingNewSessionRuntimeModel
+            }
+          : null
+      const selectedOverride = selectModelOverride(emptySessionSelection)
+      const projected = projectSessionModelPin(
+        {
+          header: nextManager.getHeader(),
+          entries,
+          contextModel: context.model,
+          explicitModel: entries.length === 0 ? (selectedOverride?.identity ?? null) : null
+        },
+        this.accounts,
+        this.models
+      )
+      const selected = selectedOverride
+        ? selectedOverride.runtimeModel
+        : projected.identity
+          ? fixedModelRuntime.getAvailableSnapshot().find((model) => {
+              return (
+                model.provider === projected.identity?.providerId &&
+                model.id === projected.identity.modelId
+              )
+            })
+          : undefined
       const result = await sdk.createAgentSessionFromServices({
         services,
         sessionManager: nextManager,
         sessionStartEvent,
-        model: isNew ? preferred : undefined,
+        model: selected,
         tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']
       })
       return { ...result, services, diagnostics: services.diagnostics }
     }
 
     return sdk.createAgentSessionRuntime(createRuntime, {
-      cwd: this.projectPath,
+      cwd: projectPath,
       agentDir: AGENT_DIR,
       sessionManager
     })
@@ -394,26 +526,77 @@ class PiDesktopHost {
     const stats = statSync(cwd)
     if (!stats.isDirectory()) throw new Error('所选工作区不是文件夹')
 
-    await this.disposeRuntime()
-    this.projectPath = cwd
     if (!this.sdk) throw new Error('Pi SDK 尚未加载')
-    const sessionManager = this.sdk.SessionManager.continueRecent(cwd)
-    this.runtime = await this.createRuntime(sessionManager)
-    this.runtime.setRebindSession(async () => this.bindSession())
+    const sessionManager = this.sdk.SessionManager.continueRecent(cwd, projectSessionDirectory(cwd))
+    const generationBeforeReplacement = this.sessionGeneration
+    await runPreparedSessionReplacement({
+      generationBeforeReplacement,
+      prepare: () => this.createRuntime(sessionManager, cwd),
+      commit: async (runtime) => {
+        await this.disposeRuntime()
+        this.projectPath = cwd
+        this.activeExplicitModel = null
+        this.pendingNewSessionModel = null
+        this.pendingNewSessionRuntimeModel = null
+        this.runtime = runtime
+        this.configureRuntime(runtime)
+        await this.bindSession()
+        await this.refreshAuthProjection()
+        await this.refreshSessions()
+      },
+      readGeneration: () => this.sessionGeneration,
+      publishSnapshot: () => {
+        this.emitSnapshot()
+      }
+    })
+  }
+
+  private configureRuntime(runtime: AgentSessionRuntime): void {
+    runtime.setBeforeSessionInvalidate(() => {
+      this.sessionInvalidationSequence += 1
+    })
+    runtime.setRebindSession(async () => this.bindSession())
+  }
+
+  private async recoverInvalidatedSession(
+    sessionManager: SessionManager,
+    projectPath: string,
+    recoveryModel: PreparedModelSelection<Model<string>> | null
+  ): Promise<void> {
+    this.pendingNewSessionModel = null
+    this.pendingNewSessionRuntimeModel = null
+    const runtime = await this.createRuntime(sessionManager, projectPath, recoveryModel)
+    this.runtime = runtime
+    this.configureRuntime(runtime)
     await this.bindSession()
-    await this.refreshAuthProjection()
-    await this.refreshSessions()
+  }
+
+  private async clearSessionAfterRecoveryFailure(
+    invalidatedRuntime: AgentSessionRuntime
+  ): Promise<void> {
+    const failedRecoveryRuntime = this.runtime
+    this.abandonRuntime()
+    this.projectPath = null
+    if (failedRecoveryRuntime && failedRecoveryRuntime !== invalidatedRuntime) {
+      try {
+        await failedRecoveryRuntime.dispose()
+      } catch (error) {
+        console.error('Failed to dispose an incomplete recovery runtime', error)
+      }
+    }
   }
 
   private async bindSession(): Promise<void> {
     const session = this.runtime?.session
     if (!session) return
+    this.rejectApprovals(true, 'session-switch')
     this.sessionGeneration += 1
     const generation = this.sessionGeneration
+    this.resetPublishedState()
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
-    this.rejectApprovals()
-    this.toolStatuses.clear()
+    this.toolExecution.clear()
+    this.followUp = [...session.getFollowUpMessages()]
     this.lastTiming = null
     this.timing = null
 
@@ -423,7 +606,7 @@ class PiDesktopHost {
       abortHandler: () => void session.abort(),
       onError: (error) => {
         this.lastError = `${error.extensionPath}: ${error.error}`
-        this.emitState()
+        this.emitPatch()
       }
     })
 
@@ -431,10 +614,10 @@ class PiDesktopHost {
       if (generation !== this.sessionGeneration) return
       this.handleSessionEvent(event)
     })
-    if (isConcreteModel(session.model)) {
-      this.preferredProvider = session.model?.provider ?? this.preferredProvider
-      this.preferredModel = session.model?.id ?? this.preferredModel
-    }
+    const projection = this.projectActiveSessionModel(session, this.pendingNewSessionModel)
+    this.activeExplicitModel = projection.identity
+    this.pendingNewSessionModel = null
+    this.pendingNewSessionRuntimeModel = null
   }
 
   private handleSessionEvent(event: AgentSessionEvent): void {
@@ -449,7 +632,10 @@ class PiDesktopHost {
         }
         break
       case 'message_start':
-        if (isRecord(event.message) && event.message.role === 'assistant' && this.timing) {
+        if (isPiMessage(event.message)) {
+          this.projectEventMessage(event.message, event.message.role === 'assistant')
+        }
+        if (event.message.role === 'assistant' && this.timing) {
           this.timing.llmStartedAt = now
           this.timing.firstTokenSeen = false
         }
@@ -466,49 +652,103 @@ class PiDesktopHost {
           this.timing.firstTokenSeen = true
           this.timing.firstTokenSamples.push(now - this.timing.llmStartedAt)
         }
-        break
+        if (isPiMessage(event.message) && event.message.role === 'assistant') {
+          this.pendingStreamingMessage = event.message
+        }
+        this.schedulePatch()
+        return
       }
       case 'message_end':
-        if (isRecord(event.message) && event.message.role === 'assistant' && this.timing) {
+        this.pendingStreamingMessage = null
+        if (isPiMessage(event.message)) this.projectEventMessage(event.message, false)
+        if (event.message.role === 'assistant' && this.timing) {
           if (this.timing.llmStartedAt) this.timing.llmDurationMs += now - this.timing.llmStartedAt
-          const usage = isRecord(event.message.usage) ? event.message.usage : undefined
-          if (typeof usage?.output === 'number') this.timing.outputTokens += usage.output
+          this.timing.outputTokens += event.message.usage.output
           this.timing.llmStartedAt = undefined
+        }
+        if (event.message.role === 'assistant' && event.message.errorMessage) {
+          this.lastError = event.message.errorMessage
         }
         break
       case 'tool_execution_start':
-        this.toolStatuses.set(event.toolCallId, 'running')
+        this.updateToolNode(
+          event.toolCallId,
+          this.toolExecution.start(
+            event.toolCallId,
+            requiresToolApproval(this.permissionMode, event.toolName),
+            now
+          )
+        )
         break
-      case 'tool_execution_end':
-        this.toolStatuses.set(event.toolCallId, event.isError ? 'error' : 'success')
+      case 'tool_execution_update': {
+        const output = textFromContent(
+          isRecord(event.partialResult) ? event.partialResult.content : event.partialResult
+        )
+        const state = this.toolExecution.get(event.toolCallId) ?? { status: 'running' as const }
+        this.updateToolNode(
+          event.toolCallId,
+          this.toolOutputFields(output, state.status, state.durationMs)
+        )
         break
+      }
+      case 'tool_execution_end': {
+        const state = this.toolExecution.end(event.toolCallId, event.isError, now)
+        this.updateToolNode(
+          event.toolCallId,
+          this.toolOutputFields(
+            textFromContent(isRecord(event.result) ? event.result.content : event.result),
+            state.status,
+            state.durationMs
+          )
+        )
+        break
+      }
       case 'agent_settled':
         if (this.timing) this.lastTiming = { ...this.timing }
         this.timing = null
-        void this.refreshSessions()
-        break
+        this.flushPatch()
+        void this.refreshSessions(this.sessionGeneration).then((refreshed) => {
+          if (refreshed) this.emitPatch()
+        })
+        return
       case 'queue_update':
+        this.followUp = [...event.followUp]
         break
+      case 'entry_appended':
+      case 'session_info_changed':
+        void this.refreshSessions(this.sessionGeneration).then((refreshed) => {
+          if (refreshed) this.emitPatch()
+        })
+        return
     }
-    this.emitState()
+    if (event.type === 'message_end') this.flushPatch()
+    else this.emitPatch()
   }
 
-  private async refreshSessions(): Promise<void> {
+  private async refreshSessions(expectedGeneration?: number): Promise<boolean> {
     if (!this.projectPath) {
       this.sessions = []
-      return
+      return true
     }
     const current = this.runtime?.session.sessionFile
-    if (!this.sdk) return
-    const listed = await this.sdk.SessionManager.list(this.projectPath)
+    if (!this.sdk) return false
+    const listed = await this.sdk.SessionManager.list(
+      this.projectPath,
+      projectSessionDirectory(this.projectPath)
+    )
+    if (expectedGeneration !== undefined && expectedGeneration !== this.sessionGeneration) {
+      return false
+    }
     this.sessions = listed.map((session) => ({
       id: session.id,
       path: session.path,
-      title: session.name || session.firstMessage || '新会话',
+      title: projectSessionTitle(session),
       modified: session.modified.toISOString(),
       messageCount: session.messageCount,
-      active: session.path === current
+      active: session.path === current,
+      status: 'idle'
     }))
+    return true
   }
 
   private async refreshAuthProjection(): Promise<void> {
@@ -564,59 +804,117 @@ class PiDesktopHost {
 
   private async newSession(providerId?: string, modelId?: string): Promise<void> {
     if (!this.runtime) throw new Error('请先选择工作区')
-    if (providerId && modelId) {
-      this.preferredProvider = providerId
-      this.preferredModel = modelId
-    } else {
-      const current = this.runtime.session.model
-      if (isConcreteModel(current)) {
-        this.preferredProvider = current?.provider ?? this.preferredProvider
-        this.preferredModel = current?.id ?? this.preferredModel
-      }
+    if (!this.projectPath) throw new Error('请先选择工作区')
+    await this.refreshAuthProjection()
+    const prepared = prepareNewSessionModelSelection(
+      this.accounts,
+      this.models,
+      providerId,
+      modelId,
+      (selection) =>
+        this.modelRuntime
+          ?.getAvailableSnapshot()
+          .find(
+            (model) => model.provider === selection.providerId && model.id === selection.modelId
+          )
+    )
+    const generationBeforeReplacement = this.sessionGeneration
+    const invalidationBeforeReplacement = this.sessionInvalidationSequence
+    const invalidatedRuntime = this.runtime
+    const outgoingSessionManager = invalidatedRuntime.session.sessionManager
+    const recoveryModel = prepareSessionRecoveryModelSelection(
+      this.activeExplicitModel,
+      isConcreteModel(invalidatedRuntime.session.model) ? invalidatedRuntime.session.model! : null,
+      hasPersistentTranscript(outgoingSessionManager.buildContextEntries())
+    )
+    this.pendingNewSessionModel = prepared?.identity ?? null
+    this.pendingNewSessionRuntimeModel = prepared?.runtimeModel ?? null
+    const projectPath = this.projectPath
+    try {
+      await runSessionReplacement({
+        generationBeforeReplacement,
+        invalidationBeforeReplacement,
+        replaceSession: () => invalidatedRuntime.newSession(),
+        refreshSessions: () => this.refreshSessions(),
+        readGeneration: () => this.sessionGeneration,
+        readInvalidation: () => this.sessionInvalidationSequence,
+        recoverInvalidatedSession: () =>
+          this.recoverInvalidatedSession(outgoingSessionManager, projectPath, recoveryModel),
+        clearSessionAfterRecoveryFailure: () =>
+          this.clearSessionAfterRecoveryFailure(invalidatedRuntime),
+        publishSnapshot: () => {
+          this.emitSnapshot()
+        }
+      })
+    } finally {
+      this.pendingNewSessionModel = null
+      this.pendingNewSessionRuntimeModel = null
     }
-    const result = await this.runtime.newSession()
-    if (result.cancelled) return
-    const manager = this.runtime.session.sessionManager
-    const path = manager.getSessionFile()
-    if (path && !existsSync(path)) {
-      mkdirSync(dirname(path), { recursive: true })
-      writeFileSync(path, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-      try {
-        // Pi only flushes a normal new session after its first assistant message. Desktop needs
-        // an explicit /new to be listable immediately, so let SessionManager initialize the
-        // empty target with its own canonical header and mark the manager flushed.
-        manager.setSessionFile(path)
-      } catch (error) {
-        rmSync(path, { force: true })
-        throw error
-      }
-      manager.appendSessionInfo('新会话')
-      const activeModel = this.runtime.session.model
-      if (activeModel && isConcreteModel(activeModel)) {
-        manager.appendModelChange(activeModel.provider, activeModel.id)
-      }
-    }
-    await this.refreshSessions()
   }
 
   private async openSession(path: string): Promise<void> {
     if (!this.runtime || !this.projectPath) throw new Error('请先选择工作区')
     if (!this.sdk) throw new Error('Pi SDK 尚未加载')
-    const sessions = await this.sdk.SessionManager.list(this.projectPath)
+    const sessions = await this.sdk.SessionManager.list(
+      this.projectPath,
+      projectSessionDirectory(this.projectPath)
+    )
     if (!sessions.some((session) => session.path === path)) throw new Error('会话不属于当前工作区')
-    const result = await this.runtime.switchSession(path)
-    if (result.cancelled) return
-    await this.refreshSessions()
+    const generationBeforeReplacement = this.sessionGeneration
+    const invalidationBeforeReplacement = this.sessionInvalidationSequence
+    const invalidatedRuntime = this.runtime
+    const outgoingSessionManager = invalidatedRuntime.session.sessionManager
+    const recoveryModel = prepareSessionRecoveryModelSelection(
+      this.activeExplicitModel,
+      isConcreteModel(invalidatedRuntime.session.model) ? invalidatedRuntime.session.model! : null,
+      hasPersistentTranscript(outgoingSessionManager.buildContextEntries())
+    )
+    const projectPath = this.projectPath
+    await runSessionReplacement({
+      generationBeforeReplacement,
+      invalidationBeforeReplacement,
+      replaceSession: () => invalidatedRuntime.switchSession(path),
+      refreshSessions: () => this.refreshSessions(),
+      readGeneration: () => this.sessionGeneration,
+      readInvalidation: () => this.sessionInvalidationSequence,
+      recoverInvalidatedSession: () =>
+        this.recoverInvalidatedSession(outgoingSessionManager, projectPath, recoveryModel),
+      clearSessionAfterRecoveryFailure: () =>
+        this.clearSessionAfterRecoveryFailure(invalidatedRuntime),
+      publishSnapshot: () => {
+        this.emitSnapshot()
+      }
+    })
   }
 
   private sendPrompt(rawText: string): void {
     const session = this.runtime?.session
     if (!session) throw new Error('请先选择工作区')
+    if (this.modelMutationInProgress) throw new Error('正在切换模型，请稍后再发送')
     const text = rawText.trim()
     if (!text) throw new Error('请输入任务内容')
-    if (!isConcreteModel(session.model)) throw new Error('请先登录并选择模型')
+    const projection = this.projectActiveSessionModel(session)
+    if (!projection.identity) {
+      throw new Error(
+        projection.composeBlockReason === 'login-required' ? '请先登录 Codex' : '请先选择模型'
+      )
+    }
+    if (
+      projection.modelAvailability !== 'available' ||
+      session.model?.provider !== projection.identity.providerId ||
+      session.model?.id !== projection.identity.modelId
+    ) {
+      throw new Error(
+        projection.pinned ? '此会话钉定的模型当前不可用' : '所选模型当前不可用，请重新选择'
+      )
+    }
 
     const behavior = session.isStreaming ? 'followUp' : undefined
+    const sessionId = session.sessionManager.getSessionId()
+    this.pendingPromptsBySession.set(
+      sessionId,
+      (this.pendingPromptsBySession.get(sessionId) ?? 0) + 1
+    )
     void session
       .prompt(text, {
         ...(behavior ? { streamingBehavior: behavior } : {}),
@@ -624,65 +922,101 @@ class PiDesktopHost {
       })
       .catch((error) => {
         this.lastError = errorMessage(error)
-        this.emitState()
+        this.emitPatch()
+      })
+      .finally(() => {
+        const remaining = (this.pendingPromptsBySession.get(sessionId) ?? 1) - 1
+        if (remaining > 0) this.pendingPromptsBySession.set(sessionId, remaining)
+        else this.pendingPromptsBySession.delete(sessionId)
       })
   }
 
   private async abortPrompt(): Promise<void> {
-    this.rejectApprovals()
+    this.rejectApprovals(false, 'abort')
     await this.runtime?.session.abort()
+  }
+
+  private clearQueue(): void {
+    const session = this.runtime?.session
+    if (!session) throw new Error('请先选择工作区')
+    this.followUp = clearFollowUpQueue(session)
   }
 
   private async setModel(providerId: string, modelId: string): Promise<void> {
     if (!this.modelRuntime) throw new Error('模型运行时尚未就绪')
-    if (this.runtime?.session.messages.some((message) => message.role === 'user')) {
-      throw new Error('当前会话已钉住账号与模型；切换会自动新建会话')
+    this.modelMutationInProgress = true
+    try {
+      const selection = await applyExactModelSelection(providerId, modelId, {
+        readTarget: () => this.sessionModelMutationTarget(),
+        refreshAuthProjection: () => this.refreshAuthProjection(),
+        getAccounts: () => this.accounts,
+        getModels: () => this.models,
+        findAvailableModel: (identity) =>
+          this.modelRuntime
+            ?.getAvailableSnapshot()
+            .find(
+              (model) => model.provider === identity.providerId && model.id === identity.modelId
+            ),
+        applyModel: async (target, model) => {
+          const current = this.sessionModelMutationTarget()
+          const session = this.runtime?.session
+          if (
+            !current ||
+            !session ||
+            current.sessionId !== target.sessionId ||
+            current.generation !== target.generation
+          ) {
+            throw new Error('会话已切换，请重新选择模型')
+          }
+          if (current.hasTranscript) {
+            throw new Error('当前会话已有对话内容，不能原地切换模型')
+          }
+          if (current.busy || current.promptPending) {
+            throw new Error('当前会话正在运行，不能切换模型')
+          }
+          await session.setModel(model)
+        }
+      })
+      this.activeExplicitModel = selection
+    } finally {
+      this.modelMutationInProgress = false
     }
-    const model = this.modelRuntime
-      .getAvailableSnapshot()
-      .find((item) => item.provider === providerId && item.id === modelId)
-    if (!model) throw new Error('所选模型不可用或账号未登录')
-
-    this.preferredProvider = providerId
-    this.preferredModel = modelId
-    if (this.runtime?.session) await this.runtime.session.setModel(model)
   }
 
   private requestApproval(message: string, signal?: AbortSignal): Promise<boolean> {
     const metadata = this.approvalMetadata
     if (!metadata) return Promise.resolve(false)
-    if (signal?.aborted) return Promise.resolve(false)
+    if (signal?.aborted) {
+      const state = this.toolExecution.approvalBlocked(metadata.toolCallId)
+      this.updateToolNode(metadata.toolCallId, state)
+      this.emitPatch()
+      return Promise.resolve(false)
+    }
 
     const id = randomUUID()
-    const request: ApprovalRequest = { ...metadata, id, detail: message || metadata.detail }
-    this.toolStatuses.set(request.toolCallId, 'awaiting-approval')
-    send({ type: 'event', event: 'approval', data: request })
-    this.emitState()
+    const generation = this.sessionGeneration
+    const request: ApprovalRequest = {
+      ...metadata,
+      id,
+      generation,
+      detail: message || metadata.detail
+    }
 
-    return new Promise((resolve) => {
-      const finish = (allow: boolean): void => {
-        const pending = this.pendingApprovals.get(id)
-        if (!pending) return
-        clearTimeout(pending.timer)
-        this.pendingApprovals.delete(id)
-        this.toolStatuses.set(request.toolCallId, allow ? 'queued' : 'blocked')
-        signal?.removeEventListener('abort', onAbort)
-        resolve(allow)
-        this.emitState()
-      }
-      const onAbort = (): void => finish(false)
-      signal?.addEventListener('abort', onAbort, { once: true })
-      const timer = setTimeout(() => finish(false), 5 * 60_000)
-      this.pendingApprovals.set(id, { resolve: finish, timer, toolCallId: request.toolCallId })
-    })
+    return this.approvalRegistry.request(request, signal)
   }
 
   private resolveApproval(id: string, allow: boolean): void {
-    this.pendingApprovals.get(id)?.resolve(allow)
+    this.approvalRegistry.resolve(id, this.sessionGeneration, allow)
   }
 
-  private rejectApprovals(): void {
-    for (const approval of [...this.pendingApprovals.values()]) approval.resolve(false)
+  private rejectApprovals(silent: boolean, reason: 'abort' | 'session-switch'): void {
+    const wasSuspended = this.patchesSuspended
+    if (silent) this.patchesSuspended = true
+    try {
+      this.approvalRegistry.clear(this.sessionGeneration, reason)
+    } finally {
+      this.patchesSuspended = wasSuspended
+    }
   }
 
   private async startLogin(providerId: string, method: LoginMethod): Promise<void> {
@@ -704,7 +1038,7 @@ class PiDesktopHost {
     const controller = new AbortController()
     this.loginAbort = controller
     this.login = { phase: 'starting', providerId }
-    this.emitState()
+    this.emitPatch()
 
     const interaction: AuthInteraction = {
       signal: controller.signal,
@@ -735,28 +1069,27 @@ class PiDesktopHost {
             this.login = { phase: 'waiting', providerId, message: event.message }
             break
         }
-        this.emitState()
+        this.emitPatch()
       }
     }
 
     void this.modelRuntime
       .login(providerId, 'oauth', interaction)
       .then(async () => {
-        await this.refreshAuthProjection()
-        const session = this.runtime?.session
-        if (session && !isConcreteModel(session.model)) {
-          const first = this.modelRuntime
-            ?.getAvailableSnapshot()
-            .find((model) => model.provider === providerId)
-          if (first) await session.setModel(first)
-        }
-        this.login = { phase: 'success', providerId }
-        this.emitState()
+        this.rejectLoginPrompts()
+        await completeLoginSuccess(providerId, {
+          refreshAuthProjection: () => this.refreshAuthProjection(),
+          publishLogin: (login) => {
+            this.login = login
+          }
+        })
+        this.emitPatch()
       })
       .catch((error) => {
+        this.rejectLoginPrompts()
         if (controller.signal.aborted) return
         this.login = { phase: 'error', providerId, message: errorMessage(error) }
-        this.emitState()
+        this.emitPatch()
       })
       .finally(() => {
         if (this.loginAbort === controller) this.loginAbort = null
@@ -786,36 +1119,15 @@ class PiDesktopHost {
       ...('placeholder' in prompt ? { placeholder: prompt.placeholder } : {}),
       ...(prompt.type === 'select' ? { options: [...prompt.options] } : {})
     }
-    send({ type: 'event', event: 'login-prompt', data })
-
-    return new Promise((resolve) => {
-      const onAbort = (): void => {
-        this.pendingLoginPrompts.delete(id)
-        resolve('')
-      }
-      prompt.signal?.addEventListener('abort', onAbort, { once: true })
-      this.pendingLoginPrompts.set(id, {
-        resolve: (value) => {
-          prompt.signal?.removeEventListener('abort', onAbort)
-          resolve(value)
-        },
-        signal: prompt.signal
-      })
-    })
+    return this.loginPrompts.request(data, prompt.signal)
   }
 
   private resolveLoginPrompt(id: string, value?: string): void {
-    const prompt = this.pendingLoginPrompts.get(id)
-    if (!prompt) return
-    this.pendingLoginPrompts.delete(id)
-    prompt.resolve(value ?? '')
+    this.loginPrompts.resolve(id, value)
   }
 
   private rejectLoginPrompts(): void {
-    for (const [id, prompt] of [...this.pendingLoginPrompts]) {
-      this.pendingLoginPrompts.delete(id)
-      prompt.resolve('')
-    }
+    this.loginPrompts.clear()
   }
 
   private async addAlias(slug: string): Promise<void> {
@@ -858,61 +1170,145 @@ class PiDesktopHost {
       if (message.role === 'toolResult') results.set(message.toolCallId, message)
     }
 
-    const nodes: ConversationNode[] = []
-    messages.forEach((message, messageIndex) => {
-      if (message.role === 'user') {
-        const text = textFromContent(message.content)
-        if (text)
-          nodes.push({ id: `user-${message.timestamp}-${messageIndex}`, type: 'user', text })
-        return
+    return messages.flatMap((message, messageIndex) => {
+      if (message.role === 'user') return this.projectUserMessage(message, messageIndex)
+      if (message.role === 'assistant') {
+        return this.projectAssistantMessage(message, message === streaming, results)
       }
-      if (message.role !== 'assistant') return
+      return []
+    })
+  }
 
-      message.content.forEach((block, blockIndex) => {
-        if (block.type === 'text' && block.text) {
-          nodes.push({
+  private projectEventMessage(message: Message, streaming: boolean): void {
+    if (message.role === 'assistant') {
+      this.conversationProjection.replaceGroup(
+        `assistant-message-${message.timestamp}`,
+        this.projectAssistantMessage(message, streaming)
+      )
+      return
+    }
+    if (message.role === 'user') {
+      const messages = (this.runtime?.session.messages ?? []) as Message[]
+      const matchingIndex = messages.findIndex(
+        (candidate) =>
+          candidate === message ||
+          (candidate.role === 'user' && candidate.timestamp === message.timestamp)
+      )
+      const messageIndex = matchingIndex >= 0 ? matchingIndex : messages.length
+      this.conversationProjection.replaceGroup(
+        `user-message-${message.timestamp}`,
+        this.projectUserMessage(message, messageIndex)
+      )
+      return
+    }
+    this.updateToolNode(
+      message.toolCallId,
+      this.toolOutputFields(
+        textFromContent(message.content),
+        this.toolExecution.get(message.toolCallId)?.status === 'blocked'
+          ? 'blocked'
+          : message.isError
+            ? 'error'
+            : 'success',
+        this.toolExecution.get(message.toolCallId)?.durationMs
+      )
+    )
+  }
+
+  private projectUserMessage(message: UserMessage, messageIndex: number): ConversationNode[] {
+    const text = textFromContent(message.content)
+    return text ? [{ id: `user-${message.timestamp}-${messageIndex}`, type: 'user', text }] : []
+  }
+
+  private projectAssistantMessage(
+    message: AssistantMessage,
+    streaming: boolean,
+    results: ReadonlyMap<string, ToolResultMessage> = new Map()
+  ): ConversationNode[] {
+    const nodes = message.content.flatMap<ConversationNode>((block, blockIndex) => {
+      if (block.type === 'text' && block.text) {
+        return [
+          {
             id: `assistant-${message.timestamp}-${blockIndex}`,
             type: 'assistant',
             markdown: block.text,
-            streaming: message === streaming
-          })
-        } else if (block.type === 'thinking' && block.thinking) {
-          nodes.push({
+            streaming
+          }
+        ]
+      }
+      if (block.type === 'thinking' && block.thinking) {
+        return [
+          {
             id: `think-${message.timestamp}-${blockIndex}`,
             type: 'think',
             text: block.thinking,
-            streaming: message === streaming
-          })
-        } else if (block.type === 'toolCall') {
-          const result = results.get(block.id)
-          const presentation = toolPresentation(block.name, block.arguments)
-          const status = result
+            streaming
+          }
+        ]
+      }
+      if (block.type !== 'toolCall') return []
+
+      const result = results.get(block.id)
+      const rawOutput = result ? textFromContent(result.content) : undefined
+      const presentation = toolPresentation(block.name, block.arguments)
+      const trackedState = this.toolExecution.get(block.id)
+      const trackedStatus = trackedState?.status
+      const status =
+        trackedStatus === 'blocked'
+          ? 'blocked'
+          : result
             ? result.isError
               ? 'error'
               : 'success'
-            : (this.toolStatuses.get(block.id) ?? 'queued')
-          nodes.push({
-            id: `tool-${block.id}`,
-            type: 'tool',
-            toolCallId: block.id,
-            name: block.name,
-            intent: toolIntent(block.name),
-            title: presentation.title,
-            detail: presentation.detail,
-            output: result ? textFromContent(result.content).slice(0, MAX_TOOL_OUTPUT) : undefined,
-            status
-          })
+            : (trackedStatus ?? 'queued')
+      return [
+        {
+          id: `tool-${block.id}`,
+          type: 'tool',
+          toolCallId: block.id,
+          name: block.name,
+          intent: toolIntent(block.name),
+          title: presentation.title,
+          detail: presentation.detail,
+          ...(rawOutput !== undefined ? this.toolOutputFields(rawOutput, status) : { status }),
+          ...(trackedState?.durationMs !== undefined ? { durationMs: trackedState.durationMs } : {})
         }
-      })
-      if (message.errorMessage) {
-        nodes.push({
-          id: `error-${message.timestamp}`,
-          type: 'error',
-          message: message.errorMessage
-        })
-      }
+      ]
     })
+    if (message.errorMessage) {
+      nodes.push({
+        id: `error-${message.timestamp}`,
+        type: 'error',
+        message: message.errorMessage
+      })
+    }
     return nodes
+  }
+
+  private toolOutputFields(
+    output: string,
+    status: ToolStatus,
+    durationMs?: number
+  ): Pick<
+    Extract<ConversationNode, { type: 'tool' }>,
+    'output' | 'originalOutputLength' | 'truncated' | 'status' | 'durationMs'
+  > {
+    return {
+      output: output.slice(0, MAX_TOOL_OUTPUT),
+      originalOutputLength: output.length,
+      truncated: output.length > MAX_TOOL_OUTPUT,
+      status,
+      ...(durationMs !== undefined ? { durationMs } : {})
+    }
+  }
+
+  private updateToolNode(
+    toolCallId: string,
+    changes: Partial<Extract<ConversationNode, { type: 'tool' }>>
+  ): void {
+    this.conversationProjection.update(`tool-${toolCallId}`, (node) => {
+      return node.type === 'tool' ? { ...node, ...changes } : node
+    })
   }
 
   private metrics(session?: AgentSession): UsageMetrics {
@@ -950,44 +1346,201 @@ class PiDesktopHost {
     }
   }
 
-  private snapshot(): AgentSnapshot {
+  private sessionStatus(session?: AgentSession): SessionStatus {
+    if (this.lastError) return 'error'
+    if (this.approvalRegistry.requests(this.sessionGeneration).length > 0) {
+      return 'awaiting-approval'
+    }
+    return session?.isStreaming ? 'running' : 'idle'
+  }
+
+  private sessionModelMutationTarget(): SessionModelMutationTarget | null {
     const session = this.runtime?.session
-    const sessionModel = isConcreteModel(session?.model) ? session?.model : undefined
+    if (!session) return null
+    const sessionId = session.sessionManager.getSessionId()
     return {
+      sessionId,
+      generation: this.sessionGeneration,
+      busy: session.isStreaming,
+      promptPending: (this.pendingPromptsBySession.get(sessionId) ?? 0) > 0,
+      hasTranscript: hasPersistentTranscript(session.sessionManager.buildContextEntries())
+    }
+  }
+
+  private projectActiveSessionModel(
+    session: AgentSession,
+    explicitModel: ExactModelSelection | null = this.activeExplicitModel
+  ): SessionModelProjection {
+    const manager = session.sessionManager
+    return projectSessionModelPin(
+      {
+        header: manager.getHeader(),
+        entries: manager.buildContextEntries(),
+        contextModel: manager.buildSessionContext().model,
+        runtimeModel: isConcreteModel(session.model) ? session.model : null,
+        explicitModel
+      },
+      this.accounts,
+      this.models
+    )
+  }
+
+  private snapshot(revision = this.revision): AgentSnapshot {
+    const session = this.runtime?.session
+    const modelProjection = session ? this.projectActiveSessionModel(session) : null
+    const status = this.sessionStatus(session)
+    const sessionFile = session?.sessionFile
+    const activeSessionPath = sessionFile && existsSync(sessionFile) ? sessionFile : null
+    const approvals = this.approvalRegistry.requests(this.sessionGeneration)
+    return {
+      sessionId: session?.sessionManager.getSessionId() ?? null,
+      generation: this.sessionGeneration,
+      revision,
       ready: this.initialized,
       engine: AGENT_ENGINE,
       agentDir: AGENT_DIR,
       project: this.projectPath
         ? { path: this.projectPath, name: basename(this.projectPath) }
         : null,
-      sessions: this.sessions,
-      activeSessionPath: session?.sessionFile ?? null,
-      nodes: session ? this.projectMessages(session) : [],
+      sessions: this.sessions.map((summary) => ({
+        ...summary,
+        status: projectedSessionStatus(summary.path, activeSessionPath, status)
+      })),
+      activeSessionPath,
+      nodes: this.conversationProjection.view(),
       accounts: this.accounts,
       models: this.models,
-      activeProvider: sessionModel?.provider ?? this.preferredProvider,
-      activeModel: sessionModel?.id ?? this.preferredModel,
+      activeProvider: modelProjection?.identity?.providerId ?? null,
+      activeModel: modelProjection?.identity?.modelId ?? null,
+      modelAvailability: modelProjection?.modelAvailability ?? 'unselected',
+      composeBlockReason: this.projectPath
+        ? (modelProjection?.composeBlockReason ?? 'model-required')
+        : 'project-required',
       busy: session?.isStreaming ?? false,
-      queuedCount: session?.pendingMessageCount ?? 0,
+      status,
+      approvals,
+      followUp: [...this.followUp],
+      queuedCount: this.followUp.length,
       permissionMode: this.permissionMode,
       metrics: this.metrics(session),
       login: this.login,
+      loginPrompt: this.loginPrompt,
       ...(this.lastError ? { error: this.lastError } : {})
     }
   }
 
-  private emitState(snapshot = this.snapshot()): void {
-    send({ type: 'event', event: 'state', data: snapshot })
+  private clearPatchTimer(): void {
+    this.patchBatcher.dispose()
+  }
+
+  private resetPublishedState(): void {
+    this.clearPatchTimer()
+    this.pendingStreamingMessage = null
+    this.revision = 0
+    this.publishedSnapshot = null
+    this.conversationProjection.reset([])
+  }
+
+  private emitSnapshot(): AgentSnapshot {
+    this.clearPatchTimer()
+    this.pendingStreamingMessage = null
+    const session = this.runtime?.session
+    this.conversationProjection.reset(session ? this.projectMessages(session) : [])
+    const streaming = session?.agent.state.streamingMessage
+    if (isPiMessage(streaming) && streaming.role === 'assistant') {
+      this.conversationProjection.trackGroup(
+        `assistant-message-${streaming.timestamp}`,
+        this.projectAssistantMessage(streaming, true).map((node) => node.id)
+      )
+    }
+    const snapshot = this.snapshot()
+    this.publishedSnapshot = snapshot
+    send({ type: 'event', event: 'snapshot', data: snapshot })
+    return snapshot
+  }
+
+  private emitPatch(): AgentSnapshot {
+    this.clearPatchTimer()
+    this.projectPendingStreamingMessage()
+    if (this.patchesSuspended) return this.snapshot()
+    const previous = this.publishedSnapshot
+    if (
+      !previous ||
+      previous.sessionId !== (this.runtime?.session.sessionManager.getSessionId() ?? null) ||
+      previous.generation !== this.sessionGeneration
+    ) {
+      return this.emitSnapshot()
+    }
+
+    const next = this.snapshot(this.revision + 1)
+    const patch: AgentStatePatch = createStatePatch(
+      previous,
+      next,
+      this.conversationProjection.drainChanges()
+    )
+    this.revision = next.revision
+    this.publishedSnapshot = next
+    send({ type: 'event', event: 'patch', data: patch })
+    return next
+  }
+
+  private emitStreamingPatch(): AgentSnapshot {
+    this.clearPatchTimer()
+    this.projectPendingStreamingMessage()
+    if (this.patchesSuspended) return this.publishedSnapshot ?? this.snapshot()
+
+    const result = buildStreamingPatch({
+      previous: this.publishedSnapshot,
+      sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
+      generation: this.sessionGeneration,
+      nodes: this.conversationProjection.view(),
+      changes: this.conversationProjection.drainChanges(),
+      buildDurableSnapshot: () => this.emitSnapshot()
+    })
+    if (result.kind === 'snapshot') return result.snapshot
+
+    this.revision = result.snapshot.revision
+    this.publishedSnapshot = result.snapshot
+    send({ type: 'event', event: 'patch', data: result.patch })
+    return result.snapshot
+  }
+
+  private schedulePatch(): void {
+    this.patchBatcher.schedule()
+  }
+
+  private projectPendingStreamingMessage(): void {
+    const pending = this.pendingStreamingMessage
+    if (!pending) return
+    this.pendingStreamingMessage = null
+    this.projectEventMessage(pending, true)
+  }
+
+  private flushPatch(): void {
+    this.patchBatcher.dispose()
+    this.emitPatch()
   }
 
   private async disposeRuntime(): Promise<void> {
-    this.sessionGeneration += 1
+    const runtime = this.runtime
+    this.abandonRuntime()
+    if (runtime) await runtime.dispose()
+  }
+
+  private abandonRuntime(): void {
+    this.rejectApprovals(true, 'session-switch')
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
-    this.rejectApprovals()
-    if (this.runtime) await this.runtime.dispose()
+    this.sessionGeneration += 1
+    this.resetPublishedState()
     this.runtime = null
+    this.activeExplicitModel = null
+    this.pendingNewSessionModel = null
+    this.pendingNewSessionRuntimeModel = null
+    this.pendingPromptsBySession.clear()
     this.sessions = []
+    this.followUp = []
+    this.toolExecution.clear()
   }
 }
 
@@ -1012,8 +1565,11 @@ process.parentPort.on('message', (event) => {
   const request = parsed.data
   void host
     .handle(request)
-    .then((snapshot) => {
-      send({ type: 'response', requestId: request.requestId, ok: true, data: snapshot })
+    .then((result) => {
+      if (!hostResultMatchesCommand(request, result)) {
+        throw new Error(`Agent Host 响应类型不匹配：${request.type}`)
+      }
+      send({ type: 'response', requestId: request.requestId, ok: true, data: result })
     })
     .catch((error) => {
       send({

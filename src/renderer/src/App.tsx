@@ -1,31 +1,36 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useReducer, useState } from 'react'
 import type { HostCommand, LoginMethod } from '../../shared/contracts'
 import Sidebar from './components/Sidebar'
 import Conversation from './components/Conversation'
 import Workbench, { type WorkbenchMode } from './components/Workbench'
+import { modelSelectionCommand, newSessionCommand } from './store/composer-model-selection'
 import { usePiStore } from './store/pi-store'
+import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
 
 export default function App(): React.JSX.Element {
   const snapshot = usePiStore((state) => state.snapshot)
-  const approval = usePiStore((state) => state.approval)
-  const loginPrompt = usePiStore((state) => state.loginPrompt)
   const loading = usePiStore((state) => state.loading)
   const clientError = usePiStore((state) => state.clientError)
   const setSnapshot = usePiStore((state) => state.setSnapshot)
-  const setApproval = usePiStore((state) => state.setApproval)
-  const setLoginPrompt = usePiStore((state) => state.setLoginPrompt)
+  const applyPatch = usePiStore((state) => state.applyPatch)
   const setClientError = usePiStore((state) => state.setClientError)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [workbenchCollapsed, setWorkbenchCollapsed] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
   const [mode, setMode] = useState<WorkbenchMode>('files')
 
   useEffect(() => {
     let cancelled = false
     const unsubscribe = window.pi.onEvent((event) => {
-      if (event.event === 'state') setSnapshot(event.data)
-      if (event.event === 'approval') setApproval(event.data)
-      if (event.event === 'login-prompt') setLoginPrompt(event.data)
+      if (event.event === 'snapshot') setSnapshot(event.data)
+      if (event.event === 'patch' && applyPatch(event.data) === 'needsSnapshot') {
+        void window.pi
+          .getState()
+          .then((state) => {
+            if (!cancelled) setSnapshot(state)
+          })
+          .catch((error: unknown) => {
+            if (!cancelled) setClientError(error instanceof Error ? error.message : String(error))
+          })
+      }
     })
 
     void window.pi
@@ -41,13 +46,13 @@ export default function App(): React.JSX.Element {
       cancelled = true
       unsubscribe()
     }
-  }, [setApproval, setClientError, setLoginPrompt, setSnapshot])
+  }, [applyPatch, setClientError, setSnapshot])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.metaKey && event.key.toLowerCase() === 'b' && !event.altKey && !event.shiftKey) {
         event.preventDefault()
-        setSidebarCollapsed((value) => !value)
+        dispatchLayout({ type: 'sidebar:toggle' })
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -57,7 +62,8 @@ export default function App(): React.JSX.Element {
   const send = useCallback(
     async (command: HostCommand): Promise<void> => {
       try {
-        setSnapshot(await window.pi.send(command))
+        const result = await window.pi.send(command)
+        if (result.kind === 'snapshot') setSnapshot(result.snapshot)
       } catch (error) {
         setClientError(error instanceof Error ? error.message : String(error))
       }
@@ -74,83 +80,76 @@ export default function App(): React.JSX.Element {
     }
   }, [setClientError, setSnapshot])
 
-  const openSettings = (): void => {
-    setSettingsOpen(true)
-    setWorkbenchCollapsed(false)
-  }
+  const openSettings = useCallback((): void => {
+    dispatchLayout({ type: 'settings:open' })
+  }, [])
 
-  const login = (providerId: string, method: LoginMethod): void => {
-    void send({ type: 'account:login', providerId, method })
-  }
+  const closeSettings = useCallback((): void => {
+    dispatchLayout({ type: 'settings:close' })
+  }, [])
+
+  const login = useCallback(
+    (providerId: string, method: LoginMethod): void => {
+      void send({ type: 'account:login', providerId, method })
+    },
+    [send]
+  )
+
+  const respondToApproval = useCallback(
+    (id: string, allow: boolean): void => {
+      void send({ type: 'permission:respond', approvalId: id, allow })
+    },
+    [send]
+  )
 
   return (
     <div className="shell">
       <Sidebar
-        collapsed={sidebarCollapsed}
+        collapsed={layout.sidebarCollapsed}
+        collapseLocked={layout.settingsOpen}
         snapshot={snapshot}
-        onToggle={() => setSidebarCollapsed((value) => !value)}
+        onToggle={() => dispatchLayout({ type: 'sidebar:toggle' })}
         onChooseProject={() => void chooseProject()}
-        onNewSession={() =>
-          void send({
-            type: 'session:new',
-            providerId: snapshot.activeProvider ?? undefined,
-            modelId: snapshot.activeModel ?? undefined
-          })
-        }
+        onNewSession={() => void send(newSessionCommand(snapshot))}
         onOpenSession={(path) => void send({ type: 'session:open', path })}
         onOpenSettings={openSettings}
       />
 
       <Conversation
         snapshot={snapshot}
-        approval={approval}
+        approvals={snapshot.approvals}
         loading={loading}
         error={snapshot.error ?? clientError}
+        onChooseProject={() => void chooseProject()}
         onSend={(text) => void send({ type: 'prompt:send', text })}
         onAbort={() => void send({ type: 'prompt:abort' })}
+        onClearQueue={() => void send({ type: 'queue:clear' })}
         onPermissionChange={(permission) => void send({ type: 'permission:set', mode: permission })}
-        onChooseAccount={(providerId, modelId) => {
-          const hasConversation = snapshot.nodes.some((node) => node.type === 'user')
-          void send(
-            hasConversation
-              ? { type: 'session:new', providerId, modelId }
-              : { type: 'model:set', providerId, modelId }
-          )
-        }}
         onChooseModel={(providerId, modelId) =>
-          void send(
-            snapshot.nodes.some((node) => node.type === 'user')
-              ? { type: 'session:new', providerId, modelId }
-              : { type: 'model:set', providerId, modelId }
-          )
+          void send(modelSelectionCommand(snapshot, providerId, modelId))
         }
         onLogin={() => {
           openSettings()
           login('openai-codex', 'browser')
         }}
         onOpenSettings={openSettings}
-        onApproval={(id, allow) => {
-          setApproval(null)
-          void send({ type: 'permission:respond', requestId: id, allow })
-        }}
+        onApproval={respondToApproval}
       />
 
       <Workbench
-        collapsed={workbenchCollapsed}
+        collapsed={!layout.settingsOpen}
         mode={mode}
-        settingsOpen={settingsOpen}
+        settingsOpen={layout.settingsOpen}
         snapshot={snapshot}
-        loginPrompt={loginPrompt}
         onModeChange={(nextMode) => {
-          setSettingsOpen(false)
+          closeSettings()
           setMode(nextMode)
         }}
-        onToggle={() => setWorkbenchCollapsed((value) => !value)}
-        onCloseSettings={() => setSettingsOpen(false)}
+        onToggle={closeSettings}
+        onCloseSettings={closeSettings}
         onLogin={login}
         onAddAlias={(slug) => void send({ type: 'account:alias:add', slug })}
         onLoginPrompt={(promptId, value) => {
-          setLoginPrompt(null)
           void send({ type: 'account:login:respond', promptId, value })
         }}
       />

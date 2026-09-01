@@ -1,6 +1,6 @@
 # Pi Desktop UI 设计（调研稿）
 
-日期：2026-08-31
+日期：2026-08-31（MVP 覆盖于 2026-09-01 根据竞品调研更新）
 前提：新仓库。引擎用 `@earendil-works/pi-coding-agent` SDK。界面学 DSH 对话密度 + Codex 右侧工作台。不 fork DSH，不复用 Cordis slot 实现。
 
 ---
@@ -9,24 +9,24 @@
 
 ### DSH 对话区（要抄的）
 
-官方截图和 `ui-conversation` / `ui-tool` 源码对得上：
+以下形态以官方截图和 `ui-conversation` / `ui-tool` 源码为基线；未能独立核验的旧截图细节单独标注：
 
-- 左栏：工作区树，会话挂在文件夹下；「新会话」；底栏设置 / 插件市场。
+- 左栏：工作区树，会话挂在文件夹下；「新会话」和设置入口。旧截图中的“插件市场固定在底栏”未能从当前源码独立核验，不纳入 Pi 信息架构。
 - 中栏才是产品：空态 Hero（居中 slogan + 大输入框）→ 进会话后变成顶栏 + 节点流 + 底栏 composer。
-- 对话是文档流，不是 messenger：**没有头像，消息上没有时间戳**（相对时间只在侧栏会话行）。
+- 对话是文档流，不是 messenger。Pi MVP 选择**没有头像、消息上没有时间戳**（相对时间只在侧栏会话行）；这是自身产品取舍，不再作为当前 DSH 的事实归因。
 - Chat Node：
   - 用户：右对齐深灰 **胶囊气泡**；steering（中途插入）同款
   - 助手：**无气泡、贴画布** 的 Markdown，不要做成左右气泡对聊
   - 上下文注入：灰 metadata 行（「上下文注入 · @…」）
-  - Think：折叠行 + 截断灰摘要；Compact 是默认——一轮结束后过程收到「Thought for a while」/工具计数后面
-  - 工具：流里的一行卡片（terminal / diff / read / search / web / generic），点路径 `openFile`，点检查才开 details
-  - 回答脚：最多 6 个 deliverable 芯片；动作保留 **复制 / 重试**（赞踩可省略）
+  - Think：当前源码能确认折叠 reasoning 和 turn-level process summary；旧截图中固定的「Thought for a while」与工具计数组合未能独立核验，不绑定该精确文案
+  - 工具：流里的一行卡片（terminal / diff / read / search / web / generic），先 inline 展开；未来证据视图由显式 Inspect 动作打开
+  - 回答脚：最多 6 个 deliverable 芯片；MVP 已实现**复制**。重试 / branch 要等 Pi 的会话语义明确后再做
 - 工具卡片按 intent 分型：`terminal` / `read` / `diff` / `search` / `web` / generic
-- 点卡片会打开 **details**（`conversation.details.tool`），这是 DSH 仅有的「右侧」——检查器，不是工作台
+- DSH 点工具卡先 inline 展开，展开体里的 Inspect 才进入 trajectory / details。Pi 未来的证据视图也不能与 Workbench 混为一谈
 - 顶栏 Tabs：`对话` | `轨迹`。轨迹是虚拟化时间线 + 右侧 payload 检查器，和对话抢同一块主列
 - 列宽（照抄官方 grid）：sidebar 默认 **280**（264–420，收起 56 rail）；center 最小 **640**；官方 `details` 默认 **0 关闭**（开时 360，300–520）。我们的 Codex 工作台是新产品，不要复用官方 details 的 tool inspector。
-- 内容轴：`--dsh-chat-content-width`，默认列宽 64%，夹在 680–920px，可拖
-- Composer 是对话列里一张大圆角卡片，不是浮层。工具行：`+` · 权限芯片 · 模型 · **ContextMeter 圆环** · **蓝色圆 Send**。运行中空草稿 → Stop；有字 → Queue Send。忙时 Enter = Queue/Steer。`@` 插入原子芯片（文件/会话），附件 MVP 先做图片粘贴。
+- 内容轴：DSH 的 `--dsh-chat-content-width` 默认列宽 64%，夹在 680–920px，并提供拖拽。Pi MVP 目前只有响应式内容轴，用户拖拽宽度明确延期。
+- Composer 是对话列里一张大圆角卡片，不是浮层。工具行：`+` · 权限芯片 · 模型 · **ContextMeter 圆环** · **蓝色圆 Send**。运行中空草稿 → Stop；有字 → Queue Send。DSH 的 Queue / Steer 交互只作为参考；Pi MVP 已实现 follow-up 队列和清空全部，单项 steer 延期。`@` 文件/会话原子芯片与图片粘贴附件也明确延期。
 - Stats 贴在卡片 **下面**：`1轮 · 1步 | LLM 1.7s | 首 token 平均 0.9s · 121 tok/s | 缓存命中 0% | 输入 7.8K tok · 输出 102 tok`。没有的字段就丢掉，不要假造美元费用。
 - 主题：画布 `#0A0A0A`–`#121212`，composer `#1E1E1E`，强调蓝 ~ `#4B70E2`，圆角 8–16，正文 14。Hero slogan 才用衬线。
 
@@ -57,18 +57,20 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 ## 2. 产品结构：三栏，不是两栏
 
 - **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
-- **Conversation**：学 DSH 节点流。永远在。宽度轴 680–920 可拖。
-- **Workbench**：学 Codex。默认开；可折叠成只剩 picker。宽度按 **工作区** 记住。Modes: Files | Review | Terminal | Browser（+ Trace 后做）。一次一个 mode。禁止 hover 打开。
+- **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
+- **Workbench**：学 Codex。本 MVP 默认只显示 **52px mode rail**；打开设置时展开设置面板，关闭设置后回到 rail。Files / Review / Terminal / Browser（+ Trace）仍是占位；未来第一个真实 mode 完成后，也只由用户显式触发展开。禁止 hover 打开。按工作区记宽度留待真实 mode 实现时再做。
 
-空态：DSH Hero。没选 project 时右侧显示「选一个工作区」。
+这是基于 2026-09-01 竞品调研的阶段性覆盖：当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
+
+空态：DSH Hero。没选 project 时，中间对话区的 Hero 显示唯一主动作「选择工作区」。
 
 ## 3. 对话区：抄密度，不抄 Cordis
 
-节点 MVP：user / context / think / tool / assistant / error。工具卡片 intent：bash→terminal，read/ls→read，grep/find→search，write/edit→diff。
+节点 MVP：user / think / tool / assistant / error。工具卡片 intent：bash→terminal，read/ls→read，grep/find→search，write/edit→diff。tool 以稳定 `toolCallId` 关联审批和 `queued / awaiting-approval / running / success / error / blocked` 状态；运行中的 active session 派生 `idle / running / awaiting-approval / error`，侧栏和对话头读取同一 Host 状态。
 
-Composer：`+` · 权限芯片（Open / Ask）· 模型 · ContextMeter · 蓝色圆 Send（Send↔Stop↔Queue）。忙时 Enter = Queue/Steer。Stats 只用真实 Pi usage，不造美元费用。
+Composer：`+` · 权限芯片（Open / Ask）· 账号 · 模型 · ContextMeter · 蓝色圆 Send（Send↔Stop↔Queue）。Ask / Open 是本次本地运行期审批策略，重启回 Ask，不等同于 OS sandbox 或持久 allow/deny 规则。运行中发送进入 Pi follow-up 队列；MVP 展示完整队列并支持清空全部，单项编辑、删除和 steer 后做。Context popover 只展示 Pi `getSessionStats()` 的 context tokens/window 与累计 input/output/cache，以及 Host 本次运行实测；缺失值显示未知，不伪造分类或美元费用。
 
-## 4. 右侧 Workbench
+## 4. 右侧 Workbench（目标形态，本 MVP 未实现）
 
 Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走对话卡片。Review：Git，Last turn | Working tree。Browser：WebContentsView，独立 profile。跟随产物克制：不因每次 write 切 Review。
 
@@ -77,15 +79,16 @@ Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走�
 凭证只在 `~/.pi/agent/auth.json`。一 provider 一槽；多号用别名（`anthropic-work`、`openai-codex-home`），兼容 `@hank-warren/pi-multi-login`。
 
 **Codex（ChatGPT Plus/Pro）— 直登必须有，导入只是顺手**
-- 主路：设置「登录 Codex」→ Pi `/login` → `openai-codex`（Codex for OSS）。系统浏览器或右栏 Browser；loopback 失败走 device code。
+
+- 主路：设置「登录 Codex」→ Pi `/login` → `openai-codex`（Codex for OSS）。当前只使用系统浏览器；loopback 失败走 device code。右栏 Browser 登录路线随 Browser mode 延期，本轮未实现。
 - 多号：别名槽 `openai-codex-<slug>`，不覆盖主机 `~/.codex`。
-- 顺手：检测到 `~/.codex/auth.json` 可导入。没装 CLI 的人必须能直登。
+- 延期：检测并导入 `~/.codex/auth.json` 只是便利能力，本轮未实现；没装 CLI 的人已经可以通过 Pi `/login` 直登。
 
-**Claude**：Pi `/login anthropic` 是 extra usage，不是 Claude Code 套餐限额。不要默认导入 Claude Code token。自定义 OpenAI/Anthropic 兼容端点写入 `models.json` + `auth.json`。
+**Claude**：Pi `/login anthropic` 是 extra usage，不是 Claude Code 套餐限额。不要默认导入 Claude Code token。这是本产品要求持续显示的政策文案。自定义 OpenAI/Anthropic 兼容端点及其 `models.json` + `auth.json` 管理 UI 明确延期，本轮未实现。
 
-Composer 两级：账号 → 模型。新会话跟 active 账号；已打开的 session 钉死。不做静默 failover。登录后 `authStorage.reload()`。
+Composer 两级：账号 → 模型。浏览账号不创建会话；已有 transcript 的 session 钉死 provider/model，模型不可用时保持只读，不做静默 failover。Pi SDK `0.84.4` 的公开 `ModelRuntime.login()` 在返回前已同步该进程中的凭证、catalog 与 availability 投影；登录后重新读取公开投影，不直接操作私有 `authStorage.reload()`。升级 SDK 时重新核验这一约束。
 
-## 6. 手机端与外网
+## 6. 手机端与外网（后续目标，本轮未实现）
 
 桌面 = runtime，手机 = 同一 session 的 PWA 对话面。MVP：会话列表、接着聊、Stop/Queue/Steer、Ask 批准、跑完推送。Files/Git/终端/浏览器不上手机。
 
@@ -93,7 +96,9 @@ Composer 两级：账号 → 模型。新会话跟 active 账号；已打开的 
 
 ## 7. 进程与数据
 
-Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口/托盘/WebContentsView/pty。Agent Host：utilityProcess，`createAgentSession()`，`agentDir = ~/.pi/agent`。对话是 Pi JSONL 投影。
+Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最近项目偏好和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime，生产 `agentDir = ~/.pi/agent`。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 只保存最近项目路径；这是本地偏好数据，不含 token/transcript，但路径本身可能暴露用户名、客户名或项目名，应按本地隐私数据对待。
+
+流式同步先发送带 `sessionId + generation + revision` 的完整 snapshot，之后发送带 `baseRevision + revision` 的节点 upsert / removal / order patch 和轻量元数据。token 更新按短窗口合并，completed / settled 强制刷新；Renderer 对旧 patch 幂等忽略，对会话代际不匹配、乱序或 revision 缺口重新拉 snapshot。完整 snapshot 用于 bootstrap、项目/会话切换与恢复同步，不在每个 token 上重复传整份 transcript。
 
 ## 8. 明确不做什么
 
@@ -101,10 +106,10 @@ Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口/托盘
 
 ## 9. 建议落地顺序
 
-1. 壳：三栏 + Hero + 工作区会话树
-2. 对话节点流 + composer + metrics
-2b. 账号：Codex 直登 + composer 两级切换
-2c. 手机：gateway + 配对 + LAN QR + Quick Tunnel
+1. 壳：三栏 + Hero + 工作区会话树（MVP 已覆盖；Workbench 真实 mode 未实现）
+2. 对话节点流 + composer + metrics（MVP 已覆盖 snapshot + revision patch、状态、Context 与 Queue；`@` / 图片附件和可拖内容轴延期）
+   - **2b.** 账号：Codex 直登 + composer 两级切换（MVP 已覆盖显式选择与 session pinning；`~/.codex/auth.json` 导入和自定义兼容端点 UI 延期）
+   - **2c.** 手机：gateway + 配对 + LAN QR + Quick Tunnel
 3. Files + Review
 4. 用户 PTY
 5. Browser

@@ -8,3 +8,6 @@ Thumbs.db
 desktop.ini
 *.log*
 .eslintcache
+artifacts/e2e/
+test-results/
+playwright-report/

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
   Check,
-  ChevronLeft,
   ChevronRight,
   CircleAlert,
   Clipboard,
@@ -41,7 +40,6 @@ type WorkbenchProps = {
   mode: WorkbenchMode
   settingsOpen: boolean
   snapshot: AgentSnapshot
-  loginPrompt: LoginPrompt | null
   onModeChange: (mode: WorkbenchMode) => void
   onToggle: () => void
   onCloseSettings: () => void
@@ -190,12 +188,11 @@ function LoginButtons({
 
 function SettingsPanel({
   snapshot,
-  loginPrompt,
   onClose,
   onLogin,
   onAddAlias,
   onLoginPrompt
-}: Pick<WorkbenchProps, 'snapshot' | 'loginPrompt' | 'onLogin' | 'onAddAlias' | 'onLoginPrompt'> & {
+}: Pick<WorkbenchProps, 'snapshot' | 'onLogin' | 'onAddAlias' | 'onLoginPrompt'> & {
   onClose: () => void
 }): React.JSX.Element {
   const [addingAlias, setAddingAlias] = useState(false)
@@ -240,7 +237,9 @@ function SettingsPanel({
           </div>
 
           <LoginState snapshot={snapshot} />
-          {loginPrompt ? <AuthPromptCard prompt={loginPrompt} onRespond={onLoginPrompt} /> : null}
+          {snapshot.loginPrompt ? (
+            <AuthPromptCard prompt={snapshot.loginPrompt} onRespond={onLoginPrompt} />
+          ) : null}
         </section>
 
         <section className="settings-section">
@@ -339,7 +338,6 @@ export default function Workbench({
   mode,
   settingsOpen,
   snapshot,
-  loginPrompt,
   onModeChange,
   onToggle,
   onCloseSettings,
@@ -365,10 +363,6 @@ export default function Workbench({
               </button>
             )
           })}
-          <span className="rail-spacer" />
-          <button className="icon-btn" type="button" onClick={onToggle} title="展开工作台">
-            <ChevronLeft size={17} />
-          </button>
         </div>
       </aside>
     )
@@ -405,7 +399,6 @@ export default function Workbench({
       {settingsOpen ? (
         <SettingsPanel
           snapshot={snapshot}
-          loginPrompt={loginPrompt}
           onClose={onCloseSettings}
           onLogin={onLogin}
           onAddAlias={onAddAlias}

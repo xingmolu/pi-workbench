@@ -4,7 +4,9 @@
     "electron.vite.config.*",
     "src/main/**/*",
     "src/preload/**/*",
-    "src/agent-host/**/*"
+    "src/agent-host/**/*",
+    "playwright.config.ts",
+    "tests/e2e/**/*"
   ],
   "compilerOptions": {
     "composite": true,

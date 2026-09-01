@@ -9,7 +9,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          'agent-host': resolve(__dirname, 'src/agent-host/index.ts')
+          'agent-host': resolve(__dirname, 'src/agent-host/index.ts'),
+          'electron-store-interop': resolve(__dirname, 'src/main/electron-store-interop.ts')
         }
       }
     }

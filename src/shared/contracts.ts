@@ -7,6 +7,8 @@ export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'gene
 export type ToolStatus =
   'queued' | 'awaiting-approval' | 'running' | 'success' | 'error' | 'blocked'
 
+export type SessionStatus = 'idle' | 'running' | 'awaiting-approval' | 'error'
+
 export type ConversationNode =
   | {
       id: string
@@ -34,6 +36,9 @@ export type ConversationNode =
       title: string
       detail?: string
       output?: string
+      durationMs?: number
+      originalOutputLength?: number
+      truncated?: boolean
       status: ToolStatus
     }
   | {
@@ -54,6 +59,7 @@ export type SessionSummary = {
   modified: string
   messageCount: number
   active: boolean
+  status: SessionStatus
 }
 
 export type AccountSummary = {
@@ -73,6 +79,16 @@ export type ModelSummary = {
   reasoning: boolean
 }
 
+export type ModelAvailability = 'available' | 'unavailable' | 'unselected'
+
+export type ComposeBlockReason =
+  | 'project-required'
+  | 'login-required'
+  | 'model-required'
+  | 'model-unavailable'
+  | 'pinned-model-unavailable'
+  | null
+
 export type UsageMetrics = {
   turns: number
   steps: number
@@ -90,6 +106,7 @@ export type UsageMetrics = {
 
 export type ApprovalRequest = {
   id: string
+  generation: number
   toolCallId: string
   toolName: string
   intent: ToolIntent
@@ -129,6 +146,9 @@ export type LoginStatus =
   | { phase: 'error'; providerId: string; message: string }
 
 export type AgentSnapshot = {
+  sessionId: string | null
+  generation: number
+  revision: number
   ready: boolean
   engine: typeof AGENT_ENGINE
   agentDir: string
@@ -140,24 +160,50 @@ export type AgentSnapshot = {
   models: ModelSummary[]
   activeProvider: string | null
   activeModel: string | null
+  modelAvailability: ModelAvailability
+  composeBlockReason: ComposeBlockReason
   busy: boolean
+  status: SessionStatus
+  approvals: ApprovalRequest[]
+  followUp: string[]
   queuedCount: number
   permissionMode: PermissionMode
   metrics: UsageMetrics
   login: LoginStatus
+  loginPrompt: LoginPrompt | null
   error?: string
 }
+
+export type AgentSnapshotMeta = Omit<
+  AgentSnapshot,
+  'sessionId' | 'generation' | 'revision' | 'nodes'
+>
+
+export type AgentStatePatch = {
+  sessionId: string | null
+  generation: number
+  baseRevision: number
+  revision: number
+  nodeUpserts: ConversationNode[]
+  removedNodeIds: string[]
+  nodeOrder?: string[]
+  meta: Partial<AgentSnapshotMeta>
+}
+
+export type SessionNewCommand =
+  { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
 
 export type HostCommand =
   | { type: 'bootstrap' }
   | { type: 'state:get' }
   | { type: 'project:open'; cwd: string }
-  | { type: 'session:new'; providerId?: string; modelId?: string }
+  | SessionNewCommand
   | { type: 'session:open'; path: string }
   | { type: 'prompt:send'; text: string }
   | { type: 'prompt:abort' }
+  | { type: 'queue:clear' }
   | { type: 'permission:set'; mode: PermissionMode }
-  | { type: 'permission:respond'; requestId: string; allow: boolean }
+  | { type: 'permission:respond'; approvalId: string; allow: boolean }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
@@ -165,18 +211,41 @@ export type HostCommand =
 
 export type HostRequest = HostCommand & { requestId: string }
 
-export type HostResponse = {
-  type: 'response'
-  requestId: string
-  ok: boolean
-  data?: unknown
-  error?: string
+export type SnapshotHostCommand = Extract<
+  HostCommand,
+  { type: 'bootstrap' | 'state:get' | 'project:open' | 'session:new' | 'session:open' }
+>
+export type AckHostCommand = Exclude<HostCommand, SnapshotHostCommand>
+
+export type HostSnapshotResult = { kind: 'snapshot'; snapshot: AgentSnapshot }
+export type HostAckResult = {
+  kind: 'ack'
+  sessionId: string | null
+  generation: number
+  revision: number
 }
+export type HostResult = HostSnapshotResult | HostAckResult
+export type HostResultFor<Command extends HostCommand> = Command extends SnapshotHostCommand
+  ? HostSnapshotResult
+  : HostAckResult
+
+export type HostResponse =
+  | {
+      type: 'response'
+      requestId: string
+      ok: true
+      data: HostResult
+    }
+  | {
+      type: 'response'
+      requestId: string
+      ok: false
+      error: string
+    }
 
 export type HostEvent =
-  | { type: 'event'; event: 'state'; data: AgentSnapshot }
-  | { type: 'event'; event: 'approval'; data: ApprovalRequest }
-  | { type: 'event'; event: 'login-prompt'; data: LoginPrompt }
+  | { type: 'event'; event: 'snapshot'; data: AgentSnapshot }
+  | { type: 'event'; event: 'patch'; data: AgentStatePatch }
   | { type: 'event'; event: 'open-external'; data: { url: string } }
 
 export type HostMessage = HostResponse | HostEvent
@@ -184,6 +253,6 @@ export type HostMessage = HostResponse | HostEvent
 export type PiDesktopAPI = {
   getState: () => Promise<AgentSnapshot>
   selectProject: () => Promise<AgentSnapshot | null>
-  send: (command: HostCommand) => Promise<AgentSnapshot>
+  send: <Command extends HostCommand>(command: Command) => Promise<HostResultFor<Command>>
   onEvent: (listener: (event: HostEvent) => void) => () => void
 }
