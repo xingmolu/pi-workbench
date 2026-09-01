@@ -144,7 +144,7 @@ export type SessionModelMutationTarget = {
 
 function requireSameMutableTarget(
   target: SessionModelMutationTarget | null,
-  expected: Pick<SessionModelMutationTarget, 'sessionId' | 'generation'>
+  expected: Pick<SessionModelMutationTarget, 'sessionId' | 'generation' | 'hasTranscript'>
 ): SessionModelMutationTarget {
   if (
     !target ||
@@ -153,7 +153,9 @@ function requireSameMutableTarget(
   ) {
     throw new Error('会话已切换，请重新选择模型')
   }
-  if (target.hasTranscript) throw new Error('当前会话已有对话内容，不能原地切换模型')
+  if (target.hasTranscript !== expected.hasTranscript) {
+    throw new Error('会话内容已变化，请重新选择模型')
+  }
   if (target.busy || target.promptPending) throw new Error('当前会话正在运行，不能切换模型')
   return target
 }

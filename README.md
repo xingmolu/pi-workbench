@@ -7,7 +7,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
 - composer：Open / Ask、账号 → 模型、ContextMeter、Send / Stop / Queue；
-- 会话标题、运行/待确认/错误状态、固定 provider/model，以及完整 follow-up 队列；
+- 会话标题、运行/待确认/错误状态、同会话模型切换，以及完整 follow-up 队列；
 - 真实 Pi usage、context 和本次运行期时序指标，不估算费用；
 - Codex（ChatGPT Plus / Pro）浏览器登录与 device code；
 - Pi 多账号 provider 别名 `openai-codex-<slug>`；
@@ -72,7 +72,8 @@ npx electron-builder --dir
    `/login openai-codex` 相同的登录能力，不自行实现或复制 OAuth 凭证。
 3. 若本机 loopback 端口不可用，Host 自动选择 device code；也可以直接点击“设备码”。
 4. 登录后在 composer 先选账号、再选模型。浏览账号不会创建会话；已有 transcript
-   的会话固定自己的 provider/model，选择另一模型时会明确新建会话。
+   时选择另一模型会在同一 Pi session 追加 canonical `model_change`，保留全部上下文。
+   新会话仍从当前 active 账号与模型开始，模型不可用时不会静默切换。
 5. Ask 是本次应用运行期的审批策略，会在 bash、powershell、write、edit 前显示确认；
    Open 允许 Pi 在本次运行中直接调用工具。重启后恢复为 Ask；它们不是 OS sandbox
    或持久 allow/deny 规则。

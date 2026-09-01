@@ -88,7 +88,7 @@ Browser 网页内容明确标记为不可信。remote content 保持 sandbox、c
 
 **Claude**：Pi `/login anthropic` 是 extra usage，不是 Claude Code 套餐限额。不要默认导入 Claude Code token。这是本产品要求持续显示的政策文案。自定义 OpenAI/Anthropic 兼容端点及其 `models.json` + `auth.json` 管理 UI 明确延期，本轮未实现。
 
-Composer 两级：账号 → 模型。浏览账号不创建会话；已有 transcript 的 session 钉死 provider/model，模型不可用时保持只读，不做静默 failover。Pi SDK `0.84.4` 的公开 `ModelRuntime.login()` 在返回前已同步该进程中的凭证、catalog 与 availability 投影；登录后重新读取公开投影，不直接操作私有 `authStorage.reload()`。升级 SDK 时重新核验这一约束。
+Composer 两级：账号 → 模型。浏览账号不创建会话；已有 transcript 时切换模型调用 Pi `AgentSession.setModel()`，在同一 JSONL 追加 canonical `model_change` 并保留上下文。新会话跟随当前 active 账号与模型；模型不可用时保持只读，不做静默 failover。Pi SDK `0.84.4` 的公开 `ModelRuntime.login()` 在返回前已同步该进程中的凭证、catalog 与 availability 投影；登录后重新读取公开投影，不直接操作私有 `authStorage.reload()`。升级 SDK 时重新核验这一约束。
 
 ## 6. 手机端与外网（后续目标，本轮未实现）
 

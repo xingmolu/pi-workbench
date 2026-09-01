@@ -465,7 +465,7 @@ function Composer({
     (item) => item.provider === modelSelection.stagedProvider
   )
   const providerIsStaged = modelSelection.stagedProvider !== snapshot.activeProvider
-  const modelWillCreateSession = sessionHasTranscript(snapshot)
+  const modelSwitchKeepsSession = sessionHasTranscript(snapshot)
   const canCompose = Boolean(
     snapshot.project &&
     snapshot.modelAvailability === 'available' &&
@@ -660,7 +660,7 @@ function Composer({
                   <span>
                     <strong>{item.name}</strong>
                     <small>
-                      {modelWillCreateSession ? '用此模型新建会话 · ' : ''}
+                      {modelSwitchKeepsSession ? '在当前会话切换 · ' : ''}
                       {formatTokens(item.contextWindow)} context
                     </small>
                   </span>

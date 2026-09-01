@@ -134,6 +134,33 @@ describe('exact model selection', () => {
 })
 
 describe('model selection transition', () => {
+  it('changes the model in place when the existing transcript is stable', async () => {
+    const applyModel = vi.fn(async () => undefined)
+    const target = {
+      sessionId: 'session-a',
+      generation: 4,
+      busy: false,
+      promptPending: false,
+      hasTranscript: true
+    }
+
+    await expect(
+      applyExactModelSelection('openai-codex-work', 'gpt-5.6-sol', {
+        readTarget: () => target,
+        refreshAuthProjection: async () => undefined,
+        getAccounts: () => connectedAccounts,
+        getModels: () => availableModels,
+        findAvailableModel: () => ({ id: 'runtime-model' }),
+        applyModel
+      })
+    ).resolves.toEqual({
+      providerId: 'openai-codex-work',
+      modelId: 'gpt-5.6-sol'
+    })
+
+    expect(applyModel).toHaveBeenCalledOnce()
+  })
+
   it('refuses to mutate when a prompt adds transcript during auth refresh', async () => {
     const applyModel = vi.fn(async () => undefined)
     let target = {
@@ -155,7 +182,7 @@ describe('model selection transition', () => {
         findAvailableModel: () => ({ id: 'runtime-model' }),
         applyModel
       })
-    ).rejects.toThrow('当前会话已有对话内容，不能原地切换模型')
+    ).rejects.toThrow('会话内容已变化，请重新选择模型')
 
     expect(applyModel).not.toHaveBeenCalled()
   })

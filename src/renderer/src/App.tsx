@@ -135,7 +135,7 @@ export default function App(): React.JSX.Element {
         onClearQueue={() => void send({ type: 'queue:clear' })}
         onPermissionChange={(permission) => void send({ type: 'permission:set', mode: permission })}
         onChooseModel={(providerId, modelId) =>
-          void send(modelSelectionCommand(snapshot, providerId, modelId))
+          void send(modelSelectionCommand(providerId, modelId))
         }
         onLogin={() => {
           openSettings()

@@ -1130,9 +1130,6 @@ class PiDesktopHost {
           ) {
             throw new Error('会话已切换，请重新选择模型')
           }
-          if (current.hasTranscript) {
-            throw new Error('当前会话已有对话内容，不能原地切换模型')
-          }
           if (current.busy || current.promptPending) {
             throw new Error('当前会话正在运行，不能切换模型')
           }

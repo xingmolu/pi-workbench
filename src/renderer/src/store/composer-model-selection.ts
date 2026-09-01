@@ -55,13 +55,10 @@ export function sessionHasTranscript(snapshot: SnapshotTranscript): boolean {
 }
 
 export function modelSelectionCommand(
-  snapshot: SnapshotTranscript,
   providerId: string,
   modelId: string
-): Extract<HostCommand, { type: 'model:set' | 'session:new' }> {
-  return sessionHasTranscript(snapshot)
-    ? { type: 'session:new', providerId, modelId }
-    : { type: 'model:set', providerId, modelId }
+): Extract<HostCommand, { type: 'model:set' }> {
+  return { type: 'model:set', providerId, modelId }
 }
 
 export function newSessionCommand(

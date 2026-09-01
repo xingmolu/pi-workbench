@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentSnapshot } from '../../../shared/contracts'
 import {
   composerModelSelectionReducer,
   initialComposerModelSelection,
@@ -52,38 +51,16 @@ describe('composer account staging', () => {
 
 describe('composer model action', () => {
   it('sets the exact combination in an empty session', () => {
-    const snapshot = {
-      nodes: [],
-      sessions: [],
-      activeSessionPath: null
-    } as Pick<AgentSnapshot, 'nodes' | 'sessions' | 'activeSessionPath'>
-
-    expect(modelSelectionCommand(snapshot, 'openai-codex-work', 'gpt-5.6-sol')).toEqual({
+    expect(modelSelectionCommand('openai-codex-work', 'gpt-5.6-sol')).toEqual({
       type: 'model:set',
       providerId: 'openai-codex-work',
       modelId: 'gpt-5.6-sol'
     })
   })
 
-  it('creates a session with the exact combination for a persisted transcript', () => {
-    const snapshot = {
-      nodes: [],
-      activeSessionPath: '/tmp/session.jsonl',
-      sessions: [
-        {
-          id: 'session-a',
-          path: '/tmp/session.jsonl',
-          title: 'Existing',
-          modified: '2026-09-01T00:00:00.000Z',
-          messageCount: 2,
-          active: true,
-          status: 'idle'
-        }
-      ]
-    } as Pick<AgentSnapshot, 'nodes' | 'sessions' | 'activeSessionPath'>
-
-    expect(modelSelectionCommand(snapshot, 'openai-codex-work', 'gpt-5.6-luna')).toEqual({
-      type: 'session:new',
+  it('keeps the current session and its transcript when selecting another model', () => {
+    expect(modelSelectionCommand('openai-codex-work', 'gpt-5.6-luna')).toEqual({
+      type: 'model:set',
       providerId: 'openai-codex-work',
       modelId: 'gpt-5.6-luna'
     })
