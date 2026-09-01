@@ -1,18 +1,8 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
-
-export type AgentHostStatus = {
-  ready: boolean
-  stub: boolean
-  engine: string
-  agentDir: string
-}
+import type { PiDesktopAPI } from '../shared/contracts'
 
 declare global {
   interface Window {
-    electron: ElectronAPI
-    api: {
-      getAgentHostStatus: () => Promise<AgentHostStatus>
-    }
+    pi: PiDesktopAPI
   }
 }
 

@@ -1,27 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import type { AgentSnapshot, HostCommand, HostEvent, PiDesktopAPI } from '../shared/contracts'
 
-export type AgentHostStatus = {
-  ready: boolean
-  stub: boolean
-  engine: string
-  agentDir: string
-}
-
-const api = {
-  getAgentHostStatus: (): Promise<AgentHostStatus> => ipcRenderer.invoke('agent-host:status')
-}
-
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+const api: PiDesktopAPI = {
+  getState: (): Promise<AgentSnapshot> => ipcRenderer.invoke('pi:state'),
+  selectProject: (): Promise<AgentSnapshot | null> => ipcRenderer.invoke('pi:select-project'),
+  send: (command: HostCommand): Promise<AgentSnapshot> => ipcRenderer.invoke('pi:command', command),
+  onEvent: (listener: (event: HostEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: HostEvent): void => listener(value)
+    ipcRenderer.on('pi:event', handler)
+    return () => ipcRenderer.removeListener('pi:event', handler)
   }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
 }
+
+contextBridge.exposeInMainWorld('pi', api)
