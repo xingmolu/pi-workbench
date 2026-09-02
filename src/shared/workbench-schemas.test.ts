@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { WORKBENCH_PANEL_STATE_MAX_BYTES } from './workbench-contracts'
 import {
-  piPackageRootsMessageSchema,
   pluginPanelCommandSchema,
+  pluginPanelCommandResultSchema,
+  pluginPanelContextSchema,
+  pluginPanelStateSchema,
   workbenchCommandSchema,
+  workbenchCommandResultSchema,
+  workbenchEventSchema,
   workbenchSnapshotSchema
-} from './schemas'
+} from './workbench-schemas'
 
 const contribution = {
   pluginId: 'pi.desktop.builtin',
@@ -27,6 +31,18 @@ const snapshot = {
       source: 'builtin',
       scope: 'builtin',
       builtin: true,
+      desktopEnabled: true,
+      hasExecutablePiResources: false,
+      requestedPermissions: [],
+      diagnostics: []
+    },
+    {
+      pluginId: 'acme.notes',
+      name: 'Acme Notes',
+      version: '1.0.0',
+      source: 'user-package',
+      scope: 'user',
+      builtin: false,
       desktopEnabled: true,
       hasExecutablePiResources: false,
       requestedPermissions: [],
@@ -114,9 +130,24 @@ describe('Workbench schemas', () => {
     expect(
       workbenchSnapshotSchema.safeParse({
         ...snapshot,
-        contributions: [contribution, { ...contribution, pluginId: 'acme.duplicate' }]
+        contributions: [contribution, { ...contribution }]
       }).success
     ).toBe(false)
+  })
+
+  it('rejects duplicate plugin ids and orphan contributions', () => {
+    const cases = [
+      {
+        ...snapshot,
+        plugins: [snapshot.plugins[0], { ...snapshot.plugins[1], pluginId: 'pi.desktop.builtin' }]
+      },
+      {
+        ...snapshot,
+        contributions: [{ ...contribution, pluginId: 'missing.plugin' }]
+      }
+    ]
+
+    for (const value of cases) expect(workbenchSnapshotSchema.safeParse(value).success).toBe(false)
   })
 
   it('rejects unsafe native-view bounds', () => {
@@ -197,65 +228,115 @@ describe('Workbench schemas', () => {
       }).success
     ).toBe(false)
   })
-})
 
-describe('Pi package-root message schema', () => {
-  it('accepts trusted absolute package roots', () => {
-    const message = {
-      type: 'desktop-plugin-roots',
-      sessionId: 'session-1',
-      generation: 4,
-      roots: [
-        {
-          path: '/Users/me/.pi/agent/extensions/example',
-          source: 'package-discovery',
-          scope: 'user',
-          hasExecutablePiResources: true
-        },
-        {
-          path: 'C:\\Users\\me\\project\\.pi\\extensions\\example',
-          source: 'project-package-discovery',
-          scope: 'project',
-          hasExecutablePiResources: false
-        }
-      ]
-    } as const
+  it('never throws and rejects cyclic or excessively complex panel state', () => {
+    const context = {
+      pluginId: 'acme.notes',
+      viewId: 'notes',
+      projectPath: null,
+      sessionId: null,
+      generation: 0
+    }
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
 
-    expect(piPackageRootsMessageSchema.parse(message)).toEqual(message)
+    let deep: unknown = null
+    for (let index = 0; index < 65; index += 1) deep = { child: deep }
+
+    const cases = [cyclic, deep, new Array(4096).fill(null), { value: Number.POSITIVE_INFINITY }]
+    for (const value of cases) {
+      let result: ReturnType<typeof pluginPanelCommandSchema.safeParse> | undefined
+      expect(() => {
+        result = pluginPanelCommandSchema.safeParse({ type: 'state:set', context, value })
+      }).not.toThrow()
+      expect(result?.success).toBe(false)
+    }
   })
 
-  it('rejects malformed or renderer-shaped package-root messages', () => {
-    expect(
-      piPackageRootsMessageSchema.safeParse({
-        type: 'desktop-plugin-roots',
-        sessionId: null,
-        generation: 0,
-        roots: [
-          {
-            path: '../relative/plugin',
-            source: 'package-discovery',
-            scope: 'user',
-            hasExecutablePiResources: false
-          }
+  it('rejects non-plain containers and non-data properties', () => {
+    class StateContainer {
+      value = 'not-plain'
+    }
+    const withSymbol = { value: 'visible', [Symbol('hidden')]: 'hidden' }
+    const withGetter = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => 'computed'
+    })
+    const sparse = new Array(2)
+    sparse[1] = 'value'
+
+    for (const value of [
+      new Date(),
+      new Map(),
+      new StateContainer(),
+      withSymbol,
+      withGetter,
+      sparse
+    ]) {
+      expect(pluginPanelStateSchema.safeParse(value).success).toBe(false)
+    }
+  })
+
+  it('accepts state/reveal events, command results, panel context and panel results', () => {
+    const context = {
+      pluginId: 'acme.notes',
+      viewId: 'notes',
+      projectPath: '/workspace/project',
+      sessionId: 'session-1',
+      generation: 7
+    } as const
+    const cases: Array<[string, { safeParse: (value: unknown) => { success: boolean } }, unknown]> =
+      [
+        ['state event', workbenchEventSchema, { type: 'state', data: snapshot }],
+        [
+          'reveal event',
+          workbenchEventSchema,
+          { type: 'reveal', viewId: 'notes', context: { noteId: 'note-1' } }
+        ],
+        ['reveal event without context', workbenchEventSchema, { type: 'reveal', viewId: 'notes' }],
+        ['command result', workbenchCommandResultSchema, { state: snapshot }],
+        ['panel context', pluginPanelContextSchema, context],
+        ['panel context command', pluginPanelCommandSchema, { type: 'context:get' }],
+        ['panel state command', pluginPanelCommandSchema, { type: 'state:get', context }],
+        ['context result', pluginPanelCommandResultSchema, { type: 'context', context }],
+        [
+          'state result',
+          pluginPanelCommandResultSchema,
+          { type: 'state', context, value: { noteId: 'note-1' } }
+        ],
+        ['stored result', pluginPanelCommandResultSchema, { type: 'state:stored', context }]
+      ]
+
+    for (const [name, schema, value] of cases) {
+      expect(schema.safeParse(value).success, name).toBe(true)
+    }
+  })
+
+  it('rejects unknown fields at every Workbench boundary', () => {
+    const context = {
+      pluginId: 'acme.notes',
+      viewId: 'notes',
+      projectPath: null,
+      sessionId: null,
+      generation: 0
+    }
+    const cases: Array<[string, { safeParse: (value: unknown) => { success: boolean } }, unknown]> =
+      [
+        ['snapshot', workbenchSnapshotSchema, { ...snapshot, entryPath: '/unsafe/panel.js' }],
+        ['command', workbenchCommandSchema, { type: 'state:get', extra: true }],
+        ['command result', workbenchCommandResultSchema, { state: snapshot, extra: true }],
+        ['event', workbenchEventSchema, { type: 'reveal', viewId: 'notes', extra: true }],
+        ['panel context', pluginPanelContextSchema, { ...context, extra: true }],
+        ['panel command', pluginPanelCommandSchema, { type: 'context:get', extra: true }],
+        [
+          'panel result',
+          pluginPanelCommandResultSchema,
+          { type: 'state:stored', context, extra: true }
         ]
-      }).success
-    ).toBe(false)
-    expect(
-      piPackageRootsMessageSchema.safeParse({
-        type: 'desktop-plugin-roots',
-        sessionId: null,
-        generation: -1,
-        roots: []
-      }).success
-    ).toBe(false)
-    expect(
-      piPackageRootsMessageSchema.safeParse({
-        type: 'desktop-plugin-roots',
-        sessionId: null,
-        generation: 0,
-        roots: [],
-        webContents: {}
-      }).success
-    ).toBe(false)
+      ]
+
+    for (const [name, schema, value] of cases) {
+      expect(schema.safeParse(value).success, name).toBe(false)
+    }
   })
 })

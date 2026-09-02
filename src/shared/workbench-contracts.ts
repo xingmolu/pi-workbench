@@ -1,6 +1,8 @@
 /** Renderer-safe, JSON-serializable contracts for the Main-owned Workbench host. */
 
 export const WORKBENCH_PANEL_STATE_MAX_BYTES = 32 * 1024
+export const WORKBENCH_JSON_MAX_DEPTH = 64
+export const WORKBENCH_JSON_MAX_NODES = 4096
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -113,19 +115,4 @@ export type PluginPanelAPI = {
   getState: (generation: number) => Promise<JsonValue>
   setState: (generation: number, value: JsonValue) => Promise<void>
   onContext: (listener: (context: PluginPanelContext) => void) => () => void
-}
-
-/** Trusted Agent Host -> Main discovery data. Never expose these paths to a plugin panel. */
-export type PiPackageRoot = {
-  path: string
-  source: string
-  scope: 'user' | 'project'
-  hasExecutablePiResources: boolean
-}
-
-export type PiPackageRootsMessage = {
-  type: 'desktop-plugin-roots'
-  sessionId: string | null
-  generation: number
-  roots: PiPackageRoot[]
 }
