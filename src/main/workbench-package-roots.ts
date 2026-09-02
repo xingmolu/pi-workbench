@@ -10,6 +10,92 @@ export type PiPackageRootsRouterDependencies = {
   readActiveIdentity(): ActiveHostIdentity
   setPackageRoots(roots: readonly PiPackageRoot[]): void | Promise<unknown>
   warn(message: string): void
+  accepting?: boolean
+}
+
+export type WorkbenchPackageRootsHost = {
+  setPackageRoots(roots: readonly PiPackageRoot[]): void | Promise<unknown>
+}
+
+export type PiPackageRootsLifecycleDependencies = {
+  initialIdentity: ActiveHostIdentity
+  warn(message: string): void
+}
+
+function sameIdentity(left: ActiveHostIdentity, right: ActiveHostIdentity): boolean {
+  return left.sessionId === right.sessionId && left.generation === right.generation
+}
+
+function replaceRoots(
+  host: WorkbenchPackageRootsHost | null,
+  roots: readonly PiPackageRoot[],
+  warn: (message: string) => void
+): void {
+  if (!host) return
+  try {
+    void Promise.resolve(host.setPackageRoots(roots)).catch(() => {
+      warn('无法更新 Workbench package roots')
+    })
+  } catch {
+    warn('无法更新 Workbench package roots')
+  }
+}
+
+export function createPiPackageRootsLifecycle(dependencies: PiPackageRootsLifecycleDependencies): {
+  hostStarted(): void
+  hostExited(): void
+  attachHost(host: WorkbenchPackageRootsHost): void
+  detachHost(host: WorkbenchPackageRootsHost): void
+  transitionIdentity(next: ActiveHostIdentity, applyContext: () => void): void
+  handleMessage(message: unknown): boolean
+} {
+  let activeIdentity = { ...dependencies.initialIdentity }
+  let host: WorkbenchPackageRootsHost | null = null
+  let hostRunning = false
+  let cachedRoots: { identity: ActiveHostIdentity; roots: PiPackageRoot[] } | null = null
+
+  return {
+    hostStarted() {
+      if (hostRunning) return
+      hostRunning = true
+      cachedRoots = null
+    },
+    hostExited() {
+      if (!hostRunning) return
+      hostRunning = false
+      cachedRoots = null
+      replaceRoots(host, [], dependencies.warn)
+    },
+    attachHost(nextHost) {
+      host = nextHost
+      if (hostRunning && cachedRoots && sameIdentity(cachedRoots.identity, activeIdentity)) {
+        replaceRoots(host, cachedRoots.roots, dependencies.warn)
+      }
+    },
+    detachHost(detachedHost) {
+      if (host === detachedHost) host = null
+    },
+    transitionIdentity(next, applyContext) {
+      if (!sameIdentity(activeIdentity, next)) {
+        cachedRoots = null
+        replaceRoots(host, [], dependencies.warn)
+        activeIdentity = { ...next }
+      }
+      applyContext()
+    },
+    handleMessage(message) {
+      return routePiPackageRootsMessage(message, {
+        readActiveIdentity: () => activeIdentity,
+        accepting: hostRunning,
+        setPackageRoots: (roots) => {
+          const copiedRoots = roots.map((root) => ({ ...root }))
+          cachedRoots = { identity: { ...activeIdentity }, roots: copiedRoots }
+          replaceRoots(host, copiedRoots, dependencies.warn)
+        },
+        warn: dependencies.warn
+      })
+    }
+  }
 }
 
 function isPackageRootsCandidate(message: unknown): boolean {
@@ -29,6 +115,11 @@ export function routePiPackageRootsMessage(
   if (!parsed.success) {
     if (!isPackageRootsCandidate(message)) return false
     dependencies.warn('忽略无效的 Pi package roots 消息')
+    return true
+  }
+
+  if (dependencies.accepting === false) {
+    dependencies.warn('忽略过期的 Pi package roots 消息')
     return true
   }
 

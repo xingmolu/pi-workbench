@@ -3,6 +3,7 @@ import type { WorkbenchBounds } from '../shared/contracts'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { workbenchSnapshotSchema } from '../shared/workbench-schemas'
 import type { WorkbenchManifestDiscovery } from './workbench-manifest'
+import { createPiPackageRootsLifecycle } from './workbench-package-roots'
 import {
   createWorkbenchHostState,
   type WorkbenchHostState,
@@ -647,6 +648,80 @@ describe('Workbench host state', () => {
     })
     expect(views[1].view.destroyed).toBe(true)
     expect(() => state.getPanelState(oldContext)).toThrow(/generation|context/i)
+  })
+
+  it('destroys package views before applying a new project context', async () => {
+    const plugin = externalPlugin()
+    plugin.scope = 'project'
+    const { state, views } = createHarness([
+      { plugins: [plugin], diagnostics: [] },
+      { plugins: [], diagnostics: [] }
+    ])
+    await state.reload()
+    state.setContext({ projectPath: '/projects/one', sessionId: 'session-1', generation: 1 })
+    await state.dispatch({ type: 'view:set', viewId: 'acme.notes.panel', visible: true })
+    const oldView = views[0].view
+    const lifecycle = createPiPackageRootsLifecycle({
+      initialIdentity: { sessionId: 'session-1', generation: 1 },
+      warn: vi.fn()
+    })
+    lifecycle.hostStarted()
+    lifecycle.attachHost(state)
+
+    lifecycle.transitionIdentity({ sessionId: 'session-2', generation: 2 }, () => {
+      state.setContext({
+        projectPath: '/projects/two',
+        sessionId: 'session-2',
+        generation: 2
+      })
+    })
+
+    expect(oldView.destroyed).toBe(true)
+    expect(oldView.contexts).not.toContainEqual(
+      expect.objectContaining({ projectPath: '/projects/two', generation: 2 })
+    )
+  })
+
+  it('prevents package discovery started before Agent exit from repopulating the registry', async () => {
+    const staleDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state, rootsSeen } = createHarness([
+      staleDiscovery.promise,
+      { plugins: [], diagnostics: [] }
+    ])
+    const lifecycle = createPiPackageRootsLifecycle({
+      initialIdentity: { sessionId: 'session-1', generation: 1 },
+      warn: vi.fn()
+    })
+    lifecycle.hostStarted()
+    lifecycle.attachHost(state)
+
+    lifecycle.handleMessage({
+      type: 'desktop-plugin-roots',
+      sessionId: 'session-1',
+      generation: 1,
+      roots: [
+        {
+          path: '/packages/acme.notes',
+          source: 'package-discovery',
+          scope: 'project',
+          hasExecutablePiResources: true
+        }
+      ]
+    })
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(1))
+
+    lifecycle.hostExited()
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(2))
+    staleDiscovery.resolve({ plugins: [externalPlugin()], diagnostics: [] })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(state.snapshot().plugins).not.toContainEqual(
+      expect.objectContaining({ pluginId: 'acme.notes' })
+    )
+    expect(state.snapshot().contributions).not.toContainEqual(
+      expect.objectContaining({ viewId: 'acme.notes.panel' })
+    )
   })
 
   it('aborts and destroys a view created after its reveal generation became stale', async () => {

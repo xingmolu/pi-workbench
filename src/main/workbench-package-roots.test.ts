@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { routePiPackageRootsMessage } from './workbench-package-roots'
+import type { PiPackageRoot } from '../shared/workbench-host-contracts'
+import {
+  createPiPackageRootsLifecycle,
+  routePiPackageRootsMessage
+} from './workbench-package-roots'
 
 const validRoot = {
   path: '/Users/example/.pi/agent/packages/example',
@@ -130,5 +134,90 @@ describe('routePiPackageRootsMessage', () => {
     ).toBe(true)
 
     await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('Pi package-roots lifecycle', () => {
+  it('restores cached roots to a replacement window only for the same identity', () => {
+    const lifecycle = createPiPackageRootsLifecycle({
+      initialIdentity: { sessionId: 'session-current', generation: 7 },
+      warn: vi.fn()
+    })
+    lifecycle.hostStarted()
+
+    expect(
+      lifecycle.handleMessage({
+        type: 'desktop-plugin-roots',
+        sessionId: 'session-current',
+        generation: 7,
+        roots: [validRoot]
+      })
+    ).toBe(true)
+
+    const firstHost = { setPackageRoots: vi.fn(() => Promise.resolve()) }
+    lifecycle.attachHost(firstHost)
+    expect(firstHost.setPackageRoots).toHaveBeenCalledWith([validRoot])
+    lifecycle.detachHost(firstHost)
+
+    const sameIdentityHost = { setPackageRoots: vi.fn(() => Promise.resolve()) }
+    lifecycle.attachHost(sameIdentityHost)
+    expect(sameIdentityHost.setPackageRoots).toHaveBeenCalledWith([validRoot])
+    lifecycle.detachHost(sameIdentityHost)
+
+    lifecycle.transitionIdentity({ sessionId: 'session-next', generation: 8 }, () => undefined)
+    const replacementHost = { setPackageRoots: vi.fn(() => Promise.resolve()) }
+    lifecycle.attachHost(replacementHost)
+    expect(replacementHost.setPackageRoots).not.toHaveBeenCalled()
+
+    expect(
+      lifecycle.handleMessage({
+        type: 'desktop-plugin-roots',
+        sessionId: 'session-current',
+        generation: 7,
+        roots: [validRoot]
+      })
+    ).toBe(true)
+    expect(replacementHost.setPackageRoots).not.toHaveBeenCalled()
+  })
+
+  it('clears views/cache on Agent exit and ignores late roots or duplicate exit signals', () => {
+    const warn = vi.fn()
+    const lifecycle = createPiPackageRootsLifecycle({
+      initialIdentity: { sessionId: 'session-current', generation: 7 },
+      warn
+    })
+    lifecycle.hostStarted()
+    const calls: PiPackageRoot[][] = []
+    const host = {
+      setPackageRoots: vi.fn((roots: readonly PiPackageRoot[]) => {
+        calls.push(roots.map((root) => ({ ...root })))
+        return Promise.resolve()
+      })
+    }
+    lifecycle.attachHost(host)
+    lifecycle.handleMessage({
+      type: 'desktop-plugin-roots',
+      sessionId: 'session-current',
+      generation: 7,
+      roots: [validRoot]
+    })
+
+    lifecycle.hostExited()
+    expect(calls).toEqual([[validRoot], []])
+    lifecycle.hostExited()
+    expect(calls).toEqual([[validRoot], []])
+
+    lifecycle.handleMessage({
+      type: 'desktop-plugin-roots',
+      sessionId: 'session-current',
+      generation: 7,
+      roots: [validRoot]
+    })
+    expect(calls).toEqual([[validRoot], []])
+    lifecycle.detachHost(host)
+    const replacementHost = { setPackageRoots: vi.fn(() => Promise.resolve()) }
+    lifecycle.attachHost(replacementHost)
+    expect(replacementHost.setPackageRoots).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith('忽略过期的 Pi package roots 消息')
   })
 })

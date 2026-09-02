@@ -52,7 +52,7 @@ import {
 } from './workbench-host'
 import type { WorkbenchStateStore } from './workbench-host-state'
 import { createWorkbenchPanelIpcRouter } from './workbench-panel-ipc'
-import { routePiPackageRootsMessage } from './workbench-package-roots'
+import { createPiPackageRootsLifecycle } from './workbench-package-roots'
 import icon from '../../resources/icon.png?asset'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
@@ -81,6 +81,10 @@ let activeHostIdentity: Pick<AgentSnapshot, 'sessionId' | 'generation'> = {
   generation: 0
 }
 let activeProjectPath: string | null = null
+const packageRootsLifecycle = createPiPackageRootsLifecycle({
+  initialIdentity: activeHostIdentity,
+  warn: (warning) => console.warn(warning)
+})
 const AUTH_EXTERNAL_HOSTS = new Set(['auth.openai.com'])
 const responseBroker = new HostResponseBroker({
   onInvalid: (message) => console.warn('忽略无效 Agent Host 消息', message)
@@ -114,37 +118,24 @@ function updateWorkbenchContext(): void {
   }
 }
 
-function clearWorkbenchPackageRoots(): void {
-  const host = workbenchHost
-  if (!host) return
-  try {
-    void host.setPackageRoots([]).catch((error) => {
-      console.warn('无法清理过期的 Workbench package roots', errorMessage(error))
-    })
-  } catch (error) {
-    console.warn('无法清理过期的 Workbench package roots', errorMessage(error))
-  }
-}
-
 function forwardEvent(event: HostEvent): void {
   if (event.event === 'snapshot' || event.event === 'patch') {
-    const identityChanged =
-      event.data.sessionId !== activeHostIdentity.sessionId ||
-      event.data.generation !== activeHostIdentity.generation
-    activeHostIdentity = {
+    const nextIdentity = {
       sessionId: event.data.sessionId,
       generation: event.data.generation
     }
-    if (event.event === 'snapshot') {
-      activeProjectPath = event.data.project?.path ?? null
-      browserManager?.setProject(activeProjectPath)
-    }
-    if (event.event === 'patch' && 'project' in event.data.meta) {
-      activeProjectPath = event.data.meta.project?.path ?? null
-      browserManager?.setProject(activeProjectPath)
-    }
-    updateWorkbenchContext()
-    if (identityChanged) clearWorkbenchPackageRoots()
+    packageRootsLifecycle.transitionIdentity(nextIdentity, () => {
+      activeHostIdentity = nextIdentity
+      if (event.event === 'snapshot') {
+        activeProjectPath = event.data.project?.path ?? null
+        browserManager?.setProject(activeProjectPath)
+      }
+      if (event.event === 'patch' && 'project' in event.data.meta) {
+        activeProjectPath = event.data.meta.project?.path ?? null
+        browserManager?.setProject(activeProjectPath)
+      }
+      updateWorkbenchContext()
+    })
   }
   if (event.event === 'open-external') {
     try {
@@ -163,19 +154,7 @@ function forwardEvent(event: HostEvent): void {
 }
 
 function handleHostMessage(message: unknown): void {
-  if (
-    routePiPackageRootsMessage(message, {
-      readActiveIdentity: () => activeHostIdentity,
-      setPackageRoots: (roots) => {
-        const host = workbenchHost
-        if (!host) throw new Error('Workbench 尚未就绪')
-        return host.setPackageRoots(roots)
-      },
-      warn: (warning) => console.warn(warning)
-    })
-  ) {
-    return
-  }
+  if (packageRootsLifecycle.handleMessage(message)) return
   const capabilityRequest = browserCapabilityRequestSchema.safeParse(message)
   if (capabilityRequest.success) {
     const request = capabilityRequest.data
@@ -256,13 +235,16 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   if (result.kind !== 'snapshot') {
     throw new Error(`Agent Host 未返回状态快照：${command.type}`)
   }
-  activeHostIdentity = {
+  const nextIdentity = {
     sessionId: result.snapshot.sessionId,
     generation: result.snapshot.generation
   }
-  activeProjectPath = result.snapshot.project?.path ?? null
-  browserManager?.setProject(activeProjectPath)
-  updateWorkbenchContext()
+  packageRootsLifecycle.transitionIdentity(nextIdentity, () => {
+    activeHostIdentity = nextIdentity
+    activeProjectPath = result.snapshot.project?.path ?? null
+    browserManager?.setProject(activeProjectPath)
+    updateWorkbenchContext()
+  })
   return result.snapshot
 }
 
@@ -306,6 +288,7 @@ async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
 }
 
 function startAgentHost(): void {
+  packageRootsLifecycle.hostStarted()
   hostReady = new Promise((resolve, reject) => {
     resolveHostReady = resolve
     rejectHostReady = reject
@@ -340,10 +323,12 @@ function startAgentHost(): void {
     agentHost?.postMessage({ type: 'bootstrap', requestId: randomUUID() } satisfies HostRequest)
   })
   agentHost.on('error', (error) => {
+    packageRootsLifecycle.hostExited()
     console.error('Agent Host 进程错误', errorMessage(error))
   })
   agentHost.on('message', handleHostMessage)
   agentHost.on('exit', (code) => {
+    packageRootsLifecycle.hostExited()
     hostSpawned = false
     agentHost = null
     browserManager?.abortAgent()
@@ -498,6 +483,7 @@ function createWindow(): void {
   void workbenchHost.reload().catch((error) => {
     console.error('无法加载 Workbench 插件', errorMessage(error))
   })
+  packageRootsLifecycle.attachHost(workbenchHost)
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -518,7 +504,9 @@ function createWindow(): void {
   })
   mainWindow.on('closed', () => {
     if (browserOwner !== mainWindow) return
-    workbenchHost?.dispose()
+    const host = workbenchHost
+    if (host) packageRootsLifecycle.detachHost(host)
+    host?.dispose()
     workbenchHost = null
     browserManager?.dispose()
     browserManager = null
@@ -563,7 +551,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  workbenchHost?.dispose()
+  const host = workbenchHost
+  if (host) packageRootsLifecycle.detachHost(host)
+  host?.dispose()
   workbenchHost = null
   browserManager?.dispose()
   browserManager = null
