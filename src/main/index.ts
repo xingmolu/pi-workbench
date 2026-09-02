@@ -10,6 +10,7 @@ import {
   type UtilityProcess
 } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -22,7 +23,9 @@ import type {
   HostEvent,
   HostRequest,
   HostResult,
-  SnapshotHostCommand
+  SnapshotHostCommand,
+  WorkbenchCommand,
+  WorkbenchEvent
 } from '../shared/contracts'
 import {
   browserCapabilityCancelSchema,
@@ -30,12 +33,15 @@ import {
   browserCommandSchema,
   hostCommandSchema
 } from '../shared/schemas'
+import { workbenchCommandSchema } from '../shared/workbench-schemas'
 import { BrowserManager } from './browser-manager'
 import { HostResponseBroker } from './host-response-broker'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
 import { loadElectronStoreConstructor } from './electron-store-interop'
 import { ProjectOpenCoordinator } from './project-open-coordinator'
 import { pathToPersistAfterOpen, resolveExistingProjectPath } from './recent-project'
+import { createWorkbenchHost, type WorkbenchHost } from './workbench-host'
+import type { WorkbenchStateStore } from './workbench-host-state'
 import icon from '../../resources/icon.png?asset'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
@@ -58,10 +64,12 @@ let rejectHostReady: ((error: Error) => void) | null = null
 let preferences: ElectronStore<Preferences> | null = null
 let browserManager: BrowserManager | null = null
 let browserOwner: BrowserWindowType | null = null
+let workbenchHost: WorkbenchHost | null = null
 let activeHostIdentity: Pick<AgentSnapshot, 'sessionId' | 'generation'> = {
   sessionId: null,
   generation: 0
 }
+let activeProjectPath: string | null = null
 const AUTH_EXTERNAL_HOSTS = new Set(['auth.openai.com'])
 const responseBroker = new HostResponseBroker({
   onInvalid: (message) => console.warn('忽略无效 Agent Host 消息', message)
@@ -70,10 +78,26 @@ const projectOpenCoordinator = new ProjectOpenCoordinator<AgentSnapshot>()
 
 type Preferences = {
   lastProjectPath?: string
+  workbenchDesktopEnabled?: Record<string, boolean>
+  workbenchPanelState?: Record<string, unknown>
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function updateWorkbenchContext(): void {
+  const host = workbenchHost
+  if (!host) return
+  try {
+    host.setContext({
+      projectPath: activeProjectPath,
+      sessionId: activeHostIdentity.sessionId,
+      generation: activeHostIdentity.generation
+    })
+  } catch (error) {
+    console.warn('忽略过期的 Workbench 上下文', errorMessage(error))
+  }
 }
 
 function forwardEvent(event: HostEvent): void {
@@ -82,10 +106,15 @@ function forwardEvent(event: HostEvent): void {
       sessionId: event.data.sessionId,
       generation: event.data.generation
     }
-    if (event.event === 'snapshot') browserManager?.setProject(event.data.project?.path ?? null)
-    if (event.event === 'patch' && 'project' in event.data.meta) {
-      browserManager?.setProject(event.data.meta.project?.path ?? null)
+    if (event.event === 'snapshot') {
+      activeProjectPath = event.data.project?.path ?? null
+      browserManager?.setProject(activeProjectPath)
     }
+    if (event.event === 'patch' && 'project' in event.data.meta) {
+      activeProjectPath = event.data.meta.project?.path ?? null
+      browserManager?.setProject(activeProjectPath)
+    }
+    updateWorkbenchContext()
   }
   if (event.event === 'open-external') {
     try {
@@ -185,7 +214,9 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
     sessionId: result.snapshot.sessionId,
     generation: result.snapshot.generation
   }
-  browserManager?.setProject(result.snapshot.project?.path ?? null)
+  activeProjectPath = result.snapshot.project?.path ?? null
+  browserManager?.setProject(activeProjectPath)
+  updateWorkbenchContext()
   return result.snapshot
 }
 
@@ -359,6 +390,14 @@ function registerIpc(): void {
       }
     }
   })
+  ipcMain.handle('pi:workbench', async (event, command: WorkbenchCommand) => {
+    assertTrustedRenderer(event)
+    const parsed = workbenchCommandSchema.safeParse(command)
+    if (!parsed.success) throw new Error('无效的 Workbench IPC 请求')
+    const host = workbenchHost
+    if (!host) throw new Error('Workbench 尚未就绪')
+    return host.dispatch(parsed.data)
+  })
 }
 
 function createWindow(): void {
@@ -386,6 +425,32 @@ function createWindow(): void {
       mainWindow.webContents.send('pi:browser:event', { type: 'state', data: state })
     }
   })
+  const workbenchStore: WorkbenchStateStore = {
+    get: (key) => preferenceStore().get(key as keyof Preferences),
+    set: (key, value) => {
+      preferenceStore().set(key as keyof Preferences, value)
+    }
+  }
+  workbenchHost = createWorkbenchHost({
+    appVersion: app.getVersion(),
+    agentDir: e2eAgentDir ?? join(homedir(), '.pi', 'agent'),
+    preloadPath: join(__dirname, '../preload/plugin.js'),
+    store: workbenchStore,
+    window: mainWindow,
+    browser: browserManager,
+    onState: (state) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pi:workbench:event', {
+          type: 'state',
+          data: state
+        } satisfies WorkbenchEvent)
+      }
+    }
+  })
+  updateWorkbenchContext()
+  void workbenchHost.reload().catch((error) => {
+    console.error('无法加载 Workbench 插件', errorMessage(error))
+  })
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -406,6 +471,8 @@ function createWindow(): void {
   })
   mainWindow.on('closed', () => {
     if (browserOwner !== mainWindow) return
+    workbenchHost?.dispose()
+    workbenchHost = null
     browserManager?.dispose()
     browserManager = null
     browserOwner = null
@@ -426,7 +493,12 @@ app.whenReady().then(async () => {
   preferences = new Store<Preferences>({
     name: 'pi-desktop-preferences',
     schema: {
-      lastProjectPath: { type: 'string' }
+      lastProjectPath: { type: 'string' },
+      workbenchDesktopEnabled: {
+        type: 'object',
+        additionalProperties: { type: 'boolean' }
+      },
+      workbenchPanelState: { type: 'object' }
     }
   })
 
@@ -444,6 +516,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  workbenchHost?.dispose()
+  workbenchHost = null
   browserManager?.dispose()
   browserManager = null
   agentHost?.kill()
