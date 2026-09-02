@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { workbenchSnapshotSchema } from '../shared/workbench-schemas'
 import type { WorkbenchManifestDiscovery } from './workbench-manifest'
@@ -129,7 +129,12 @@ function secondExternalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
 function createHarness(
   discoveries: Array<WorkbenchManifestDiscovery | Promise<WorkbenchManifestDiscovery>>,
   persisted = new Map<string, unknown>(),
-  createPanelView?: (request: WorkbenchPanelViewRequest) => Promise<FakePanelView>
+  createPanelView?: (request: WorkbenchPanelViewRequest) => Promise<FakePanelView>,
+  setBrowserView?: (
+    visible: boolean,
+    bounds?: { x: number; y: number; width: number; height: number }
+  ) => void | Promise<void>,
+  onState?: (snapshot: ReturnType<WorkbenchHostState['snapshot']>) => void
 ): {
   state: WorkbenchHostState
   rootsSeen: PiPackageRoot[][]
@@ -139,6 +144,7 @@ function createHarness(
     visible: boolean
     bounds?: { x: number; y: number; width: number; height: number }
   }>
+  stateChanges: ReturnType<WorkbenchHostState['snapshot']>[]
 } {
   const rootsSeen: PiPackageRoot[][] = []
   const views: Array<{ request: WorkbenchPanelViewRequest; view: FakePanelView }> = []
@@ -146,6 +152,7 @@ function createHarness(
     visible: boolean
     bounds?: { x: number; y: number; width: number; height: number }
   }> = []
+  const stateChanges: ReturnType<WorkbenchHostState['snapshot']>[] = []
   const state = createWorkbenchHostState({
     appVersion: '0.1.0',
     userRoots: async () => [],
@@ -166,11 +173,16 @@ function createHarness(
       browser: {
         setView: (visible, bounds) => {
           browserCalls.push(bounds ? { visible, bounds } : { visible })
+          return setBrowserView?.(visible, bounds)
         }
       }
+    },
+    onState: (snapshot) => {
+      stateChanges.push(snapshot)
+      onState?.(snapshot)
     }
   })
-  return { state, rootsSeen, views, persisted, browserCalls }
+  return { state, rootsSeen, views, persisted, browserCalls, stateChanges }
 }
 
 function createControlledViewHarness(
@@ -482,6 +494,25 @@ describe('Workbench host state', () => {
     expect(restarted.state.snapshot().plugins[1].desktopEnabled).toBe(false)
   })
 
+  it('allows a manually disabled plugin to be re-enabled before any crash lockout', async () => {
+    const { state } = createHarness([{ plugins: [externalPlugin()], diagnostics: [] }])
+    await state.reload()
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.notes',
+      desktopEnabled: false
+    })
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.notes',
+      desktopEnabled: true
+    })
+
+    expect(state.snapshot().plugins[1].desktopEnabled).toBe(true)
+    expect(state.snapshot().contributions.map(({ pluginId }) => pluginId)).toContain('acme.notes')
+  })
+
   it('validates and persists panel state by plugin, view, and stable project bucket', async () => {
     const persisted = new Map<string, unknown>()
     const { state } = createHarness([{ plugins: [externalPlugin()], diagnostics: [] }], persisted)
@@ -732,6 +763,124 @@ describe('Workbench host state', () => {
     )
   })
 
+  it('makes a hide invalidate an unresolved reveal of the same external view', async () => {
+    const { state, starts } = createControlledViewHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+
+    const reveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const pending = await starts[0].promise
+    await state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: false
+    })
+    pending.resolve()
+
+    await expect(reveal).rejects.toThrow(/abort|selection|stale/i)
+    expect(pending.view.destroyed).toBe(true)
+    expect(pending.view.visible).toBe(false)
+  })
+
+  it('keeps only the latest external selection when creates resolve in reverse order', async () => {
+    const plugin = externalPlugin()
+    plugin.workbench[1].contribution.activation = 'onApp'
+    const { state, starts } = createControlledViewHarness([{ plugins: [plugin], diagnostics: [] }])
+    await state.reload()
+
+    const revealA = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const pendingA = await starts[0].promise
+    const revealB = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.project-panel',
+      visible: true
+    })
+    const pendingB = await starts[1].promise
+
+    pendingB.resolve()
+    await revealB
+    pendingA.resolve()
+    await expect(revealA).rejects.toThrow(/abort|selection|stale/i)
+
+    expect(pendingA.view.destroyed).toBe(true)
+    expect(pendingA.view.visible).toBe(false)
+    expect(pendingB.view.destroyed).toBe(false)
+    expect(pendingB.view.visible).toBe(true)
+  })
+
+  it('reconciles reversed native operations before showing the latest external selection', async () => {
+    type NativeOperation = { visible: boolean; resolve: () => void }
+    const nativeStarts = [
+      createDeferred<NativeOperation>(),
+      createDeferred<NativeOperation>(),
+      createDeferred<NativeOperation>()
+    ]
+    let browserVisible = false
+    let nativeCallCount = 0
+    const { state, views } = createHarness(
+      [{ plugins: [externalPlugin()], diagnostics: [] }],
+      new Map(),
+      undefined,
+      (visible) => {
+        const completion = createDeferred<void>()
+        const start = nativeStarts[nativeCallCount]
+        nativeCallCount += 1
+        start.resolve({
+          visible,
+          resolve: () => {
+            browserVisible = visible
+            completion.resolve()
+          }
+        })
+        return completion.promise
+      }
+    )
+    await state.reload()
+
+    const browserReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void browserReveal.catch(() => undefined)
+    const staleShow = await nativeStarts[0].promise
+    const externalReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(nativeCallCount).toBe(2)
+    const latestHide = await nativeStarts[1].promise
+
+    latestHide.resolve()
+    expect(browserVisible).toBe(false)
+    expect(views).toHaveLength(0)
+    staleShow.resolve()
+    await vi.waitFor(() => expect(nativeCallCount).toBe(3))
+    expect(browserVisible).toBe(true)
+
+    const reconciliation = await nativeStarts[2].promise
+    expect(reconciliation.visible).toBe(false)
+    reconciliation.resolve()
+    await expect(browserReveal).rejects.toThrow(/selection|stale/i)
+    await externalReveal
+
+    expect(browserVisible).toBe(false)
+    expect(views).toHaveLength(1)
+    expect(views[0].view.visible).toBe(true)
+  })
+
   it('invalidates pending creation on context change without blocking a new generation', async () => {
     const { state, starts, attemptCount } = createControlledViewHarness([
       { plugins: [externalPlugin()], diagnostics: [] }
@@ -940,6 +1089,67 @@ describe('Workbench host state', () => {
     expect(stale.view.visible).toBe(false)
   })
 
+  it('makes dispose a terminal barrier for reloads and public state calls', async () => {
+    const delayedDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state, stateChanges } = createHarness([delayedDiscovery.promise])
+    const reload = state.reload()
+    await Promise.resolve()
+    const changesBeforeDispose = stateChanges.length
+
+    state.dispose()
+    state.dispose()
+    delayedDiscovery.resolve({ plugins: [externalPlugin()], diagnostics: [] })
+    const staleResult = await reload
+
+    expect(staleResult.plugins.map(({ pluginId }) => pluginId)).toEqual([
+      'works.pi.desktop.builtin'
+    ])
+    expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
+      'works.pi.desktop.builtin'
+    ])
+    expect(stateChanges).toHaveLength(changesBeforeDispose)
+    await expect(state.reload()).rejects.toThrow(/disposed/i)
+    await expect(state.dispatch({ type: 'state:get' })).rejects.toThrow(/disposed/i)
+    await expect(state.setPackageRoots([])).rejects.toThrow(/disposed/i)
+    expect(() => state.setContext({ projectPath: null, sessionId: null, generation: 1 })).toThrow(
+      /disposed/i
+    )
+    expect(() => state.panelContext('acme.notes.panel')).toThrow(/disposed/i)
+  })
+
+  it('swallows synchronous and asynchronous browser hide failures during dispose', async () => {
+    const synchronous = createHarness(
+      [{ plugins: [], diagnostics: [] }],
+      new Map(),
+      undefined,
+      (visible) => {
+        if (!visible) throw new Error('sync browser hide failed')
+      }
+    )
+    await synchronous.state.reload()
+    await synchronous.state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    expect(() => synchronous.state.dispose()).not.toThrow()
+
+    const asynchronous = createHarness(
+      [{ plugins: [], diagnostics: [] }],
+      new Map(),
+      undefined,
+      (visible) => (visible ? undefined : Promise.reject(new Error('async browser hide failed')))
+    )
+    await asynchronous.state.reload()
+    await asynchronous.state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    asynchronous.state.dispose()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  })
+
   it('keeps only the selected host-owned panel visible across native and sandboxed views', async () => {
     const { state, views, browserCalls } = createHarness([
       { plugins: [externalPlugin()], diagnostics: [] }
@@ -1018,5 +1228,16 @@ describe('Workbench host state', () => {
     expect(state.snapshot().contributions.map(({ pluginId }) => pluginId)).not.toContain(
       'acme.notes'
     )
+    await expect(
+      state.dispatch({
+        type: 'plugin:set-enabled',
+        pluginId: 'acme.notes',
+        desktopEnabled: true
+      })
+    ).rejects.toThrow(/restart/i)
+    expect(state.snapshot().plugins[1]).toMatchObject({
+      desktopEnabled: false,
+      diagnostics: [expect.objectContaining({ code: 'plugin-crash-disabled' })]
+    })
   })
 })

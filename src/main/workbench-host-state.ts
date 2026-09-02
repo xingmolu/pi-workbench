@@ -123,6 +123,7 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
 
 const DESKTOP_ENABLED_STORE_KEY = 'workbenchDesktopEnabled'
 const PANEL_STATE_STORE_KEY = 'workbenchPanelState'
+const BROWSER_VIEW_ID = 'works.pi.desktop.browser'
 
 function readDesktopEnabled(store: WorkbenchStateStore): Record<string, boolean> {
   const stored = store.get(DESKTOP_ENABLED_STORE_KEY)
@@ -185,6 +186,9 @@ export function createWorkbenchHostState(
   let context: WorkbenchHostContext = { projectPath: null, sessionId: null, generation: 0 }
   let packageRoots: PiPackageRoot[] = []
   let registryEpoch = 0
+  let selectionEpoch = 0
+  let desiredViewId: string | null = null
+  let disposed = false
   const desktopEnabled = readDesktopEnabled(dependencies.store)
   const panelStates = readPanelStates(dependencies.store)
   type PendingCreation = {
@@ -192,6 +196,7 @@ export function createWorkbenchHostState(
     viewId: string
     generation: number
     registryEpoch: number
+    selectionEpoch: number
     token: object
     controller: AbortController
     view?: WorkbenchPanelView
@@ -210,9 +215,17 @@ export function createWorkbenchHostState(
   const pendingCreations = new Map<string, PendingCreation>()
   const crashCounts = new Map<string, number>()
   const crashDiagnostics = new Map<string, WorkbenchDiagnostic>()
+  const browserOperations = new Map<Promise<void>, boolean>()
+  let browserAppliedVisible = false
+  let browserAppliedBounds: WorkbenchBounds | undefined
+  let desiredBrowserBounds: WorkbenchBounds | undefined
   let activeViewId: string | null = null
 
   const isDesktopEnabled = (pluginId: string): boolean => desktopEnabled[pluginId] !== false
+
+  const assertNotDisposed = (): void => {
+    if (disposed) throw new Error('Workbench host has been disposed')
+  }
 
   const destroyView = (viewId: string): void => {
     const record = views.get(viewId)
@@ -254,14 +267,114 @@ export function createWorkbenchHostState(
     }
   }
 
-  const hideActiveView = async (): Promise<void> => {
-    if (activeViewId === null) return
-    if (activeViewId === 'works.pi.desktop.browser') {
-      await dependencies.nativeViews.browser.setView(false)
-    } else {
-      views.get(activeViewId)?.view.setVisible(false)
+  type SelectionToken = { epoch: number; viewId: string | null }
+
+  const sameBounds = (left?: WorkbenchBounds, right?: WorkbenchBounds): boolean =>
+    left === right ||
+    (left !== undefined &&
+      right !== undefined &&
+      left.x === right.x &&
+      left.y === right.y &&
+      left.width === right.width &&
+      left.height === right.height)
+
+  const assertCurrentSelection = (token: SelectionToken): void => {
+    assertNotDisposed()
+    if (token.epoch !== selectionEpoch || token.viewId !== desiredViewId) {
+      throw new Error('Workbench panel selection was superseded')
     }
-    activeViewId = null
+  }
+
+  const startBrowserOperation = (visible: boolean, bounds?: WorkbenchBounds): Promise<void> => {
+    let operation: Promise<void>
+    try {
+      operation = Promise.resolve(dependencies.nativeViews.browser.setView(visible, bounds))
+    } catch (error) {
+      operation = Promise.reject(error)
+    }
+    const tracked = operation.then(() => {
+      browserAppliedVisible = visible
+      browserAppliedBounds = visible ? bounds : undefined
+    })
+    browserOperations.set(tracked, visible)
+    void tracked.then(
+      () => browserOperations.delete(tracked),
+      () => browserOperations.delete(tracked)
+    )
+    return tracked
+  }
+
+  const browserCouldBeVisible = (): boolean =>
+    browserAppliedVisible ||
+    activeViewId === BROWSER_VIEW_ID ||
+    desiredViewId === BROWSER_VIEW_ID ||
+    [...browserOperations.values()].some(Boolean)
+
+  const settleBrowserSelection = async (token: SelectionToken): Promise<void> => {
+    while (true) {
+      const pending = [...browserOperations.keys()]
+      if (pending.length > 0) await Promise.allSettled(pending)
+      assertCurrentSelection(token)
+
+      const visible = desiredViewId === BROWSER_VIEW_ID
+      const bounds = visible ? desiredBrowserBounds : undefined
+      if (
+        browserAppliedVisible === visible &&
+        (!visible || sameBounds(browserAppliedBounds, bounds))
+      ) {
+        return
+      }
+      await startBrowserOperation(visible, bounds)
+      assertCurrentSelection(token)
+    }
+  }
+
+  const hideBrowserAfterDispose = async (): Promise<void> => {
+    const pending = [...browserOperations.keys()]
+    const initialHide = startBrowserOperation(false)
+    await Promise.allSettled([...pending, initialHide])
+    try {
+      await startBrowserOperation(false)
+    } catch {
+      // Disposal is best-effort, including adapters that reject while their owner is closing.
+    }
+  }
+
+  const beginSelection = (
+    viewId: string,
+    visible: boolean,
+    bounds?: WorkbenchBounds
+  ): { token: SelectionToken; browserBarrier: boolean } => {
+    const previousDesiredViewId = desiredViewId
+    const changesDesired = visible || desiredViewId === viewId
+    if (changesDesired) {
+      selectionEpoch += 1
+      desiredViewId = visible ? viewId : null
+      desiredBrowserBounds = desiredViewId === BROWSER_VIEW_ID ? bounds : undefined
+      if (visible) invalidatePendingCreations()
+      else {
+        const pending = pendingCreations.get(viewId)
+        if (pending) invalidatePendingCreation(pending)
+      }
+    }
+
+    if (
+      activeViewId !== null &&
+      activeViewId !== desiredViewId &&
+      activeViewId !== BROWSER_VIEW_ID
+    ) {
+      views.get(activeViewId)?.view.setVisible(false)
+      activeViewId = null
+    }
+
+    const browserBarrier =
+      viewId === BROWSER_VIEW_ID ||
+      previousDesiredViewId === BROWSER_VIEW_ID ||
+      browserCouldBeVisible()
+    if (browserBarrier) {
+      startBrowserOperation(desiredViewId === BROWSER_VIEW_ID, desiredBrowserBounds)
+    }
+    return { token: { epoch: selectionEpoch, viewId: desiredViewId }, browserBarrier }
   }
 
   const isAvailable = (activation: 'onApp' | 'onProject'): boolean =>
@@ -343,7 +456,7 @@ export function createWorkbenchHostState(
         roots: [...userRoots, ...requestedPackageRoots],
         appVersion: dependencies.appVersion
       })
-      if (requestEpoch !== registryEpoch) return snapshot()
+      if (disposed || requestEpoch !== registryEpoch) return snapshot()
 
       discovery = reserveBuiltinRegistry(discovered)
       revision += 1
@@ -351,12 +464,13 @@ export function createWorkbenchHostState(
       dependencies.onState?.(nextSnapshot)
       return nextSnapshot
     } catch (error) {
-      if (requestEpoch !== registryEpoch) return snapshot()
+      if (disposed || requestEpoch !== registryEpoch) return snapshot()
       throw error
     }
   }
 
   const recordPanelCrash = (pluginId: string, viewId: string, reason: string): void => {
+    if (disposed) return
     const crashCount = (crashCounts.get(pluginId) ?? 0) + 1
     crashCounts.set(pluginId, crashCount)
     if (crashCount >= 3) {
@@ -395,7 +509,8 @@ export function createWorkbenchHostState(
       pending?.token === token &&
       pending.pluginId === pluginId &&
       pending.generation === context.generation &&
-      pending.registryEpoch === registryEpoch
+      pending.registryEpoch === registryEpoch &&
+      pending.selectionEpoch === selectionEpoch
     ) {
       invalidatePendingCreation(pending)
       recordPanelCrash(pluginId, viewId, reason)
@@ -427,11 +542,13 @@ export function createWorkbenchHostState(
   const api: WorkbenchHostState = {
     snapshot,
     async reload() {
+      assertNotDisposed()
       const requestedPackageRoots = packageRoots.map((root) => ({ ...root }))
       const requestEpoch = beginRegistryReload()
       return reloadRegistry(requestEpoch, requestedPackageRoots)
     },
     async dispatch(command) {
+      assertNotDisposed()
       switch (command.type) {
         case 'state:get':
           break
@@ -443,6 +560,11 @@ export function createWorkbenchHostState(
           }
           if (!discovery.plugins.some((plugin) => plugin.pluginId === command.pluginId)) {
             throw new Error('Workbench plugin is unavailable')
+          }
+          if (command.desktopEnabled && (crashCounts.get(command.pluginId) ?? 0) >= 3) {
+            throw new Error(
+              'Workbench plugin was disabled after repeated crashes and requires an app restart'
+            )
           }
           desktopEnabled[command.pluginId] = command.desktopEnabled
           dependencies.store.set(DESKTOP_ENABLED_STORE_KEY, { ...desktopEnabled })
@@ -462,12 +584,15 @@ export function createWorkbenchHostState(
             if (!isAvailable(builtinContribution.activation)) {
               throw new Error('Workbench panel is unavailable')
             }
-            if (command.visible && activeViewId !== command.viewId) await hideActiveView()
-            if (builtinContribution.surface.kind === 'native-view') {
-              await dependencies.nativeViews.browser.setView(command.visible, command.bounds)
+            const selection = beginSelection(command.viewId, command.visible, command.bounds)
+            if (selection.browserBarrier) {
+              await settleBrowserSelection(selection.token)
+              assertCurrentSelection(selection.token)
             }
-            if (command.visible) activeViewId = command.viewId
-            else if (activeViewId === command.viewId) activeViewId = null
+            if (command.visible) {
+              assertCurrentSelection(selection.token)
+              activeViewId = command.viewId
+            } else if (activeViewId === command.viewId) activeViewId = null
             break
           }
           const plugin = discovery.plugins.find((candidate) =>
@@ -482,7 +607,12 @@ export function createWorkbenchHostState(
           if (!entry || !isAvailable(entry.contribution.activation)) {
             throw new Error('Workbench panel is unavailable')
           }
-          if (command.visible && activeViewId !== command.viewId) await hideActiveView()
+          const selection = beginSelection(command.viewId, command.visible, command.bounds)
+          if (selection.browserBarrier) {
+            await settleBrowserSelection(selection.token)
+            assertCurrentSelection(selection.token)
+            if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
+          }
           let record = views.get(command.viewId)
           if (command.visible && !record) {
             if (pendingCreations.has(command.viewId)) {
@@ -496,6 +626,7 @@ export function createWorkbenchHostState(
               viewId: command.viewId,
               generation: panelContext.generation,
               registryEpoch,
+              selectionEpoch: selection.token.epoch,
               token,
               controller,
               invalidated: false
@@ -519,6 +650,7 @@ export function createWorkbenchHostState(
               if (
                 pending.invalidated ||
                 pending.registryEpoch !== registryEpoch ||
+                pending.selectionEpoch !== selectionEpoch ||
                 pendingCreations.get(command.viewId)?.token !== pending.token
               ) {
                 throw new Error('Workbench panel creation became stale or crashed')
@@ -540,6 +672,7 @@ export function createWorkbenchHostState(
             }
             views.set(command.viewId, record)
           }
+          if (command.visible) assertCurrentSelection(selection.token)
           if (command.bounds) record?.view.setBounds(command.bounds)
           record?.view.setVisible(command.visible)
           if (command.visible) activeViewId = command.viewId
@@ -550,6 +683,7 @@ export function createWorkbenchHostState(
       return { state: snapshot() }
     },
     setContext(nextContext) {
+      assertNotDisposed()
       if (
         nextContext.projectPath === context.projectPath &&
         nextContext.sessionId === context.sessionId &&
@@ -578,12 +712,14 @@ export function createWorkbenchHostState(
       dependencies.onState?.(snapshot())
     },
     async setPackageRoots(roots) {
+      assertNotDisposed()
       const requestedPackageRoots = roots.map((root) => ({ ...root }))
       packageRoots = requestedPackageRoots
       const requestEpoch = beginRegistryReload()
       return reloadRegistry(requestEpoch, requestedPackageRoots)
     },
     panelContext(viewId) {
+      assertNotDisposed()
       const plugin = discovery.plugins.find(
         (candidate) =>
           isDesktopEnabled(candidate.pluginId) &&
@@ -596,26 +732,33 @@ export function createWorkbenchHostState(
       return { pluginId: plugin.pluginId, viewId, ...context }
     },
     getPanelState(panelContext) {
+      assertNotDisposed()
       assertCurrentPanelContext(panelContext)
       return panelStates[panelStateKey(panelContext)] ?? null
     },
     setPanelState(panelContext, value) {
+      assertNotDisposed()
       assertCurrentPanelContext(panelContext)
       const parsed = pluginPanelStateSchema.parse(value)
       panelStates[panelStateKey(panelContext)] = parsed
       dependencies.store.set(PANEL_STATE_STORE_KEY, { ...panelStates })
     },
     async runPanelOperation(panelContext, operation) {
+      assertNotDisposed()
       return runTrackedPanelOperation(panelContext, operation)
     },
     dispose() {
+      if (disposed) return
+      disposed = true
+      registryEpoch += 1
+      selectionEpoch += 1
+      desiredViewId = null
+      desiredBrowserBounds = undefined
       invalidatePendingCreations()
       abortOperations()
       destroyAllViews()
-      if (activeViewId === 'works.pi.desktop.browser') {
-        void dependencies.nativeViews.browser.setView(false)
-      }
       activeViewId = null
+      void hideBrowserAfterDispose().catch(() => undefined)
     }
   }
   return api

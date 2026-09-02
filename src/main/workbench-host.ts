@@ -6,7 +6,6 @@ import {
   session,
   WebContentsView,
   type BrowserWindow,
-  type Event,
   type OnBeforeRequestListenerDetails,
   type Session
 } from 'electron'
@@ -19,6 +18,13 @@ import type {
 } from '../shared/workbench-contracts'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { discoverWorkbenchManifests } from './workbench-manifest'
+import { loadAbortableWorkbenchPanel } from './workbench-panel-lifecycle'
+import {
+  cleanupWorkbenchPanelSessions,
+  configureOwnedWorkbenchPanelSession,
+  createWorkbenchPanelSessionOwnership,
+  type WorkbenchPanelSessionOwnership
+} from './workbench-panel-session'
 import {
   createWorkbenchHostState,
   type WorkbenchHostContext,
@@ -76,10 +82,6 @@ const STRICT_PLUGIN_CSP = [
 ].join('; ')
 
 const panelStates = new WeakMap<WorkbenchHost, WorkbenchHostState>()
-const configuredSessions = new Map<
-  string,
-  { panelSession: Session; downloadHandler: (event: Event) => void }
->()
 
 function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined
@@ -150,44 +152,41 @@ function pluginPartition(pluginId: string, viewId: string): string {
 function configurePanelSession(
   partition: string,
   panelSession: Session,
-  canonicalRootPath: string
+  canonicalRootPath: string,
+  ownership: WorkbenchPanelSessionOwnership
 ): void {
-  if (partition.startsWith('persist:')) throw new Error('Workbench partitions must be ephemeral')
-
-  panelSession.setPermissionCheckHandler(() => false)
-  panelSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  panelSession.setDevicePermissionHandler(() => false)
-  panelSession.setDisplayMediaRequestHandler((_request, callback) => callback({}))
-  panelSession.webRequest.onBeforeRequest(
-    { urls: ['<all_urls>'] },
-    (details: OnBeforeRequestListenerDetails, callback) => {
-      void canonicalPluginFile(details.url, canonicalRootPath)
-        .then((allowedPath) => callback({ cancel: allowedPath === null }))
-        .catch(() => callback({ cancel: true }))
+  configureOwnedWorkbenchPanelSession({
+    partition,
+    panelSession,
+    ownership,
+    configureWebRequest: (ownedSession) => {
+      ownedSession.webRequest.onBeforeRequest(
+        { urls: ['<all_urls>'] },
+        (details: OnBeforeRequestListenerDetails, callback) => {
+          void canonicalPluginFile(details.url, canonicalRootPath)
+            .then((allowedPath) => callback({ cancel: allowedPath === null }))
+            .catch(() => callback({ cancel: true }))
+        }
+      )
+      ownedSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [STRICT_PLUGIN_CSP],
+            'X-Content-Type-Options': ['nosniff'],
+            'Referrer-Policy': ['no-referrer']
+          }
+        })
+      })
     }
-  )
-  panelSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [STRICT_PLUGIN_CSP],
-        'X-Content-Type-Options': ['nosniff'],
-        'Referrer-Policy': ['no-referrer']
-      }
-    })
   })
-
-  const previous = configuredSessions.get(partition)
-  if (previous) previous.panelSession.off('will-download', previous.downloadHandler)
-  const downloadHandler = (event: Event): void => event.preventDefault()
-  panelSession.on('will-download', downloadHandler)
-  configuredSessions.set(partition, { panelSession, downloadHandler })
 }
 
 async function createElectronPanelView(
   window: BrowserWindow,
   preloadPath: string,
-  request: WorkbenchPanelViewRequest
+  request: WorkbenchPanelViewRequest,
+  sessionOwnership: WorkbenchPanelSessionOwnership
 ): Promise<WorkbenchPanelView> {
   request.signal.throwIfAborted()
   const { canonicalRootPath, canonicalEntryPath } = await revalidateEntry(request)
@@ -198,7 +197,7 @@ async function createElectronPanelView(
     request.entry.contribution.viewId
   )
   const panelSession = session.fromPartition(partition, { cache: false })
-  configurePanelSession(partition, panelSession, canonicalRootPath)
+  configurePanelSession(partition, panelSession, canonicalRootPath, sessionOwnership)
   const view = new WebContentsView({
     webPreferences: {
       preload: preloadPath,
@@ -246,13 +245,14 @@ async function createElectronPanelView(
     if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false })
   }
 
-  try {
-    await contents.loadFile(canonicalEntryPath)
-    request.signal.throwIfAborted()
-  } catch (error) {
-    destroy()
-    throw error
-  }
+  await loadAbortableWorkbenchPanel({
+    signal: request.signal,
+    load: () => contents.loadFile(canonicalEntryPath),
+    stop: () => {
+      if (!contents.isDestroyed()) contents.stop()
+    },
+    destroy
+  })
 
   return {
     setBounds: (bounds) => view.setBounds(bounds),
@@ -287,7 +287,10 @@ async function userDesktopPluginRoots(agentDir: string): Promise<PiPackageRoot[]
 }
 
 class WorkbenchHostImplementation implements WorkbenchHost {
-  constructor(private readonly state: WorkbenchHostState) {}
+  constructor(
+    private readonly state: WorkbenchHostState,
+    private readonly cleanupSessions: () => void
+  ) {}
 
   snapshot(): WorkbenchSnapshot {
     return this.state.snapshot()
@@ -314,12 +317,17 @@ class WorkbenchHostImplementation implements WorkbenchHost {
   }
 
   dispose(): void {
-    this.state.dispose()
-    panelStates.delete(this)
+    try {
+      this.state.dispose()
+    } finally {
+      this.cleanupSessions()
+      panelStates.delete(this)
+    }
   }
 }
 
 export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): WorkbenchHost {
+  const sessionOwnership = createWorkbenchPanelSessionOwnership()
   const state = createWorkbenchHostState({
     appVersion: dependencies.appVersion,
     userRoots: () => userDesktopPluginRoots(dependencies.agentDir),
@@ -328,11 +336,18 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     createView:
       dependencies.createView ??
       ((request) =>
-        createElectronPanelView(dependencies.window, dependencies.preloadPath, request)),
+        createElectronPanelView(
+          dependencies.window,
+          dependencies.preloadPath,
+          request,
+          sessionOwnership
+        )),
     nativeViews: { browser: dependencies.browser },
     ...(dependencies.onState === undefined ? {} : { onState: dependencies.onState })
   })
-  const host = new WorkbenchHostImplementation(state)
+  const host = new WorkbenchHostImplementation(state, () =>
+    cleanupWorkbenchPanelSessions(sessionOwnership)
+  )
   panelStates.set(host, state)
   return host
 }
