@@ -1,0 +1,307 @@
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { isAbsolute, join, relative, sep } from 'node:path'
+import semver from 'semver'
+import { z } from 'zod'
+import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workbench-contracts'
+import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbench-schemas'
+import type { PiPackageRoot } from '../shared/workbench-host-contracts'
+
+export type ValidatedWorkbenchEntry = {
+  contribution: WorkbenchContribution
+  canonicalEntryPath: string
+}
+
+export type ValidatedWorkbenchPlugin = {
+  pluginId: string
+  name: string
+  version: string
+  description?: string
+  requestedPermissions: string[]
+  source: string
+  scope: PiPackageRoot['scope']
+  hasExecutablePiResources: boolean
+  canonicalRootPath: string
+  manifestPath: string
+  workbench: ValidatedWorkbenchEntry[]
+}
+
+export type WorkbenchManifestDiscovery = {
+  plugins: ValidatedWorkbenchPlugin[]
+  diagnostics: WorkbenchDiagnostic[]
+}
+
+export type WorkbenchManifestDiscoveryOptions = {
+  roots: readonly PiPackageRoot[]
+  appVersion: string
+}
+
+const namespacedIdentifierSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(256)
+  .regex(
+    /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?)+$/,
+    'Expected a lowercase, namespaced identifier'
+  )
+
+const manifestWorkbenchEntrySchema = z
+  .object({
+    id: namespacedIdentifierSchema,
+    title: z.string().trim().min(1).max(256),
+    icon: workbenchIconSchema,
+    activation: workbenchActivationSchema.default('onProject'),
+    surface: z
+      .object({
+        kind: z.literal('sandboxed-web'),
+        entry: z.string().min(1).max(4096)
+      })
+      .strict()
+  })
+  .strict()
+
+const workbenchManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: namespacedIdentifierSchema,
+    version: z.string().trim().min(1).max(128),
+    name: z.string().trim().min(1).max(256),
+    description: z.string().max(4096).optional(),
+    engines: z.object({ piDesktop: z.string().trim().min(1).max(128) }).strict(),
+    permissions: z.array(z.string().trim().min(1).max(256)).max(128).optional(),
+    contributes: z.object({ workbench: z.array(manifestWorkbenchEntrySchema).max(256) }).strict()
+  })
+  .strict()
+
+type WorkbenchManifest = z.infer<typeof workbenchManifestSchema>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function diagnosticPluginId(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string') return undefined
+  const pluginId = value.id.trim()
+  return pluginId.length > 0 && pluginId.length <= 256 ? pluginId : undefined
+}
+
+function isLocalRelativeEntry(value: string): boolean {
+  if (!value.startsWith('./') || value.includes('\0') || value.includes('\\')) return false
+  const segments = value.slice(2).split('/')
+  return segments.length > 0 && segments.every((segment) => segment !== '..')
+}
+
+function isPathWithinRoot(canonicalRootPath: string, canonicalEntryPath: string): boolean {
+  const relativePath = relative(canonicalRootPath, canonicalEntryPath)
+  return (
+    relativePath !== '' &&
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  )
+}
+
+function compareRoots(left: PiPackageRoot, right: PiPackageRoot): number {
+  const leftKey = `${left.path}\0${left.scope}\0${left.source}\0${left.hasExecutablePiResources}`
+  const rightKey = `${right.path}\0${right.scope}\0${right.source}\0${right.hasExecutablePiResources}`
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+}
+
+export async function discoverWorkbenchManifests({
+  roots,
+  appVersion
+}: WorkbenchManifestDiscoveryOptions): Promise<WorkbenchManifestDiscovery> {
+  if (!semver.valid(appVersion)) throw new TypeError('appVersion must be a valid semantic version')
+
+  const plugins: ValidatedWorkbenchPlugin[] = []
+  const diagnostics: WorkbenchDiagnostic[] = []
+  const pluginIds = new Set<string>()
+  const viewIds = new Set<string>()
+  for (const root of [...roots].sort(compareRoots)) {
+    let canonicalRootPath: string
+    try {
+      canonicalRootPath = await realpath(root.path)
+      if (!(await stat(canonicalRootPath)).isDirectory()) throw new Error('Root is not a directory')
+    } catch {
+      diagnostics.push({
+        severity: 'error',
+        code: 'root-unavailable',
+        message: `Workbench plugin root from ${root.source} is unavailable.`
+      })
+      continue
+    }
+
+    let manifestPath: string
+    let manifestText: string
+    try {
+      manifestPath = await realpath(join(canonicalRootPath, 'pi-desktop.json'))
+      if (
+        !isPathWithinRoot(canonicalRootPath, manifestPath) ||
+        !(await stat(manifestPath)).isFile()
+      ) {
+        throw new Error('Manifest is not a regular file inside its plugin root')
+      }
+      manifestText = await readFile(manifestPath, 'utf8')
+    } catch (error) {
+      // A package without a desktop manifest is not a broken desktop plugin.
+      if (isRecord(error) && error.code === 'ENOENT') continue
+      diagnostics.push({
+        severity: 'error',
+        code: 'manifest-read-failed',
+        message: `Workbench manifest from ${root.source} could not be read.`
+      })
+      continue
+    }
+
+    let rawManifest: unknown
+    try {
+      rawManifest = JSON.parse(manifestText)
+    } catch {
+      diagnostics.push({
+        severity: 'error',
+        code: 'manifest-invalid-json',
+        message: `Workbench manifest from ${root.source} is not valid JSON.`
+      })
+      continue
+    }
+    const pluginId = diagnosticPluginId(rawManifest)
+
+    if (isRecord(rawManifest) && Object.prototype.hasOwnProperty.call(rawManifest, 'commands')) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'commands-not-supported',
+        message: 'Workbench commands are not supported.',
+        ...(pluginId === undefined ? {} : { pluginId })
+      })
+      continue
+    }
+
+    const parsedManifest = workbenchManifestSchema.safeParse(rawManifest)
+    if (!parsedManifest.success) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'manifest-invalid',
+        message: 'Workbench manifest does not match the supported schema.',
+        ...(pluginId === undefined ? {} : { pluginId })
+      })
+      continue
+    }
+    const manifest: WorkbenchManifest = parsedManifest.data
+
+    if (!semver.valid(manifest.version)) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'manifest-invalid',
+        message: 'Workbench plugin version must be a valid semantic version.',
+        pluginId: manifest.id
+      })
+      continue
+    }
+
+    if (!semver.validRange(manifest.engines.piDesktop)) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'engine-invalid',
+        message: 'Workbench plugin engine must be a valid semantic version range.',
+        pluginId: manifest.id
+      })
+      continue
+    }
+
+    if (!semver.satisfies(appVersion, manifest.engines.piDesktop)) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'engine-incompatible',
+        message: `Workbench plugin does not support Pi Desktop ${appVersion}.`,
+        pluginId: manifest.id
+      })
+      continue
+    }
+
+    if (pluginIds.has(manifest.id)) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'duplicate-plugin-id',
+        message: 'Workbench plugin id is already registered.',
+        pluginId: manifest.id
+      })
+      continue
+    }
+
+    const workbench: ValidatedWorkbenchEntry[] = []
+    let invalidEntry = false
+    for (const entry of manifest.contributes.workbench) {
+      let canonicalEntryPath: string | undefined
+      if (isLocalRelativeEntry(entry.surface.entry)) {
+        try {
+          const candidate = await realpath(join(canonicalRootPath, entry.surface.entry))
+          if (isPathWithinRoot(canonicalRootPath, candidate) && (await stat(candidate)).isFile()) {
+            canonicalEntryPath = candidate
+          }
+        } catch {
+          // A missing or unreadable entry is reported like every other invalid entry.
+        }
+      }
+
+      if (canonicalEntryPath === undefined) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'entry-invalid',
+          message: 'Workbench entry must resolve to a regular file inside its plugin root.',
+          pluginId: manifest.id,
+          viewId: entry.id
+        })
+        invalidEntry = true
+        break
+      }
+
+      workbench.push({
+        contribution: {
+          pluginId: manifest.id,
+          viewId: entry.id,
+          title: entry.title,
+          icon: entry.icon,
+          activation: entry.activation,
+          surface: { kind: 'sandboxed-web' }
+        },
+        canonicalEntryPath
+      })
+    }
+    if (invalidEntry) continue
+
+    const currentViewIds = new Set<string>()
+    const duplicateViewId = workbench.find(({ contribution }) => {
+      if (viewIds.has(contribution.viewId) || currentViewIds.has(contribution.viewId)) return true
+      currentViewIds.add(contribution.viewId)
+      return false
+    })?.contribution.viewId
+    if (duplicateViewId !== undefined) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'duplicate-view-id',
+        message: 'Workbench view id is already registered.',
+        pluginId: manifest.id,
+        viewId: duplicateViewId
+      })
+      continue
+    }
+
+    plugins.push({
+      pluginId: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      ...(manifest.description === undefined ? {} : { description: manifest.description }),
+      requestedPermissions: manifest.permissions ?? [],
+      source: root.source,
+      scope: root.scope,
+      hasExecutablePiResources: root.hasExecutablePiResources,
+      canonicalRootPath,
+      manifestPath,
+      workbench
+    })
+    pluginIds.add(manifest.id)
+    currentViewIds.forEach((viewId) => viewIds.add(viewId))
+  }
+
+  return { plugins, diagnostics }
+}
