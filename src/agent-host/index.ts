@@ -61,6 +61,7 @@ import {
   type UsageMetrics
 } from '../shared/contracts'
 import { hostResultMatchesCommand } from '../shared/command-result'
+import type { PiPackageRootsMessage } from '../shared/workbench-host-contracts'
 import {
   browserCapabilityResponseSchema,
   browserOperationSchema,
@@ -73,6 +74,11 @@ import { ApprovalRegistry } from './approval-registry'
 import { ConversationProjection } from './conversation-projection'
 import { LoginPromptRegistry } from './login-prompt-registry'
 import { PatchBatcher } from './patch-batcher'
+import {
+  collectLoadedPiPackageRoots,
+  packageRootsMessageForSnapshot,
+  type PiPackageRootsPublication
+} from './pi-package-roots'
 import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
 import {
@@ -168,7 +174,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function send(message: HostMessage | BrowserCapabilityRequest | BrowserCapabilityCancel): void {
+function send(
+  message: HostMessage | BrowserCapabilityRequest | BrowserCapabilityCancel | PiPackageRootsMessage
+): void {
   process.parentPort.postMessage(message)
 }
 
@@ -329,6 +337,8 @@ class PiDesktopHost {
   private pendingPromptsBySession = new Map<string, number>()
   private patchBatcher = new PatchBatcher(() => this.emitStreamingPatch(), MESSAGE_UPDATE_BATCH_MS)
   private pendingStreamingMessage: AssistantMessage | null = null
+  private pendingPackageRootsPublication: PiPackageRootsPublication<AgentSessionRuntime> | null =
+    null
   private pendingBrowserCapabilities = new Map<
     string,
     {
@@ -749,11 +759,13 @@ class PiDesktopHost {
   }
 
   private async bindSession(): Promise<void> {
-    const session = this.runtime?.session
-    if (!session) return
+    const runtime = this.runtime
+    const session = runtime?.session
+    if (!session || !runtime) return
     this.rejectApprovals(true, 'session-switch')
     this.sessionGeneration += 1
     const generation = this.sessionGeneration
+    this.pendingPackageRootsPublication = null
     this.resetPublishedState()
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
@@ -771,6 +783,33 @@ class PiDesktopHost {
         this.emitPatch()
       }
     })
+
+    let roots: PiPackageRootsMessage['roots'] = []
+    try {
+      roots = await collectLoadedPiPackageRoots({
+        extensions: runtime.services.resourceLoader.getExtensions().extensions,
+        skills: runtime.services.resourceLoader.getSkills().skills
+      })
+    } catch (error) {
+      console.warn('Failed to collect loaded Pi package roots', errorMessage(error))
+    }
+    const sessionId = session.sessionManager.getSessionId()
+    if (
+      this.runtime === runtime &&
+      runtime.session === session &&
+      generation === this.sessionGeneration &&
+      sessionId === session.sessionManager.getSessionId()
+    ) {
+      this.pendingPackageRootsPublication = {
+        runtime,
+        message: {
+          type: 'desktop-plugin-roots',
+          sessionId,
+          generation,
+          roots
+        }
+      }
+    }
 
     this.unsubscribeSession = session.subscribe((event) => {
       if (generation !== this.sessionGeneration) return
@@ -1613,7 +1652,30 @@ class PiDesktopHost {
     const snapshot = this.snapshot()
     this.publishedSnapshot = snapshot
     send({ type: 'event', event: 'snapshot', data: snapshot })
+    this.publishPackageRootsAfterSnapshot(snapshot)
     return snapshot
+  }
+
+  private publishPackageRootsAfterSnapshot(
+    identity: Pick<AgentSnapshot, 'sessionId' | 'generation'>
+  ): void {
+    const publication = this.pendingPackageRootsPublication
+    if (!publication) return
+    const message = packageRootsMessageForSnapshot(publication, {
+      runtime: this.runtime,
+      sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
+      generation: this.sessionGeneration
+    })
+    if (
+      !message ||
+      message.sessionId !== identity.sessionId ||
+      message.generation !== identity.generation
+    ) {
+      this.pendingPackageRootsPublication = null
+      return
+    }
+    this.pendingPackageRootsPublication = null
+    send(message)
   }
 
   private emitPatch(): AgentSnapshot {
@@ -1690,6 +1752,7 @@ class PiDesktopHost {
     this.unsubscribeSession?.()
     this.unsubscribeSession = undefined
     this.sessionGeneration += 1
+    this.pendingPackageRootsPublication = null
     this.resetPublishedState()
     this.runtime = null
     this.activeExplicitModel = null

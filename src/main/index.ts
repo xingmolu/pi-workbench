@@ -52,6 +52,7 @@ import {
 } from './workbench-host'
 import type { WorkbenchStateStore } from './workbench-host-state'
 import { createWorkbenchPanelIpcRouter } from './workbench-panel-ipc'
+import { routePiPackageRootsMessage } from './workbench-package-roots'
 import icon from '../../resources/icon.png?asset'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
@@ -113,8 +114,23 @@ function updateWorkbenchContext(): void {
   }
 }
 
+function clearWorkbenchPackageRoots(): void {
+  const host = workbenchHost
+  if (!host) return
+  try {
+    void host.setPackageRoots([]).catch((error) => {
+      console.warn('无法清理过期的 Workbench package roots', errorMessage(error))
+    })
+  } catch (error) {
+    console.warn('无法清理过期的 Workbench package roots', errorMessage(error))
+  }
+}
+
 function forwardEvent(event: HostEvent): void {
   if (event.event === 'snapshot' || event.event === 'patch') {
+    const identityChanged =
+      event.data.sessionId !== activeHostIdentity.sessionId ||
+      event.data.generation !== activeHostIdentity.generation
     activeHostIdentity = {
       sessionId: event.data.sessionId,
       generation: event.data.generation
@@ -128,6 +144,7 @@ function forwardEvent(event: HostEvent): void {
       browserManager?.setProject(activeProjectPath)
     }
     updateWorkbenchContext()
+    if (identityChanged) clearWorkbenchPackageRoots()
   }
   if (event.event === 'open-external') {
     try {
@@ -146,6 +163,19 @@ function forwardEvent(event: HostEvent): void {
 }
 
 function handleHostMessage(message: unknown): void {
+  if (
+    routePiPackageRootsMessage(message, {
+      readActiveIdentity: () => activeHostIdentity,
+      setPackageRoots: (roots) => {
+        const host = workbenchHost
+        if (!host) throw new Error('Workbench 尚未就绪')
+        return host.setPackageRoots(roots)
+      },
+      warn: (warning) => console.warn(warning)
+    })
+  ) {
+    return
+  }
   const capabilityRequest = browserCapabilityRequestSchema.safeParse(message)
   if (capabilityRequest.success) {
     const request = capabilityRequest.data
