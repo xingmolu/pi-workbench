@@ -4,6 +4,10 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { LogHandlerWithDefault, WarningHandlerWithDefault } from 'rollup'
 import { build as viteBuild, type Plugin } from 'vite'
+import {
+  createPreloadBuildPlans,
+  type PreloadBuildPlanSettings
+} from './src/preload/preload-build-plan'
 
 const preloadWarningHandler: WarningHandlerWithDefault = (warning, defaultHandler) => {
   if (warning.code === 'INVALID_ANNOTATION' && warning.id?.includes('/node_modules/zod/')) return
@@ -22,21 +26,36 @@ const preloadLogHandler: LogHandlerWithDefault = (level, log, defaultHandler) =>
 }
 
 function selfContainedPreloads(): Plugin {
+  let settings: PreloadBuildPlanSettings | undefined
+
   return {
     name: 'self-contained-preloads',
     apply: 'build',
+    configResolved(config) {
+      settings = {
+        root: config.root,
+        mode: config.mode,
+        sourcemap: config.build.sourcemap,
+        minify: config.build.minify
+      }
+    },
     async writeBundle() {
-      for (const entry of ['index', 'plugin']) {
+      if (!settings) throw new Error('Preload build configuration is unavailable')
+
+      // Electron Vite watch calls writeBundle after each outer rebuild, rebuilding both sandboxes.
+      for (const plan of createPreloadBuildPlans(settings)) {
         await viteBuild({
           configFile: false,
+          mode: plan.mode,
           publicDir: false,
           build: {
             target: 'node22',
-            outDir: resolve(__dirname, 'out/preload'),
-            emptyOutDir: false,
-            minify: false,
+            outDir: plan.outDir,
+            emptyOutDir: plan.emptyOutDir,
+            minify: plan.minify,
+            sourcemap: plan.sourcemap,
             reportCompressedSize: false,
-            ssr: resolve(__dirname, `src/preload/${entry}.ts`),
+            ssr: plan.input,
             rollupOptions: {
               onLog: preloadLogHandler,
               onwarn: preloadWarningHandler,
@@ -47,7 +66,7 @@ function selfContainedPreloads(): Plugin {
               ],
               output: {
                 format: 'cjs',
-                entryFileNames: `${entry}.js`,
+                entryFileNames: `${plan.entry}.js`,
                 inlineDynamicImports: true
               }
             }

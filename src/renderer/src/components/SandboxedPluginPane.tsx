@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { createSandboxedPluginPaneController } from './sandboxed-plugin-pane-controller'
 
 type SandboxedPluginPaneProps = {
   viewId: string
@@ -17,47 +18,29 @@ export default function SandboxedPluginPane({
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current
-    let active = true
     let frame = 0
-    let request = 0
-
-    const hide = (): void => {
-      request += 1
-      void window.pi.workbench({ type: 'view:set', viewId, visible: false }).catch(() => undefined)
-    }
+    const controller = createSandboxedPluginPaneController({
+      viewId,
+      send: (command) => window.pi.workbench(command),
+      onUnavailableChange: setUnavailable
+    })
 
     if (!viewport || !visible) {
-      hide()
-      return hide
+      controller.dispose()
+      return () => controller.dispose()
     }
 
     const publishBounds = (): void => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const rect = viewport.getBoundingClientRect()
-        if (rect.width <= 0 || rect.height <= 0) {
-          hide()
-          return
-        }
-        const currentRequest = ++request
-        void window.pi
-          .workbench({
-            type: 'view:set',
-            viewId,
-            visible: true,
-            bounds: {
-              x: clamp(rect.x, 100_000),
-              y: clamp(rect.y, 100_000),
-              width: Math.max(1, clamp(rect.width, 16_384)),
-              height: Math.max(1, clamp(rect.height, 16_384))
-            }
-          })
-          .then(() => {
-            if (active && currentRequest === request) setUnavailable(false)
-          })
-          .catch(() => {
-            if (active && currentRequest === request) setUnavailable(true)
-          })
+        if (rect.width <= 0 || rect.height <= 0) return
+        controller.publish({
+          x: clamp(rect.x, 100_000),
+          y: clamp(rect.y, 100_000),
+          width: Math.max(1, clamp(rect.width, 16_384)),
+          height: Math.max(1, clamp(rect.height, 16_384))
+        })
       })
     }
 
@@ -66,11 +49,10 @@ export default function SandboxedPluginPane({
     window.addEventListener('resize', publishBounds)
     publishBounds()
     return () => {
-      active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('resize', publishBounds)
-      hide()
+      controller.dispose()
     }
   }, [viewId, visible])
 

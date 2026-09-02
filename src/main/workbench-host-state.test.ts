@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { WorkbenchBounds } from '../shared/contracts'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { workbenchSnapshotSchema } from '../shared/workbench-schemas'
 import type { WorkbenchManifestDiscovery } from './workbench-manifest'
@@ -13,11 +14,12 @@ class FakePanelView implements WorkbenchPanelView {
   visible = false
   destroyed = false
   contexts: WorkbenchPanelViewRequest['context'][] = []
+  bounds: WorkbenchBounds[] = []
 
   constructor(private readonly onDestroy?: () => void) {}
 
-  setBounds(): void {
-    // Bounds are irrelevant to the pure lifecycle assertions.
+  setBounds(bounds: WorkbenchBounds): void {
+    this.bounds.push(bounds)
   }
   setVisible(visible: boolean): void {
     this.visible = visible
@@ -785,6 +787,81 @@ describe('Workbench host state', () => {
     await expect(reveal).rejects.toThrow(/abort|selection|stale/i)
     expect(pending.view.destroyed).toBe(true)
     expect(pending.view.visible).toBe(false)
+  })
+
+  it('coalesces repeated bounds into one pending creation and applies the latest bounds', async () => {
+    const { state, starts, attemptCount } = createControlledViewHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+    const firstBounds = { x: 10, y: 20, width: 300, height: 200 }
+    const latestBounds = { x: 12, y: 22, width: 302, height: 202 }
+
+    const reveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true,
+      bounds: firstBounds
+    })
+    const pending = await starts[0].promise
+
+    const repeated = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true,
+      bounds: latestBounds
+    })
+    void repeated.catch(() => undefined)
+    void reveal.catch(() => undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(attemptCount()).toBe(1)
+    await expect(repeated).resolves.toBeDefined()
+    expect(pending.request.signal.aborted).toBe(false)
+    pending.resolve()
+    await expect(reveal).resolves.toBeDefined()
+    expect(pending.view.bounds).toEqual([latestBounds])
+    expect(pending.view.visible).toBe(true)
+  })
+
+  it('keeps repeated visible browser bounds in the same selection epoch', async () => {
+    const operations = [createDeferred<void>(), createDeferred<void>()]
+    let operationIndex = 0
+    const { state, browserCalls } = createHarness(
+      [{ plugins: [], diagnostics: [] }],
+      new Map(),
+      undefined,
+      () => operations[operationIndex++]?.promise
+    )
+    await state.reload()
+    const firstBounds = { x: 10, y: 20, width: 300, height: 200 }
+    const latestBounds = { x: 12, y: 22, width: 302, height: 202 }
+
+    const first = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true,
+      bounds: firstBounds
+    })
+    const latest = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true,
+      bounds: latestBounds
+    })
+
+    operations[1]!.resolve()
+    await expect(latest).resolves.toBeDefined()
+    operations[0]!.resolve()
+    await expect(first).resolves.toBeDefined()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(browserCalls).toEqual([
+      { visible: true, bounds: firstBounds },
+      { visible: true, bounds: latestBounds }
+    ])
   })
 
   it('keeps only the latest external selection when creates resolve in reverse order', async () => {

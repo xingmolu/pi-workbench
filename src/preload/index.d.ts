@@ -1,9 +1,8 @@
-import type { PiDesktopAPI, PluginPanelAPI } from '../shared/contracts'
+import type { PiDesktopAPI } from '../shared/contracts'
 
 declare global {
   interface Window {
     pi: PiDesktopAPI
-    piPlugin: PluginPanelAPI
   }
 }
 

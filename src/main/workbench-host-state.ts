@@ -199,6 +199,7 @@ export function createWorkbenchHostState(
     selectionEpoch: number
     token: object
     controller: AbortController
+    bounds?: WorkbenchBounds
     view?: WorkbenchPanelView
     invalidated: boolean
   }
@@ -334,7 +335,7 @@ export function createWorkbenchHostState(
     bounds?: WorkbenchBounds
   ): { token: SelectionToken; browserOperation?: Promise<void> } => {
     const previousDesiredViewId = desiredViewId
-    const changesDesired = visible || desiredViewId === viewId
+    const changesDesired = visible ? desiredViewId !== viewId : desiredViewId === viewId
     if (changesDesired) {
       selectionEpoch += 1
       desiredViewId = visible ? viewId : null
@@ -344,6 +345,8 @@ export function createWorkbenchHostState(
         const pending = pendingCreations.get(viewId)
         if (pending) invalidatePendingCreation(pending)
       }
+    } else if (visible && viewId === BROWSER_VIEW_ID && bounds !== undefined) {
+      desiredBrowserBounds = bounds
     }
 
     if (
@@ -603,10 +606,13 @@ export function createWorkbenchHostState(
             if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
           }
           let record = views.get(command.viewId)
+          const existingPending = pendingCreations.get(command.viewId)
+          if (command.visible && !record && existingPending) {
+            if (command.bounds) existingPending.bounds = command.bounds
+            break
+          }
+          let nextBounds = command.bounds
           if (command.visible && !record) {
-            if (pendingCreations.has(command.viewId)) {
-              throw new Error('Workbench panel creation is already in progress')
-            }
             const token = {}
             const panelContext = this.panelContext(command.viewId)
             const controller = new AbortController()
@@ -618,6 +624,7 @@ export function createWorkbenchHostState(
               selectionEpoch: selection.token.epoch,
               token,
               controller,
+              ...(command.bounds === undefined ? {} : { bounds: command.bounds }),
               invalidated: false
             }
             pendingCreations.set(command.viewId, pending)
@@ -660,9 +667,10 @@ export function createWorkbenchHostState(
               view
             }
             views.set(command.viewId, record)
+            nextBounds = pending.bounds
           }
           if (command.visible) assertCurrentSelection(selection.token)
-          if (command.bounds) record?.view.setBounds(command.bounds)
+          if (nextBounds) record?.view.setBounds(nextBounds)
           record?.view.setVisible(command.visible)
           if (command.visible) activeViewId = command.viewId
           else if (activeViewId === command.viewId) activeViewId = null
