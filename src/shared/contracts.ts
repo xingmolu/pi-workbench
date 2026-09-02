@@ -1,3 +1,5 @@
+export * from './workbench-contracts'
+
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
 export type PermissionMode = 'open' | 'ask'
