@@ -36,7 +36,18 @@ type JsonValidationFrame =
 function isBoundedJsonValue(value: unknown): value is JsonValue {
   const ancestors = new Set<object>()
   const stack: JsonValidationFrame[] = [{ phase: 'enter', value, depth: 0 }]
+  const textEncoder = new TextEncoder()
   let nodeCount = 0
+  let utf8LowerBoundBytes = 0
+
+  const consumeStringBudget = (text: string): boolean => {
+    const remainingBytes = WORKBENCH_PANEL_STATE_MAX_BYTES - utf8LowerBoundBytes
+    if (text.length > remainingBytes) return false
+    const byteLength = textEncoder.encode(text).byteLength
+    if (byteLength > remainingBytes) return false
+    utf8LowerBoundBytes += byteLength
+    return true
+  }
 
   try {
     while (stack.length > 0) {
@@ -52,7 +63,11 @@ function isBoundedJsonValue(value: unknown): value is JsonValue {
       }
 
       const current = frame.value
-      if (current === null || typeof current === 'string' || typeof current === 'boolean') {
+      if (current === null || typeof current === 'boolean') {
+        continue
+      }
+      if (typeof current === 'string') {
+        if (!consumeStringBudget(current)) return false
         continue
       }
       if (typeof current === 'number') {
@@ -90,6 +105,7 @@ function isBoundedJsonValue(value: unknown): value is JsonValue {
         if (typeof key !== 'string') return false
         const descriptor = Object.getOwnPropertyDescriptor(current, key)
         if (!descriptor?.enumerable || !('value' in descriptor)) return false
+        if (!consumeStringBudget(key)) return false
         stack.push({ phase: 'enter', value: descriptor.value, depth: frame.depth + 1 })
       }
     }
@@ -97,7 +113,7 @@ function isBoundedJsonValue(value: unknown): value is JsonValue {
     const serialized = JSON.stringify(value)
     return (
       typeof serialized === 'string' &&
-      new TextEncoder().encode(serialized).byteLength <= WORKBENCH_PANEL_STATE_MAX_BYTES
+      textEncoder.encode(serialized).byteLength <= WORKBENCH_PANEL_STATE_MAX_BYTES
     )
   } catch {
     return false

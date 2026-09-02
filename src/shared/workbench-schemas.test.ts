@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { WORKBENCH_PANEL_STATE_MAX_BYTES } from './workbench-contracts'
 import {
   pluginPanelCommandSchema,
@@ -227,6 +227,50 @@ describe('Workbench schemas', () => {
         value: { invalid: undefined }
       }).success
     ).toBe(false)
+  })
+
+  it('rejects a huge string before whole-value serialization', () => {
+    const stringify = vi.spyOn(JSON, 'stringify')
+    const encode = vi.spyOn(TextEncoder.prototype, 'encode')
+    let success = true
+    let stringifyCalls = -1
+    let encodeCalls = -1
+    try {
+      success = pluginPanelStateSchema.safeParse(
+        'x'.repeat(WORKBENCH_PANEL_STATE_MAX_BYTES + 1)
+      ).success
+      stringifyCalls = stringify.mock.calls.length
+      encodeCalls = encode.mock.calls.length
+    } finally {
+      stringify.mockRestore()
+      encode.mockRestore()
+    }
+
+    expect(success).toBe(false)
+    expect(stringifyCalls).toBe(0)
+    expect(encodeCalls).toBe(0)
+  })
+
+  it('rejects aggregate large string values and keys before whole-value serialization', () => {
+    const cases = [
+      { first: 'x'.repeat(17_000), second: 'y'.repeat(17_000) },
+      { ['a'.repeat(17_000)]: null, ['b'.repeat(17_000)]: null }
+    ]
+
+    for (const value of cases) {
+      const stringify = vi.spyOn(JSON, 'stringify')
+      let success = true
+      let stringifyCalls = -1
+      try {
+        success = pluginPanelStateSchema.safeParse(value).success
+        stringifyCalls = stringify.mock.calls.length
+      } finally {
+        stringify.mockRestore()
+      }
+
+      expect(success).toBe(false)
+      expect(stringifyCalls).toBe(0)
+    }
   })
 
   it('never throws and rejects cyclic or excessively complex panel state', () => {
