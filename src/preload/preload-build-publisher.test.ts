@@ -136,6 +136,68 @@ describe('atomic preload build publication', () => {
     expect(await listFiles(victimDirectory)).toEqual(['sentinel.txt'])
   })
 
+  it('rejects a live directory replaced by a victim symlink during staged builds', async () => {
+    const originalLiveDirectory = join(outputDirectory, 'preload-original')
+    const victimDirectory = join(temporaryRoot, 'build-victim')
+    await mkdir(victimDirectory)
+    await writeFile(join(victimDirectory, 'index.js'), 'victim index')
+    await writeFile(join(victimDirectory, 'plugin.js'), 'victim plugin')
+    await writeFile(join(victimDirectory, 'sentinel.txt'), 'victim sentinel')
+
+    await expect(
+      buildAndPublishPreloads({
+        rootDirectory: temporaryRoot,
+        liveDirectory,
+        outerIntermediateDirectory,
+        async buildEntry(entry, stagingDirectory) {
+          if (entry === 'index') {
+            await rename(liveDirectory, originalLiveDirectory)
+            await symlink(victimDirectory, liveDirectory, 'dir')
+          }
+          await writeBundle(stagingDirectory, entry)
+        }
+      })
+    ).rejects.toThrow('identity')
+
+    expect(await readFile(join(victimDirectory, 'index.js'), 'utf8')).toBe('victim index')
+    expect(await readFile(join(victimDirectory, 'plugin.js'), 'utf8')).toBe('victim plugin')
+    expect(await readFile(join(victimDirectory, 'sentinel.txt'), 'utf8')).toBe('victim sentinel')
+    expect(await listFiles(victimDirectory)).toEqual(['index.js', 'plugin.js', 'sentinel.txt'])
+    expect(
+      (await readdir(outputDirectory)).filter((name) => name.startsWith('.preload-stage-'))
+    ).toEqual([])
+  })
+
+  it('rejects a different live directory installed during staged builds', async () => {
+    const originalLiveDirectory = join(outputDirectory, 'preload-original')
+
+    await expect(
+      buildAndPublishPreloads({
+        rootDirectory: temporaryRoot,
+        liveDirectory,
+        outerIntermediateDirectory,
+        async buildEntry(entry, stagingDirectory) {
+          if (entry === 'index') {
+            await rename(liveDirectory, originalLiveDirectory)
+            await mkdir(liveDirectory)
+            await writeFile(join(liveDirectory, 'index.js'), 'replacement index')
+            await writeFile(join(liveDirectory, 'plugin.js'), 'replacement plugin')
+            await writeFile(join(liveDirectory, 'sentinel.txt'), 'replacement sentinel')
+          }
+          await writeBundle(stagingDirectory, entry)
+        }
+      })
+    ).rejects.toThrow('identity')
+
+    expect(await readFile(join(liveDirectory, 'index.js'), 'utf8')).toBe('replacement index')
+    expect(await readFile(join(liveDirectory, 'plugin.js'), 'utf8')).toBe('replacement plugin')
+    expect(await readFile(join(liveDirectory, 'sentinel.txt'), 'utf8')).toBe('replacement sentinel')
+    expect(await listFiles(liveDirectory)).toEqual(['index.js', 'plugin.js', 'sentinel.txt'])
+    expect(
+      (await readdir(outputDirectory)).filter((name) => name.startsWith('.preload-stage-'))
+    ).toEqual([])
+  })
+
   it('preserves unknown live files after successful publication', async () => {
     await writeFile(join(liveDirectory, 'user-sentinel.txt'), 'keep me')
     await mkdir(join(liveDirectory, 'user-content'))
@@ -152,6 +214,31 @@ describe('atomic preload build publication', () => {
     expect(await readFile(join(liveDirectory, 'user-content', 'notes.txt'), 'utf8')).toBe(
       'keep this too'
     )
+  })
+
+  it('cleans current-owner artifacts when preparation rejects a live file type', async () => {
+    await rm(join(liveDirectory, 'plugin.js'))
+    await mkdir(join(liveDirectory, 'plugin.js'))
+    await writeFile(join(liveDirectory, 'plugin.js', 'sentinel.txt'), 'directory sentinel')
+
+    await expect(
+      buildAndPublishPreloads({
+        rootDirectory: temporaryRoot,
+        liveDirectory,
+        outerIntermediateDirectory,
+        buildEntry: (entry, stagingDirectory) => writeBundle(stagingDirectory, entry)
+      })
+    ).rejects.toThrow('unsafe')
+
+    expect(await readFile(join(liveDirectory, 'index.js'), 'utf8')).toBe('old index')
+    expect(await readFile(join(liveDirectory, 'plugin.js', 'sentinel.txt'), 'utf8')).toBe(
+      'directory sentinel'
+    )
+    expect(
+      (await readdir(liveDirectory)).filter((name) =>
+        ['.ready', '.backup', '.displaced', '.rollback'].some((suffix) => name.includes(suffix))
+      )
+    ).toEqual([])
   })
 
   it('leaves both live entries unchanged when the plugin build fails', async () => {

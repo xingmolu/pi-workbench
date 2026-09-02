@@ -19,8 +19,16 @@ type BuildAndPublishPreloadsOptions = {
 type ValidatedDirectories = {
   liveDirectory: string
   liveCanonical: string
+  liveIdentity: DirectoryIdentity
   outerIntermediateDirectory: string
   outputDirectory: string
+  outputIdentity: DirectoryIdentity
+}
+
+type DirectoryIdentity = {
+  canonical: string
+  dev: number | bigint
+  ino: number | bigint
 }
 
 type ArtifactRecord = {
@@ -35,6 +43,12 @@ type ArtifactRecord = {
 
 const publicationQueues = new Map<string, Promise<void>>()
 
+class PreloadDirectoryIdentityError extends Error {
+  constructor(readonly stageMayBeCleaned: boolean) {
+    super('Preload publication directory identity changed')
+  }
+}
+
 function isMissing(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }
@@ -48,16 +62,31 @@ async function optionalLstat(path: string): Promise<Awaited<ReturnType<typeof ls
   }
 }
 
-async function ensureRealDirectory(path: string): Promise<string> {
+async function realDirectoryIdentity(
+  path: string,
+  createIfMissing: boolean
+): Promise<DirectoryIdentity> {
   let metadata = await optionalLstat(path)
-  if (!metadata) {
+  if (!metadata && createIfMissing) {
     await mkdir(path)
     metadata = await lstat(path)
   }
-  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) {
     throw new Error('Preload publication directories are unsafe')
   }
-  return realpath(path)
+  return {
+    canonical: await realpath(path),
+    dev: metadata.dev,
+    ino: metadata.ino
+  }
+}
+
+function hasSameIdentity(current: DirectoryIdentity, expected: DirectoryIdentity): boolean {
+  return (
+    current.canonical === expected.canonical &&
+    current.dev === expected.dev &&
+    current.ino === expected.ino
+  )
 }
 
 async function validateDirectories(
@@ -78,22 +107,56 @@ async function validateDirectories(
   }
 
   const rootCanonical = await realpath(rootDirectory)
-  const outputCanonical = await ensureRealDirectory(outputDirectory)
-  if (dirname(outputCanonical) !== rootCanonical || basename(outputCanonical) !== 'out') {
+  const outputIdentity = await realDirectoryIdentity(outputDirectory, true)
+  if (
+    dirname(outputIdentity.canonical) !== rootCanonical ||
+    basename(outputIdentity.canonical) !== 'out'
+  ) {
     throw new Error('Preload publication directories are unsafe')
   }
-  const liveCanonical = await ensureRealDirectory(liveDirectory)
-  const outerCanonical = await ensureRealDirectory(outerIntermediateDirectory)
+  const liveIdentity = await realDirectoryIdentity(liveDirectory, true)
+  const outerIdentity = await realDirectoryIdentity(outerIntermediateDirectory, true)
   if (
-    dirname(liveCanonical) !== outputCanonical ||
-    basename(liveCanonical) !== 'preload' ||
-    dirname(outerCanonical) !== outputCanonical ||
-    basename(outerCanonical) !== '.preload-outer'
+    dirname(liveIdentity.canonical) !== outputIdentity.canonical ||
+    basename(liveIdentity.canonical) !== 'preload' ||
+    dirname(outerIdentity.canonical) !== outputIdentity.canonical ||
+    basename(outerIdentity.canonical) !== '.preload-outer'
   ) {
     throw new Error('Preload publication directories are unsafe')
   }
 
-  return { liveDirectory, liveCanonical, outerIntermediateDirectory, outputDirectory }
+  return {
+    liveDirectory,
+    liveCanonical: liveIdentity.canonical,
+    liveIdentity,
+    outerIntermediateDirectory,
+    outputDirectory,
+    outputIdentity
+  }
+}
+
+async function verifyPostBuildIdentity(directories: ValidatedDirectories): Promise<void> {
+  let outputIdentity: DirectoryIdentity
+  try {
+    outputIdentity = await realDirectoryIdentity(directories.outputDirectory, false)
+  } catch {
+    throw new PreloadDirectoryIdentityError(false)
+  }
+  if (!hasSameIdentity(outputIdentity, directories.outputIdentity)) {
+    throw new PreloadDirectoryIdentityError(false)
+  }
+
+  let liveIdentity: DirectoryIdentity
+  try {
+    liveIdentity = await realDirectoryIdentity(directories.liveDirectory, false)
+  } catch {
+    throw new PreloadDirectoryIdentityError(true)
+  }
+  if (!hasSameIdentity(liveIdentity, directories.liveIdentity)) {
+    throw new PreloadDirectoryIdentityError(true)
+  }
+
+  // Local desktop trust boundary: the filesystem can still change after this no-follow check.
 }
 
 async function runSerialized<Result>(
@@ -185,31 +248,38 @@ async function prepareArtifacts(
   desiredArtifacts: readonly GeneratedArtifact[],
   token: string
 ): Promise<ArtifactRecord[]> {
-  const records: ArtifactRecord[] = []
-  for (const artifact of GENERATED_ARTIFACTS) {
+  const records: ArtifactRecord[] = GENERATED_ARTIFACTS.map((artifact) => {
     const live = join(liveDirectory, artifact)
-    const metadata = await optionalLstat(live)
-    if (metadata && (metadata.isSymbolicLink() || !metadata.isFile())) {
-      throw new Error('Preload publication artifact is unsafe')
-    }
-    const record: ArtifactRecord = {
+    return {
       artifact,
       live,
       ready: join(liveDirectory, `.${artifact}.${token}.ready`),
       backup: join(liveDirectory, `.${artifact}.${token}.backup`),
       rollback: join(liveDirectory, `.${artifact}.${token}.rollback`),
       displaced: join(liveDirectory, `.${artifact}.${token}.displaced`),
-      existed: metadata !== null
+      existed: false
     }
-    records.push(record)
-    if (record.existed) await copyFile(record.live, record.backup)
-  }
-  for (const record of records) {
-    if (desiredArtifacts.includes(record.artifact)) {
-      await copyFile(join(stagingDirectory, record.artifact), record.ready)
+  })
+
+  try {
+    for (const record of records) {
+      const metadata = await optionalLstat(record.live)
+      if (metadata && (metadata.isSymbolicLink() || !metadata.isFile())) {
+        throw new Error('Preload publication artifact is unsafe')
+      }
+      record.existed = metadata !== null
+      if (record.existed) await copyFile(record.live, record.backup)
     }
+    for (const record of records) {
+      if (desiredArtifacts.includes(record.artifact)) {
+        await copyFile(join(stagingDirectory, record.artifact), record.ready)
+      }
+    }
+    return records
+  } catch (error) {
+    await cleanupOwnedArtifacts(records)
+    throw error
   }
-  return records
 }
 
 async function cleanupOwnedArtifacts(records: readonly ArtifactRecord[]): Promise<void> {
@@ -292,6 +362,7 @@ async function buildPublishTransaction(
     for (const entry of PRELOAD_ENTRIES) {
       await options.buildEntry(entry, stagingDirectory)
     }
+    await verifyPostBuildIdentity(directories)
     const artifacts = await stagedArtifacts(stagingDirectory)
     await publishArtifacts(
       stagingDirectory,
@@ -305,8 +376,11 @@ async function buildPublishTransaction(
   }
 
   try {
-    await removeOwnedDirectory(stagingDirectory)
-    await removeOwnedDirectory(directories.outerIntermediateDirectory)
+    const identityFailure = failure instanceof PreloadDirectoryIdentityError ? failure : undefined
+    if (!identityFailure || identityFailure.stageMayBeCleaned) {
+      await removeOwnedDirectory(stagingDirectory)
+    }
+    if (!identityFailure) await removeOwnedDirectory(directories.outerIntermediateDirectory)
   } catch (cleanupError) {
     if (!failure) failure = cleanupError
   }
@@ -319,8 +393,11 @@ export async function buildAndPublishPreloads(
   const initialDirectories = await validateDirectories(options)
   return runSerialized(initialDirectories.liveCanonical, async () => {
     const directories = await validateDirectories(options)
-    if (directories.liveCanonical !== initialDirectories.liveCanonical) {
-      throw new Error('Preload publication directories are unsafe')
+    if (
+      !hasSameIdentity(directories.outputIdentity, initialDirectories.outputIdentity) ||
+      !hasSameIdentity(directories.liveIdentity, initialDirectories.liveIdentity)
+    ) {
+      throw new PreloadDirectoryIdentityError(false)
     }
     await buildPublishTransaction(options, directories)
   })
