@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import type { WorkbenchCommand } from '../../../shared/contracts'
 import { createSandboxedPluginPaneController } from './sandboxed-plugin-pane-controller'
 
 type SandboxedPluginPaneProps = {
   viewId: string
   visible: boolean
+  onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
   onWorkbenchError: (message: string) => void
 }
 
@@ -13,6 +15,7 @@ const clamp = (value: number, maximum: number): number =>
 export default function SandboxedPluginPane({
   viewId,
   visible,
+  onWorkbenchCommand,
   onWorkbenchError
 }: SandboxedPluginPaneProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -23,7 +26,7 @@ export default function SandboxedPluginPane({
     let frame = 0
     const controller = createSandboxedPluginPaneController({
       viewId,
-      send: (command) => window.pi.workbench(command),
+      send: onWorkbenchCommand,
       onUnavailableChange: setUnavailable,
       onError: onWorkbenchError
     })
@@ -60,7 +63,7 @@ export default function SandboxedPluginPane({
       window.removeEventListener('resize', publishBounds)
       controller.dispose()
     }
-  }, [onWorkbenchError, viewId, visible])
+  }, [onWorkbenchCommand, onWorkbenchError, viewId, visible])
 
   return (
     <div className="sandboxed-plugin-pane" ref={viewportRef}>

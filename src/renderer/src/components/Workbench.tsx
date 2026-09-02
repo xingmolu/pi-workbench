@@ -67,6 +67,7 @@ type WorkbenchProps = {
   settingsOpen: boolean
   agentSnapshot: AgentSnapshot
   workbenchSnapshot: WorkbenchSnapshot
+  workbenchError: string | null
   onSelectView: (viewId: string) => void
   onToggle: () => void
   onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
@@ -596,10 +597,12 @@ function EmptyWorkbench({ hasContributions }: { hasContributions: boolean }): Re
 function ContributionSurface({
   contribution,
   projectReady,
+  onCommand,
   onError
 }: {
   contribution: WorkbenchContribution | undefined
   projectReady: boolean
+  onCommand: (command: WorkbenchCommand) => Promise<void>
   onError: (message: string) => void
 }): React.JSX.Element {
   if (!contribution) return <EmptyWorkbench hasContributions={false} />
@@ -619,12 +622,20 @@ function ContributionSurface({
       <BrowserPane
         viewId={contribution.viewId}
         projectReady={projectReady}
+        onWorkbenchCommand={onCommand}
         onWorkbenchError={onError}
       />
     )
   }
   if (contribution.surface.kind === 'sandboxed-web') {
-    return <SandboxedPluginPane viewId={contribution.viewId} visible onWorkbenchError={onError} />
+    return (
+      <SandboxedPluginPane
+        viewId={contribution.viewId}
+        visible
+        onWorkbenchCommand={onCommand}
+        onWorkbenchError={onError}
+      />
+    )
   }
   return <EmptyWorkbench hasContributions />
 }
@@ -635,6 +646,7 @@ export default function Workbench({
   settingsOpen,
   agentSnapshot,
   workbenchSnapshot,
+  workbenchError,
   onSelectView,
   onToggle,
   onWorkbenchCommand,
@@ -704,6 +716,13 @@ export default function Workbench({
             </button>
           </header>
 
+          {workbenchError ? (
+            <div className="workbench-error" role="alert">
+              <CircleAlert size={14} aria-hidden="true" />
+              <span>{workbenchError}</span>
+            </div>
+          ) : null}
+
           <div className="workbench-stage-body">
             {settingsOpen ? (
               <SettingsPanel
@@ -718,6 +737,7 @@ export default function Workbench({
               <ContributionSurface
                 contribution={selectedContribution}
                 projectReady={Boolean(agentSnapshot.project)}
+                onCommand={onWorkbenchCommand}
                 onError={onWorkbenchError}
               />
             ) : (

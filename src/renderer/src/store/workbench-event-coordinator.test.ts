@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WorkbenchEvent, WorkbenchSnapshot } from '../../../shared/contracts'
 import { startWorkbenchEventCoordinator } from './workbench-event-coordinator'
+import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './workbench-status'
 
 function snapshot(
   revision: number,
@@ -139,6 +140,7 @@ describe('App Workbench event coordinator', () => {
       .mockReturnValueOnce(refreshed.promise)
     const onError = vi.fn()
     const order: string[] = []
+    let status = INITIAL_WORKBENCH_STATUS
 
     startWorkbenchEventCoordinator({
       subscribe: (listener) => {
@@ -146,14 +148,21 @@ describe('App Workbench event coordinator', () => {
         return vi.fn()
       },
       getState,
-      onSnapshot: (state) => order.push(`snapshot:${state.revision}`),
+      onSnapshot: (state) => {
+        status = workbenchStatusReducer(status, { type: 'snapshot', snapshot: state })
+        order.push(`snapshot:${state.revision}`)
+      },
       onReveal: (viewId) => order.push(`reveal:${viewId}`),
-      onError
+      onError: (message) => {
+        status = workbenchStatusReducer(status, { type: 'error', message })
+        onError(message)
+      }
     })
     await Promise.resolve()
     await Promise.resolve()
 
     expect(onError).toHaveBeenCalledWith('Workbench 尚未就绪')
+    expect(status.error).toBe('工作台：Workbench 尚未就绪')
     emit({ type: 'reveal', viewId: 'works.pi.desktop.browser' })
     expect(getState).toHaveBeenCalledTimes(2)
     refreshed.resolve({ state: snapshot(1, ['works.pi.desktop.browser']) })
@@ -161,6 +170,7 @@ describe('App Workbench event coordinator', () => {
     await Promise.resolve()
 
     expect(order).toEqual(['snapshot:1', 'reveal:works.pi.desktop.browser'])
+    expect(status.error).toBeNull()
   })
 
   it('unsubscribes and cancels all late callbacks, including bootstrap errors', async () => {

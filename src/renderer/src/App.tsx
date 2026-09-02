@@ -12,14 +12,8 @@ import { modelSelectionCommand, newSessionCommand } from './store/composer-model
 import { usePiStore } from './store/pi-store'
 import { startWorkbenchEventCoordinator } from './store/workbench-event-coordinator'
 import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/workbench-selection'
+import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbench-status'
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
-
-const EMPTY_WORKBENCH_SNAPSHOT: WorkbenchSnapshot = {
-  revision: 0,
-  plugins: [],
-  contributions: [],
-  diagnostics: []
-}
 
 export default function App(): React.JSX.Element {
   const snapshot = usePiStore((state) => state.snapshot)
@@ -29,7 +23,10 @@ export default function App(): React.JSX.Element {
   const applyPatch = usePiStore((state) => state.applyPatch)
   const setClientError = usePiStore((state) => state.setClientError)
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
-  const [workbenchSnapshot, setWorkbenchSnapshot] = useState(EMPTY_WORKBENCH_SNAPSHOT)
+  const [workbenchStatus, dispatchWorkbenchStatus] = useReducer(
+    workbenchStatusReducer,
+    INITIAL_WORKBENCH_STATUS
+  )
   const [workbenchSelection, dispatchWorkbenchSelection] = useReducer(
     workbenchSelectionReducer,
     INITIAL_WORKBENCH_SELECTION
@@ -38,16 +35,15 @@ export default function App(): React.JSX.Element {
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
 
   const acceptWorkbenchSnapshot = useCallback((state: WorkbenchSnapshot): void => {
-    if (state.revision < workbenchRevision.current) return
+    if (state.revision <= workbenchRevision.current) return
     workbenchRevision.current = state.revision
-    setWorkbenchSnapshot(state)
+    dispatchWorkbenchStatus({ type: 'snapshot', snapshot: state })
     dispatchWorkbenchSelection({ type: 'snapshot', contributions: state.contributions })
   }, [])
 
-  const reportWorkbenchError = useCallback(
-    (message: string): void => setClientError(`工作台：${message}`),
-    [setClientError]
-  )
+  const reportWorkbenchError = useCallback((message: string): void => {
+    dispatchWorkbenchStatus({ type: 'error', message })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -129,15 +125,11 @@ export default function App(): React.JSX.Element {
 
   const sendWorkbench = useCallback(
     async (command: WorkbenchCommand): Promise<void> => {
-      try {
-        const result = await window.pi.workbench(command)
-        acceptWorkbenchSnapshot(result.state)
-      } catch (error) {
-        setClientError(error instanceof Error ? error.message : String(error))
-        throw error
-      }
+      const result = await window.pi.workbench(command)
+      dispatchWorkbenchStatus({ type: 'clear' })
+      acceptWorkbenchSnapshot(result.state)
     },
-    [acceptWorkbenchSnapshot, setClientError]
+    [acceptWorkbenchSnapshot]
   )
 
   const openSettings = useCallback((): void => {
@@ -202,7 +194,8 @@ export default function App(): React.JSX.Element {
         selectedViewId={workbenchSelection.selectedViewId}
         settingsOpen={layout.settingsOpen}
         agentSnapshot={snapshot}
-        workbenchSnapshot={workbenchSnapshot}
+        workbenchSnapshot={workbenchStatus.snapshot}
+        workbenchError={workbenchStatus.error}
         onSelectView={(viewId) => {
           closeSettings()
           dispatchWorkbenchSelection({ type: 'select', viewId })
