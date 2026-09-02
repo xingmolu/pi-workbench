@@ -4,12 +4,18 @@ type SandboxedPluginPaneControllerOptions = {
   viewId: string
   send(command: WorkbenchCommand): Promise<unknown>
   onUnavailableChange(unavailable: boolean): void
+  onError?(message: string): void
 }
 
 export type SandboxedPluginPaneController = {
   publish(bounds: WorkbenchBounds): void
   suspend(): void
   dispose(): void
+}
+
+function isExpectedHideCancellation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /superseded|disposed|unavailable|no longer current/i.test(message)
 }
 
 export function createSandboxedPluginPaneController(
@@ -21,13 +27,19 @@ export function createSandboxedPluginPaneController(
   let queuedBounds: WorkbenchBounds | null = null
   let suspended = false
 
-  const sendHide = (): void => {
+  const sendHide = (reportError: boolean): void => {
     try {
       void Promise.resolve(
         options.send({ type: 'view:set', viewId: options.viewId, visible: false })
-      ).catch(() => undefined)
-    } catch {
-      // Hiding is best-effort while the viewport or owning React tree is unavailable.
+      ).catch((error: unknown) => {
+        if (reportError || !isExpectedHideCancellation(error)) {
+          options.onError?.('无法隐藏插件面板。')
+        }
+      })
+    } catch (error) {
+      if (reportError || !isExpectedHideCancellation(error)) {
+        options.onError?.('无法隐藏插件面板。')
+      }
     }
   }
 
@@ -37,7 +49,7 @@ export function createSandboxedPluginPaneController(
     inFlight = false
     queuedBounds = null
     suspended = true
-    sendHide()
+    sendHide(true)
   }
 
   const sendVisible = (bounds: WorkbenchBounds): void => {
@@ -61,6 +73,7 @@ export function createSandboxedPluginPaneController(
   const complete = (requestGeneration: number, unavailable: boolean): void => {
     if (disposed || requestGeneration !== generation) return
     inFlight = false
+    if (unavailable) options.onError?.('插件面板暂不可用。')
     options.onUnavailableChange(unavailable)
     const nextBounds = queuedBounds
     queuedBounds = null
@@ -80,7 +93,13 @@ export function createSandboxedPluginPaneController(
     suspend,
     dispose() {
       if (disposed) return
-      suspend()
+      if (!suspended) {
+        generation += 1
+        inFlight = false
+        queuedBounds = null
+        suspended = true
+        sendHide(false)
+      }
       disposed = true
       generation += 1
       inFlight = false

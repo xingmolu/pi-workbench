@@ -27,6 +27,7 @@ import type {
   WorkbenchEvent
 } from '../shared/contracts'
 import {
+  BUILTIN_BROWSER_VIEW_ID,
   WORKBENCH_CHANNEL,
   WORKBENCH_EVENT_CHANNEL,
   WORKBENCH_PANEL_CHANNEL
@@ -172,7 +173,10 @@ function handleHostMessage(message: unknown): void {
       } satisfies BrowserCapabilityResponse)
       return
     }
-    browserOwner?.webContents.send('pi:browser:event', { type: 'agent-open' })
+    browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, {
+      type: 'reveal',
+      viewId: BUILTIN_BROWSER_VIEW_ID
+    } satisfies WorkbenchEvent)
     void manager
       .executeAgent(request.operation, request.requestId)
       .then((data) => {
@@ -384,9 +388,6 @@ function registerIpc(): void {
     if (!manager) throw new Error('浏览器工作台尚未就绪')
     switch (parsed.data.type) {
       case 'state:get':
-        return { state: manager.getState() }
-      case 'view:set':
-        await manager.setView(parsed.data.visible, parsed.data.bounds)
         return { state: manager.getState() }
       case 'operate': {
         const result = await manager.executeUser(parsed.data.operation)

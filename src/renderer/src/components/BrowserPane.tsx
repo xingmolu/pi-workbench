@@ -29,10 +29,21 @@ function activePage(state: BrowserState): BrowserPageSummary | undefined {
   return state.pages.find((page) => page.id === state.activePageId)
 }
 
+const clamp = (value: number, maximum: number): number =>
+  Math.min(maximum, Math.max(0, Math.round(value)))
+
+function isExpectedHideCancellation(message: string): boolean {
+  return /superseded|disposed|unavailable|no longer current/i.test(message)
+}
+
 export default function BrowserPane({
-  projectReady
+  viewId,
+  projectReady,
+  onWorkbenchError
 }: {
+  viewId: string
   projectReady: boolean
+  onWorkbenchError: (message: string) => void
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const addressFocused = useRef(false)
@@ -59,7 +70,7 @@ export default function BrowserPane({
   useEffect(() => {
     let cancelled = false
     const unsubscribe = window.pi.onBrowserEvent((event) => {
-      if (!cancelled && event.type === 'state') setState(event.data)
+      if (!cancelled) setState(event.data)
     })
     void window.pi
       .browser({ type: 'state:get' })
@@ -81,9 +92,19 @@ export default function BrowserPane({
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current
+    let cancelled = false
     if (!viewport || !projectReady) {
-      void window.pi.browser({ type: 'view:set', visible: false }).catch(() => undefined)
-      return
+      void window.pi
+        .workbench({ type: 'view:set', viewId, visible: false })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          const message = error instanceof Error ? error.message : String(error)
+          setClientError(message)
+          onWorkbenchError(message)
+        })
+      return () => {
+        cancelled = true
+      }
     }
     let frame = 0
     const publishBounds = (): void => {
@@ -91,20 +112,23 @@ export default function BrowserPane({
       frame = requestAnimationFrame(() => {
         const rect = viewport.getBoundingClientRect()
         void window.pi
-          .browser({
+          .workbench({
             type: 'view:set',
+            viewId,
             visible: true,
             bounds: {
-              x: Math.max(0, Math.round(rect.x)),
-              y: Math.max(0, Math.round(rect.y)),
-              width: Math.max(0, Math.round(rect.width)),
-              height: Math.max(0, Math.round(rect.height))
+              x: clamp(rect.x, 100_000),
+              y: clamp(rect.y, 100_000),
+              width: Math.max(1, clamp(rect.width, 16_384)),
+              height: Math.max(1, clamp(rect.height, 16_384))
             }
           })
-          .then((result) => setState(result.state))
-          .catch((error: unknown) =>
-            setClientError(error instanceof Error ? error.message : String(error))
-          )
+          .catch((error: unknown) => {
+            if (cancelled) return
+            const message = error instanceof Error ? error.message : String(error)
+            setClientError(message)
+            onWorkbenchError(message)
+          })
       })
     }
     const observer = new ResizeObserver(publishBounds)
@@ -112,12 +136,18 @@ export default function BrowserPane({
     window.addEventListener('resize', publishBounds)
     publishBounds()
     return () => {
+      cancelled = true
       cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('resize', publishBounds)
-      void window.pi.browser({ type: 'view:set', visible: false }).catch(() => undefined)
+      void window.pi
+        .workbench({ type: 'view:set', viewId, visible: false })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          if (!isExpectedHideCancellation(message)) onWorkbenchError(message)
+        })
     }
-  }, [projectReady])
+  }, [onWorkbenchError, projectReady, viewId])
 
   return (
     <div className="browser-pane">

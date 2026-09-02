@@ -7,6 +7,7 @@ import type {
   BrowserCapabilityRequest,
   BrowserCapabilityResponse,
   BrowserCommand,
+  BrowserEvent,
   BrowserOperation,
   HostCommand,
   HostEvent,
@@ -179,15 +180,6 @@ const loginPromptSchema = z
   })
   .strict()
 
-const browserBoundsSchema = z
-  .object({
-    x: nonNegativeInteger,
-    y: nonNegativeInteger,
-    width: nonNegativeInteger,
-    height: nonNegativeInteger
-  })
-  .strict()
-
 const browserPageTargetShape = { pageId: z.string().min(1).optional() }
 
 export const browserOperationSchema: z.ZodType<BrowserOperation> = z.discriminatedUnion('action', [
@@ -238,13 +230,6 @@ export const browserOperationSchema: z.ZodType<BrowserOperation> = z.discriminat
 
 export const browserCommandSchema: z.ZodType<BrowserCommand> = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state:get') }).strict(),
-  z
-    .object({
-      type: z.literal('view:set'),
-      visible: z.boolean(),
-      bounds: browserBoundsSchema.optional()
-    })
-    .strict(),
   z.object({ type: z.literal('operate'), operation: browserOperationSchema }).strict(),
   z.object({ type: z.literal('agent:stop') }).strict(),
   z.object({ type: z.literal('e2e:agent'), operation: browserOperationSchema }).strict()
@@ -291,6 +276,10 @@ const browserStateSchema = z
     lastAction: z.string().optional(),
     error: z.string().optional()
   })
+  .strict()
+
+export const browserEventSchema: z.ZodType<BrowserEvent> = z
+  .object({ type: z.literal('state'), data: browserStateSchema })
   .strict()
 
 const browserOperationResultSchema = z.discriminatedUnion('kind', [

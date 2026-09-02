@@ -230,7 +230,6 @@ export type BrowserOperationResult =
 
 export type BrowserCommand =
   | { type: 'state:get' }
-  | { type: 'view:set'; visible: boolean; bounds?: BrowserBounds }
   | { type: 'operate'; operation: BrowserOperation }
   | { type: 'agent:stop' }
   | { type: 'e2e:agent'; operation: BrowserOperation }
@@ -240,7 +239,7 @@ export type BrowserCommandResult = {
   result?: BrowserOperationResult
 }
 
-export type BrowserEvent = { type: 'state'; data: BrowserState } | { type: 'agent-open' }
+export type BrowserEvent = { type: 'state'; data: BrowserState }
 
 export type BrowserCapabilityRequest = {
   type: 'capability-request'

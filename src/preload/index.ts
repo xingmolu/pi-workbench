@@ -10,6 +10,7 @@ import type {
   PiDesktopAPI
 } from '../shared/contracts'
 import { WORKBENCH_CHANNEL, WORKBENCH_EVENT_CHANNEL } from '../shared/workbench-contracts'
+import { createBrowserEventSubscriber } from './browser-event-client'
 import { createWorkbenchClient } from './workbench-client'
 
 const workbenchClient = createWorkbenchClient({
@@ -18,6 +19,14 @@ const workbenchClient = createWorkbenchClient({
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value)
     ipcRenderer.on(WORKBENCH_EVENT_CHANNEL, handler)
     return () => ipcRenderer.removeListener(WORKBENCH_EVENT_CHANNEL, handler)
+  }
+})
+
+const subscribeToBrowserEvent = createBrowserEventSubscriber({
+  onEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value)
+    ipcRenderer.on('pi:browser:event', handler)
+    return () => ipcRenderer.removeListener('pi:browser:event', handler)
   }
 })
 
@@ -33,12 +42,8 @@ const api: PiDesktopAPI = {
   },
   browser: (command: BrowserCommand): Promise<BrowserCommandResult> =>
     ipcRenderer.invoke('pi:browser', command),
-  onBrowserEvent: (listener: (event: BrowserEvent) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, value: BrowserEvent): void =>
-      listener(value)
-    ipcRenderer.on('pi:browser:event', handler)
-    return () => ipcRenderer.removeListener('pi:browser:event', handler)
-  },
+  onBrowserEvent: (listener: (event: BrowserEvent) => void): (() => void) =>
+    subscribeToBrowserEvent(listener),
   ...workbenchClient
 }
 

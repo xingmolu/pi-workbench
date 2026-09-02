@@ -4,6 +4,7 @@ import { createSandboxedPluginPaneController } from './sandboxed-plugin-pane-con
 type SandboxedPluginPaneProps = {
   viewId: string
   visible: boolean
+  onWorkbenchError: (message: string) => void
 }
 
 const clamp = (value: number, maximum: number): number =>
@@ -11,7 +12,8 @@ const clamp = (value: number, maximum: number): number =>
 
 export default function SandboxedPluginPane({
   viewId,
-  visible
+  visible,
+  onWorkbenchError
 }: SandboxedPluginPaneProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [unavailable, setUnavailable] = useState(false)
@@ -22,7 +24,8 @@ export default function SandboxedPluginPane({
     const controller = createSandboxedPluginPaneController({
       viewId,
       send: (command) => window.pi.workbench(command),
-      onUnavailableChange: setUnavailable
+      onUnavailableChange: setUnavailable,
+      onError: onWorkbenchError
     })
 
     if (!viewport || !visible) {
@@ -57,7 +60,7 @@ export default function SandboxedPluginPane({
       window.removeEventListener('resize', publishBounds)
       controller.dispose()
     }
-  }, [viewId, visible])
+  }, [onWorkbenchError, viewId, visible])
 
   return (
     <div className="sandboxed-plugin-pane" ref={viewportRef}>

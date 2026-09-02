@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import {
+  Blocks,
   Check,
   ChevronRight,
   CircleAlert,
   Clipboard,
   Code2,
   Files,
+  FlaskConical,
   GitPullRequest,
   Globe2,
   KeyRound,
@@ -13,40 +15,69 @@ import {
   LogIn,
   MonitorCog,
   Plus,
+  Puzzle,
+  RefreshCw,
   Settings2,
+  ShieldAlert,
   TerminalSquare,
-  X
+  TriangleAlert,
+  type LucideIcon
 } from 'lucide-react'
-import type { AgentSnapshot, LoginMethod, LoginPrompt } from '../../../shared/contracts'
+import type {
+  AgentSnapshot,
+  DesktopPluginSummary,
+  LoginMethod,
+  LoginPrompt,
+  WorkbenchCommand,
+  WorkbenchContribution,
+  WorkbenchDiagnostic,
+  WorkbenchIcon,
+  WorkbenchSnapshot
+} from '../../../shared/contracts'
+import {
+  INITIAL_PLUGIN_SETTINGS_OPERATION_STATE,
+  pluginDesktopToggleCommand,
+  pluginSettingsErrorMessage,
+  pluginSettingsOperationReducer
+} from '../store/plugin-settings'
 import BrowserPane from './BrowserPane'
+import SandboxedPluginPane from './SandboxedPluginPane'
 
-export type WorkbenchMode = 'files' | 'review' | 'terminal' | 'browser'
+const WORKBENCH_ICONS: Record<WorkbenchIcon, LucideIcon> = {
+  files: Files,
+  'git-review': GitPullRequest,
+  terminal: TerminalSquare,
+  browser: Globe2,
+  plugin: Puzzle,
+  flask: FlaskConical
+}
 
-const MODES: { id: WorkbenchMode; label: string; icon: typeof Files }[] = [
-  { id: 'files', label: '文件', icon: Files },
-  { id: 'review', label: '审查', icon: GitPullRequest },
-  { id: 'terminal', label: '终端', icon: TerminalSquare },
-  { id: 'browser', label: '浏览器', icon: Globe2 }
-]
-
-const MODE_HINT: Record<WorkbenchMode, { title: string; copy: string }> = {
+const FIRST_PARTY_HINTS: Record<
+  Extract<WorkbenchContribution['surface'], { kind: 'first-party' }>['adapter'],
+  { title: string; copy: string }
+> = {
   files: { title: '文件面板', copy: '本轮保持占位，不读取或复制项目文件树。' },
   review: { title: 'Git Review', copy: '本轮保持占位，不接入 Git diff 或审查工作流。' },
-  terminal: { title: '用户终端', copy: '本轮保持占位。Agent 命令会作为对话工具卡片显示。' },
-  browser: { title: '内嵌浏览器', copy: '与 Agent 共享当前标签页。' }
+  terminal: { title: '用户终端', copy: '本轮保持占位。Agent 命令会作为对话工具卡片显示。' }
 }
 
 type WorkbenchProps = {
   collapsed: boolean
-  mode: WorkbenchMode
+  selectedViewId: string | null
   settingsOpen: boolean
-  snapshot: AgentSnapshot
-  onModeChange: (mode: WorkbenchMode) => void
+  agentSnapshot: AgentSnapshot
+  workbenchSnapshot: WorkbenchSnapshot
+  onSelectView: (viewId: string) => void
   onToggle: () => void
-  onCloseSettings: () => void
+  onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
+  onWorkbenchError: (message: string) => void
   onLogin: (providerId: string, method: LoginMethod) => void
   onAddAlias: (slug: string) => void
   onLoginPrompt: (promptId: string, value?: string) => void
+}
+
+function contributionIcon(icon: WorkbenchIcon): LucideIcon {
+  return WORKBENCH_ICONS[icon] ?? Blocks
 }
 
 function LoginState({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Element | null {
@@ -78,6 +109,7 @@ function LoginState({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Elemen
             type="button"
             className="icon-btn"
             title="复制设备码"
+            aria-label="复制设备码"
             onClick={() => void navigator.clipboard.writeText(login.userCode)}
           >
             <Clipboard size={14} />
@@ -187,32 +219,240 @@ function LoginButtons({
   )
 }
 
-function SettingsPanel({
+function pluginScope(plugin: DesktopPluginSummary): string {
+  if (plugin.scope === 'builtin') return '内置'
+  if (plugin.scope === 'project') return '项目'
+  return '用户'
+}
+
+function pluginSource(plugin: DesktopPluginSummary): string {
+  if (plugin.builtin) return 'Pi Desktop 内置'
+  return plugin.scope === 'project'
+    ? `项目 Pi 包 · ${plugin.source}`
+    : `本机插件 · ${plugin.source}`
+}
+
+function diagnosticMessage(diagnostic: WorkbenchDiagnostic): string {
+  if (diagnostic.code === 'plugin-crash-disabled') {
+    return '桌面面板已因连续崩溃停用。请重启 Pi Desktop 后再尝试启用。'
+  }
+  if (diagnostic.code === 'plugin-crashed') {
+    return '插件面板发生崩溃；再次打开时会重建。'
+  }
+  return diagnostic.message
+}
+
+function DiagnosticList({
+  diagnostics
+}: {
+  diagnostics: WorkbenchDiagnostic[]
+}): React.JSX.Element {
+  return (
+    <ul className="plugin-diagnostics" aria-label="插件诊断">
+      {diagnostics.map((diagnostic, index) => {
+        const Icon = diagnostic.severity === 'error' ? CircleAlert : TriangleAlert
+        return (
+          <li
+            key={`${diagnostic.code}:${diagnostic.viewId ?? ''}:${index}`}
+            className={`is-${diagnostic.severity}`}
+            role={diagnostic.severity === 'error' ? 'alert' : 'status'}
+          >
+            <Icon size={13} aria-hidden="true" />
+            <span>
+              <strong>{diagnostic.severity === 'error' ? '错误' : '警告'}</strong>
+              {diagnosticMessage(diagnostic)}
+              <code>{diagnostic.code}</code>
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function PluginSettingsSection({
   snapshot,
-  onClose,
+  onCommand
+}: {
+  snapshot: WorkbenchSnapshot
+  onCommand: (command: WorkbenchCommand) => Promise<void>
+}): React.JSX.Element {
+  const [operation, dispatch] = useReducer(
+    pluginSettingsOperationReducer,
+    INITIAL_PLUGIN_SETTINGS_OPERATION_STATE
+  )
+  const knownPluginIds = new Set(snapshot.plugins.map(({ pluginId }) => pluginId))
+  const registryDiagnostics = snapshot.diagnostics.filter(
+    ({ pluginId }) => !pluginId || !knownPluginIds.has(pluginId)
+  )
+
+  const toggle = async (plugin: DesktopPluginSummary): Promise<void> => {
+    const command = pluginDesktopToggleCommand(plugin, !plugin.desktopEnabled)
+    if (!command) return
+    dispatch({ type: 'toggle:start', pluginId: plugin.pluginId })
+    try {
+      await onCommand(command)
+      dispatch({ type: 'toggle:success', pluginId: plugin.pluginId })
+    } catch (error) {
+      dispatch({
+        type: 'toggle:failure',
+        pluginId: plugin.pluginId,
+        message: pluginSettingsErrorMessage(error)
+      })
+    }
+  }
+
+  const reload = async (): Promise<void> => {
+    dispatch({ type: 'reload:start' })
+    try {
+      await onCommand({ type: 'plugins:reload' })
+      dispatch({ type: 'reload:success' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      dispatch({ type: 'reload:failure', message: `插件列表刷新失败：${message}` })
+    }
+  }
+
+  return (
+    <section className="settings-section plugin-settings-section">
+      <div className="settings-section-title plugin-settings-title">
+        <div>
+          <span>工作台插件</span>
+          <small>管理右侧 Desktop 面板</small>
+        </div>
+        <button
+          className="plugin-reload-button"
+          type="button"
+          disabled={operation.reloading}
+          onClick={() => void reload()}
+        >
+          <RefreshCw className={operation.reloading ? 'spin' : undefined} size={13} />
+          {operation.reloading ? '正在刷新' : '重新加载'}
+        </button>
+      </div>
+
+      <p className="plugin-settings-note">
+        这里的开关只隐藏并销毁右侧 Desktop 贡献；不会禁用 Pi 已加载的 Skills/Extensions。
+      </p>
+
+      {operation.reloadError ? (
+        <div className="plugin-operation-error" role="alert">
+          <CircleAlert size={13} />
+          <span>{operation.reloadError}</span>
+        </div>
+      ) : null}
+
+      <div className="plugin-list">
+        {snapshot.plugins.length === 0 ? (
+          <div className="plugin-list-empty">
+            <Puzzle size={17} />
+            <span>尚未取得插件清单。重新加载后会显示可用的 Desktop 插件。</span>
+          </div>
+        ) : (
+          snapshot.plugins.map((plugin) => {
+            const pending = operation.pendingPluginIds.includes(plugin.pluginId)
+            const operationError = operation.pluginErrors[plugin.pluginId]
+            return (
+              <article className="plugin-row" key={plugin.pluginId}>
+                <div className="plugin-row-head">
+                  <div className="plugin-identity">
+                    <strong title={plugin.name}>{plugin.name}</strong>
+                    <span>版本 {plugin.version}</span>
+                  </div>
+                  <button
+                    className="desktop-plugin-switch"
+                    type="button"
+                    role="switch"
+                    aria-checked={plugin.desktopEnabled}
+                    aria-label={`${plugin.name} Desktop 面板`}
+                    title={plugin.builtin ? '内置插件固定启用' : undefined}
+                    disabled={plugin.builtin || pending}
+                    onClick={() => void toggle(plugin)}
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                </div>
+
+                <div className="plugin-meta">
+                  <span>范围：{pluginScope(plugin)}</span>
+                  <span title={pluginSource(plugin)}>来源：{pluginSource(plugin)}</span>
+                  <span>
+                    Desktop：
+                    {plugin.builtin ? '内置锁定' : plugin.desktopEnabled ? '已启用' : '已隐藏'}
+                  </span>
+                </div>
+
+                {plugin.description ? (
+                  <p className="plugin-description">{plugin.description}</p>
+                ) : null}
+                <p className="plugin-permissions">
+                  <ShieldAlert size={12} aria-hidden="true" />
+                  <span>
+                    请求权限：
+                    {plugin.requestedPermissions.length > 0
+                      ? plugin.requestedPermissions.join('、')
+                      : '无'}
+                  </span>
+                </p>
+
+                {plugin.hasExecutablePiResources ? (
+                  <div className="plugin-executable-warning" role="note">
+                    <TriangleAlert size={13} aria-hidden="true" />
+                    <span>
+                      该插件还含 Pi 已加载的 Skills/Extensions。切换 Desktop
+                      开关不会停用或停止这些资源。
+                    </span>
+                  </div>
+                ) : null}
+
+                {operationError ? (
+                  <div className="plugin-operation-error" role="alert">
+                    <CircleAlert size={13} />
+                    <span>{operationError}</span>
+                  </div>
+                ) : null}
+                {plugin.diagnostics.length > 0 ? (
+                  <DiagnosticList diagnostics={plugin.diagnostics} />
+                ) : null}
+              </article>
+            )
+          })
+        )}
+      </div>
+
+      {registryDiagnostics.length > 0 ? (
+        <div className="registry-diagnostics">
+          <strong>发现诊断</strong>
+          <DiagnosticList diagnostics={registryDiagnostics} />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function SettingsPanel({
+  agentSnapshot,
+  workbenchSnapshot,
+  onWorkbenchCommand,
   onLogin,
   onAddAlias,
   onLoginPrompt
-}: Pick<WorkbenchProps, 'snapshot' | 'onLogin' | 'onAddAlias' | 'onLoginPrompt'> & {
-  onClose: () => void
-}): React.JSX.Element {
+}: Pick<
+  WorkbenchProps,
+  | 'agentSnapshot'
+  | 'workbenchSnapshot'
+  | 'onWorkbenchCommand'
+  | 'onLogin'
+  | 'onAddAlias'
+  | 'onLoginPrompt'
+>): React.JSX.Element {
   const [addingAlias, setAddingAlias] = useState(false)
   const [alias, setAlias] = useState('')
-  const mainAccount = snapshot.accounts.find((account) => account.id === 'openai-codex')
-  const aliasAccounts = snapshot.accounts.filter((account) => account.alias)
+  const mainAccount = agentSnapshot.accounts.find((account) => account.id === 'openai-codex')
+  const aliasAccounts = agentSnapshot.accounts.filter((account) => account.alias)
 
   return (
     <div className="settings-panel">
-      <header className="settings-head">
-        <div>
-          <span>设置</span>
-          <h2>账号与模型</h2>
-        </div>
-        <button className="icon-btn" type="button" onClick={onClose} title="关闭设置">
-          <X size={17} />
-        </button>
-      </header>
-
       <div className="settings-scroll">
         <section className="settings-section">
           <div className="section-kicker">ChatGPT Plus / Pro</div>
@@ -237,9 +477,9 @@ function SettingsPanel({
             />
           </div>
 
-          <LoginState snapshot={snapshot} />
-          {snapshot.loginPrompt ? (
-            <AuthPromptCard prompt={snapshot.loginPrompt} onRespond={onLoginPrompt} />
+          <LoginState snapshot={agentSnapshot} />
+          {agentSnapshot.loginPrompt ? (
+            <AuthPromptCard prompt={agentSnapshot.loginPrompt} onRespond={onLoginPrompt} />
           ) : null}
         </section>
 
@@ -253,14 +493,15 @@ function SettingsPanel({
               className="icon-btn"
               type="button"
               title="添加账号"
-              disabled={!snapshot.project}
+              aria-label="添加 Codex 账号"
+              disabled={!agentSnapshot.project}
               onClick={() => setAddingAlias((value) => !value)}
             >
               <Plus size={16} />
             </button>
           </div>
 
-          {!snapshot.project ? (
+          {!agentSnapshot.project ? (
             <p className="inline-hint">先选择工作区，Pi 才能加载账号扩展。</p>
           ) : null}
 
@@ -314,6 +555,8 @@ function SettingsPanel({
           ))}
         </section>
 
+        <PluginSettingsSection snapshot={workbenchSnapshot} onCommand={onWorkbenchCommand} />
+
         <section className="settings-section provider-note">
           <div className="section-kicker">关于 Claude</div>
           <p>
@@ -334,87 +577,155 @@ function SettingsPanel({
   )
 }
 
+function EmptyWorkbench({ hasContributions }: { hasContributions: boolean }): React.JSX.Element {
+  return (
+    <div className="workbench-body">
+      <MonitorCog size={23} />
+      <p className="workbench-empty-title">
+        {hasContributions ? '选择一个工作台面板' : '暂无可用面板'}
+      </p>
+      <p className="workbench-empty-copy">
+        {hasContributions
+          ? '从活动栏选择一个面板；一次只会打开一个工作台视图。'
+          : '选择工作区或在设置中重新加载插件，即可查看可用的右侧面板。'}
+      </p>
+    </div>
+  )
+}
+
+function ContributionSurface({
+  contribution,
+  projectReady,
+  onError
+}: {
+  contribution: WorkbenchContribution | undefined
+  projectReady: boolean
+  onError: (message: string) => void
+}): React.JSX.Element {
+  if (!contribution) return <EmptyWorkbench hasContributions={false} />
+  if (contribution.surface.kind === 'first-party') {
+    const hint = FIRST_PARTY_HINTS[contribution.surface.adapter]
+    return (
+      <div className="workbench-body">
+        <MonitorCog size={23} />
+        <p className="workbench-empty-title">{hint.title}</p>
+        <p className="workbench-empty-copy">{hint.copy}</p>
+        <span className="placeholder-pill">占位</span>
+      </div>
+    )
+  }
+  if (contribution.surface.kind === 'native-view') {
+    return (
+      <BrowserPane
+        viewId={contribution.viewId}
+        projectReady={projectReady}
+        onWorkbenchError={onError}
+      />
+    )
+  }
+  if (contribution.surface.kind === 'sandboxed-web') {
+    return <SandboxedPluginPane viewId={contribution.viewId} visible onWorkbenchError={onError} />
+  }
+  return <EmptyWorkbench hasContributions />
+}
+
 export default function Workbench({
   collapsed,
-  mode,
+  selectedViewId,
   settingsOpen,
-  snapshot,
-  onModeChange,
+  agentSnapshot,
+  workbenchSnapshot,
+  onSelectView,
   onToggle,
-  onCloseSettings,
+  onWorkbenchCommand,
+  onWorkbenchError,
   onLogin,
   onAddAlias,
   onLoginPrompt
 }: WorkbenchProps): React.JSX.Element {
-  if (collapsed) {
-    return (
-      <aside className="workbench is-collapsed" aria-label="折叠的工作台">
-        <div className="workbench-rail">
-          {MODES.map((item) => {
-            const Icon = item.icon
+  const selectedContribution = workbenchSnapshot.contributions.find(
+    ({ viewId }) => viewId === selectedViewId
+  )
+  const selectedPlugin = selectedContribution
+    ? workbenchSnapshot.plugins.find(({ pluginId }) => pluginId === selectedContribution.pluginId)
+    : undefined
+  const SelectedIcon = selectedContribution
+    ? contributionIcon(selectedContribution.icon)
+    : MonitorCog
+
+  return (
+    <aside
+      className={`workbench${collapsed ? ' is-collapsed' : ''}`}
+      aria-label={collapsed ? '折叠的工作台' : '工作台'}
+    >
+      <nav className="workbench-rail" aria-label="工作台视图">
+        <div className="workbench-rail-spacer" aria-hidden="true" />
+        <div className="workbench-rail-scroll">
+          {workbenchSnapshot.contributions.map((contribution) => {
+            const Icon = contributionIcon(contribution.icon)
+            const active = !settingsOpen && contribution.viewId === selectedViewId
             return (
               <button
-                key={item.id}
+                key={contribution.viewId}
                 type="button"
-                className={`icon-btn${!settingsOpen && item.id === mode ? ' is-active' : ''}`}
-                title={item.label}
-                onClick={() => onModeChange(item.id)}
+                className={`workbench-rail-button${active ? ' is-active' : ''}`}
+                title={contribution.title}
+                aria-label={contribution.title}
+                aria-pressed={active}
+                onClick={() => onSelectView(contribution.viewId)}
               >
-                <Icon size={16} />
+                <Icon size={17} aria-hidden="true" />
               </button>
             )
           })}
         </div>
-      </aside>
-    )
-  }
+      </nav>
 
-  return (
-    <aside className="workbench">
-      <div className="workbench-picker">
-        {settingsOpen ? (
-          <div className="settings-tab-label">
-            <Settings2 size={14} /> 设置
+      {!collapsed ? (
+        <div className="workbench-stage">
+          <header className="workbench-stage-head">
+            <div className="workbench-stage-title">
+              {settingsOpen ? <Settings2 size={15} /> : <SelectedIcon size={15} />}
+              <span title={settingsOpen ? '设置' : selectedContribution?.title}>
+                {settingsOpen ? '设置' : (selectedContribution?.title ?? '工作台')}
+              </span>
+              {!settingsOpen && selectedContribution ? (
+                <small>{selectedPlugin?.builtin ? '内置' : '插件'}</small>
+              ) : null}
+            </div>
+            <button
+              className="icon-btn workbench-fold"
+              type="button"
+              onClick={onToggle}
+              title={settingsOpen ? '关闭设置' : '折叠工作台'}
+              aria-label={settingsOpen ? '关闭设置' : '折叠工作台'}
+            >
+              <ChevronRight size={17} />
+            </button>
+          </header>
+
+          <div className="workbench-stage-body">
+            {settingsOpen ? (
+              <SettingsPanel
+                agentSnapshot={agentSnapshot}
+                workbenchSnapshot={workbenchSnapshot}
+                onWorkbenchCommand={onWorkbenchCommand}
+                onLogin={onLogin}
+                onAddAlias={onAddAlias}
+                onLoginPrompt={onLoginPrompt}
+              />
+            ) : selectedContribution ? (
+              <ContributionSurface
+                contribution={selectedContribution}
+                projectReady={Boolean(agentSnapshot.project)}
+                onError={onWorkbenchError}
+              />
+            ) : (
+              <EmptyWorkbench hasContributions={workbenchSnapshot.contributions.length > 0} />
+            )}
           </div>
-        ) : (
-          MODES.map((item) => {
-            const Icon = item.icon
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={item.id === mode ? 'is-active' : undefined}
-                onClick={() => onModeChange(item.id)}
-              >
-                <Icon size={13} />
-                {item.label}
-              </button>
-            )
-          })
-        )}
-        <button className="icon-btn fold" type="button" onClick={onToggle} title="折叠工作台">
-          <ChevronRight size={17} />
-        </button>
-      </div>
-
-      {settingsOpen ? (
-        <SettingsPanel
-          snapshot={snapshot}
-          onClose={onCloseSettings}
-          onLogin={onLogin}
-          onAddAlias={onAddAlias}
-          onLoginPrompt={onLoginPrompt}
-        />
-      ) : mode === 'browser' ? (
-        <BrowserPane projectReady={Boolean(snapshot.project)} />
-      ) : (
-        <div className="workbench-body">
-          <MonitorCog size={23} />
-          <p className="workbench-empty-title">{MODE_HINT[mode].title}</p>
-          <p className="workbench-empty-copy">{MODE_HINT[mode].copy}</p>
-          <span className="placeholder-pill">占位</span>
         </div>
-      )}
+      ) : null}
     </aside>
   )
 }

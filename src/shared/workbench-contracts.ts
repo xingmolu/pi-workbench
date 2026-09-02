@@ -7,6 +7,7 @@ export const WORKBENCH_CHANNEL = 'pi:workbench'
 export const WORKBENCH_EVENT_CHANNEL = 'pi:workbench:event'
 export const WORKBENCH_PANEL_CHANNEL = 'pi:workbench-panel'
 export const WORKBENCH_PANEL_CONTEXT_CHANNEL = 'pi:workbench-panel:context'
+export const BUILTIN_BROWSER_VIEW_ID = 'works.pi.desktop.browser'
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }

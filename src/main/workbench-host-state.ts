@@ -8,6 +8,7 @@ import type {
   WorkbenchDiagnostic,
   WorkbenchSnapshot
 } from '../shared/workbench-contracts'
+import { BUILTIN_BROWSER_VIEW_ID } from '../shared/workbench-contracts'
 import { pluginPanelStateSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import type {
@@ -76,7 +77,7 @@ const BUILTIN_PLUGIN: DesktopPluginSummary = {
   pluginId: 'works.pi.desktop.builtin',
   name: 'Pi Desktop',
   version: '0.1.0',
-  description: 'Built-in Workbench views',
+  description: 'Pi Desktop 内置工作台视图',
   source: 'builtin',
   scope: 'builtin',
   builtin: true,
@@ -90,7 +91,7 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
     viewId: 'works.pi.desktop.files',
-    title: 'Files',
+    title: '文件',
     icon: 'files',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'files' }
@@ -98,7 +99,7 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
     viewId: 'works.pi.desktop.review',
-    title: 'Review',
+    title: '审查',
     icon: 'git-review',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'review' }
@@ -106,15 +107,15 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
     viewId: 'works.pi.desktop.terminal',
-    title: 'Terminal',
+    title: '终端',
     icon: 'terminal',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'terminal' }
   },
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
-    viewId: 'works.pi.desktop.browser',
-    title: 'Browser',
+    viewId: BUILTIN_BROWSER_VIEW_ID,
+    title: '浏览器',
     icon: 'browser',
     activation: 'onApp',
     surface: { kind: 'native-view', adapter: 'browser' }
@@ -123,7 +124,6 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
 
 const DESKTOP_ENABLED_STORE_KEY = 'workbenchDesktopEnabled'
 const PANEL_STATE_STORE_KEY = 'workbenchPanelState'
-const BROWSER_VIEW_ID = 'works.pi.desktop.browser'
 
 function readDesktopEnabled(store: WorkbenchStateStore): Record<string, boolean> {
   const stored = store.get(DESKTOP_ENABLED_STORE_KEY)
@@ -283,7 +283,7 @@ export function createWorkbenchHostState(
       browserReconcileQueued = false
       if (disposed) return
       const reconcileEpoch = selectionEpoch
-      const visible = desiredViewId === BROWSER_VIEW_ID
+      const visible = desiredViewId === BUILTIN_BROWSER_VIEW_ID
       const bounds = visible ? desiredBrowserBounds : undefined
       void startBrowserOperation(visible, bounds, reconcileEpoch).catch(() => undefined)
     })
@@ -317,8 +317,8 @@ export function createWorkbenchHostState(
   }
 
   const browserCouldBeVisible = (): boolean =>
-    activeViewId === BROWSER_VIEW_ID ||
-    desiredViewId === BROWSER_VIEW_ID ||
+    activeViewId === BUILTIN_BROWSER_VIEW_ID ||
+    desiredViewId === BUILTIN_BROWSER_VIEW_ID ||
     [...browserOperations.values()].some(Boolean)
 
   const hideBrowserAfterDispose = async (): Promise<void> => {
@@ -339,32 +339,36 @@ export function createWorkbenchHostState(
     if (changesDesired) {
       selectionEpoch += 1
       desiredViewId = visible ? viewId : null
-      desiredBrowserBounds = desiredViewId === BROWSER_VIEW_ID ? bounds : undefined
+      desiredBrowserBounds = desiredViewId === BUILTIN_BROWSER_VIEW_ID ? bounds : undefined
       if (visible) invalidatePendingCreations()
       else {
         const pending = pendingCreations.get(viewId)
         if (pending) invalidatePendingCreation(pending)
       }
-    } else if (visible && viewId === BROWSER_VIEW_ID && bounds !== undefined) {
+    } else if (visible && viewId === BUILTIN_BROWSER_VIEW_ID && bounds !== undefined) {
       desiredBrowserBounds = bounds
     }
 
     if (
       activeViewId !== null &&
       activeViewId !== desiredViewId &&
-      activeViewId !== BROWSER_VIEW_ID
+      activeViewId !== BUILTIN_BROWSER_VIEW_ID
     ) {
       views.get(activeViewId)?.view.setVisible(false)
       activeViewId = null
     }
 
     const browserBarrier =
-      viewId === BROWSER_VIEW_ID ||
-      previousDesiredViewId === BROWSER_VIEW_ID ||
+      viewId === BUILTIN_BROWSER_VIEW_ID ||
+      previousDesiredViewId === BUILTIN_BROWSER_VIEW_ID ||
       browserCouldBeVisible()
     const token = { epoch: selectionEpoch, viewId: desiredViewId }
     const browserOperation = browserBarrier
-      ? startBrowserOperation(desiredViewId === BROWSER_VIEW_ID, desiredBrowserBounds, token.epoch)
+      ? startBrowserOperation(
+          desiredViewId === BUILTIN_BROWSER_VIEW_ID,
+          desiredBrowserBounds,
+          token.epoch
+        )
       : undefined
     return browserOperation === undefined ? { token } : { token, browserOperation }
   }
@@ -603,7 +607,7 @@ export function createWorkbenchHostState(
           if (selection.browserOperation) {
             await selection.browserOperation
             assertCurrentSelection(selection.token)
-            if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
+            if (activeViewId === BUILTIN_BROWSER_VIEW_ID) activeViewId = null
           }
           let record = views.get(command.viewId)
           const existingPending = pendingCreations.get(command.viewId)
