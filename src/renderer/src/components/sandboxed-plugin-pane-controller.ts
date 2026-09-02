@@ -8,6 +8,7 @@ type SandboxedPluginPaneControllerOptions = {
 
 export type SandboxedPluginPaneController = {
   publish(bounds: WorkbenchBounds): void
+  suspend(): void
   dispose(): void
 }
 
@@ -18,6 +19,26 @@ export function createSandboxedPluginPaneController(
   let generation = 0
   let inFlight = false
   let queuedBounds: WorkbenchBounds | null = null
+  let suspended = false
+
+  const sendHide = (): void => {
+    try {
+      void Promise.resolve(
+        options.send({ type: 'view:set', viewId: options.viewId, visible: false })
+      ).catch(() => undefined)
+    } catch {
+      // Hiding is best-effort while the viewport or owning React tree is unavailable.
+    }
+  }
+
+  const suspend = (): void => {
+    if (disposed || suspended) return
+    generation += 1
+    inFlight = false
+    queuedBounds = null
+    suspended = true
+    sendHide()
+  }
 
   const sendVisible = (bounds: WorkbenchBounds): void => {
     inFlight = true
@@ -49,24 +70,21 @@ export function createSandboxedPluginPaneController(
   return {
     publish(bounds) {
       if (disposed) return
+      suspended = false
       if (inFlight) {
         queuedBounds = bounds
         return
       }
       sendVisible(bounds)
     },
+    suspend,
     dispose() {
       if (disposed) return
+      suspend()
       disposed = true
       generation += 1
+      inFlight = false
       queuedBounds = null
-      try {
-        void Promise.resolve(
-          options.send({ type: 'view:set', viewId: options.viewId, visible: false })
-        ).catch(() => undefined)
-      } catch {
-        // Hiding is best-effort while the owning React tree is being removed.
-      }
     }
   }
 }

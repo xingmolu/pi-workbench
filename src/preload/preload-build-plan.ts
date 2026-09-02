@@ -17,11 +17,14 @@ export type PreloadBuildPlan = {
   minify: PreloadBuildPlanSettings['minify']
 }
 
-export function createPreloadBuildPlans(settings: PreloadBuildPlanSettings): PreloadBuildPlan[] {
+export function createPreloadBuildPlans(
+  settings: PreloadBuildPlanSettings,
+  outputDirectory: string
+): PreloadBuildPlan[] {
   return (['index', 'plugin'] as const).map((entry, index) => ({
     entry,
     input: resolve(settings.root, `src/preload/${entry}.ts`),
-    outDir: resolve(settings.root, 'out/preload'),
+    outDir: outputDirectory,
     emptyOutDir: index === 0,
     mode: settings.mode,
     sourcemap: settings.sourcemap,

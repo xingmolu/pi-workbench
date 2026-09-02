@@ -8,6 +8,7 @@ import {
   createPreloadBuildPlans,
   type PreloadBuildPlanSettings
 } from './src/preload/preload-build-plan'
+import { buildAndPublishPreloads } from './src/preload/preload-build-publisher'
 
 const preloadWarningHandler: WarningHandlerWithDefault = (warning, defaultHandler) => {
   if (warning.code === 'INVALID_ANNOTATION' && warning.id?.includes('/node_modules/zod/')) return
@@ -41,39 +42,48 @@ function selfContainedPreloads(): Plugin {
     },
     async writeBundle() {
       if (!settings) throw new Error('Preload build configuration is unavailable')
+      const resolvedSettings = settings
 
       // Electron Vite watch calls writeBundle after each outer rebuild, rebuilding both sandboxes.
-      for (const plan of createPreloadBuildPlans(settings)) {
-        await viteBuild({
-          configFile: false,
-          mode: plan.mode,
-          publicDir: false,
-          build: {
-            target: 'node22',
-            outDir: plan.outDir,
-            emptyOutDir: plan.emptyOutDir,
-            minify: plan.minify,
-            sourcemap: plan.sourcemap,
-            reportCompressedSize: false,
-            ssr: plan.input,
-            rollupOptions: {
-              onLog: preloadLogHandler,
-              onwarn: preloadWarningHandler,
-              external: [
-                'electron',
-                /^electron\/.+/,
-                ...builtinModules.flatMap((module) => [module, `node:${module}`])
-              ],
-              output: {
-                format: 'cjs',
-                entryFileNames: `${plan.entry}.js`,
-                inlineDynamicImports: true
+      await buildAndPublishPreloads({
+        liveDirectory: resolve(resolvedSettings.root, 'out/preload'),
+        outerIntermediateDirectory: resolve(resolvedSettings.root, 'out/.preload-outer'),
+        async buildEntry(entry, stagingDirectory) {
+          const plan = createPreloadBuildPlans(resolvedSettings, stagingDirectory).find(
+            (candidate) => candidate.entry === entry
+          )
+          if (!plan) throw new Error('Preload build entry is unavailable')
+          await viteBuild({
+            configFile: false,
+            mode: plan.mode,
+            publicDir: false,
+            build: {
+              target: 'node22',
+              outDir: plan.outDir,
+              emptyOutDir: plan.emptyOutDir,
+              minify: plan.minify,
+              sourcemap: plan.sourcemap,
+              reportCompressedSize: false,
+              ssr: plan.input,
+              rollupOptions: {
+                onLog: preloadLogHandler,
+                onwarn: preloadWarningHandler,
+                external: [
+                  'electron',
+                  /^electron\/.+/,
+                  ...builtinModules.flatMap((module) => [module, `node:${module}`])
+                ],
+                output: {
+                  format: 'cjs',
+                  entryFileNames: `${plan.entry}.js`,
+                  inlineDynamicImports: true
+                }
               }
-            }
-          },
-          ssr: { noExternal: true }
-        })
-      }
+            },
+            ssr: { noExternal: true }
+          })
+        }
+      })
     }
   }
 }
@@ -96,6 +106,8 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin(), selfContainedPreloads()],
     build: {
+      outDir: resolve(__dirname, 'out/.preload-outer'),
+      emptyOutDir: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),

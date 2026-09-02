@@ -131,4 +131,78 @@ describe('Sandboxed plugin pane command backpressure', () => {
     await settle()
     expect(availability.mock.calls).toEqual([[true], [false]])
   })
+
+  it('suspends with a hide and resumes after ignoring the old completion', async () => {
+    const { controller, commands, requests, availability } = setup()
+    controller.publish(FIRST_BOUNDS)
+    controller.publish(SECOND_BOUNDS)
+
+    controller.suspend()
+    expect(commands.at(-1)).toEqual({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: false
+    })
+
+    requests[0]!.resolve()
+    await settle()
+    expect(commands).toHaveLength(2)
+    expect(availability).not.toHaveBeenCalled()
+
+    controller.publish(LATEST_BOUNDS)
+    expect(commands.at(-1)).toEqual({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true,
+      bounds: LATEST_BOUNDS
+    })
+  })
+
+  it('resumes immediately while the pre-suspension request never settles', () => {
+    const { controller, commands } = setup()
+    controller.publish(FIRST_BOUNDS)
+
+    controller.suspend()
+    controller.publish(LATEST_BOUNDS)
+
+    expect(commands).toEqual([
+      {
+        type: 'view:set',
+        viewId: 'acme.notes.panel',
+        visible: true,
+        bounds: FIRST_BOUNDS
+      },
+      { type: 'view:set', viewId: 'acme.notes.panel', visible: false },
+      {
+        type: 'view:set',
+        viewId: 'acme.notes.panel',
+        visible: true,
+        bounds: LATEST_BOUNDS
+      }
+    ])
+  })
+
+  it('coalesces repeated suspension into one best-effort hide', () => {
+    const { controller, commands } = setup()
+    controller.publish(FIRST_BOUNDS)
+
+    controller.suspend()
+    controller.suspend()
+
+    expect(
+      commands.filter((command) => command.type === 'view:set' && command.visible === false)
+    ).toHaveLength(1)
+  })
+
+  it('keeps disposal terminal after suspension', () => {
+    const { controller, commands } = setup()
+    controller.publish(FIRST_BOUNDS)
+    controller.suspend()
+
+    controller.dispose()
+    controller.publish(LATEST_BOUNDS)
+
+    expect(commands).toHaveLength(2)
+    expect(commands.at(-1)).toMatchObject({ type: 'view:set', visible: false })
+  })
 })

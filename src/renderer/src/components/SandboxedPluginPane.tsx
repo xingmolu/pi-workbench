@@ -34,7 +34,10 @@ export default function SandboxedPluginPane({
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const rect = viewport.getBoundingClientRect()
-        if (rect.width <= 0 || rect.height <= 0) return
+        if (rect.width <= 0 || rect.height <= 0) {
+          controller.suspend()
+          return
+        }
         controller.publish({
           x: clamp(rect.x, 100_000),
           y: clamp(rect.y, 100_000),
