@@ -46,6 +46,7 @@ function selfContainedPreloads(): Plugin {
 
       // Electron Vite watch calls writeBundle after each outer rebuild, rebuilding both sandboxes.
       await buildAndPublishPreloads({
+        rootDirectory: resolvedSettings.root,
         liveDirectory: resolve(resolvedSettings.root, 'out/preload'),
         outerIntermediateDirectory: resolve(resolvedSettings.root, 'out/.preload-outer'),
         async buildEntry(entry, stagingDirectory) {
