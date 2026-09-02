@@ -14,6 +14,8 @@ class FakePanelView implements WorkbenchPanelView {
   destroyed = false
   contexts: WorkbenchPanelViewRequest['context'][] = []
 
+  constructor(private readonly onDestroy?: () => void) {}
+
   setBounds(): void {
     // Bounds are irrelevant to the pure lifecycle assertions.
   }
@@ -25,6 +27,7 @@ class FakePanelView implements WorkbenchPanelView {
   }
   destroy(): void {
     this.destroyed = true
+    this.onDestroy?.()
   }
 }
 
@@ -88,6 +91,21 @@ function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   }
 }
 
+function externalPluginAt(
+  canonicalRootPath: string,
+  version: string
+): WorkbenchManifestDiscovery['plugins'][number] {
+  const plugin = externalPlugin()
+  plugin.version = version
+  plugin.canonicalRootPath = canonicalRootPath
+  plugin.manifestPath = `${canonicalRootPath}/pi-desktop.json`
+  plugin.workbench = plugin.workbench.map((entry) => ({
+    ...entry,
+    canonicalEntryPath: entry.canonicalEntryPath.replace('/plugins/acme.notes', canonicalRootPath)
+  }))
+  return plugin
+}
+
 function secondExternalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   const plugin = externalPlugin()
   plugin.pluginId = 'acme.tasks'
@@ -109,7 +127,7 @@ function secondExternalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
 }
 
 function createHarness(
-  discoveries: WorkbenchManifestDiscovery[],
+  discoveries: Array<WorkbenchManifestDiscovery | Promise<WorkbenchManifestDiscovery>>,
   persisted = new Map<string, unknown>(),
   createPanelView?: (request: WorkbenchPanelViewRequest) => Promise<FakePanelView>
 ): {
@@ -133,7 +151,7 @@ function createHarness(
     userRoots: async () => [],
     discover: async ({ roots }) => {
       rootsSeen.push([...roots])
-      return discoveries.shift() ?? { plugins: [], diagnostics: [] }
+      return (await discoveries.shift()) ?? { plugins: [], diagnostics: [] }
     },
     store: {
       get: (key) => persisted.get(key),
@@ -155,9 +173,9 @@ function createHarness(
   return { state, rootsSeen, views, persisted, browserCalls }
 }
 
-function createControlledViewHarness(discoveries: WorkbenchManifestDiscovery[]): ReturnType<
-  typeof createHarness
-> & {
+function createControlledViewHarness(
+  discoveries: Array<WorkbenchManifestDiscovery | Promise<WorkbenchManifestDiscovery>>
+): ReturnType<typeof createHarness> & {
   starts: Deferred<ControlledViewAttempt>[]
   attemptCount: () => number
 } {
@@ -294,6 +312,134 @@ describe('Workbench host state', () => {
       'works.pi.desktop.builtin',
       'acme.tasks'
     ])
+  })
+
+  it('blocks old external registry entries while reload is in flight but keeps browser usable', async () => {
+    const delayedDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state, rootsSeen, views, browserCalls } = createHarness([
+      { plugins: [externalPlugin()], diagnostics: [] },
+      delayedDiscovery.promise
+    ])
+    await state.reload()
+
+    const reload = state.reload()
+    await Promise.resolve()
+    expect(rootsSeen).toHaveLength(2)
+    expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
+      'works.pi.desktop.builtin'
+    ])
+
+    await expect(
+      state.dispatch({ type: 'view:set', viewId: 'acme.notes.panel', visible: true })
+    ).rejects.toThrow(/unavailable|reload/i)
+    await expect(
+      state.dispatch({
+        type: 'view:set',
+        viewId: 'works.pi.desktop.browser',
+        visible: true,
+        bounds: { x: 1, y: 2, width: 300, height: 200 }
+      })
+    ).resolves.toBeDefined()
+
+    expect(views).toHaveLength(0)
+    expect(browserCalls.at(-1)).toEqual({
+      visible: true,
+      bounds: { x: 1, y: 2, width: 300, height: 200 }
+    })
+
+    delayedDiscovery.resolve({ plugins: [externalPlugin()], diagnostics: [] })
+    await reload
+  })
+
+  it('ignores teardown callbacks from an external view destroyed at the reload barrier', async () => {
+    const { state } = createHarness(
+      [
+        { plugins: [externalPlugin()], diagnostics: [] },
+        { plugins: [externalPlugin()], diagnostics: [] }
+      ],
+      new Map(),
+      async (request) => new FakePanelView(() => request.onCrash('intentional reload teardown'))
+    )
+    await state.reload()
+    await state.dispatch({ type: 'view:set', viewId: 'acme.notes.panel', visible: true })
+
+    await state.reload()
+
+    expect(state.snapshot().diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'plugin-crashed' })
+    )
+  })
+
+  it('makes the latest package-root request win when discoveries finish out of order', async () => {
+    const staleDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const latestDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state, rootsSeen } = createHarness([staleDiscovery.promise, latestDiscovery.promise])
+    const staleRoot = {
+      path: '/packages/stale',
+      source: 'pi-package:stale',
+      scope: 'user',
+      hasExecutablePiResources: false
+    } as const
+    const latestRoot = {
+      path: '/packages/latest',
+      source: 'pi-package:latest',
+      scope: 'project',
+      hasExecutablePiResources: true
+    } as const
+
+    const staleReload = state.setPackageRoots([staleRoot])
+    const latestReload = state.setPackageRoots([latestRoot])
+    await Promise.resolve()
+
+    latestDiscovery.resolve({
+      plugins: [externalPluginAt('/plugins/latest', '2.0.0')],
+      diagnostics: [
+        { severity: 'warning', code: 'latest-discovery', message: 'latest registry result' }
+      ]
+    })
+    await latestReload
+    staleDiscovery.resolve({
+      plugins: [externalPluginAt('/plugins/stale', '1.0.0')],
+      diagnostics: [
+        { severity: 'error', code: 'stale-discovery', message: 'stale registry result' }
+      ]
+    })
+    await staleReload
+
+    expect(rootsSeen).toEqual([[staleRoot], [latestRoot]])
+    expect(state.snapshot().plugins[1]).toMatchObject({
+      pluginId: 'acme.notes',
+      version: '2.0.0'
+    })
+    expect(state.snapshot().diagnostics.map(({ code }) => code)).toEqual(['latest-discovery'])
+  })
+
+  it('discards an older plain reload result that completes after the latest reload', async () => {
+    const staleDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const latestDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state } = createHarness([staleDiscovery.promise, latestDiscovery.promise])
+
+    const staleReload = state.reload()
+    const latestReload = state.reload()
+    await Promise.resolve()
+    latestDiscovery.resolve({
+      plugins: [externalPluginAt('/plugins/latest', '2.0.0')],
+      diagnostics: [
+        { severity: 'warning', code: 'latest-discovery', message: 'latest registry result' }
+      ]
+    })
+    await latestReload
+    staleDiscovery.resolve({
+      plugins: [externalPluginAt('/plugins/stale', '1.0.0')],
+      diagnostics: [
+        { severity: 'error', code: 'stale-discovery', message: 'stale registry result' }
+      ]
+    })
+    const staleResult = await staleReload
+
+    expect(staleResult.plugins[1]).toMatchObject({ version: '2.0.0' })
+    expect(state.snapshot().plugins[1]).toMatchObject({ version: '2.0.0' })
+    expect(state.snapshot().diagnostics.map(({ code }) => code)).toEqual(['latest-discovery'])
   })
 
   it('persists external desktop enablement and disposes its visible panel only', async () => {
@@ -662,6 +808,53 @@ describe('Workbench host state', () => {
     const current = await starts[1].promise
     current.resolve()
     await expect(currentReveal).resolves.toBeDefined()
+
+    stale.resolve()
+    await expect(staleReveal).rejects.toThrow(/abort|stale/i)
+    expect(stale.view.destroyed).toBe(true)
+    expect(stale.view.visible).toBe(false)
+    expect(current.view.destroyed).toBe(false)
+    expect(current.view.visible).toBe(true)
+  })
+
+  it('never registers a pending view from an old root after same-id reload', async () => {
+    const nextDiscovery = createDeferred<WorkbenchManifestDiscovery>()
+    const { state, starts, attemptCount } = createControlledViewHarness([
+      { plugins: [externalPluginAt('/plugins/old', '1.0.0')], diagnostics: [] },
+      nextDiscovery.promise
+    ])
+    await state.reload()
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const stale = await starts[0].promise
+    expect(stale.request.plugin.canonicalRootPath).toBe('/plugins/old')
+
+    const reload = state.reload()
+    await Promise.resolve()
+    expect(stale.request.signal.aborted).toBe(true)
+    nextDiscovery.resolve({
+      plugins: [externalPluginAt('/plugins/new', '2.0.0')],
+      diagnostics: []
+    })
+    await reload
+
+    const currentReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    void currentReveal.catch(() => undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(attemptCount()).toBe(2)
+    const current = await starts[1].promise
+    expect(current.request.plugin.canonicalRootPath).toBe('/plugins/new')
+    current.resolve()
+    await currentReveal
 
     stale.resolve()
     await expect(staleReveal).rejects.toThrow(/abort|stale/i)

@@ -184,12 +184,14 @@ export function createWorkbenchHostState(
   let discovery: WorkbenchManifestDiscovery = { plugins: [], diagnostics: [] }
   let context: WorkbenchHostContext = { projectPath: null, sessionId: null, generation: 0 }
   let packageRoots: PiPackageRoot[] = []
+  let registryEpoch = 0
   const desktopEnabled = readDesktopEnabled(dependencies.store)
   const panelStates = readPanelStates(dependencies.store)
   type PendingCreation = {
     pluginId: string
     viewId: string
     generation: number
+    registryEpoch: number
     token: object
     controller: AbortController
     view?: WorkbenchPanelView
@@ -215,9 +217,9 @@ export function createWorkbenchHostState(
   const destroyView = (viewId: string): void => {
     const record = views.get(viewId)
     if (!record) return
-    record.view.destroy()
     views.delete(viewId)
     if (activeViewId === viewId) activeViewId = null
+    record.view.destroy()
   }
 
   const destroyPluginViews = (pluginId: string): void => {
@@ -320,6 +322,40 @@ export function createWorkbenchHostState(
     diagnostics: [...discovery.diagnostics, ...crashDiagnostics.values()]
   })
 
+  const beginRegistryReload = (): number => {
+    registryEpoch += 1
+    invalidatePendingCreations()
+    abortOperations()
+    destroyAllViews()
+    discovery = { plugins: [], diagnostics: [] }
+    revision += 1
+    dependencies.onState?.(snapshot())
+    return registryEpoch
+  }
+
+  const reloadRegistry = async (
+    requestEpoch: number,
+    requestedPackageRoots: readonly PiPackageRoot[]
+  ): Promise<WorkbenchSnapshot> => {
+    try {
+      const userRoots = await dependencies.userRoots()
+      const discovered = await dependencies.discover({
+        roots: [...userRoots, ...requestedPackageRoots],
+        appVersion: dependencies.appVersion
+      })
+      if (requestEpoch !== registryEpoch) return snapshot()
+
+      discovery = reserveBuiltinRegistry(discovered)
+      revision += 1
+      const nextSnapshot = snapshot()
+      dependencies.onState?.(nextSnapshot)
+      return nextSnapshot
+    } catch (error) {
+      if (requestEpoch !== registryEpoch) return snapshot()
+      throw error
+    }
+  }
+
   const recordPanelCrash = (pluginId: string, viewId: string, reason: string): void => {
     const crashCount = (crashCounts.get(pluginId) ?? 0) + 1
     crashCounts.set(pluginId, crashCount)
@@ -358,7 +394,8 @@ export function createWorkbenchHostState(
     if (
       pending?.token === token &&
       pending.pluginId === pluginId &&
-      pending.generation === context.generation
+      pending.generation === context.generation &&
+      pending.registryEpoch === registryEpoch
     ) {
       invalidatePendingCreation(pending)
       recordPanelCrash(pluginId, viewId, reason)
@@ -390,21 +427,9 @@ export function createWorkbenchHostState(
   const api: WorkbenchHostState = {
     snapshot,
     async reload() {
-      invalidatePendingCreations()
-      abortOperations()
-      const userRoots = await dependencies.userRoots()
-      const nextDiscovery = reserveBuiltinRegistry(
-        await dependencies.discover({
-          roots: [...userRoots, ...packageRoots],
-          appVersion: dependencies.appVersion
-        })
-      )
-      destroyAllViews()
-      discovery = nextDiscovery
-      revision += 1
-      const nextSnapshot = snapshot()
-      dependencies.onState?.(nextSnapshot)
-      return nextSnapshot
+      const requestedPackageRoots = packageRoots.map((root) => ({ ...root }))
+      const requestEpoch = beginRegistryReload()
+      return reloadRegistry(requestEpoch, requestedPackageRoots)
     },
     async dispatch(command) {
       switch (command.type) {
@@ -470,6 +495,7 @@ export function createWorkbenchHostState(
               pluginId: plugin.pluginId,
               viewId: command.viewId,
               generation: panelContext.generation,
+              registryEpoch,
               token,
               controller,
               invalidated: false
@@ -492,6 +518,7 @@ export function createWorkbenchHostState(
               )
               if (
                 pending.invalidated ||
+                pending.registryEpoch !== registryEpoch ||
                 pendingCreations.get(command.viewId)?.token !== pending.token
               ) {
                 throw new Error('Workbench panel creation became stale or crashed')
@@ -551,8 +578,10 @@ export function createWorkbenchHostState(
       dependencies.onState?.(snapshot())
     },
     async setPackageRoots(roots) {
-      packageRoots = roots.map((root) => ({ ...root }))
-      return this.reload()
+      const requestedPackageRoots = roots.map((root) => ({ ...root }))
+      packageRoots = requestedPackageRoots
+      const requestEpoch = beginRegistryReload()
+      return reloadRegistry(requestEpoch, requestedPackageRoots)
     },
     panelContext(viewId) {
       const plugin = discovery.plugins.find(
