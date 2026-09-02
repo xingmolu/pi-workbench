@@ -817,13 +817,9 @@ describe('Workbench host state', () => {
     expect(pendingB.view.visible).toBe(true)
   })
 
-  it('reconciles reversed native operations before showing the latest external selection', async () => {
-    type NativeOperation = { visible: boolean; resolve: () => void }
-    const nativeStarts = [
-      createDeferred<NativeOperation>(),
-      createDeferred<NativeOperation>(),
-      createDeferred<NativeOperation>()
-    ]
+  it('does not let a never-settling browser show block the latest external reveal', async () => {
+    type NativeOperation = { visible: boolean; resolve: () => void; reject: () => void }
+    const nativeStarts = [createDeferred<NativeOperation>(), createDeferred<NativeOperation>()]
     let browserVisible = false
     let nativeCallCount = 0
     const { state, views } = createHarness(
@@ -839,7 +835,8 @@ describe('Workbench host state', () => {
           resolve: () => {
             browserVisible = visible
             completion.resolve()
-          }
+          },
+          reject: () => completion.reject(new Error('native operation failed'))
         })
         return completion.promise
       }
@@ -852,32 +849,198 @@ describe('Workbench host state', () => {
       visible: true
     })
     void browserReveal.catch(() => undefined)
-    const staleShow = await nativeStarts[0].promise
+    await nativeStarts[0].promise
     const externalReveal = state.dispatch({
       type: 'view:set',
       viewId: 'acme.notes.panel',
       visible: true
     })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(nativeCallCount).toBe(2)
     const latestHide = await nativeStarts[1].promise
 
     latestHide.resolve()
-    expect(browserVisible).toBe(false)
-    expect(views).toHaveLength(0)
-    staleShow.resolve()
-    await vi.waitFor(() => expect(nativeCallCount).toBe(3))
-    expect(browserVisible).toBe(true)
-
-    const reconciliation = await nativeStarts[2].promise
-    expect(reconciliation.visible).toBe(false)
-    reconciliation.resolve()
-    await expect(browserReveal).rejects.toThrow(/selection|stale/i)
     await externalReveal
+
+    expect(nativeCallCount).toBe(2)
+    expect(browserVisible).toBe(false)
+    expect(views).toHaveLength(1)
+    expect(views[0].view.visible).toBe(true)
+  })
+
+  it('does not let a never-settling browser show block the latest hide', async () => {
+    type NativeOperation = { resolve: () => void }
+    const nativeStarts = [createDeferred<NativeOperation>(), createDeferred<NativeOperation>()]
+    let nativeCallCount = 0
+    const { state } = createHarness(
+      [{ plugins: [], diagnostics: [] }],
+      new Map(),
+      undefined,
+      () => {
+        const completion = createDeferred<void>()
+        const start = nativeStarts[nativeCallCount]
+        nativeCallCount += 1
+        start.resolve({ resolve: () => completion.resolve() })
+        return completion.promise
+      }
+    )
+    await state.reload()
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void staleReveal.catch(() => undefined)
+    await nativeStarts[0].promise
+    const latestHide = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: false
+    })
+    const hideOperation = await nativeStarts[1].promise
+
+    hideOperation.resolve()
+    await latestHide
+
+    expect(nativeCallCount).toBe(2)
+  })
+
+  it('reconciles late native resolution or rejection without hiding the external view', async () => {
+    type NativeOperation = { visible: boolean; resolve: () => void; reject: () => void }
+    const nativeStarts = Array.from({ length: 6 }, () => createDeferred<NativeOperation>())
+    let browserVisible = false
+    let nativeCallCount = 0
+    const { state, views } = createHarness(
+      [{ plugins: [externalPlugin()], diagnostics: [] }],
+      new Map(),
+      undefined,
+      (visible) => {
+        const completion = createDeferred<void>()
+        nativeStarts[nativeCallCount].resolve({
+          visible,
+          resolve: () => {
+            browserVisible = visible
+            completion.resolve()
+          },
+          reject: () => completion.reject(new Error('late native failure'))
+        })
+        nativeCallCount += 1
+        return completion.promise
+      }
+    )
+    await state.reload()
+
+    const staleResolveDispatch = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void staleResolveDispatch.catch(() => undefined)
+    const staleResolve = await nativeStarts[0].promise
+    const externalReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const latestHide = await nativeStarts[1].promise
+    latestHide.resolve()
+    await externalReveal
+
+    staleResolve.resolve()
+    await vi.waitFor(() => expect(nativeCallCount).toBe(3))
+    const resolveReconcile = await nativeStarts[2].promise
+    expect(resolveReconcile.visible).toBe(false)
+    resolveReconcile.resolve()
+    await vi.waitFor(() => expect(browserVisible).toBe(false))
+
+    const staleRejectDispatch = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void staleRejectDispatch.catch(() => undefined)
+    const staleReject = await nativeStarts[3].promise
+    const latestExternalReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const latestRejectHide = await nativeStarts[4].promise
+    latestRejectHide.resolve()
+    await latestExternalReveal
+    staleReject.reject()
+    await vi.waitFor(() => expect(nativeCallCount).toBe(6))
+    const rejectReconcile = await nativeStarts[5].promise
+    expect(rejectReconcile.visible).toBe(false)
+    rejectReconcile.resolve()
+    await vi.waitFor(() => expect(browserVisible).toBe(false))
 
     expect(browserVisible).toBe(false)
     expect(views).toHaveLength(1)
+    expect(views[0].view.visible).toBe(true)
+  })
+
+  it('coalesces multiple stale native completions into one reconciliation', async () => {
+    type NativeOperation = { visible: boolean; resolve: () => void; reject: () => void }
+    const nativeStarts = Array.from({ length: 5 }, () => createDeferred<NativeOperation>())
+    let nativeCallCount = 0
+    const { state, views } = createHarness(
+      [{ plugins: [externalPlugin()], diagnostics: [] }],
+      new Map(),
+      undefined,
+      (visible) => {
+        const completion = createDeferred<void>()
+        nativeStarts[nativeCallCount].resolve({
+          visible,
+          resolve: () => completion.resolve(),
+          reject: () => completion.reject(new Error('stale native failure'))
+        })
+        nativeCallCount += 1
+        return completion.promise
+      }
+    )
+    await state.reload()
+
+    const staleShowA = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void staleShowA.catch(() => undefined)
+    const operationA = await nativeStarts[0].promise
+    const staleHide = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: false
+    })
+    void staleHide.catch(() => undefined)
+    const operationB = await nativeStarts[1].promise
+    const staleShowC = state.dispatch({
+      type: 'view:set',
+      viewId: 'works.pi.desktop.browser',
+      visible: true
+    })
+    void staleShowC.catch(() => undefined)
+    const operationC = await nativeStarts[2].promise
+    const externalReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const latestHide = await nativeStarts[3].promise
+    latestHide.resolve()
+    await externalReveal
+
+    operationA.resolve()
+    operationB.resolve()
+    operationC.reject()
+    await vi.waitFor(() => expect(nativeCallCount).toBe(5))
+    const reconciliation = await nativeStarts[4].promise
+    expect(reconciliation.visible).toBe(false)
+    reconciliation.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(nativeCallCount).toBe(5)
     expect(views[0].view.visible).toBe(true)
   })
 

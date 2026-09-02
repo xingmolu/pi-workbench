@@ -216,8 +216,7 @@ export function createWorkbenchHostState(
   const crashCounts = new Map<string, number>()
   const crashDiagnostics = new Map<string, WorkbenchDiagnostic>()
   const browserOperations = new Map<Promise<void>, boolean>()
-  let browserAppliedVisible = false
-  let browserAppliedBounds: WorkbenchBounds | undefined
+  let browserReconcileQueued = false
   let desiredBrowserBounds: WorkbenchBounds | undefined
   let activeViewId: string | null = null
 
@@ -269,15 +268,6 @@ export function createWorkbenchHostState(
 
   type SelectionToken = { epoch: number; viewId: string | null }
 
-  const sameBounds = (left?: WorkbenchBounds, right?: WorkbenchBounds): boolean =>
-    left === right ||
-    (left !== undefined &&
-      right !== undefined &&
-      left.x === right.x &&
-      left.y === right.y &&
-      left.width === right.width &&
-      left.height === right.height)
-
   const assertCurrentSelection = (token: SelectionToken): void => {
     assertNotDisposed()
     if (token.epoch !== selectionEpoch || token.viewId !== desiredViewId) {
@@ -285,56 +275,54 @@ export function createWorkbenchHostState(
     }
   }
 
-  const startBrowserOperation = (visible: boolean, bounds?: WorkbenchBounds): Promise<void> => {
-    let operation: Promise<void>
-    try {
-      operation = Promise.resolve(dependencies.nativeViews.browser.setView(visible, bounds))
-    } catch (error) {
-      operation = Promise.reject(error)
-    }
-    const tracked = operation.then(() => {
-      browserAppliedVisible = visible
-      browserAppliedBounds = visible ? bounds : undefined
+  function scheduleBrowserReconciliation(): void {
+    if (disposed || browserReconcileQueued) return
+    browserReconcileQueued = true
+    queueMicrotask(() => {
+      browserReconcileQueued = false
+      if (disposed) return
+      const reconcileEpoch = selectionEpoch
+      const visible = desiredViewId === BROWSER_VIEW_ID
+      const bounds = visible ? desiredBrowserBounds : undefined
+      void startBrowserOperation(visible, bounds, reconcileEpoch).catch(() => undefined)
     })
-    browserOperations.set(tracked, visible)
-    void tracked.then(
-      () => browserOperations.delete(tracked),
-      () => browserOperations.delete(tracked)
+  }
+
+  function startBrowserOperation(
+    visible: boolean,
+    bounds: WorkbenchBounds | undefined,
+    operationEpoch: number
+  ): Promise<void> {
+    let adapterOperation: Promise<void>
+    try {
+      adapterOperation = Promise.resolve(dependencies.nativeViews.browser.setView(visible, bounds))
+    } catch (error) {
+      adapterOperation = Promise.reject(error)
+    }
+    browserOperations.set(adapterOperation, visible)
+    const finish = (): void => {
+      browserOperations.delete(adapterOperation)
+      if (!disposed && operationEpoch !== selectionEpoch) scheduleBrowserReconciliation()
+    }
+    const observed = adapterOperation.then(
+      () => finish(),
+      (error) => {
+        finish()
+        throw error
+      }
     )
-    return tracked
+    void observed.catch(() => undefined)
+    return observed
   }
 
   const browserCouldBeVisible = (): boolean =>
-    browserAppliedVisible ||
     activeViewId === BROWSER_VIEW_ID ||
     desiredViewId === BROWSER_VIEW_ID ||
     [...browserOperations.values()].some(Boolean)
 
-  const settleBrowserSelection = async (token: SelectionToken): Promise<void> => {
-    while (true) {
-      const pending = [...browserOperations.keys()]
-      if (pending.length > 0) await Promise.allSettled(pending)
-      assertCurrentSelection(token)
-
-      const visible = desiredViewId === BROWSER_VIEW_ID
-      const bounds = visible ? desiredBrowserBounds : undefined
-      if (
-        browserAppliedVisible === visible &&
-        (!visible || sameBounds(browserAppliedBounds, bounds))
-      ) {
-        return
-      }
-      await startBrowserOperation(visible, bounds)
-      assertCurrentSelection(token)
-    }
-  }
-
   const hideBrowserAfterDispose = async (): Promise<void> => {
-    const pending = [...browserOperations.keys()]
-    const initialHide = startBrowserOperation(false)
-    await Promise.allSettled([...pending, initialHide])
     try {
-      await startBrowserOperation(false)
+      await startBrowserOperation(false, undefined, selectionEpoch)
     } catch {
       // Disposal is best-effort, including adapters that reject while their owner is closing.
     }
@@ -344,7 +332,7 @@ export function createWorkbenchHostState(
     viewId: string,
     visible: boolean,
     bounds?: WorkbenchBounds
-  ): { token: SelectionToken; browserBarrier: boolean } => {
+  ): { token: SelectionToken; browserOperation?: Promise<void> } => {
     const previousDesiredViewId = desiredViewId
     const changesDesired = visible || desiredViewId === viewId
     if (changesDesired) {
@@ -371,10 +359,11 @@ export function createWorkbenchHostState(
       viewId === BROWSER_VIEW_ID ||
       previousDesiredViewId === BROWSER_VIEW_ID ||
       browserCouldBeVisible()
-    if (browserBarrier) {
-      startBrowserOperation(desiredViewId === BROWSER_VIEW_ID, desiredBrowserBounds)
-    }
-    return { token: { epoch: selectionEpoch, viewId: desiredViewId }, browserBarrier }
+    const token = { epoch: selectionEpoch, viewId: desiredViewId }
+    const browserOperation = browserBarrier
+      ? startBrowserOperation(desiredViewId === BROWSER_VIEW_ID, desiredBrowserBounds, token.epoch)
+      : undefined
+    return browserOperation === undefined ? { token } : { token, browserOperation }
   }
 
   const isAvailable = (activation: 'onApp' | 'onProject'): boolean =>
@@ -585,8 +574,8 @@ export function createWorkbenchHostState(
               throw new Error('Workbench panel is unavailable')
             }
             const selection = beginSelection(command.viewId, command.visible, command.bounds)
-            if (selection.browserBarrier) {
-              await settleBrowserSelection(selection.token)
+            if (selection.browserOperation) {
+              await selection.browserOperation
               assertCurrentSelection(selection.token)
             }
             if (command.visible) {
@@ -608,8 +597,8 @@ export function createWorkbenchHostState(
             throw new Error('Workbench panel is unavailable')
           }
           const selection = beginSelection(command.viewId, command.visible, command.bounds)
-          if (selection.browserBarrier) {
-            await settleBrowserSelection(selection.token)
+          if (selection.browserOperation) {
+            await selection.browserOperation
             assertCurrentSelection(selection.token)
             if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
           }
@@ -754,6 +743,7 @@ export function createWorkbenchHostState(
       selectionEpoch += 1
       desiredViewId = null
       desiredBrowserBounds = undefined
+      browserOperations.clear()
       invalidatePendingCreations()
       abortOperations()
       destroyAllViews()

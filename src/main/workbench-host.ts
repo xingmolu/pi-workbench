@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   session,
   WebContentsView,
@@ -25,6 +24,11 @@ import {
   createWorkbenchPanelSessionOwnership,
   type WorkbenchPanelSessionOwnership
 } from './workbench-panel-session'
+import {
+  canonicalWorkbenchPanelFile,
+  isPotentialWorkbenchPanelNavigation,
+  secureWorkbenchPanelResponseHeaders
+} from './workbench-panel-security'
 import {
   createWorkbenchHostState,
   type WorkbenchHostContext,
@@ -65,22 +69,6 @@ export type WorkbenchHostDependencies = {
   createView?: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
 }
 
-const STRICT_PLUGIN_CSP = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self'",
-  "font-src 'self'",
-  "media-src 'self'",
-  "connect-src 'none'",
-  "object-src 'none'",
-  "frame-src 'self'",
-  "worker-src 'self'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'"
-].join('; ')
-
 const panelStates = new WeakMap<WorkbenchHost, WorkbenchHostState>()
 
 function errorCode(error: unknown): string | undefined {
@@ -96,28 +84,6 @@ function isPathInside(rootPath: string, candidatePath: string): boolean {
     !relativePath.startsWith(`..${sep}`) &&
     !isAbsolute(relativePath)
   )
-}
-
-async function canonicalPluginFile(url: string, canonicalRootPath: string): Promise<string | null> {
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'file:') return null
-    const candidatePath = await realpath(fileURLToPath(parsed))
-    if (!isPathInside(canonicalRootPath, candidatePath)) return null
-    return (await stat(candidatePath)).isFile() ? candidatePath : null
-  } catch {
-    return null
-  }
-}
-
-function isPotentialPluginNavigation(url: string, canonicalRootPath: string): boolean {
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'file:') return false
-    return isPathInside(canonicalRootPath, fileURLToPath(parsed))
-  } catch {
-    return false
-  }
 }
 
 async function revalidateEntry(
@@ -163,19 +129,14 @@ function configurePanelSession(
       ownedSession.webRequest.onBeforeRequest(
         { urls: ['<all_urls>'] },
         (details: OnBeforeRequestListenerDetails, callback) => {
-          void canonicalPluginFile(details.url, canonicalRootPath)
+          void canonicalWorkbenchPanelFile(details.url, canonicalRootPath)
             .then((allowedPath) => callback({ cancel: allowedPath === null }))
             .catch(() => callback({ cancel: true }))
         }
       )
       ownedSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
         callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': [STRICT_PLUGIN_CSP],
-            'X-Content-Type-Options': ['nosniff'],
-            'Referrer-Policy': ['no-referrer']
-          }
+          responseHeaders: secureWorkbenchPanelResponseHeaders(details.responseHeaders)
         })
       })
     }
@@ -223,10 +184,10 @@ async function createElectronPanelView(
 
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   contents.on('will-frame-navigate', (event) => {
-    if (!isPotentialPluginNavigation(event.url, canonicalRootPath)) event.preventDefault()
+    if (!isPotentialWorkbenchPanelNavigation(event.url, canonicalRootPath)) event.preventDefault()
   })
   contents.on('will-redirect', (event, url) => {
-    if (!isPotentialPluginNavigation(url, canonicalRootPath)) event.preventDefault()
+    if (!isPotentialWorkbenchPanelNavigation(url, canonicalRootPath)) event.preventDefault()
   })
   contents.on('will-attach-webview', (event) => event.preventDefault())
   contents.on('did-finish-load', () => {
