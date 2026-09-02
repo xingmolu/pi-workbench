@@ -56,6 +56,14 @@ async function writeManifest(root: string, overrides: Record<string, unknown> = 
   await writeFile(join(root, 'pi-desktop.json'), JSON.stringify(manifest))
 }
 
+async function padManifestToBytes(root: string, byteLength: number): Promise<void> {
+  const manifestPath = join(root, 'pi-desktop.json')
+  const manifest = await readFile(manifestPath, 'utf8')
+  const paddingLength = byteLength - Buffer.byteLength(manifest)
+  if (paddingLength < 0) throw new Error('Requested manifest size is smaller than its JSON')
+  await writeFile(manifestPath, `${manifest}${' '.repeat(paddingLength)}`)
+}
+
 describe('discoverWorkbenchManifests', () => {
   it('rejects an invalid caller app version', async () => {
     await expect(
@@ -545,6 +553,82 @@ describe('discoverWorkbenchManifests', () => {
       'root-unavailable'
     ])
     expect(JSON.stringify(result.diagnostics)).not.toContain(malformedRoot)
+  })
+
+  it('accepts a 256 KiB manifest and rejects one additional byte', async () => {
+    const maximumBytes = 256 * 1024
+    const boundaryRoot = await temporaryPluginRoot('manifest-boundary')
+    await writeManifest(boundaryRoot, {
+      id: 'acme.manifest-boundary',
+      contributes: undefined
+    })
+    await padManifestToBytes(boundaryRoot, maximumBytes)
+    const oversizedRoot = await temporaryPluginRoot('manifest-oversized')
+    await writeManifest(oversizedRoot, {
+      id: 'acme.manifest-oversized',
+      contributes: undefined
+    })
+    await padManifestToBytes(oversizedRoot, maximumBytes + 1)
+
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: oversizedRoot,
+          source: 'manifest-oversized',
+          scope: 'user',
+          hasExecutablePiResources: false
+        },
+        {
+          path: boundaryRoot,
+          source: 'manifest-boundary',
+          scope: 'user',
+          hasExecutablePiResources: false
+        }
+      ]
+    })
+
+    expect(result.plugins.map((plugin) => plugin.pluginId)).toEqual(['acme.manifest-boundary'])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'manifest-too-large'
+      })
+    ])
+    expect(JSON.stringify(result.diagnostics)).not.toContain(oversizedRoot)
+  })
+
+  it('ignores an absent manifest but reports a broken manifest symlink', async () => {
+    const absentRoot = await temporaryPluginRoot('manifest-absent')
+    const brokenRoot = await temporaryPluginRoot('manifest-broken-link')
+    await symlink(
+      join(brokenRoot, 'missing-manifest-target.json'),
+      join(brokenRoot, 'pi-desktop.json')
+    )
+
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: absentRoot,
+          source: 'manifest-absent',
+          scope: 'user',
+          hasExecutablePiResources: true
+        },
+        {
+          path: brokenRoot,
+          source: 'manifest-broken-link',
+          scope: 'user',
+          hasExecutablePiResources: true
+        }
+      ]
+    })
+
+    expect(result.plugins).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'error', code: 'manifest-read-failed' })
+    ])
+    expect(JSON.stringify(result.diagnostics)).not.toContain(brokenRoot)
   })
 
   it('canonicalizes root and in-root manifest symlinks but rejects a manifest escape', async () => {

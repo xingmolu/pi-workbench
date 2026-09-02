@@ -1,4 +1,5 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { constants as fileSystemConstants } from 'node:fs'
+import { lstat, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import semver from 'semver'
 import { z } from 'zod'
@@ -6,8 +7,16 @@ import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workb
 import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 
+export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
+
+class ManifestTooLargeError extends Error {}
+
 export type ValidatedWorkbenchEntry = {
   contribution: WorkbenchContribution
+  /**
+   * Discovery-time snapshot only. The Task 3 host must re-run realpath, regular-file, and
+   * canonical plugin-root containment checks before activation or loading.
+   */
   canonicalEntryPath: string
 }
 
@@ -126,6 +135,35 @@ function compareRoots(left: PiPackageRoot, right: PiPackageRoot): number {
   return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
 }
 
+async function readBoundedManifest(manifestPath: string): Promise<string> {
+  const handle = await open(
+    manifestPath,
+    fileSystemConstants.O_RDONLY | fileSystemConstants.O_NONBLOCK | fileSystemConstants.O_NOFOLLOW
+  )
+  try {
+    const metadata = await handle.stat()
+    if (!metadata.isFile()) throw new Error('Manifest is not a regular file')
+    if (metadata.size > MAX_WORKBENCH_MANIFEST_BYTES) throw new ManifestTooLargeError()
+
+    const buffer = Buffer.allocUnsafe(MAX_WORKBENCH_MANIFEST_BYTES + 1)
+    let totalBytesRead = 0
+    while (totalBytesRead < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        totalBytesRead,
+        buffer.length - totalBytesRead,
+        totalBytesRead
+      )
+      if (bytesRead === 0) break
+      totalBytesRead += bytesRead
+    }
+    if (totalBytesRead > MAX_WORKBENCH_MANIFEST_BYTES) throw new ManifestTooLargeError()
+    return buffer.subarray(0, totalBytesRead).toString('utf8')
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function discoverWorkbenchManifests({
   roots,
   appVersion
@@ -152,18 +190,27 @@ export async function discoverWorkbenchManifests({
 
     let manifestPath: string
     let manifestText: string
+    let declaredManifestExists = false
     try {
-      manifestPath = await realpath(join(canonicalRootPath, 'pi-desktop.json'))
-      if (
-        !isPathWithinRoot(canonicalRootPath, manifestPath) ||
-        !(await stat(manifestPath)).isFile()
-      ) {
+      const declaredManifestPath = join(canonicalRootPath, 'pi-desktop.json')
+      await lstat(declaredManifestPath)
+      declaredManifestExists = true
+      manifestPath = await realpath(declaredManifestPath)
+      if (!isPathWithinRoot(canonicalRootPath, manifestPath)) {
         throw new Error('Manifest is not a regular file inside its plugin root')
       }
-      manifestText = await readFile(manifestPath, 'utf8')
+      manifestText = await readBoundedManifest(manifestPath)
     } catch (error) {
+      if (error instanceof ManifestTooLargeError) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'manifest-too-large',
+          message: 'Workbench manifest exceeds the supported size limit.'
+        })
+        continue
+      }
       // A package without a desktop manifest is not a broken desktop plugin.
-      if (isRecord(error) && error.code === 'ENOENT') continue
+      if (!declaredManifestExists && isRecord(error) && error.code === 'ENOENT') continue
       diagnostics.push({
         severity: 'error',
         code: 'manifest-read-failed',
