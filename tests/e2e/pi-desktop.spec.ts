@@ -74,6 +74,11 @@ let preRestartGeneration: number | null = null
 let baitFingerprints = new Map<string, BaitFingerprint>()
 let fixtureServer: Server
 let fixtureUrl = ''
+let crossOriginControlServer: Server
+let crossOriginControlUrl = ''
+let networkProbeUrl = ''
+let networkProbeCount = { GET: 0, OPTIONS: 0 }
+const networkProbePath = '/plugin-network-probe'
 
 const fixtureHtml = `<!doctype html>
 <html lang="zh-CN">
@@ -107,8 +112,8 @@ const samplePluginHtml = `<!doctype html>
   </head>
   <body style="margin:0;padding:18px;background:#101011;color:#e7e7e7;font:13px system-ui">
     <p>E2E SANDBOX PLUGIN</p>
-    <pre id="context">loading</pre>
-    <output id="state">loading</output>
+    <pre id="context" style="white-space:pre-wrap;overflow-wrap:anywhere">loading</pre>
+    <output id="state" style="display:block;margin:0 0 12px;overflow-wrap:anywhere">loading</output>
     <button id="increment" type="button">保存面板状态</button>
     <button id="navigate" type="button">尝试远程跳转</button>
     <button id="popup" type="button">尝试弹窗</button>
@@ -117,7 +122,7 @@ const samplePluginHtml = `<!doctype html>
   </body>
 </html>`
 
-function samplePluginScript(remoteUrl: string): string {
+function samplePluginScript(remoteUrl: string, probeUrl: string): string {
   return `(() => {
     const bridge = window.piPlugin
     const runtime = {
@@ -172,7 +177,7 @@ function samplePluginScript(remoteUrl: string): string {
     void (async () => {
       await acceptContext(await bridge.getContext())
       try {
-        await fetch(${JSON.stringify(remoteUrl)})
+        await fetch(${JSON.stringify(probeUrl)})
         runtime.remoteFetch = 'resolved'
       } catch {
         runtime.remoteFetch = 'rejected'
@@ -210,7 +215,10 @@ async function writeSamplePluginFixture(): Promise<void> {
       })
     ),
     writeFile(join(paths.samplePluginRoot, 'index.html'), samplePluginHtml),
-    writeFile(join(paths.samplePluginRoot, 'panel.js'), samplePluginScript(fixtureUrl)),
+    writeFile(
+      join(paths.samplePluginRoot, 'panel.js'),
+      samplePluginScript(fixtureUrl, networkProbeUrl)
+    ),
     writeFile(join(paths.samplePluginRoot, 'download.txt'), 'downloads must be denied\n')
   ])
 }
@@ -309,6 +317,54 @@ async function captureWindowArtifact(name: string): Promise<void> {
     return image.toPNG().toString('base64')
   })
   await writeFile(join(artifactDir, name), Buffer.from(base64, 'base64'))
+}
+
+async function capturePluginArtifact(name: string): Promise<{
+  width: number
+  height: number
+  devicePixelRatio: number
+  scrollY: number
+  bodyText: string
+}> {
+  if (!electronApp) throw new Error('Electron app is not running')
+  const capture = await electronApp.evaluate(
+    async ({ BrowserWindow, WebContentsView }, pluginEntry) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      const view = window?.contentView.children.find(
+        (child) =>
+          child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+      )
+      if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+      await view.webContents.executeJavaScript(`new Promise((resolve) => {
+        window.scrollTo(0, 0)
+        requestAnimationFrame(() => resolve(true))
+      })`)
+      const [image, bodyText, devicePixelRatio, scrollY] = await Promise.all([
+        view.webContents.capturePage(),
+        view.webContents.executeJavaScript('document.body.innerText') as Promise<string>,
+        view.webContents.executeJavaScript('window.devicePixelRatio') as Promise<number>,
+        view.webContents.executeJavaScript('window.scrollY') as Promise<number>
+      ])
+      const size = image.getSize()
+      return {
+        base64: image.toPNG().toString('base64'),
+        width: size.width,
+        height: size.height,
+        devicePixelRatio,
+        scrollY,
+        bodyText
+      }
+    },
+    `/${samplePluginDirectory}/index.html`
+  )
+  await writeFile(join(artifactDir, name), Buffer.from(capture.base64, 'base64'))
+  return {
+    width: capture.width,
+    height: capture.height,
+    devicePixelRatio: capture.devicePixelRatio,
+    scrollY: capture.scrollY,
+    bodyText: capture.bodyText
+  }
 }
 
 function collectRendererErrors(page: Page): RendererErrors {
@@ -501,6 +557,20 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       )
     ).toEqual([])
     fixtureServer = createServer((request, response) => {
+      if (
+        request.url === networkProbePath &&
+        (request.method === 'GET' || request.method === 'OPTIONS')
+      ) {
+        networkProbeCount[request.method] += 1
+        response.setHeader('Access-Control-Allow-Origin', '*')
+        response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.setHeader('Access-Control-Allow-Headers', 'X-E2E-Probe')
+        response.setHeader('Access-Control-Expose-Headers', 'Access-Control-Allow-Origin')
+        response.setHeader('Content-Type', 'application/json; charset=utf-8')
+        response.statusCode = request.method === 'OPTIONS' ? 204 : 200
+        response.end(request.method === 'OPTIONS' ? undefined : JSON.stringify({ ok: true }))
+        return
+      }
       response.setHeader('Content-Type', 'text/html; charset=utf-8')
       response.end(request.url === '/popup' ? popupHtml : fixtureHtml)
     })
@@ -511,6 +581,20 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     const address = fixtureServer.address()
     if (!address || typeof address === 'string') throw new Error('Fixture server did not bind')
     fixtureUrl = `http://127.0.0.1:${address.port}/`
+    networkProbeUrl = new URL(networkProbePath, fixtureUrl).toString()
+    crossOriginControlServer = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'text/html; charset=utf-8')
+      response.end('<!doctype html><title>Cross-origin control</title>')
+    })
+    await new Promise<void>((resolveListen, rejectListen) => {
+      crossOriginControlServer.once('error', rejectListen)
+      crossOriginControlServer.listen(0, '127.0.0.1', () => resolveListen())
+    })
+    const controlAddress = crossOriginControlServer.address()
+    if (!controlAddress || typeof controlAddress === 'string') {
+      throw new Error('Cross-origin control server did not bind')
+    }
+    crossOriginControlUrl = `http://127.0.0.1:${controlAddress.port}/`
     await writeSamplePluginFixture()
   })
 
@@ -532,6 +616,11 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     if (electronApp) await electronApp.close().catch(() => undefined)
     if (fixtureServer) {
       await new Promise<void>((resolveClose) => fixtureServer.close(() => resolveClose()))
+    }
+    if (crossOriginControlServer) {
+      await new Promise<void>((resolveClose) =>
+        crossOriginControlServer.close(() => resolveClose())
+      )
     }
     if (paths?.root) await rm(paths.root, { recursive: true, force: true })
   })
@@ -736,9 +825,68 @@ test.describe.serial('Pi Desktop real Electron app', () => {
   test('sandboxed plugin uses the narrow bridge in one real bounded WebContentsView', async () => {
     const page = await launchApp()
     await resizeWindow(1440, 900)
+    const crossOriginControl = await electronApp!.evaluate(
+      async ({ BrowserWindow, WebContentsView }, { controlUrl, probeUrl }): Promise<unknown> => {
+        const window = BrowserWindow.getAllWindows()[0]
+        if (!window) throw new Error('Main window is missing')
+        const controlView = new WebContentsView({
+          webPreferences: {
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webSecurity: true
+          }
+        })
+        window.contentView.addChildView(controlView)
+        controlView.setVisible(false)
+        try {
+          await controlView.webContents.loadURL(controlUrl)
+          const result = await controlView.webContents.executeJavaScript(`(async () => {
+            const probeUrl = ${JSON.stringify(probeUrl)}
+            const getResponse = await fetch(probeUrl, {
+              headers: { 'X-E2E-Probe': 'control' }
+            })
+            return {
+              sameOrigin: window.location.origin === new URL(probeUrl).origin,
+              get: {
+                status: getResponse.status,
+                allowOrigin: getResponse.headers.get('access-control-allow-origin'),
+                body: await getResponse.json()
+              }
+            }
+          })()`)
+          return result
+        } finally {
+          window.contentView.removeChildView(controlView)
+          if (!controlView.webContents.isDestroyed()) {
+            controlView.webContents.close({ waitForBeforeUnload: false })
+          }
+        }
+      },
+      { controlUrl: crossOriginControlUrl, probeUrl: networkProbeUrl }
+    )
+    expect(crossOriginControl).toEqual({
+      sameOrigin: false,
+      get: { status: 200, allowOrigin: '*', body: { ok: true } }
+    })
+    expect(networkProbeCount).toEqual({ GET: 1, OPTIONS: 1 })
+    networkProbeCount = { GET: 0, OPTIONS: 0 }
+
+    const openedProject = await page.evaluate(
+      (projectPath) =>
+        (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
+          type: 'project:open',
+          cwd: projectPath
+        }),
+      paths.project
+    )
+    expect(openedProject.kind).toBe('snapshot')
+    if (openedProject.kind !== 'snapshot') throw new Error('project:open did not return a snapshot')
+    expect(openedProject.snapshot.project?.path).toBe(paths.project)
     const agentState = await page.evaluate(() =>
       (window as unknown as Window & { pi: PiDesktopAPI }).pi.getState()
     )
+    expect(agentState.project?.path).toBe(paths.project)
 
     await expect
       .poll(async () =>
@@ -798,13 +946,14 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(pluginRuntime.context).toEqual({
       pluginId: samplePluginId,
       viewId: sampleViewId,
-      projectPath: agentState.project?.path ?? null,
+      projectPath: paths.project,
       sessionId: agentState.sessionId,
       generation: agentState.generation
     })
     expect(pluginRuntime.state).toBeNull()
     expect(pluginRuntime.errors).toEqual([])
     expect(pluginRuntime.remoteFetch).toBe('rejected')
+    expect(networkProbeCount).toEqual({ GET: 0, OPTIONS: 0 })
     expect(pluginRuntime.security).toEqual({
       requireType: 'undefined',
       processType: 'undefined',
@@ -897,9 +1046,19 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(false)
     await page.getByTitle(sampleViewTitle).click()
     await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(true)
-    expect((await pluginViewInfo())!.id).toBe(actualView!.id)
+    const revealedView = (await pluginViewInfo())!
+    expect(revealedView.id).toBe(actualView!.id)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({ count: 1 })
-    await captureWindowArtifact('05-plugin-panel.png')
+    const pluginCapture = await capturePluginArtifact('05-plugin-panel.png')
+    expect(pluginCapture).toMatchObject({
+      width: Math.round(revealedView.bounds.width * pluginCapture.devicePixelRatio),
+      height: Math.round(revealedView.bounds.height * pluginCapture.devicePixelRatio),
+      scrollY: 0
+    })
+    expect(pluginCapture.bodyText).toContain('E2E SANDBOX PLUGIN')
+    expect(pluginCapture.bodyText).toContain(paths.project)
+    expect(pluginCapture.bodyText).toContain('{"count":1}')
+    await captureWindowArtifact('05-plugin-panel-layout.png')
   })
 
   test('plugin context, state buckets, settings, and crash recovery follow the real lifecycle', async () => {
