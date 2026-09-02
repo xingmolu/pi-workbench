@@ -186,6 +186,15 @@ export function createWorkbenchHostState(
   let packageRoots: PiPackageRoot[] = []
   const desktopEnabled = readDesktopEnabled(dependencies.store)
   const panelStates = readPanelStates(dependencies.store)
+  type PendingCreation = {
+    pluginId: string
+    viewId: string
+    generation: number
+    token: object
+    controller: AbortController
+    view?: WorkbenchPanelView
+    invalidated: boolean
+  }
   const views = new Map<
     string,
     {
@@ -196,6 +205,7 @@ export function createWorkbenchHostState(
     }
   >()
   const activeOperations = new Set<AbortController>()
+  const pendingCreations = new Map<string, PendingCreation>()
   const crashCounts = new Map<string, number>()
   const crashDiagnostics = new Map<string, WorkbenchDiagnostic>()
   let activeViewId: string | null = null
@@ -223,6 +233,23 @@ export function createWorkbenchHostState(
   const abortOperations = (): void => {
     for (const controller of activeOperations) controller.abort()
     activeOperations.clear()
+  }
+
+  const invalidatePendingCreation = (pending: PendingCreation): void => {
+    if (pendingCreations.get(pending.viewId)?.token === pending.token) {
+      pendingCreations.delete(pending.viewId)
+    }
+    pending.invalidated = true
+    pending.controller.abort()
+    pending.view?.destroy()
+  }
+
+  const invalidatePendingCreations = (pluginId?: string): void => {
+    for (const pending of [...pendingCreations.values()]) {
+      if (pluginId === undefined || pending.pluginId === pluginId) {
+        invalidatePendingCreation(pending)
+      }
+    }
   }
 
   const hideActiveView = async (): Promise<void> => {
@@ -293,20 +320,13 @@ export function createWorkbenchHostState(
     diagnostics: [...discovery.diagnostics, ...crashDiagnostics.values()]
   })
 
-  const handlePanelCrash = (
-    pluginId: string,
-    viewId: string,
-    token: object,
-    reason: string
-  ): void => {
-    const record = views.get(viewId)
-    if (!record || record.token !== token) return
-    destroyView(viewId)
+  const recordPanelCrash = (pluginId: string, viewId: string, reason: string): void => {
     const crashCount = (crashCounts.get(pluginId) ?? 0) + 1
     crashCounts.set(pluginId, crashCount)
     if (crashCount >= 3) {
       desktopEnabled[pluginId] = false
       dependencies.store.set(DESKTOP_ENABLED_STORE_KEY, { ...desktopEnabled })
+      invalidatePendingCreations(pluginId)
       destroyPluginViews(pluginId)
       crashDiagnostics.set(pluginId, {
         severity: 'error',
@@ -328,9 +348,49 @@ export function createWorkbenchHostState(
     dependencies.onState?.(snapshot())
   }
 
+  const handlePanelCrash = (
+    pluginId: string,
+    viewId: string,
+    token: object,
+    reason: string
+  ): void => {
+    const pending = pendingCreations.get(viewId)
+    if (
+      pending?.token === token &&
+      pending.pluginId === pluginId &&
+      pending.generation === context.generation
+    ) {
+      invalidatePendingCreation(pending)
+      recordPanelCrash(pluginId, viewId, reason)
+      return
+    }
+    const record = views.get(viewId)
+    if (!record || record.token !== token) return
+    destroyView(viewId)
+    recordPanelCrash(pluginId, viewId, reason)
+  }
+
+  const runTrackedPanelOperation = async <Result>(
+    panelContext: PluginPanelContext,
+    operation: (signal: AbortSignal) => Promise<Result>,
+    controller = new AbortController()
+  ): Promise<Result> => {
+    assertCurrentPanelContext(panelContext)
+    activeOperations.add(controller)
+    try {
+      const result = await operation(controller.signal)
+      if (controller.signal.aborted) throw new Error('Workbench panel operation was aborted')
+      assertCurrentPanelContext(panelContext)
+      return result
+    } finally {
+      activeOperations.delete(controller)
+    }
+  }
+
   const api: WorkbenchHostState = {
     snapshot,
     async reload() {
+      invalidatePendingCreations()
       abortOperations()
       const userRoots = await dependencies.userRoots()
       const nextDiscovery = reserveBuiltinRegistry(
@@ -361,7 +421,10 @@ export function createWorkbenchHostState(
           }
           desktopEnabled[command.pluginId] = command.desktopEnabled
           dependencies.store.set(DESKTOP_ENABLED_STORE_KEY, { ...desktopEnabled })
-          if (!command.desktopEnabled) destroyPluginViews(command.pluginId)
+          if (!command.desktopEnabled) {
+            invalidatePendingCreations(command.pluginId)
+            destroyPluginViews(command.pluginId)
+          }
           revision += 1
           dependencies.onState?.(snapshot())
           break
@@ -397,25 +460,51 @@ export function createWorkbenchHostState(
           if (command.visible && activeViewId !== command.viewId) await hideActiveView()
           let record = views.get(command.viewId)
           if (command.visible && !record) {
+            if (pendingCreations.has(command.viewId)) {
+              throw new Error('Workbench panel creation is already in progress')
+            }
             const token = {}
             const panelContext = this.panelContext(command.viewId)
-            let pendingView: WorkbenchPanelView | undefined
+            const controller = new AbortController()
+            const pending: PendingCreation = {
+              pluginId: plugin.pluginId,
+              viewId: command.viewId,
+              generation: panelContext.generation,
+              token,
+              controller,
+              invalidated: false
+            }
+            pendingCreations.set(command.viewId, pending)
             try {
-              await this.runPanelOperation(panelContext, async (signal) => {
-                pendingView = await dependencies.createView({
-                  plugin,
-                  entry,
-                  context: panelContext,
-                  signal,
-                  onCrash: (reason) =>
-                    handlePanelCrash(plugin.pluginId, command.viewId, token, reason)
-                })
-              })
+              await runTrackedPanelOperation(
+                panelContext,
+                async (signal) => {
+                  pending.view = await dependencies.createView({
+                    plugin,
+                    entry,
+                    context: panelContext,
+                    signal,
+                    onCrash: (reason) =>
+                      handlePanelCrash(plugin.pluginId, command.viewId, token, reason)
+                  })
+                },
+                controller
+              )
+              if (
+                pending.invalidated ||
+                pendingCreations.get(command.viewId)?.token !== pending.token
+              ) {
+                throw new Error('Workbench panel creation became stale or crashed')
+              }
+              pendingCreations.delete(command.viewId)
             } catch (error) {
-              pendingView?.destroy()
+              invalidatePendingCreation(pending)
               throw error
             }
-            const view = pendingView!
+            const view = pending.view
+            if (!view) {
+              throw new Error('Workbench panel creation did not return a view')
+            }
             record = {
               pluginId: plugin.pluginId,
               activation: entry.contribution.activation,
@@ -444,6 +533,7 @@ export function createWorkbenchHostState(
       if (nextContext.generation <= context.generation) {
         throw new Error('Workbench context generation must advance')
       }
+      invalidatePendingCreations()
       abortOperations()
       context = { ...nextContext }
       for (const [viewId, record] of views) {
@@ -487,19 +577,10 @@ export function createWorkbenchHostState(
       dependencies.store.set(PANEL_STATE_STORE_KEY, { ...panelStates })
     },
     async runPanelOperation(panelContext, operation) {
-      assertCurrentPanelContext(panelContext)
-      const controller = new AbortController()
-      activeOperations.add(controller)
-      try {
-        const result = await operation(controller.signal)
-        if (controller.signal.aborted) throw new Error('Workbench panel operation was aborted')
-        assertCurrentPanelContext(panelContext)
-        return result
-      } finally {
-        activeOperations.delete(controller)
-      }
+      return runTrackedPanelOperation(panelContext, operation)
     },
     dispose() {
+      invalidatePendingCreations()
       abortOperations()
       destroyAllViews()
       if (activeViewId === 'works.pi.desktop.browser') {

@@ -28,6 +28,28 @@ class FakePanelView implements WorkbenchPanelView {
   }
 }
 
+type Deferred<Value> = {
+  promise: Promise<Value>
+  resolve: (value: Value) => void
+  reject: (error: Error) => void
+}
+
+function createDeferred<Value>(): Deferred<Value> {
+  let resolvePromise!: (value: Value) => void
+  let rejectPromise!: (error: Error) => void
+  const promise = new Promise<Value>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+  return { promise, resolve: resolvePromise, reject: rejectPromise }
+}
+
+type ControlledViewAttempt = {
+  request: WorkbenchPanelViewRequest
+  view: FakePanelView
+  resolve: () => void
+}
+
 function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   return {
     pluginId: 'acme.notes',
@@ -64,6 +86,26 @@ function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
       }
     ]
   }
+}
+
+function secondExternalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
+  const plugin = externalPlugin()
+  plugin.pluginId = 'acme.tasks'
+  plugin.name = 'Acme Tasks'
+  plugin.canonicalRootPath = '/plugins/acme.tasks'
+  plugin.manifestPath = '/plugins/acme.tasks/pi-desktop.json'
+  plugin.workbench = plugin.workbench.map((entry, index) => ({
+    ...entry,
+    contribution: {
+      ...entry.contribution,
+      pluginId: 'acme.tasks',
+      viewId: index === 0 ? 'acme.tasks.panel' : 'acme.tasks.board',
+      activation: 'onApp'
+    },
+    canonicalEntryPath:
+      index === 0 ? '/plugins/acme.tasks/index.html' : '/plugins/acme.tasks/board.html'
+  }))
+  return plugin
 }
 
 function createHarness(
@@ -111,6 +153,25 @@ function createHarness(
     }
   })
   return { state, rootsSeen, views, persisted, browserCalls }
+}
+
+function createControlledViewHarness(discoveries: WorkbenchManifestDiscovery[]): ReturnType<
+  typeof createHarness
+> & {
+  starts: Deferred<ControlledViewAttempt>[]
+  attemptCount: () => number
+} {
+  const starts = [createDeferred<ControlledViewAttempt>(), createDeferred<ControlledViewAttempt>()]
+  let attemptCount = 0
+  const harness = createHarness(discoveries, new Map(), async (request) => {
+    const start = starts[attemptCount]
+    attemptCount += 1
+    const view = new FakePanelView()
+    const completion = createDeferred<FakePanelView>()
+    start.resolve({ request, view, resolve: () => completion.resolve(view) })
+    return completion.promise
+  })
+  return { ...harness, starts, attemptCount: () => attemptCount }
 }
 
 describe('Workbench host state', () => {
@@ -301,6 +362,74 @@ describe('Workbench host state', () => {
     expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toEqual({ app: true })
   })
 
+  it('isolates panel state across plugins, views, two projects, and the app bucket', async () => {
+    const notes = externalPlugin()
+    notes.workbench[1].contribution.activation = 'onApp'
+    const tasks = secondExternalPlugin()
+    const { state } = createHarness([{ plugins: [notes, tasks], diagnostics: [] }])
+    await state.reload()
+
+    state.setContext({ projectPath: '/projects/a', sessionId: 'session-a', generation: 1 })
+    state.setPanelState(state.panelContext('acme.notes.panel'), { bucket: 'notes-panel-a' })
+    state.setPanelState(state.panelContext('acme.notes.project-panel'), {
+      bucket: 'notes-second-view-a'
+    })
+    state.setPanelState(state.panelContext('acme.tasks.panel'), { bucket: 'tasks-panel-a' })
+
+    state.setContext({ projectPath: '/projects/b', sessionId: 'session-b', generation: 2 })
+    expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toBeNull()
+    expect(state.getPanelState(state.panelContext('acme.notes.project-panel'))).toBeNull()
+    expect(state.getPanelState(state.panelContext('acme.tasks.panel'))).toBeNull()
+    state.setPanelState(state.panelContext('acme.notes.panel'), { bucket: 'notes-panel-b' })
+    state.setPanelState(state.panelContext('acme.notes.project-panel'), {
+      bucket: 'notes-second-view-b'
+    })
+    state.setPanelState(state.panelContext('acme.tasks.panel'), { bucket: 'tasks-panel-b' })
+
+    state.setContext({ projectPath: null, sessionId: null, generation: 3 })
+    expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toBeNull()
+    expect(state.getPanelState(state.panelContext('acme.notes.project-panel'))).toBeNull()
+    expect(state.getPanelState(state.panelContext('acme.tasks.panel'))).toBeNull()
+    state.setPanelState(state.panelContext('acme.notes.panel'), { bucket: 'notes-panel-app' })
+    state.setPanelState(state.panelContext('acme.notes.project-panel'), {
+      bucket: 'notes-second-view-app'
+    })
+    state.setPanelState(state.panelContext('acme.tasks.panel'), { bucket: 'tasks-panel-app' })
+
+    state.setContext({ projectPath: '/projects/a', sessionId: 'session-a2', generation: 4 })
+    expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toEqual({
+      bucket: 'notes-panel-a'
+    })
+    expect(state.getPanelState(state.panelContext('acme.notes.project-panel'))).toEqual({
+      bucket: 'notes-second-view-a'
+    })
+    expect(state.getPanelState(state.panelContext('acme.tasks.panel'))).toEqual({
+      bucket: 'tasks-panel-a'
+    })
+
+    state.setContext({ projectPath: '/projects/b', sessionId: 'session-b2', generation: 5 })
+    expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toEqual({
+      bucket: 'notes-panel-b'
+    })
+    expect(state.getPanelState(state.panelContext('acme.notes.project-panel'))).toEqual({
+      bucket: 'notes-second-view-b'
+    })
+    expect(state.getPanelState(state.panelContext('acme.tasks.panel'))).toEqual({
+      bucket: 'tasks-panel-b'
+    })
+
+    state.setContext({ projectPath: null, sessionId: null, generation: 6 })
+    expect(state.getPanelState(state.panelContext('acme.notes.panel'))).toEqual({
+      bucket: 'notes-panel-app'
+    })
+    expect(state.getPanelState(state.panelContext('acme.notes.project-panel'))).toEqual({
+      bucket: 'notes-second-view-app'
+    })
+    expect(state.getPanelState(state.panelContext('acme.tasks.panel'))).toEqual({
+      bucket: 'tasks-panel-app'
+    })
+  })
+
   it('updates onApp views, disposes project views, and rejects late generation operations', async () => {
     const plugin = externalPlugin()
     plugin.scope = 'project'
@@ -376,6 +505,246 @@ describe('Workbench host state', () => {
     expect(createSignal?.aborted).toBe(true)
     await expect(reveal).rejects.toThrow(/generation|context|abort/i)
     expect(lateView.destroyed).toBe(true)
+  })
+
+  it('counts initial-load crashes once and disables the plugin after the third attempt', async () => {
+    type Attempt = {
+      request: WorkbenchPanelViewRequest
+      view: FakePanelView
+      resolve: () => void
+      reject: (error: Error) => void
+    }
+    const starts = [createDeferred<Attempt>(), createDeferred<Attempt>(), createDeferred<Attempt>()]
+    let attemptIndex = 0
+    const plugin = externalPlugin()
+    plugin.hasExecutablePiResources = true
+    const { state } = createHarness(
+      [{ plugins: [plugin], diagnostics: [] }],
+      new Map(),
+      async (request) => {
+        const index = attemptIndex
+        attemptIndex += 1
+        const view = new FakePanelView()
+        const result = createDeferred<FakePanelView>()
+        starts[index].resolve({
+          request,
+          view,
+          resolve: () => result.resolve(view),
+          reject: result.reject
+        })
+        if (index === 0) {
+          request.onCrash('sync-initial-crash')
+          request.onCrash('duplicate-sync-crash')
+          return view
+        }
+        return result.promise
+      }
+    )
+    await state.reload()
+
+    const firstReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const first = await starts[0].promise
+    await expect(firstReveal).rejects.toThrow(/abort|crash/i)
+    expect(first.view.destroyed).toBe(true)
+    expect(state.snapshot().plugins[1].desktopEnabled).toBe(true)
+
+    const secondReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const second = await starts[1].promise
+    second.request.onCrash('async-initial-crash')
+    second.request.onCrash('duplicate-async-crash')
+    second.reject(new Error('renderer exited while loading'))
+    await expect(secondReveal).rejects.toThrow()
+    expect(state.snapshot().plugins[1].desktopEnabled).toBe(true)
+
+    const thirdReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const third = await starts[2].promise
+    third.request.onCrash('third-initial-crash')
+    third.resolve()
+    await expect(thirdReveal).rejects.toThrow(/abort|crash/i)
+
+    expect(third.view.destroyed).toBe(true)
+    expect(attemptIndex).toBe(3)
+    expect(state.snapshot().plugins[1]).toMatchObject({
+      desktopEnabled: false,
+      hasExecutablePiResources: true,
+      diagnostics: [expect.objectContaining({ code: 'plugin-crash-disabled' })]
+    })
+    expect(state.snapshot().contributions.map(({ pluginId }) => pluginId)).not.toContain(
+      'acme.notes'
+    )
+  })
+
+  it('invalidates pending creation on context change without blocking a new generation', async () => {
+    const { state, starts, attemptCount } = createControlledViewHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+    state.setContext({ projectPath: '/projects/a', sessionId: 'session-a', generation: 1 })
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const stale = await starts[0].promise
+    state.setContext({ projectPath: '/projects/b', sessionId: 'session-b', generation: 2 })
+    stale.request.onCrash('stale generation crash')
+
+    expect(stale.request.signal.aborted).toBe(true)
+    expect(state.snapshot().diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'plugin-crashed' })
+    )
+
+    const currentReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    void currentReveal.catch(() => undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(attemptCount()).toBe(2)
+    const current = await starts[1].promise
+    current.resolve()
+    await expect(currentReveal).resolves.toBeDefined()
+
+    stale.resolve()
+    await expect(staleReveal).rejects.toThrow(/generation|context|abort|stale/i)
+    expect(stale.view.destroyed).toBe(true)
+    expect(stale.view.visible).toBe(false)
+    expect(current.view.destroyed).toBe(false)
+    expect(current.view.visible).toBe(true)
+  })
+
+  it('invalidates pending creation on reload and ignores its stale crash callback', async () => {
+    const plugin = externalPlugin()
+    const { state, starts, attemptCount } = createControlledViewHarness([
+      { plugins: [plugin], diagnostics: [] },
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const stale = await starts[0].promise
+    await state.reload()
+    stale.request.onCrash('stale reload crash')
+
+    expect(stale.request.signal.aborted).toBe(true)
+    expect(state.snapshot().diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'plugin-crashed' })
+    )
+
+    const currentReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    void currentReveal.catch(() => undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(attemptCount()).toBe(2)
+    const current = await starts[1].promise
+    current.resolve()
+    await expect(currentReveal).resolves.toBeDefined()
+
+    stale.resolve()
+    await expect(staleReveal).rejects.toThrow(/abort|stale/i)
+    expect(stale.view.destroyed).toBe(true)
+    expect(stale.view.visible).toBe(false)
+    expect(current.view.destroyed).toBe(false)
+    expect(current.view.visible).toBe(true)
+  })
+
+  it('invalidates pending creation when the external plugin is disabled', async () => {
+    const { state, starts, attemptCount } = createControlledViewHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const stale = await starts[0].promise
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.notes',
+      desktopEnabled: false
+    })
+    stale.request.onCrash('stale disabled-plugin crash')
+
+    expect(stale.request.signal.aborted).toBe(true)
+    expect(state.snapshot().diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'plugin-crashed' })
+    )
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.notes',
+      desktopEnabled: true
+    })
+    const currentReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    void currentReveal.catch(() => undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(attemptCount()).toBe(2)
+    const current = await starts[1].promise
+    current.resolve()
+    await expect(currentReveal).resolves.toBeDefined()
+
+    stale.resolve()
+    await expect(staleReveal).rejects.toThrow(/abort|stale/i)
+    expect(stale.view.destroyed).toBe(true)
+    expect(stale.view.visible).toBe(false)
+    expect(current.view.destroyed).toBe(false)
+    expect(current.view.visible).toBe(true)
+  })
+
+  it('invalidates pending creation on dispose and ignores all late callbacks', async () => {
+    const { state, starts } = createControlledViewHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+
+    const staleReveal = state.dispatch({
+      type: 'view:set',
+      viewId: 'acme.notes.panel',
+      visible: true
+    })
+    const stale = await starts[0].promise
+    state.dispose()
+    stale.request.onCrash('stale disposed-host crash')
+
+    expect(stale.request.signal.aborted).toBe(true)
+    expect(state.snapshot().diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'plugin-crashed' })
+    )
+
+    stale.resolve()
+    await expect(staleReveal).rejects.toThrow(/abort|stale/i)
+    expect(stale.view.destroyed).toBe(true)
+    expect(stale.view.visible).toBe(false)
   })
 
   it('keeps only the selected host-owned panel visible across native and sandboxed views', async () => {
