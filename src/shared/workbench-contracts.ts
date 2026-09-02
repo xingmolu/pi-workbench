@@ -3,6 +3,10 @@
 export const WORKBENCH_PANEL_STATE_MAX_BYTES = 32 * 1024
 export const WORKBENCH_JSON_MAX_DEPTH = 64
 export const WORKBENCH_JSON_MAX_NODES = 4096
+export const WORKBENCH_CHANNEL = 'pi:workbench'
+export const WORKBENCH_EVENT_CHANNEL = 'pi:workbench:event'
+export const WORKBENCH_PANEL_CHANNEL = 'pi:workbench-panel'
+export const WORKBENCH_PANEL_CONTEXT_CHANNEL = 'pi:workbench-panel:context'
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }

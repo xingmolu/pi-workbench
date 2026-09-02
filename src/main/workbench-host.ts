@@ -6,8 +6,10 @@ import {
   WebContentsView,
   type BrowserWindow,
   type OnBeforeRequestListenerDetails,
-  type Session
+  type Session,
+  type WebContents
 } from 'electron'
+import { WORKBENCH_PANEL_CONTEXT_CHANNEL } from '../shared/workbench-contracts'
 import type {
   JsonValue,
   PluginPanelContext,
@@ -48,6 +50,11 @@ export interface WorkbenchHost {
   dispose(): void
 }
 
+export type WorkbenchPanelSenderBinding = {
+  bind(sender: WebContents, host: WorkbenchHost, viewId: string): () => void
+  unbindHost(host: WorkbenchHost): void
+}
+
 export type WorkbenchPanelStateAdapter = {
   context(): PluginPanelContext
   getState(context: PluginPanelContext): JsonValue
@@ -67,6 +74,7 @@ export type WorkbenchHostDependencies = {
   browser: { setView(visible: boolean, bounds?: Electron.Rectangle): void | Promise<void> }
   onState?: (snapshot: WorkbenchSnapshot) => void
   createView?: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
+  panelSenderBinding?: WorkbenchPanelSenderBinding
 }
 
 const panelStates = new WeakMap<WorkbenchHost, WorkbenchHostState>()
@@ -147,7 +155,8 @@ async function createElectronPanelView(
   window: BrowserWindow,
   preloadPath: string,
   request: WorkbenchPanelViewRequest,
-  sessionOwnership: WorkbenchPanelSessionOwnership
+  sessionOwnership: WorkbenchPanelSessionOwnership,
+  bindPanelSender?: (sender: WebContents, viewId: string) => () => void
 ): Promise<WorkbenchPanelView> {
   request.signal.throwIfAborted()
   const { canonicalRootPath, canonicalEntryPath } = await revalidateEntry(request)
@@ -175,12 +184,20 @@ async function createElectronPanelView(
       webviewTag: false
     }
   })
+  const contents = view.webContents
+  let unbindPanelSender = (): void => undefined
+  try {
+    unbindPanelSender =
+      bindPanelSender?.(contents, request.entry.contribution.viewId) ?? unbindPanelSender
+  } catch {
+    if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false })
+    throw new Error('Workbench panel binding failed')
+  }
   view.setBackgroundColor('#0A0A0A')
   view.setVisible(false)
   window.contentView.addChildView(view)
   let destroyed = false
   let currentContext = request.context
-  const contents = view.webContents
 
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   contents.on('will-frame-navigate', (event) => {
@@ -191,13 +208,14 @@ async function createElectronPanelView(
   })
   contents.on('will-attach-webview', (event) => event.preventDefault())
   contents.on('did-finish-load', () => {
-    if (!contents.isDestroyed()) contents.send('pi:workbench-panel:context', currentContext)
+    if (!contents.isDestroyed()) contents.send(WORKBENCH_PANEL_CONTEXT_CHANNEL, currentContext)
   })
   contents.on('render-process-gone', (_event, details) => request.onCrash(details.reason))
 
   const destroy = (): void => {
     if (destroyed) return
     destroyed = true
+    unbindPanelSender()
     try {
       window.contentView.removeChildView(view)
     } catch {
@@ -220,7 +238,7 @@ async function createElectronPanelView(
     setVisible: (visible) => view.setVisible(visible),
     setContext: (context) => {
       currentContext = context
-      if (!contents.isDestroyed()) contents.send('pi:workbench-panel:context', context)
+      if (!contents.isDestroyed()) contents.send(WORKBENCH_PANEL_CONTEXT_CHANNEL, context)
     },
     destroy
   }
@@ -250,7 +268,8 @@ async function userDesktopPluginRoots(agentDir: string): Promise<PiPackageRoot[]
 class WorkbenchHostImplementation implements WorkbenchHost {
   constructor(
     private readonly state: WorkbenchHostState,
-    private readonly cleanupSessions: () => void
+    private readonly cleanupSessions: () => void,
+    private readonly cleanupPanelSenders: (host: WorkbenchHost) => void
   ) {}
 
   snapshot(): WorkbenchSnapshot {
@@ -281,14 +300,19 @@ class WorkbenchHostImplementation implements WorkbenchHost {
     try {
       this.state.dispose()
     } finally {
-      this.cleanupSessions()
-      panelStates.delete(this)
+      try {
+        this.cleanupPanelSenders(this)
+      } finally {
+        this.cleanupSessions()
+        panelStates.delete(this)
+      }
     }
   }
 }
 
 export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): WorkbenchHost {
   const sessionOwnership = createWorkbenchPanelSessionOwnership()
+  const panelSenderBinding = dependencies.panelSenderBinding
   const state = createWorkbenchHostState({
     appVersion: dependencies.appVersion,
     userRoots: () => userDesktopPluginRoots(dependencies.agentDir),
@@ -301,13 +325,18 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
           dependencies.window,
           dependencies.preloadPath,
           request,
-          sessionOwnership
+          sessionOwnership,
+          panelSenderBinding
+            ? (sender, viewId) => panelSenderBinding.bind(sender, host, viewId)
+            : undefined
         )),
     nativeViews: { browser: dependencies.browser },
     ...(dependencies.onState === undefined ? {} : { onState: dependencies.onState })
   })
-  const host = new WorkbenchHostImplementation(state, () =>
-    cleanupWorkbenchPanelSessions(sessionOwnership)
+  const host = new WorkbenchHostImplementation(
+    state,
+    () => cleanupWorkbenchPanelSessions(sessionOwnership),
+    (owner) => panelSenderBinding?.unbindHost(owner)
   )
   panelStates.set(host, state)
   return host

@@ -1,4 +1,9 @@
 export * from './workbench-contracts'
+import type {
+  WorkbenchCommand,
+  WorkbenchCommandResult,
+  WorkbenchEvent
+} from './workbench-contracts'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
@@ -381,4 +386,6 @@ export type PiDesktopAPI = {
   onEvent: (listener: (event: HostEvent) => void) => () => void
   browser: (command: BrowserCommand) => Promise<BrowserCommandResult>
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => () => void
+  workbench: (command: WorkbenchCommand) => Promise<WorkbenchCommandResult>
+  onWorkbenchEvent: (listener: (event: WorkbenchEvent) => void) => () => void
 }

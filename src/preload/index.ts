@@ -9,6 +9,17 @@ import type {
   HostResultFor,
   PiDesktopAPI
 } from '../shared/contracts'
+import { WORKBENCH_CHANNEL, WORKBENCH_EVENT_CHANNEL } from '../shared/workbench-contracts'
+import { createWorkbenchClient } from './workbench-client'
+
+const workbenchClient = createWorkbenchClient({
+  invoke: (command) => ipcRenderer.invoke(WORKBENCH_CHANNEL, command),
+  onEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value)
+    ipcRenderer.on(WORKBENCH_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(WORKBENCH_EVENT_CHANNEL, handler)
+  }
+})
 
 const api: PiDesktopAPI = {
   getState: (): Promise<AgentSnapshot> => ipcRenderer.invoke('pi:state'),
@@ -27,7 +38,8 @@ const api: PiDesktopAPI = {
       listener(value)
     ipcRenderer.on('pi:browser:event', handler)
     return () => ipcRenderer.removeListener('pi:browser:event', handler)
-  }
+  },
+  ...workbenchClient
 }
 
 contextBridge.exposeInMainWorld('pi', api)

@@ -24,9 +24,13 @@ import type {
   HostRequest,
   HostResult,
   SnapshotHostCommand,
-  WorkbenchCommand,
   WorkbenchEvent
 } from '../shared/contracts'
+import {
+  WORKBENCH_CHANNEL,
+  WORKBENCH_EVENT_CHANNEL,
+  WORKBENCH_PANEL_CHANNEL
+} from '../shared/workbench-contracts'
 import {
   browserCapabilityCancelSchema,
   browserCapabilityRequestSchema,
@@ -40,8 +44,13 @@ import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp
 import { loadElectronStoreConstructor } from './electron-store-interop'
 import { ProjectOpenCoordinator } from './project-open-coordinator'
 import { pathToPersistAfterOpen, resolveExistingProjectPath } from './recent-project'
-import { createWorkbenchHost, type WorkbenchHost } from './workbench-host'
+import {
+  createWorkbenchHost,
+  createWorkbenchPanelStateAdapter,
+  type WorkbenchHost
+} from './workbench-host'
 import type { WorkbenchStateStore } from './workbench-host-state'
+import { createWorkbenchPanelIpcRouter } from './workbench-panel-ipc'
 import icon from '../../resources/icon.png?asset'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
@@ -75,6 +84,9 @@ const responseBroker = new HostResponseBroker({
   onInvalid: (message) => console.warn('忽略无效 Agent Host 消息', message)
 })
 const projectOpenCoordinator = new ProjectOpenCoordinator<AgentSnapshot>()
+const workbenchPanelIpc = createWorkbenchPanelIpcRouter({
+  createAdapter: createWorkbenchPanelStateAdapter
+})
 
 type Preferences = {
   lastProjectPath?: string
@@ -390,7 +402,7 @@ function registerIpc(): void {
       }
     }
   })
-  ipcMain.handle('pi:workbench', async (event, command: WorkbenchCommand) => {
+  ipcMain.handle(WORKBENCH_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
     const parsed = workbenchCommandSchema.safeParse(command)
     if (!parsed.success) throw new Error('无效的 Workbench IPC 请求')
@@ -398,6 +410,9 @@ function registerIpc(): void {
     if (!host) throw new Error('Workbench 尚未就绪')
     return host.dispatch(parsed.data)
   })
+  ipcMain.handle(WORKBENCH_PANEL_CHANNEL, (event, command: unknown) =>
+    workbenchPanelIpc.handle(event, command)
+  )
 }
 
 function createWindow(): void {
@@ -438,9 +453,10 @@ function createWindow(): void {
     store: workbenchStore,
     window: mainWindow,
     browser: browserManager,
+    panelSenderBinding: workbenchPanelIpc,
     onState: (state) => {
       if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pi:workbench:event', {
+        mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, {
           type: 'state',
           data: state
         } satisfies WorkbenchEvent)
