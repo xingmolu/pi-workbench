@@ -1,6 +1,6 @@
 # Pi Desktop UI 设计（调研稿）
 
-日期：2026-08-31（MVP 覆盖于 2026-09-01 根据竞品调研更新）
+日期：2026-08-31（MVP 覆盖于 2026-09-02 根据竞品调研与 Workbench 插件落地更新）
 前提：新仓库。引擎用 `@earendil-works/pi-coding-agent` SDK。界面学 DSH 对话密度 + Codex 右侧工作台。不 fork DSH，不复用 Cordis slot 实现。
 
 ---
@@ -58,7 +58,7 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 
 - **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
-- **Workbench**：学 Codex。默认只显示 **52px mode rail**；设置与 Browser 由用户显式触发展开，禁止 hover 打开。Browser 已是首个真实 mode；Files / Review / Terminal（+ Trace）仍是占位。按工作区记宽度和 tab 恢复后做。
+- **Workbench**：学 Codex。默认只显示 **52px mode rail**；rail 由 Main 发布的 contribution registry 驱动，设置、Browser 和本地 sandboxed plugin 由用户显式触发展开，禁止 hover 打开。Browser 与 sandboxed plugin 已是真实 surface；Files / Review / Terminal 仍是 first-party 占位，Trace 尚未注册。按工作区记宽度和 tab 恢复后做。
 
 这是基于 2026-09-01 竞品调研的阶段性覆盖：当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
 
@@ -72,9 +72,13 @@ Composer：`+` · 权限芯片（Open / Ask）· 账号 · 模型 · ContextMete
 
 ## 4. 右侧 Workbench
 
-Files：工作区树 + 预览 tab。Terminal：**用户 PTY**，Pi bash 仍走对话卡片。Review：Git，Last turn | Working tree；这三项尚未实现。Browser 已实现为 main process 持有的 `WebContentsView`：按 project 隔离持久 profile、多标签页、窄化 typed action、短寿命 snapshot ref，以及用户/agent 同页共享控制。Renderer 不持有 Node、Pi、CDP 或任意 eval；Agent Host 只能经 main capability bridge 请求固定操作。跟随产物克制：不因每次 write 切 Review。
+Workbench 已从 Renderer 写死的 mode union 改为 Main-owned contribution registry。Main 发布可序列化的 plugin/contribution/snapshot DTO；主 Renderer 只负责 rail、设置和 surface chrome，不接收插件 root 或 entry path。内置 Files / Review / Terminal / Browser 也走同一 registry，其中 Files 是未来的工作区树 + 预览 tab，Terminal 是未来的**用户 PTY**（Pi bash 仍走对话卡片），Review 是未来的 Git `Last turn | Working tree`；前三项当前只有 first-party 占位。跟随产物继续克制：不因每次 write 切 Review。
 
-Browser 网页内容明确标记为不可信。remote content 保持 sandbox、context isolation、关闭 Node integration；权限默认拒绝、下载阻止、popup 转受管 tab、远端仅 HTTPS（localhost 允许 HTTP）。用户操作优先并会取消 agent 在途动作，控制条提供 Stop。Open / Ask 继续决定普通 agent 交互是否进入批准卡；上传、下载、cookie/凭证导出和任意脚本执行不在工具面内。
+Browser 已实现为 Main 持有的 native `WebContentsView`：按 project 隔离持久 profile、多标签页、窄化 typed action、短寿命 snapshot ref，以及用户/agent 同页共享控制。Renderer 不持有 Node、Pi、CDP 或任意 eval；Agent Host 只能经 Main capability bridge 请求固定操作。Browser 网页内容明确标记为不可信，保持 sandbox、context isolation、关闭 Node integration；权限默认拒绝、下载阻止、popup 转受管 tab、远端仅 HTTPS（localhost 允许 HTTP）。用户操作优先并会取消 agent 在途动作，控制条提供 Stop。Open / Ask 继续决定普通 agent 交互是否进入批准卡；上传、下载、cookie/凭证导出和任意脚本执行不在工具面内。
+
+第三方 Desktop UI 当前只开放包内静态 `sandboxed-web` surface。用户插件由 `~/.pi/agent/desktop-plugins/<id>/pi-desktop.json` 手工发现；与 Pi package 并置的 manifest 只从 Agent Host 当前实际加载的 package-scoped Skill/Extension root 发现，不扫描任意 project。面板运行在独立、非持久 partition 的 Main-owned `WebContentsView`，Node/Electron/Pi 均不可见，只得到带 generation 的四方法 `window.piPlugin` context/state bridge；网络、权限、导航、popup 和下载默认拒绝。设置里的 Desktop 开关只控制右栏 contribution，不卸载或停用 Pi resource。
+
+manifest 的 `permissions` 当前只用于清单展示，并不授予文件、shell、browser 或 network capability；第三方 command、native surface/backend 和 MCP Apps 尚未开放。Pi extension 仍是 Agent Host 中的可信本机用户代码，不是 sandbox。完整作者与安全边界见 [docs/WORKBENCH_PLUGIN_ARCHITECTURE.md](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
 
 ## 5. 账号
 
@@ -98,13 +102,13 @@ Composer 两级：账号 → 模型。浏览账号不创建会话；已有 trans
 
 ## 7. 进程与数据
 
-Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最近项目偏好、BrowserManager 和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime 与 browser capability client，生产 `agentDir = ~/.pi/agent`。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 只保存最近项目路径；Browser profile 由 Electron partition 按 project 隔离。这些本地数据不含 Pi token/transcript，但路径本身和网站登录态仍应按本地隐私数据对待。
+Renderer (React) — 零 Node、零 Electron、零 Pi import。typed IPC。Main：窗口、最近项目偏好、WorkbenchHost、BrowserManager 和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime、browser capability client 与已加载 Pi package root 发布。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 保存最近项目路径、Desktop 插件启用状态和每项不超过 32 KiB 的 panel JSON state；Browser profile 由 Electron partition 按 project 隔离。这些本地数据不含 Pi token/transcript，但路径、插件自存内容和网站登录态仍应按本地隐私数据对待。
 
 流式同步先发送带 `sessionId + generation + revision` 的完整 snapshot，之后发送带 `baseRevision + revision` 的节点 upsert / removal / order patch 和轻量元数据。token 更新按短窗口合并，completed / settled 强制刷新；Renderer 对旧 patch 幂等忽略，对会话代际不匹配、乱序或 revision 缺口重新拉 snapshot。完整 snapshot 用于 bootstrap、项目/会话切换与恢复同步，不在每个 token 上重复传整份 transcript。
 
 ## 8. 明确不做什么
 
-不 load DSH Web UI；不把 pi-web-ui 当主界面；不 fork dsh-desktop；不自造 OAuth；不把 Codex 做成只能导入 CLI；不把 Agent 端口转到公网；手机 MVP 不做工作台；不做多账号自动 failover。
+不 load DSH Web UI；不把 pi-web-ui 当主界面；不 fork dsh-desktop；不自造 OAuth；不把 Codex 做成只能导入 CLI；不把 Agent 端口转到公网；手机 MVP 不做工作台；不做多账号自动 failover。Workbench 当前不做 marketplace、签名/自动更新、远端 entry、第三方 native/module/backend、通用 agent command binding 或 MCP Apps，也不把 Pi extension 宣传成 sandboxed code。
 
 ## 9. 建议落地顺序
 
@@ -113,6 +117,7 @@ Renderer (React) — 零 Node、零 Pi import。typed IPC。Main：窗口、最�
    - **2b.** 账号：Codex 直登 + composer 两级切换（MVP 已覆盖显式选择与 session pinning；`~/.codex/auth.json` 导入和自定义兼容端点 UI 延期）
    - **2c.** 手机：gateway + 配对 + LAN QR + Quick Tunnel
 3. Browser + agent 共享控制（已覆盖首个真实 Workbench mode、隔离 profile、typed capability 与 E2E）
-4. Files + Review
-5. 用户 PTY
-6. Trace 等
+   - **3b.** Workbench contribution registry + 本地 sandboxed web plugin（MVP 已覆盖严格发现、启停/重载、context/state generation、崩溃隔离与真实 Electron E2E；分发、第三方 command/backend 和 MCP Apps 延期）
+4. Files + Review（当前仅 first-party 占位）
+5. 用户 PTY（当前 Terminal 仅 first-party 占位）
+6. Trace 等（尚未注册）

@@ -3,7 +3,7 @@
 Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 `@earendil-works/pi-coding-agent`。它不加载 DSH Web UI，也不复制 Pi 的会话或凭证。
 
-当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b 和 3：
+当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b、3 和 3b：
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
 - composer：Open / Ask、账号 → 模型、ContextMeter、Send / Stop / Queue；
@@ -12,18 +12,26 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - Codex（ChatGPT Plus / Pro）浏览器登录与 device code；
 - Pi 多账号 provider 别名 `openai-codex-<slug>`；
 - 按 `cwd` 分桶的 Pi JSONL 会话列表、新建与恢复；
-- 默认 52px 的 Workbench mode rail，以及按需展开的账号与模型设置；
-- 右栏原生 Browser：多标签页、按 project 隔离的持久 profile、用户与 agent 共享控制；
+- Main 发布的 typed Workbench registry、默认 52px mode rail，以及按需展开的账号、模型与
+  Desktop 插件设置；
+- Files、Review、Terminal 仍是已注册的 first-party 占位面板；Browser 是 Main 持有的原生
+  `WebContentsView`，支持多标签页、按 project 隔离的持久 profile 和用户/agent 共享控制；
+- 本地 `sandboxed-web` Workbench 插件：严格 manifest、独立 `WebContentsView`、窄化
+  `window.piPlugin` bridge、按 project 状态和崩溃隔离；
 - Pi `browser` 工具：snapshot/ref、click/fill/select、导航、wait、screenshot 与 Stop。
 
 Files、Git Review、用户 PTY、Trace、手机网关和 worktree / 并行 agent 仍是后续边界；
-当前右侧相应 mode 只是占位，不代表功能已经实现。`@` 文件/会话引用、
+前三项虽已进入 registry，当前面板仍只是占位，不代表相应产品功能已经实现。插件
+marketplace、签名、自动更新、远端 UI 入口、第三方 native/module、通用 agent command
+绑定和 MCP Apps 也明确延期。`@` 文件/会话引用、
 图片粘贴附件、用户可拖内容轴、`~/.codex/auth.json` 便利导入，以及自定义兼容端点的
 管理 UI 也明确延期。
 
 技术选型与取舍见 [docs/TECH_STACK_RESEARCH.md](./docs/TECH_STACK_RESEARCH.md)，本轮竞品调研与落地映射见
 [docs/COMPETITIVE_RESEARCH.md](./docs/COMPETITIVE_RESEARCH.md)，Workbench / Agent Browser
 专项调研与实施结果见 [docs/WORKBENCH_AGENT_RESEARCH.md](./docs/WORKBENCH_AGENT_RESEARCH.md)。
+已落地的插件边界、manifest 和 panel API 见
+[docs/WORKBENCH_PLUGIN_ARCHITECTURE.md](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
 
 ## 本地运行
 
@@ -55,8 +63,8 @@ npm run smoke:electron-store
 - `npm run smoke:electron-store`：先 build，再在 Electron 主进程环境验证构建后的
   `electron-store` 可以读写。
 
-E2E 会把空态、设置、项目门禁、Browser chrome 和网页执行证据截图写入 `artifacts/e2e/`；该目录已加入
-`.gitignore`，只作为本地验证产物。
+E2E 会把空态、设置、项目门禁、Browser chrome/网页执行、真实 sandboxed plugin 面板和
+三次崩溃诊断截图写入 `artifacts/e2e/`；该目录已加入 `.gitignore`，只作为本地验证产物。
 
 如需生成本地安装目录，可另外运行：
 
@@ -80,6 +88,27 @@ npx electron-builder --dir
 6. agent 运行中发送的新输入进入 Pi follow-up 队列；界面显示完整待发送文本，并支持清空全部队列。单项编辑、删除和 steer 尚未实现。
 7. 点击右栏 Browser 后可以手动浏览；Pi agent 使用同一个可见 tab。Ask 模式下交互动作会进入现有审批卡，Open 模式下直接执行；浏览器工具条会显示控制方，用户可随时 Stop 或直接接管。
 
+## Workbench 本地插件
+
+独立的用户级 Desktop 插件采用手工安装布局；每个直接子目录是一项插件：
+
+```text
+~/.pi/agent/desktop-plugins/<id>/
+├── pi-desktop.json
+├── index.html
+└── panel.js
+```
+
+复制或修改文件后，到“设置 → 工作台插件”点击“重新加载”。当前没有安装、卸载或更新
+UI。设置中的 Desktop 开关只隐藏 contribution 并销毁对应面板，不会卸载、停止或禁用
+Pi Agent Host 已加载的 Skills/Extensions。
+
+Pi package 也可以在 package root 并置 `pi-desktop.json`，但 Main 不会遍历任意 Pi 或
+project 目录。只有 Agent Host 的公开 resource loader 在当前 generation 中实际加载的
+package-scoped Skill/Extension root，才会作为可信的规范化 root 发布给 Workbench Host。
+完整 manifest、bridge、安全与信任说明见
+[Workbench 插件架构与作者指南](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
+
 ## 数据与隐私边界
 
 生产运行的 Pi `agentDir` 固定为 `~/.pi/agent`：
@@ -88,23 +117,26 @@ npx electron-builder --dir
 - 会话：`~/.pi/agent/sessions/` 下按 `cwd` 分桶的 JSONL
 - 多账号配置：`~/.pi/agent/pi-multi-login.json`
 
-应用不会把 token 放进 Electron `safeStorage`，也不会保存第二份 transcript。Main
-使用 `electron-store` 仅保存最近一次成功打开且已规范化的项目路径，启动时会重新校验，
-失效后清除。这是本地偏好数据，不含 token 或 transcript；但路径本身可能暴露用户名、
-客户名或项目名，应按本地隐私数据对待。测试专用 agentDir 覆盖只允许在未打包的显式
-E2E 模式中使用，生产构建会拒绝该模式并忽略其他路径覆盖值。
+应用不会把 token 放进 Electron `safeStorage`，也不会保存第二份 transcript。Main 使用
+`electron-store` 保存最近一次成功打开且已规范化的项目路径、Desktop 插件启用状态，
+以及每项不超过 32 KiB 的插件面板 JSON 状态。项目路径在启动时会重新校验，失效后清除；
+面板状态按 `pluginId/viewId/project` 分桶，不应写入 token、transcript、cookie 或 tool
+secret。这些都是本地偏好数据，但路径和插件自存内容仍应按本地隐私数据对待。测试专用
+agentDir 覆盖只允许在未打包的显式 E2E 模式中使用，生产构建会拒绝该模式并忽略其他路径
+覆盖值。
 
 Browser 使用 project 路径的不可逆 hash 生成独立 Electron partition；cookie、localStorage
 等网站会话数据留在该 profile，不写入 Pi 的 `auth.json`，也不会通过 snapshot 返回给 agent。
 
 ## 架构
 
-| 进程       | 职责                                                                                       |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| Main       | 窗口、项目偏好、OAuth 外链、BrowserManager、安全边界、typed IPC、`utilityProcess` 生命周期 |
-| Agent Host | Pi runtime、登录、流式投影、权限 hook，以及窄化的 browser capability client                |
-| Preload    | 只暴露窄的 `window.pi` 请求与事件 API                                                      |
-| Renderer   | React 文档流、Radix 交互原语、Zustand 内存状态；零 Node、零 Pi import                      |
+| 进程/表面                   | 职责                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Main                        | 窗口、项目偏好、WorkbenchHost、BrowserManager、安全策略、typed IPC、`utilityProcess` 生命周期          |
+| Agent Host                  | Pi runtime、登录、流式投影、权限 hook、browser capability client，并发布当前实际加载的 Pi package root |
+| 主 Preload                  | 只暴露窄的 `window.pi` 请求与事件 API                                                                  |
+| 主 Renderer                 | React 文档流、registry rail、first-party chrome、Radix/Zustand；零 Node、零 Electron、零 Pi import     |
+| sandboxed plugin preload/UI | 只暴露冻结的四方法 `window.piPlugin`；UI 在独立 Main-owned `WebContentsView` 中加载包内静态资源        |
 
 Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot；随后发送带
 `sessionId + generation + baseRevision + revision` 的节点 patch。Renderer 只按连续 revision
@@ -114,8 +146,14 @@ Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot�
 
 - `src/agent-host/index.ts`：Pi runtime、登录、会话、权限与节点投影
 - `src/shared/contracts.ts`：跨进程 DTO 与 snapshot / patch 协议
-- `src/main/index.ts`：`utilityProcess` broker、最近项目与 Electron 安全边界
+- `src/shared/workbench-contracts.ts`：renderer-safe contribution、plugin、panel context/state DTO
+- `src/main/index.ts`：`utilityProcess` broker、最近项目、Workbench IPC 与 Electron 安全边界
+- `src/main/workbench-manifest.ts`：严格 manifest 发现、semver 与规范路径校验
+- `src/main/workbench-host.ts`：Workbench registry、surface 生命周期与 sandboxed view 创建
+- `src/main/workbench-host-state.ts`：启用状态、generation、面板 JSON 状态与崩溃策略
 - `src/main/browser-manager.ts`：原生 Browser tab/profile、动作、生命周期与页面隔离
+- `src/preload/plugin.ts`：sandboxed panel 的最小 `window.piPlugin` bridge
 - `src/renderer/src/components/Conversation.tsx`：对话、状态、Context、Queue 与 composer
 - `src/renderer/src/components/BrowserPane.tsx`：Browser chrome 与共享控制状态
-- `src/renderer/src/components/Workbench.tsx`：账号设置、Browser 和其余右栏占位
+- `src/renderer/src/components/Workbench.tsx`：registry rail、设置、first-party/native/plugin surface 路由
+- `src/renderer/src/components/SandboxedPluginPane.tsx`：plugin view 可见性与 bounds 协调
