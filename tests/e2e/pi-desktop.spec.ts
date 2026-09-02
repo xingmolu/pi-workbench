@@ -21,10 +21,25 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { createServer, type Server } from 'node:http'
-import type { PiDesktopAPI } from '../../src/shared/contracts'
+import {
+  BUILTIN_BROWSER_VIEW_ID,
+  WORKBENCH_PANEL_CONTEXT_CHANNEL,
+  type PiDesktopAPI,
+  type PluginPanelContext,
+  type WorkbenchSnapshot
+} from '../../src/shared/contracts'
 
 const repoRoot = resolve(__dirname, '../..')
 const artifactDir = join(repoRoot, 'artifacts/e2e')
+const samplePluginDirectory = 'example.e2e-panel'
+const samplePluginId = 'example.e2e-panel'
+const sampleViewId = 'example.e2e-panel.main'
+const sampleViewTitle = 'E2E 沙箱面板'
+const builtinPluginId = 'works.pi.desktop.builtin'
+const samplePluginPartition = `pi-workbench-${createHash('sha256')
+  .update(`${samplePluginId}\0${sampleViewId}`)
+  .digest('hex')
+  .slice(0, 32)}`
 
 type RendererErrors = {
   pageErrors: string[]
@@ -36,6 +51,8 @@ type TestPaths = {
   userData: string
   agentDir: string
   project: string
+  projectB: string
+  samplePluginRoot: string
   baitAgentDir: string
   baitAuth: string
   baitModels: string
@@ -80,6 +97,123 @@ const fixtureHtml = `<!doctype html>
 </html>`
 
 const popupHtml = `<!doctype html><html><head><title>Popup Evidence</title></head><body><h1>新标签页验证</h1></body></html>`
+
+const samplePluginHtml = `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>E2E Sandbox Plugin</title>
+  </head>
+  <body style="margin:0;padding:18px;background:#101011;color:#e7e7e7;font:13px system-ui">
+    <p>E2E SANDBOX PLUGIN</p>
+    <pre id="context">loading</pre>
+    <output id="state">loading</output>
+    <button id="increment" type="button">保存面板状态</button>
+    <button id="navigate" type="button">尝试远程跳转</button>
+    <button id="popup" type="button">尝试弹窗</button>
+    <a id="download" href="./download.txt" download>尝试下载</a>
+    <script src="./panel.js"></script>
+  </body>
+</html>`
+
+function samplePluginScript(remoteUrl: string): string {
+  return `(() => {
+    const bridge = window.piPlugin
+    const runtime = {
+      ready: false,
+      context: null,
+      state: null,
+      contextEvents: [],
+      errors: [],
+      popupResult: 'not-run',
+      security: {
+        requireType: typeof window.require,
+        processType: typeof window.process,
+        electronType: typeof window.electron,
+        ipcRendererType: typeof window.ipcRenderer,
+        hostBridgeType: typeof window.pi,
+        pluginBridgeKeys: bridge ? Object.keys(bridge).sort() : []
+      }
+    }
+    window.__piPluginE2E = runtime
+
+    const render = () => {
+      document.querySelector('#context').textContent = JSON.stringify(runtime.context)
+      document.querySelector('#state').textContent = JSON.stringify(runtime.state)
+    }
+
+    const acceptContext = async (context) => {
+      runtime.context = context
+      runtime.contextEvents.push(context)
+      runtime.state = await bridge.getState(context.generation)
+      render()
+    }
+
+    bridge.onContext((context) => {
+      void acceptContext(context).catch((error) => runtime.errors.push(String(error)))
+    })
+
+    document.querySelector('#increment').addEventListener('click', () => {
+      void (async () => {
+        const next = { count: Number(runtime.state?.count ?? 0) + 1 }
+        await bridge.setState(runtime.context.generation, next)
+        runtime.state = await bridge.getState(runtime.context.generation)
+        render()
+      })().catch((error) => runtime.errors.push(String(error)))
+    })
+    document.querySelector('#navigate').addEventListener('click', () => {
+      window.location.href = ${JSON.stringify(remoteUrl)}
+    })
+    document.querySelector('#popup').addEventListener('click', () => {
+      runtime.popupResult = String(window.open(${JSON.stringify(remoteUrl)}, '_blank'))
+    })
+
+    void (async () => {
+      await acceptContext(await bridge.getContext())
+      try {
+        await fetch(${JSON.stringify(remoteUrl)})
+        runtime.remoteFetch = 'resolved'
+      } catch {
+        runtime.remoteFetch = 'rejected'
+      }
+      runtime.ready = true
+      render()
+    })().catch((error) => runtime.errors.push(String(error)))
+  })()`
+}
+
+async function writeSamplePluginFixture(): Promise<void> {
+  await mkdir(paths.samplePluginRoot, { recursive: true })
+  await Promise.all([
+    writeFile(
+      join(paths.samplePluginRoot, 'pi-desktop.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: samplePluginId,
+        version: '1.0.0',
+        name: 'E2E Sandbox Plugin',
+        description: 'Real Electron sandbox and lifecycle fixture',
+        engines: { piDesktop: '^0.1.0' },
+        permissions: [],
+        contributes: {
+          workbench: [
+            {
+              id: sampleViewId,
+              title: sampleViewTitle,
+              icon: 'flask',
+              activation: 'onApp',
+              surface: { kind: 'sandboxed-web', entry: './index.html' }
+            }
+          ]
+        }
+      })
+    ),
+    writeFile(join(paths.samplePluginRoot, 'index.html'), samplePluginHtml),
+    writeFile(join(paths.samplePluginRoot, 'panel.js'), samplePluginScript(fixtureUrl)),
+    writeFile(join(paths.samplePluginRoot, 'download.txt'), 'downloads must be denied\n')
+  ])
+}
 
 function launchEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {}
@@ -212,6 +346,102 @@ async function expectNoRendererErrors(): Promise<void> {
   expect(rendererErrors?.consoleErrors ?? [], 'renderer console errors').toEqual([])
 }
 
+async function workbenchSnapshot(page: Page): Promise<WorkbenchSnapshot> {
+  return page
+    .evaluate(() =>
+      (window as unknown as Window & { pi: PiDesktopAPI }).pi.workbench({ type: 'state:get' })
+    )
+    .then(({ state }) => state)
+}
+
+async function pluginViewInfo(): Promise<{
+  id: number
+  url: string
+  visible: boolean
+  bounds: { x: number; y: number; width: number; height: number }
+  expectedEphemeralSession: boolean
+} | null> {
+  if (!electronApp) throw new Error('Electron app is not running')
+  return electronApp.evaluate(
+    ({ BrowserWindow, WebContentsView, session }, { pluginEntry, partition }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      const view = window?.contentView.children.find(
+        (child) =>
+          child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+      )
+      if (!(view instanceof WebContentsView)) return null
+      return {
+        id: view.webContents.id,
+        url: view.webContents.getURL(),
+        visible: view.getVisible(),
+        bounds: view.getBounds(),
+        expectedEphemeralSession:
+          !partition.startsWith('persist:') &&
+          view.webContents.session === session.fromPartition(partition)
+      }
+    },
+    { pluginEntry: `/${samplePluginDirectory}/index.html`, partition: samplePluginPartition }
+  )
+}
+
+async function executeInPlugin<Result>(expression: string): Promise<Result> {
+  if (!electronApp) throw new Error('Electron app is not running')
+  return electronApp.evaluate(
+    async ({ BrowserWindow, WebContentsView }, { pluginEntry, expression }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      const view = window?.contentView.children.find(
+        (child) =>
+          child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+      )
+      if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+      return view.webContents.executeJavaScript(expression, true)
+    },
+    { pluginEntry: `/${samplePluginDirectory}/index.html`, expression }
+  ) as Promise<Result>
+}
+
+async function expectWebContentsDestroyed(id: number): Promise<void> {
+  await expect
+    .poll(() =>
+      electronApp!.evaluate(({ webContents }, contentsId) => {
+        const contents = webContents.fromId(contentsId)
+        return contents === undefined || contents.isDestroyed()
+      }, id)
+    )
+    .toBe(true)
+}
+
+async function revealSamplePlugin(
+  page: Page
+): Promise<NonNullable<Awaited<ReturnType<typeof pluginViewInfo>>>> {
+  await expect
+    .poll(async () =>
+      (await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)
+    )
+    .toBe(true)
+  await page.getByTitle(sampleViewTitle).click()
+  await expect.poll(() => pluginViewInfo()).not.toBeNull()
+  await expect
+    .poll(() => executeInPlugin<boolean>('window.__piPluginE2E?.ready === true'))
+    .toBe(true)
+  return (await pluginViewInfo())!
+}
+
+async function forceCrashPluginView(): Promise<number> {
+  if (!electronApp) throw new Error('Electron app is not running')
+  return electronApp.evaluate(({ BrowserWindow, WebContentsView }, pluginEntry) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    const view = window?.contentView.children.find(
+      (child) =>
+        child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+    )
+    if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+    const id = view.webContents.id
+    view.webContents.forcefullyCrashRenderer()
+    return id
+  }, `/${samplePluginDirectory}/index.html`)
+}
+
 test.describe.serial('Pi Desktop real Electron app', () => {
   test.beforeAll(async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-')))
@@ -220,6 +450,8 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       userData: join(root, 'user-data'),
       agentDir: join(root, 'agent'),
       project: join(root, `e2e-project-${basename(root)}`),
+      projectB: join(root, `e2e-project-b-${basename(root)}`),
+      samplePluginRoot: join(root, 'agent', 'desktop-plugins', samplePluginDirectory),
       baitAgentDir: join(root, 'inherited-bait-agent'),
       baitAuth: join(root, 'inherited-bait-agent', 'auth.json'),
       baitModels: join(root, 'inherited-bait-agent', 'models.json'),
@@ -231,6 +463,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       mkdir(paths.userData, { recursive: true }),
       mkdir(paths.agentDir, { recursive: true }),
       mkdir(paths.project, { recursive: true }),
+      mkdir(paths.projectB, { recursive: true }),
       mkdir(paths.baitAgentDir, { recursive: true }),
       mkdir(paths.baitSessionDir, { recursive: true }),
       mkdir(artifactDir, { recursive: true })
@@ -278,6 +511,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     const address = fixtureServer.address()
     if (!address || typeof address === 'string') throw new Error('Fixture server did not bind')
     fixtureUrl = `http://127.0.0.1:${address.port}/`
+    await writeSamplePluginFixture()
   })
 
   test.afterEach(async () => {
@@ -344,11 +578,48 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
       )
       .toBeLessThanOrEqual(342)
+    const settingsLayout = await page.evaluate(() => {
+      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      const panel = document.querySelector('.settings-panel')?.getBoundingClientRect()
+      const scroll = document.querySelector('.settings-scroll')
+      if (!stage || !panel || !(scroll instanceof HTMLElement)) return null
+      return {
+        stage: { left: stage.left, right: stage.right, width: stage.width },
+        panel: { left: panel.left, right: panel.right, width: panel.width },
+        scrollClientWidth: scroll.clientWidth,
+        scrollWidth: scroll.scrollWidth
+      }
+    })
+    expect(settingsLayout).not.toBeNull()
+    expect(settingsLayout!.panel.left).toBeGreaterThanOrEqual(settingsLayout!.stage.left - 1)
+    expect(settingsLayout!.panel.right).toBeLessThanOrEqual(settingsLayout!.stage.right + 1)
+    expect(settingsLayout!.panel.width).toBeLessThanOrEqual(settingsLayout!.stage.width + 1)
+    expect(settingsLayout!.scrollWidth).toBeLessThanOrEqual(settingsLayout!.scrollClientWidth)
+    const pluginReload = page.getByRole('button', { name: '重新加载' })
+    await pluginReload.scrollIntoViewIfNeeded()
+    await expect(pluginReload).toBeVisible()
+    await expect(pluginReload).toBeEnabled()
+    const reloadBounds = await pluginReload.evaluate((element) => {
+      const control = element.getBoundingClientRect()
+      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      return stage
+        ? {
+            left: control.left,
+            right: control.right,
+            stageLeft: stage.left,
+            stageRight: stage.right
+          }
+        : null
+    })
+    expect(reloadBounds).not.toBeNull()
+    expect(reloadBounds!.left).toBeGreaterThanOrEqual(reloadBounds!.stageLeft)
+    expect(reloadBounds!.right).toBeLessThanOrEqual(reloadBounds!.stageRight)
+    const reloadRevision = (await workbenchSnapshot(page)).revision
+    await pluginReload.click()
     await expect
-      .poll(() =>
-        page.locator('.settings-panel').evaluate((element) => element.getBoundingClientRect().width)
-      )
-      .toBeGreaterThan(320)
+      .poll(async () => (await workbenchSnapshot(page)).revision)
+      .toBeGreaterThan(reloadRevision)
+    await expect(pluginReload).toBeEnabled()
     const bounds = await page.evaluate(() => {
       const conversation = document.querySelector('.conversation')?.getBoundingClientRect()
       const composer = document.querySelector('.composer-axis')?.getBoundingClientRect()
@@ -462,6 +733,461 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await page.screenshot({ path: join(artifactDir, '04-restored.png') })
   })
 
+  test('sandboxed plugin uses the narrow bridge in one real bounded WebContentsView', async () => {
+    const page = await launchApp()
+    await resizeWindow(1440, 900)
+    const agentState = await page.evaluate(() =>
+      (window as unknown as Window & { pi: PiDesktopAPI }).pi.getState()
+    )
+
+    await expect
+      .poll(async () =>
+        (await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)
+      )
+      .toBe(true)
+    const registry = await workbenchSnapshot(page)
+    const plugin = registry.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+    expect(plugin).toMatchObject({
+      pluginId: samplePluginId,
+      version: '1.0.0',
+      scope: 'user',
+      builtin: false,
+      desktopEnabled: true,
+      hasExecutablePiResources: false,
+      requestedPermissions: []
+    })
+    expect(registry.contributions.find(({ viewId }) => viewId === sampleViewId)).toMatchObject({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      title: sampleViewTitle,
+      icon: 'flask',
+      activation: 'onApp',
+      surface: { kind: 'sandboxed-web' }
+    })
+
+    await page.getByTitle(sampleViewTitle).click()
+    await expect(page.locator('.sandboxed-plugin-pane')).toBeVisible()
+    await expect.poll(() => pluginViewInfo()).not.toBeNull()
+    await expect
+      .poll(() => executeInPlugin<boolean>('window.__piPluginE2E?.ready === true'))
+      .toBe(true)
+
+    const actualView = await pluginViewInfo()
+    expect(actualView).not.toBeNull()
+    expect(actualView!.url).toContain(`/${samplePluginDirectory}/index.html`)
+    expect(actualView!.visible).toBe(true)
+    expect(actualView!.expectedEphemeralSession).toBe(true)
+    const rendererBounds = await page.locator('.sandboxed-plugin-pane').evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      }
+    })
+    expect(actualView!.bounds).toEqual(rendererBounds)
+
+    const pluginRuntime = await executeInPlugin<{
+      context: PluginPanelContext
+      state: unknown
+      errors: string[]
+      remoteFetch: string
+      security: Record<string, unknown>
+    }>('window.__piPluginE2E')
+    expect(pluginRuntime.context).toEqual({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      projectPath: agentState.project?.path ?? null,
+      sessionId: agentState.sessionId,
+      generation: agentState.generation
+    })
+    expect(pluginRuntime.state).toBeNull()
+    expect(pluginRuntime.errors).toEqual([])
+    expect(pluginRuntime.remoteFetch).toBe('rejected')
+    expect(pluginRuntime.security).toEqual({
+      requireType: 'undefined',
+      processType: 'undefined',
+      electronType: 'undefined',
+      ipcRendererType: 'undefined',
+      hostBridgeType: 'undefined',
+      pluginBridgeKeys: ['getContext', 'getState', 'onContext', 'setState']
+    })
+
+    const childrenBeforePopup = await electronApp!.evaluate(
+      ({ BrowserWindow, WebContentsView }) =>
+        BrowserWindow.getAllWindows()[0]?.contentView.children.filter(
+          (child) => child instanceof WebContentsView
+        ).length ?? 0
+    )
+    await executeInPlugin("document.querySelector('#popup').click()")
+    await expect
+      .poll(() => executeInPlugin<string>('window.__piPluginE2E.popupResult'))
+      .toBe('null')
+    expect(
+      await electronApp!.evaluate(
+        ({ BrowserWindow, WebContentsView }) =>
+          BrowserWindow.getAllWindows()[0]?.contentView.children.filter(
+            (child) => child instanceof WebContentsView
+          ).length ?? 0
+      )
+    ).toBe(childrenBeforePopup)
+
+    const originalUrl = actualView!.url
+    const navigation = await electronApp!.evaluate(
+      async ({ BrowserWindow, WebContentsView }, pluginEntry) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        const view = window?.contentView.children.find(
+          (child) =>
+            child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+        )
+        if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+        const observed = new Promise<{ seen: boolean; prevented: boolean; target: string }>(
+          (resolveObserved) => {
+            view.webContents.once('will-frame-navigate', (event) => {
+              resolveObserved({
+                seen: true,
+                prevented: event.defaultPrevented,
+                target: event.url
+              })
+            })
+          }
+        )
+        await view.webContents.executeJavaScript("document.querySelector('#navigate').click()")
+        return Promise.race([
+          observed,
+          new Promise<{ seen: boolean; prevented: boolean; target: string }>((resolveTimeout) =>
+            setTimeout(() => resolveTimeout({ seen: false, prevented: false, target: '' }), 1_000)
+          )
+        ])
+      },
+      `/${samplePluginDirectory}/index.html`
+    )
+    expect(navigation).toEqual({ seen: true, prevented: true, target: fixtureUrl })
+    expect((await pluginViewInfo())?.url).toBe(originalUrl)
+
+    const download = await electronApp!.evaluate(
+      async ({ BrowserWindow, WebContentsView }, pluginEntry) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        const view = window?.contentView.children.find(
+          (child) =>
+            child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+        )
+        if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+        const observed = new Promise<{ seen: boolean; prevented: boolean }>((resolveObserved) => {
+          view.webContents.session.once('will-download', (event) => {
+            resolveObserved({ seen: true, prevented: event.defaultPrevented })
+          })
+        })
+        await view.webContents.executeJavaScript("document.querySelector('#download').click()")
+        return Promise.race([
+          observed,
+          new Promise<{ seen: boolean; prevented: boolean }>((resolveTimeout) =>
+            setTimeout(() => resolveTimeout({ seen: false, prevented: false }), 1_000)
+          )
+        ])
+      },
+      `/${samplePluginDirectory}/index.html`
+    )
+    expect(download).toEqual({ seen: true, prevented: true })
+
+    await executeInPlugin("document.querySelector('#increment').click()")
+    await expect.poll(() => executeInPlugin<number>('window.__piPluginE2E.state?.count')).toBe(1)
+    await page.getByTitle('浏览器').click()
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(false)
+    await page.getByTitle(sampleViewTitle).click()
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(true)
+    expect((await pluginViewInfo())!.id).toBe(actualView!.id)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({ count: 1 })
+    await captureWindowArtifact('05-plugin-panel.png')
+  })
+
+  test('plugin context, state buckets, settings, and crash recovery follow the real lifecycle', async () => {
+    const page = await launchApp()
+    await resizeWindow(1440, 900)
+    let agentState = await page.evaluate(() =>
+      (window as unknown as Window & { pi: PiDesktopAPI }).pi.getState()
+    )
+    if (agentState.project?.path !== paths.project) {
+      const opened = await page.evaluate(
+        (projectPath) =>
+          (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
+            type: 'project:open',
+            cwd: projectPath
+          }),
+        paths.project
+      )
+      if (opened.kind !== 'snapshot') throw new Error('project A did not open')
+      agentState = opened.snapshot
+    }
+
+    const firstAView = await revealSamplePlugin(page)
+    const firstAContext = await executeInPlugin<PluginPanelContext>('window.__piPluginE2E.context')
+    expect(firstAContext).toEqual({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      projectPath: paths.project,
+      sessionId: agentState.sessionId,
+      generation: agentState.generation
+    })
+    await executeInPlugin(`(async () => {
+      const runtime = window.__piPluginE2E
+      await window.piPlugin.setState(runtime.context.generation, { bucket: 'project-a', count: 11 })
+      runtime.state = await window.piPlugin.getState(runtime.context.generation)
+      return runtime.state
+    })()`)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-a',
+      count: 11
+    })
+
+    const openedB = await page.evaluate(
+      (projectPath) =>
+        (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
+          type: 'project:open',
+          cwd: projectPath
+        }),
+      paths.projectB
+    )
+    if (openedB.kind !== 'snapshot') throw new Error('project B did not open')
+    await expectWebContentsDestroyed(firstAView.id)
+    const firstBView = await revealSamplePlugin(page)
+    expect(firstBView.id).not.toBe(firstAView.id)
+    const firstBContext = await executeInPlugin<PluginPanelContext>('window.__piPluginE2E.context')
+    expect(firstBContext).toEqual({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      projectPath: paths.projectB,
+      sessionId: openedB.snapshot.sessionId,
+      generation: openedB.snapshot.generation
+    })
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toBeNull()
+    const staleAWrite = await executeInPlugin<string>(`window.piPlugin
+      .setState(${firstAContext.generation}, { bucket: 'stale-a' })
+      .then(() => 'stored', (error) => error.message)`)
+    expect(staleAWrite).toBe('Workbench panel generation is stale')
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toBeNull()
+    const eventCountBeforeStale = await executeInPlugin<number>(
+      'window.__piPluginE2E.contextEvents.length'
+    )
+    await electronApp!.evaluate(
+      (
+        { BrowserWindow, WebContentsView },
+        { pluginEntry, channel, staleContext, currentContext }
+      ) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        const view = window?.contentView.children.find(
+          (child) =>
+            child instanceof WebContentsView && child.webContents.getURL().includes(pluginEntry)
+        )
+        if (!(view instanceof WebContentsView)) throw new Error('Plugin view is missing')
+        view.webContents.send(channel, staleContext)
+        view.webContents.send(channel, currentContext)
+      },
+      {
+        pluginEntry: `/${samplePluginDirectory}/index.html`,
+        channel: WORKBENCH_PANEL_CONTEXT_CHANNEL,
+        staleContext: firstAContext,
+        currentContext: firstBContext
+      }
+    )
+    await expect
+      .poll(() => executeInPlugin<number>('window.__piPluginE2E.contextEvents.length'))
+      .toBe(eventCountBeforeStale + 1)
+    const contextsAfterStale = await executeInPlugin<PluginPanelContext[]>(
+      'window.__piPluginE2E.contextEvents'
+    )
+    expect(contextsAfterStale.at(-1)).toEqual(firstBContext)
+    expect(
+      contextsAfterStale
+        .slice(eventCountBeforeStale)
+        .some(({ generation }) => generation === firstAContext.generation)
+    ).toBe(false)
+
+    await executeInPlugin(`(async () => {
+      const runtime = window.__piPluginE2E
+      await window.piPlugin.setState(runtime.context.generation, { bucket: 'project-b', count: 22 })
+      runtime.state = await window.piPlugin.getState(runtime.context.generation)
+    })()`)
+    const beforeNewSession = firstBContext
+    const newSession = await page.evaluate(() =>
+      (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({ type: 'session:new' })
+    )
+    if (newSession.kind !== 'snapshot') throw new Error('session:new did not return a snapshot')
+    await expectWebContentsDestroyed(firstBView.id)
+    const secondBView = await revealSamplePlugin(page)
+    expect(secondBView.id).not.toBe(firstBView.id)
+    const secondBContext = await executeInPlugin<PluginPanelContext>('window.__piPluginE2E.context')
+    expect(secondBContext).toEqual({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      projectPath: paths.projectB,
+      sessionId: newSession.snapshot.sessionId,
+      generation: newSession.snapshot.generation
+    })
+    expect(secondBContext.generation).toBeGreaterThan(beforeNewSession.generation)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-b',
+      count: 22
+    })
+    const staleSessionWrite = await executeInPlugin<string>(`window.piPlugin
+      .setState(${beforeNewSession.generation}, { bucket: 'stale-session' })
+      .then(() => 'stored', (error) => error.message)`)
+    expect(staleSessionWrite).toBe('Workbench panel generation is stale')
+
+    const reopenedA = await page.evaluate(
+      (projectPath) =>
+        (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
+          type: 'project:open',
+          cwd: projectPath
+        }),
+      paths.project
+    )
+    if (reopenedA.kind !== 'snapshot') throw new Error('project A did not reopen')
+    await expectWebContentsDestroyed(secondBView.id)
+    const restoredAView = await revealSamplePlugin(page)
+    expect(await executeInPlugin('window.__piPluginE2E.context')).toEqual({
+      pluginId: samplePluginId,
+      viewId: sampleViewId,
+      projectPath: paths.project,
+      sessionId: reopenedA.snapshot.sessionId,
+      generation: reopenedA.snapshot.generation
+    })
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-a',
+      count: 11
+    })
+
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const pluginRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
+    const desktopSwitch = pluginRow.getByRole('switch', {
+      name: 'E2E Sandbox Plugin Desktop 面板'
+    })
+    await expect(pluginRow).toContainText('范围：用户')
+    await expect(pluginRow).toContainText('来源：本机插件')
+    await expect(pluginRow).toContainText('请求权限：无')
+    await expect(pluginRow.locator('.plugin-executable-warning')).toHaveCount(0)
+    await expect(page.locator('.plugin-settings-note')).toContainText(
+      '开关只隐藏并销毁右侧 Desktop 贡献'
+    )
+    await expect(page.locator('.plugin-settings-note')).toContainText(
+      '不会禁用 Pi 已加载的 Skills/Extensions'
+    )
+    await desktopSwitch.click()
+    await expect(desktopSwitch).toHaveAttribute('aria-checked', 'false')
+    await expectWebContentsDestroyed(restoredAView.id)
+    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(0)
+    let disabledSnapshot = await workbenchSnapshot(page)
+    expect(
+      disabledSnapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)?.desktopEnabled
+    ).toBe(false)
+    expect(
+      disabledSnapshot.plugins.find(({ pluginId }) => pluginId === builtinPluginId)?.desktopEnabled
+    ).toBe(true)
+
+    const disabledRevision = disabledSnapshot.revision
+    await page.getByRole('button', { name: '重新加载' }).click()
+    await expect
+      .poll(async () => {
+        const snapshot = await workbenchSnapshot(page)
+        return {
+          revisionAdvanced: snapshot.revision > disabledRevision,
+          desktopEnabled: snapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+            ?.desktopEnabled
+        }
+      })
+      .toEqual({ revisionAdvanced: true, desktopEnabled: false })
+    await expect(page.getByRole('button', { name: '重新加载' })).toBeEnabled()
+    disabledSnapshot = await workbenchSnapshot(page)
+    expect(
+      disabledSnapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)?.desktopEnabled
+    ).toBe(false)
+    await desktopSwitch.click()
+    await expect(desktopSwitch).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(1)
+    const enabledBeforeReload = await workbenchSnapshot(page)
+    await page.getByRole('button', { name: '重新加载' }).click()
+    await expect
+      .poll(async () => {
+        const snapshot = await workbenchSnapshot(page)
+        return {
+          revisionAdvanced: snapshot.revision > enabledBeforeReload.revision,
+          desktopEnabled: snapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+            ?.desktopEnabled
+        }
+      })
+      .toEqual({ revisionAdvanced: true, desktopEnabled: true })
+    await expect(page.getByRole('button', { name: '重新加载' })).toBeEnabled()
+    const enabledSnapshot = await workbenchSnapshot(page)
+    expect(
+      enabledSnapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)?.desktopEnabled
+    ).toBe(true)
+    expect(
+      enabledSnapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+        ?.hasExecutablePiResources
+    ).toBe(false)
+
+    const enabledView = await revealSamplePlugin(page)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-a',
+      count: 11
+    })
+
+    let currentView = enabledView
+    for (let crash = 1; crash <= 2; crash += 1) {
+      const crashedId = await forceCrashPluginView()
+      expect(crashedId).toBe(currentView.id)
+      await expectWebContentsDestroyed(crashedId)
+      expect(await pluginViewInfo()).toBeNull()
+      await expect
+        .poll(async () => {
+          const snapshot = await workbenchSnapshot(page)
+          const currentPlugin = snapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+          return {
+            desktopEnabled: currentPlugin?.desktopEnabled,
+            diagnostic: currentPlugin?.diagnostics.at(-1)?.code
+          }
+        })
+        .toEqual({ desktopEnabled: true, diagnostic: 'plugin-crashed' })
+      await page.getByTitle('浏览器').click()
+      currentView = await revealSamplePlugin(page)
+      expect(currentView.id).not.toBe(crashedId)
+      expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+        bucket: 'project-a',
+        count: 11
+      })
+    }
+
+    const thirdCrashId = await forceCrashPluginView()
+    await expectWebContentsDestroyed(thirdCrashId)
+    expect(await pluginViewInfo()).toBeNull()
+    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(0)
+    const crashDisabled = await workbenchSnapshot(page)
+    const crashedPlugin = crashDisabled.plugins.find(({ pluginId }) => pluginId === samplePluginId)
+    expect(crashedPlugin?.desktopEnabled).toBe(false)
+    expect(crashedPlugin?.diagnostics.at(-1)?.code).toBe('plugin-crash-disabled')
+    expect(
+      crashDisabled.plugins.find(({ pluginId }) => pluginId === builtinPluginId)?.desktopEnabled
+    ).toBe(true)
+    expect(crashDisabled.contributions.some(({ pluginId }) => pluginId === samplePluginId)).toBe(
+      false
+    )
+
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const crashedRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
+    await expect(crashedRow.locator('code')).toContainText('plugin-crash-disabled')
+    await expect(page.locator('.conversation')).toBeVisible()
+    await expect(page.getByTitle('浏览器')).toHaveCount(1)
+    expect(
+      await page.evaluate(() =>
+        (window as unknown as Window & { pi: PiDesktopAPI }).pi
+          .getState()
+          .then(({ ready }) => ready)
+      )
+    ).toBe(true)
+    await captureWindowArtifact('06-plugin-crash-diagnostic.png')
+  })
+
   test('right browser and agent share one real WebContentsView with stoppable actions', async () => {
     const page = await launchApp()
     await resizeWindow(1440, 900)
@@ -476,21 +1202,55 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         })
       }, paths.project)
     }
-    await page.getByTitle('浏览器').click()
+    const browserContribution = (await workbenchSnapshot(page)).contributions.find(
+      ({ viewId }) => viewId === BUILTIN_BROWSER_VIEW_ID
+    )
+    expect(browserContribution).toMatchObject({
+      viewId: BUILTIN_BROWSER_VIEW_ID,
+      surface: { kind: 'native-view', adapter: 'browser' }
+    })
+    await page.getByTitle(browserContribution!.title).click()
     await expect(page.locator('.browser-pane')).toBeVisible()
     await expect(page.locator('.workbench:not(.is-collapsed)')).toBeVisible()
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({ type: 'state:get' })
+        )
+      )
+      .toMatchObject({
+        state: {
+          visible: true,
+          pages: [expect.objectContaining({ url: 'about:blank', active: true })]
+        }
+      })
 
     const addressInput = page.getByPlaceholder('输入网址')
     await addressInput.fill(fixtureUrl)
     await addressInput.press('Enter')
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({ type: 'state:get' })
+        )
+      )
+      .toMatchObject({
+        state: {
+          visible: true,
+          pages: expect.arrayContaining([
+            expect.objectContaining({ url: fixtureUrl, active: true })
+          ])
+        }
+      })
 
     await expect
       .poll(async () => {
         if (!electronApp) return null
-        return electronApp.evaluate(async ({ BrowserWindow, WebContentsView }) => {
+        return electronApp.evaluate(async ({ BrowserWindow, WebContentsView }, expectedUrl) => {
           const window = BrowserWindow.getAllWindows()[0]
           const view = window?.contentView.children.find(
-            (child) => child instanceof WebContentsView
+            (child) =>
+              child instanceof WebContentsView && child.webContents.getURL() === expectedUrl
           )
           if (!(view instanceof WebContentsView)) return null
           return {
@@ -501,7 +1261,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
             ),
             nodeIntegration: await view.webContents.executeJavaScript('typeof require')
           }
-        })
+        }, fixtureUrl)
       })
       .toMatchObject({
         url: fixtureUrl,
@@ -521,14 +1281,15 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     })
     await expect
       .poll(() =>
-        electronApp!.evaluate(({ BrowserWindow, WebContentsView }) => {
+        electronApp!.evaluate(({ BrowserWindow, WebContentsView }, expectedUrl) => {
           const window = BrowserWindow.getAllWindows()[0]
           const view = window?.contentView.children.find(
-            (child) => child instanceof WebContentsView
+            (child) =>
+              child instanceof WebContentsView && child.webContents.getURL() === expectedUrl
           )
           if (!(view instanceof WebContentsView)) throw new Error('Browser view is missing')
           return view.getBounds()
-        })
+        }, fixtureUrl)
       )
       .toEqual(rendererBounds)
 
@@ -581,15 +1342,16 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect
       .poll(async () => {
         if (!electronApp) return ''
-        return electronApp.evaluate(async ({ BrowserWindow, WebContentsView }) => {
+        return electronApp.evaluate(async ({ BrowserWindow, WebContentsView }, expectedUrl) => {
           const window = BrowserWindow.getAllWindows()[0]
           const view = window?.contentView.children.find(
-            (child) => child instanceof WebContentsView
+            (child) =>
+              child instanceof WebContentsView && child.webContents.getURL() === expectedUrl
           )
           return view instanceof WebContentsView
             ? view.webContents.executeJavaScript("document.querySelector('#result')?.textContent")
             : ''
-        })
+        }, fixtureUrl)
       })
       .toBe('Agent completed: 共享控制已验证')
 
@@ -608,10 +1370,13 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     )
 
     const browserSecurity = await electronApp!.evaluate(
-      async ({ BrowserWindow, WebContentsView }) => {
+      async ({ BrowserWindow, WebContentsView }, expectedUrl) => {
         const window = BrowserWindow.getAllWindows()[0]
         const view = window?.contentView.children.find(
-          (child) => child instanceof WebContentsView && child.getVisible()
+          (child) =>
+            child instanceof WebContentsView &&
+            child.getVisible() &&
+            child.webContents.getURL() === expectedUrl
         )
         if (!(view instanceof WebContentsView)) throw new Error('Visible browser view is missing')
         return view.webContents.executeJavaScript(`(async () => {
@@ -621,7 +1386,8 @@ test.describe.serial('Pi Desktop real Electron app', () => {
             permission: await Notification.requestPermission()
           }
         })()`)
-      }
+      },
+      fixtureUrl
     )
     expect(browserSecurity).toEqual({ storage: 'project-profile', permission: 'denied' })
 
@@ -675,15 +1441,17 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     )
     await expect
       .poll(() =>
-        electronApp!.evaluate(async ({ BrowserWindow, WebContentsView }) => {
+        electronApp!.evaluate(async ({ BrowserWindow, WebContentsView }, expectedUrl) => {
           const window = BrowserWindow.getAllWindows()[0]
           const view = window?.contentView.children.find(
-            (child) => child instanceof WebContentsView && child.getVisible()
+            (child) =>
+              child instanceof WebContentsView &&
+              child.getVisible() &&
+              child.webContents.getURL() === expectedUrl
           )
           if (!(view instanceof WebContentsView)) return null
-          if (!view.webContents.getURL().startsWith('http://127.0.0.1:')) return null
           return view.webContents.executeJavaScript("localStorage.getItem('pi-browser-e2e')")
-        })
+        }, fixtureUrl)
       )
       .toBe('project-profile')
 
@@ -703,15 +1471,18 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect(page.locator('.browser-pane')).toBeVisible()
     await expect(page.locator('.browser-control.is-agent')).toContainText('Agent 正在控制')
     await captureWindowArtifact('05-browser-agent-control.png')
-    await electronApp!.evaluate(({ BrowserWindow, WebContentsView }) => {
+    await electronApp!.evaluate(({ BrowserWindow, WebContentsView }, expectedUrl) => {
       const window = BrowserWindow.getAllWindows()[0]
       const view = window?.contentView.children.find(
-        (child) => child instanceof WebContentsView && child.getVisible()
+        (child) =>
+          child instanceof WebContentsView &&
+          child.getVisible() &&
+          child.webContents.getURL() === expectedUrl
       )
       if (!(view instanceof WebContentsView)) throw new Error('Visible browser view is missing')
       view.webContents.sendInputEvent({ type: 'mouseDown', x: 20, y: 20, button: 'left' })
       view.webContents.sendInputEvent({ type: 'mouseUp', x: 20, y: 20, button: 'left' })
-    })
+    }, fixtureUrl)
     expect(await waiting).toContain('停止')
 
     const explicitStop = page
