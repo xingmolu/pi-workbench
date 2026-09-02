@@ -17,6 +17,7 @@ import type {
   WorkbenchManifestDiscovery,
   WorkbenchManifestDiscoveryOptions
 } from './workbench-manifest'
+import { mergeWorkbenchPackageRoots } from './workbench-package-root-merge'
 
 export type WorkbenchHostContext = Pick<
   PluginPanelContext,
@@ -50,6 +51,7 @@ export type WorkbenchNativeView = {
 export type WorkbenchHostStateDependencies = {
   appVersion: string
   userRoots: () => Promise<readonly PiPackageRoot[]>
+  canonicalizeRoot?: (path: string) => Promise<string>
   discover: (options: WorkbenchManifestDiscoveryOptions) => Promise<WorkbenchManifestDiscovery>
   store: WorkbenchStateStore
   createView: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
@@ -448,8 +450,14 @@ export function createWorkbenchHostState(
   ): Promise<WorkbenchSnapshot> => {
     try {
       const userRoots = await dependencies.userRoots()
+      const roots = await mergeWorkbenchPackageRoots([...userRoots, ...requestedPackageRoots], {
+        ...(dependencies.canonicalizeRoot === undefined
+          ? {}
+          : { canonicalize: dependencies.canonicalizeRoot })
+      })
+      if (disposed || requestEpoch !== registryEpoch) return snapshot()
       const discovered = await dependencies.discover({
-        roots: [...userRoots, ...requestedPackageRoots],
+        roots,
         appVersion: dependencies.appVersion
       })
       if (disposed || requestEpoch !== registryEpoch) return snapshot()

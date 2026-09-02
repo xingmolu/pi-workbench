@@ -3,6 +3,7 @@ import type { DesktopPluginSummary } from '../../../shared/contracts'
 import {
   INITIAL_PLUGIN_SETTINGS_OPERATION_STATE,
   pluginDesktopToggleCommand,
+  pluginSourceLabel,
   pluginSettingsErrorMessage,
   pluginSettingsOperationReducer
 } from './plugin-settings'
@@ -24,6 +25,15 @@ function plugin(overrides: Partial<DesktopPluginSummary> = {}): DesktopPluginSum
 }
 
 describe('Workbench plugin settings behavior', () => {
+  it('renders the Main-provided safe source label without adding path-derived text', () => {
+    expect(pluginSourceLabel(plugin({ source: 'Pi 用户包' }))).toBe('Pi 用户包')
+    expect(
+      pluginSourceLabel(
+        plugin({ pluginId: 'works.pi.desktop.builtin', source: 'builtin', builtin: true })
+      )
+    ).toBe('Pi Desktop 内置')
+  })
+
   it('creates a Desktop-only toggle command for an external plugin', () => {
     expect(pluginDesktopToggleCommand(plugin(), false)).toEqual({
       type: 'plugin:set-enabled',

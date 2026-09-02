@@ -12,6 +12,12 @@ export function pluginDesktopToggleCommand(
   }
 }
 
+export function pluginSourceLabel(
+  plugin: Pick<DesktopPluginSummary, 'builtin' | 'source'>
+): string {
+  return plugin.builtin ? 'Pi Desktop 内置' : plugin.source
+}
+
 export type PluginSettingsOperationState = {
   pendingPluginIds: readonly string[]
   pluginErrors: Readonly<Record<string, string>>

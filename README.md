@@ -106,6 +106,10 @@ Pi Agent Host 已加载的 Skills/Extensions。
 Pi package 也可以在 package root 并置 `pi-desktop.json`，但 Main 不会遍历任意 Pi 或
 project 目录。只有 Agent Host 的公开 resource loader 在当前 generation 中实际加载的
 package-scoped Skill/Extension root，才会作为可信的规范化 root 发布给 Workbench Host。
+Main 在发现 manifest 前按真实规范路径合并用户插件 root 与 Pi package root；同一目录的符号链接
+别名只会注册一次，并保留“含已加载 Extension”的警告。package 的 `baseDir` 与 resource loader
+原始 `source` 只在 Host 信任边界内使用，Renderer 仅收到固定的“本机插件 / Pi 用户包 /
+Pi 项目包”来源类别，不会收到路径、URL 或凭证片段。
 完整 manifest、bridge、安全与信任说明见
 [Workbench 插件架构与作者指南](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
 

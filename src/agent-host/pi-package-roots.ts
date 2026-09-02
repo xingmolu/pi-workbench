@@ -23,7 +23,6 @@ export type CollectLoadedPiPackageRootsOptions = LoadedPiResources & {
 
 type AggregatedRoot = {
   path: string
-  sources: Set<string>
   scope: 'user' | 'project'
   hasExecutablePiResources: boolean
 }
@@ -39,15 +38,8 @@ export type CurrentPackageRootsIdentity<Runtime> = {
   generation: number
 }
 
-const MAX_SOURCE_LENGTH = 512
-
-function aggregatedSource(sources: ReadonlySet<string>): string {
-  return [...sources]
-    .map((source) => source.trim())
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right))
-    .join(', ')
-    .slice(0, MAX_SOURCE_LENGTH)
+function rendererSafePackageSource(scope: 'user' | 'project'): string {
+  return scope === 'project' ? 'Pi 项目包' : 'Pi 用户包'
 }
 
 export async function collectLoadedPiPackageRoots(
@@ -84,17 +76,13 @@ export async function collectLoadedPiPackageRoots(
 
       const existing = roots.get(canonicalPath)
       if (existing) {
-        if (sourceInfo.source.trim()) existing.sources.add(sourceInfo.source)
         if (sourceInfo.scope === 'project') existing.scope = 'project'
         if (executable) existing.hasExecutablePiResources = true
         return
       }
 
-      const sources = new Set<string>()
-      if (sourceInfo.source.trim()) sources.add(sourceInfo.source)
       roots.set(canonicalPath, {
         path: canonicalPath,
-        sources,
         scope: sourceInfo.scope,
         hasExecutablePiResources: executable
       })
@@ -104,11 +92,10 @@ export async function collectLoadedPiPackageRoots(
   return [...roots.values()]
     .map((root) => ({
       path: root.path,
-      source: aggregatedSource(root.sources),
+      source: rendererSafePackageSource(root.scope),
       scope: root.scope,
       hasExecutablePiResources: root.hasExecutablePiResources
     }))
-    .filter((root) => root.source.length > 0)
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 

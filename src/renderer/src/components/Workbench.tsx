@@ -37,6 +37,7 @@ import type {
 import {
   INITIAL_PLUGIN_SETTINGS_OPERATION_STATE,
   pluginDesktopToggleCommand,
+  pluginSourceLabel,
   pluginSettingsErrorMessage,
   pluginSettingsOperationReducer
 } from '../store/plugin-settings'
@@ -226,13 +227,6 @@ function pluginScope(plugin: DesktopPluginSummary): string {
   return '用户'
 }
 
-function pluginSource(plugin: DesktopPluginSummary): string {
-  if (plugin.builtin) return 'Pi Desktop 内置'
-  return plugin.scope === 'project'
-    ? `项目 Pi 包 · ${plugin.source}`
-    : `本机插件 · ${plugin.source}`
-}
-
 function diagnosticMessage(diagnostic: WorkbenchDiagnostic): string {
   if (diagnostic.code === 'plugin-crash-disabled') {
     return '桌面面板已因连续崩溃停用。请重启 Pi Desktop 后再尝试启用。'
@@ -376,7 +370,7 @@ function PluginSettingsSection({
 
                 <div className="plugin-meta">
                   <span>范围：{pluginScope(plugin)}</span>
-                  <span title={pluginSource(plugin)}>来源：{pluginSource(plugin)}</span>
+                  <span title={pluginSourceLabel(plugin)}>来源：{pluginSourceLabel(plugin)}</span>
                   <span>
                     Desktop：
                     {plugin.builtin ? '内置锁定' : plugin.desktopEnabled ? '已启用' : '已隐藏'}

@@ -137,7 +137,8 @@ function createHarness(
     visible: boolean,
     bounds?: { x: number; y: number; width: number; height: number }
   ) => void | Promise<void>,
-  onState?: (snapshot: ReturnType<WorkbenchHostState['snapshot']>) => void
+  onState?: (snapshot: ReturnType<WorkbenchHostState['snapshot']>) => void,
+  canonicalizeRoot?: (path: string) => Promise<string>
 ): {
   state: WorkbenchHostState
   rootsSeen: PiPackageRoot[][]
@@ -159,6 +160,7 @@ function createHarness(
   const state = createWorkbenchHostState({
     appVersion: '0.1.0',
     userRoots: async () => [],
+    canonicalizeRoot: canonicalizeRoot ?? (async (path) => path),
     discover: async ({ roots }) => {
       rootsSeen.push([...roots])
       return (await discoveries.shift()) ?? { plugins: [], diagnostics: [] }
@@ -308,13 +310,13 @@ describe('Workbench host state', () => {
     ])
     const first = {
       path: '/packages/notes',
-      source: 'pi-package:notes',
+      source: 'Pi 用户包',
       scope: 'user',
       hasExecutablePiResources: true
     } as const
     const second = {
       path: '/packages/tasks',
-      source: 'pi-package:tasks',
+      source: 'Pi 项目包',
       scope: 'project',
       hasExecutablePiResources: false
     } as const
@@ -338,8 +340,7 @@ describe('Workbench host state', () => {
     await state.reload()
 
     const reload = state.reload()
-    await Promise.resolve()
-    expect(rootsSeen).toHaveLength(2)
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(2))
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
       'works.pi.desktop.builtin'
     ])
@@ -391,20 +392,21 @@ describe('Workbench host state', () => {
     const { state, rootsSeen } = createHarness([staleDiscovery.promise, latestDiscovery.promise])
     const staleRoot = {
       path: '/packages/stale',
-      source: 'pi-package:stale',
+      source: 'Pi 用户包',
       scope: 'user',
       hasExecutablePiResources: false
     } as const
     const latestRoot = {
       path: '/packages/latest',
-      source: 'pi-package:latest',
+      source: 'Pi 项目包',
       scope: 'project',
       hasExecutablePiResources: true
     } as const
 
     const staleReload = state.setPackageRoots([staleRoot])
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(1))
     const latestReload = state.setPackageRoots([latestRoot])
-    await Promise.resolve()
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(2))
 
     latestDiscovery.resolve({
       plugins: [externalPluginAt('/plugins/latest', '2.0.0')],
@@ -429,14 +431,58 @@ describe('Workbench host state', () => {
     expect(state.snapshot().diagnostics.map(({ code }) => code)).toEqual(['latest-discovery'])
   })
 
+  it('drops stale roots while canonicalization is still in flight', async () => {
+    const staleCanonical = createDeferred<string>()
+    const latestCanonical = createDeferred<string>()
+    const { state, rootsSeen } = createHarness(
+      [{ plugins: [externalPluginAt('/plugins/latest', '2.0.0')], diagnostics: [] }],
+      new Map(),
+      undefined,
+      undefined,
+      undefined,
+      (path) =>
+        path === '/packages/stale-alias' ? staleCanonical.promise : latestCanonical.promise
+    )
+    const staleRoot = {
+      path: '/packages/stale-alias',
+      source: 'Pi 用户包',
+      scope: 'user',
+      hasExecutablePiResources: false
+    } as const
+    const latestRoot = {
+      path: '/packages/latest-alias',
+      source: 'Pi 项目包',
+      scope: 'project',
+      hasExecutablePiResources: true
+    } as const
+
+    const staleReload = state.setPackageRoots([staleRoot])
+    const latestReload = state.setPackageRoots([latestRoot])
+    latestCanonical.resolve('/canonical/latest')
+    await latestReload
+    staleCanonical.resolve('/canonical/stale')
+    await staleReload
+
+    expect(rootsSeen).toEqual([
+      [
+        {
+          ...latestRoot,
+          path: '/canonical/latest'
+        }
+      ]
+    ])
+    expect(state.snapshot().plugins[1]).toMatchObject({ version: '2.0.0' })
+  })
+
   it('discards an older plain reload result that completes after the latest reload', async () => {
     const staleDiscovery = createDeferred<WorkbenchManifestDiscovery>()
     const latestDiscovery = createDeferred<WorkbenchManifestDiscovery>()
-    const { state } = createHarness([staleDiscovery.promise, latestDiscovery.promise])
+    const { state, rootsSeen } = createHarness([staleDiscovery.promise, latestDiscovery.promise])
 
     const staleReload = state.reload()
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(1))
     const latestReload = state.reload()
-    await Promise.resolve()
+    await vi.waitFor(() => expect(rootsSeen).toHaveLength(2))
     latestDiscovery.resolve({
       plugins: [externalPluginAt('/plugins/latest', '2.0.0')],
       diagnostics: [

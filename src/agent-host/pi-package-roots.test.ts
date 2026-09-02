@@ -44,7 +44,7 @@ function resource(
 }
 
 describe('collectLoadedPiPackageRoots', () => {
-  it('canonicalizes, deduplicates, aggregates sources, and tracks executable extensions', async () => {
+  it('canonicalizes, deduplicates, derives a safe scope label, and tracks extensions', async () => {
     const directory = await temporaryDirectory()
     const packageRoot = join(directory, 'package')
     const skillOnlyRoot = join(directory, 'skill-only')
@@ -67,13 +67,13 @@ describe('collectLoadedPiPackageRoots', () => {
     expect(roots).toEqual([
       {
         path: await realpath(packageRoot),
-        source: 'a-extension-source, skill-source, z-extension-source',
+        source: 'Pi 项目包',
         scope: 'project',
         hasExecutablePiResources: true
       },
       {
         path: await realpath(skillOnlyRoot),
-        source: 'skill-only-source',
+        source: 'Pi 用户包',
         scope: 'user',
         hasExecutablePiResources: false
       }
@@ -99,11 +99,38 @@ describe('collectLoadedPiPackageRoots', () => {
     ).resolves.toEqual([
       {
         path: await realpath(validRoot),
-        source: 'valid',
+        source: 'Pi 用户包',
         scope: 'user',
         hasExecutablePiResources: false
       }
     ])
+  })
+
+  it('derives renderer-safe labels without forwarding loader paths or credential URLs', async () => {
+    const directory = await temporaryDirectory()
+    const credentialRoot = join(directory, 'credential-package')
+    const localRoot = join(directory, 'local-package')
+    await mkdir(credentialRoot)
+    await mkdir(localRoot)
+    const credentialSource = 'https://user:token@host/repo.git?auth=very-secret#private'
+    const localSource = '/Users/private/.pi/packages/local-package/extension.ts'
+
+    const roots = await collectLoadedPiPackageRoots({
+      extensions: [
+        resource(credentialRoot, { source: credentialSource, scope: 'user' }),
+        resource(localRoot, { source: localSource, scope: 'project' })
+      ],
+      skills: []
+    })
+
+    expect(roots.map(({ source }) => source)).toEqual(['Pi 用户包', 'Pi 项目包'])
+    const labels = JSON.stringify(roots.map(({ source }) => source))
+    expect(labels).not.toContain('user:token')
+    expect(labels).not.toContain('auth=')
+    expect(labels).not.toContain('very-secret')
+    expect(labels).not.toContain('/Users/private')
+    expect(labels).not.toContain('credential-package')
+    expect(labels).not.toContain('local-package')
   })
 
   it('returns deterministic root ordering regardless of loader order', async () => {

@@ -259,7 +259,7 @@ async function userDesktopPluginRoots(agentDir: string): Promise<PiPackageRoot[]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((child) => ({
       path: join(desktopPluginsDirectory, child.name),
-      source: `desktop-plugin:${child.name}`,
+      source: '本机插件',
       scope: 'user' as const,
       hasExecutablePiResources: false
     }))
