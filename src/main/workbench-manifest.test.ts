@@ -1,4 +1,13 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -48,6 +57,12 @@ async function writeManifest(root: string, overrides: Record<string, unknown> = 
 }
 
 describe('discoverWorkbenchManifests', () => {
+  it('rejects an invalid caller app version', async () => {
+    await expect(
+      discoverWorkbenchManifests({ appVersion: 'development', roots: [] })
+    ).rejects.toThrow(TypeError)
+  })
+
   it('discovers and validates a plugin without executing its code', async () => {
     const root = await temporaryPluginRoot()
     const executionMarker = join(root, 'plugin-was-executed')
@@ -144,6 +159,81 @@ describe('discoverWorkbenchManifests', () => {
     ])
   })
 
+  it('accepts manifests without workbench contributions', async () => {
+    const noContributesRoot = await temporaryPluginRoot('no-contributes')
+    await writeManifest(noContributesRoot, {
+      id: 'acme.no-contributes',
+      contributes: undefined
+    })
+    const noWorkbenchRoot = await temporaryPluginRoot('no-workbench')
+    await writeManifest(noWorkbenchRoot, {
+      id: 'acme.no-workbench',
+      contributes: {}
+    })
+
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: noContributesRoot,
+          source: 'no-contributes',
+          scope: 'user',
+          hasExecutablePiResources: true
+        },
+        {
+          path: noWorkbenchRoot,
+          source: 'no-workbench',
+          scope: 'project',
+          hasExecutablePiResources: true
+        }
+      ]
+    })
+
+    expect(result.diagnostics).toEqual([])
+    expect(
+      result.plugins
+        .map(({ pluginId, workbench }) => ({ pluginId, workbench }))
+        .sort((left, right) => left.pluginId.localeCompare(right.pluginId))
+    ).toEqual([
+      { pluginId: 'acme.no-contributes', workbench: [] },
+      { pluginId: 'acme.no-workbench', workbench: [] }
+    ])
+  })
+
+  it('accepts a safe relative entry without a dot-slash prefix', async () => {
+    const root = await temporaryPluginRoot('bare-relative')
+    await writeManifest(root, {
+      id: 'acme.bare-relative',
+      contributes: {
+        workbench: [
+          {
+            id: 'acme.bare-relative.panel',
+            title: 'Bare Relative',
+            icon: 'plugin',
+            surface: { kind: 'sandboxed-web', entry: 'web/index.html' }
+          }
+        ]
+      }
+    })
+
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: root,
+          source: 'bare-relative',
+          scope: 'user',
+          hasExecutablePiResources: false
+        }
+      ]
+    })
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.plugins[0]?.workbench[0]?.canonicalEntryPath).toBe(
+      join(await realpath(root), 'web', 'index.html')
+    )
+  })
+
   it('reports an invalid activation without throwing or loading the plugin', async () => {
     const root = await temporaryPluginRoot()
     await writeManifest(root, {
@@ -230,8 +320,34 @@ describe('discoverWorkbenchManifests', () => {
         code: 'manifest-invalid'
       },
       {
+        name: 'unsupported-surface',
+        overrides: {
+          contributes: {
+            workbench: [
+              {
+                id: 'acme.notes.panel',
+                title: 'Notes',
+                icon: 'plugin',
+                surface: { kind: 'native-view', entry: './web/index.html' }
+              }
+            ]
+          }
+        },
+        code: 'manifest-invalid'
+      },
+      {
         name: 'commands',
         overrides: { commands: [{ id: 'acme.notes.run', title: 'Run' }] },
+        code: 'commands-not-supported'
+      },
+      {
+        name: 'contributes-commands',
+        overrides: {
+          contributes: {
+            workbench: [],
+            commands: [{ id: 'acme.notes.run', title: 'Run' }]
+          }
+        },
         code: 'commands-not-supported'
       }
     ]
@@ -268,7 +384,7 @@ describe('discoverWorkbenchManifests', () => {
         const entries: Record<string, string> = {
           remote: 'https://example.com/plugin.html',
           absolute: outside,
-          traversal: `../${name}-outside.html`,
+          traversal: `web/../../${name}-outside.html`,
           symlink: './web/escape.html',
           missing: './web/missing.html',
           directory: './web'
@@ -429,5 +545,53 @@ describe('discoverWorkbenchManifests', () => {
       'root-unavailable'
     ])
     expect(JSON.stringify(result.diagnostics)).not.toContain(malformedRoot)
+  })
+
+  it('canonicalizes root and in-root manifest symlinks but rejects a manifest escape', async () => {
+    const canonicalRoot = await temporaryPluginRoot('canonical')
+    await writeManifest(canonicalRoot, { id: 'acme.canonical' })
+    const canonicalManifest = join(canonicalRoot, 'manifest.actual.json')
+    await rename(join(canonicalRoot, 'pi-desktop.json'), canonicalManifest)
+    await symlink(canonicalManifest, join(canonicalRoot, 'pi-desktop.json'))
+    const rootAlias = join(canonicalRoot, '..', 'canonical-alias')
+    await symlink(canonicalRoot, rootAlias)
+
+    const escapeRoot = await temporaryPluginRoot('manifest-escape')
+    await writeManifest(escapeRoot, { id: 'acme.manifest-escape' })
+    const outsideManifest = join(escapeRoot, '..', 'outside-pi-desktop.json')
+    await rename(join(escapeRoot, 'pi-desktop.json'), outsideManifest)
+    await symlink(outsideManifest, join(escapeRoot, 'pi-desktop.json'))
+
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: rootAlias,
+          source: 'root-alias',
+          scope: 'user',
+          hasExecutablePiResources: false
+        },
+        {
+          path: escapeRoot,
+          source: 'manifest-escape',
+          scope: 'project',
+          hasExecutablePiResources: false
+        }
+      ]
+    })
+
+    expect(result.plugins).toEqual([
+      expect.objectContaining({
+        pluginId: 'acme.canonical',
+        canonicalRootPath: await realpath(canonicalRoot),
+        manifestPath: await realpath(canonicalManifest),
+        workbench: [
+          expect.objectContaining({
+            canonicalEntryPath: join(await realpath(canonicalRoot), 'web', 'index.html')
+          })
+        ]
+      })
+    ])
+    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'manifest-read-failed' })])
   })
 })

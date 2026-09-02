@@ -69,7 +69,10 @@ const workbenchManifestSchema = z
     description: z.string().max(4096).optional(),
     engines: z.object({ piDesktop: z.string().trim().min(1).max(128) }).strict(),
     permissions: z.array(z.string().trim().min(1).max(256)).max(128).optional(),
-    contributes: z.object({ workbench: z.array(manifestWorkbenchEntrySchema).max(256) }).strict()
+    contributes: z
+      .object({ workbench: z.array(manifestWorkbenchEntrySchema).max(256).default([]) })
+      .strict()
+      .default({ workbench: [] })
   })
   .strict()
 
@@ -85,10 +88,26 @@ function diagnosticPluginId(value: unknown): string | undefined {
   return pluginId.length > 0 && pluginId.length <= 256 ? pluginId : undefined
 }
 
+function hasUnsupportedCommands(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (Object.prototype.hasOwnProperty.call(value, 'commands')) return true
+  return (
+    isRecord(value.contributes) &&
+    Object.prototype.hasOwnProperty.call(value.contributes, 'commands')
+  )
+}
+
 function isLocalRelativeEntry(value: string): boolean {
-  if (!value.startsWith('./') || value.includes('\0') || value.includes('\\')) return false
-  const segments = value.slice(2).split('/')
-  return segments.length > 0 && segments.every((segment) => segment !== '..')
+  if (
+    value.length === 0 ||
+    value.includes('\0') ||
+    value.includes('\\') ||
+    isAbsolute(value) ||
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)
+  ) {
+    return false
+  }
+  return value.split('/').every((segment) => segment !== '..')
 }
 
 function isPathWithinRoot(canonicalRootPath: string, canonicalEntryPath: string): boolean {
@@ -166,7 +185,7 @@ export async function discoverWorkbenchManifests({
     }
     const pluginId = diagnosticPluginId(rawManifest)
 
-    if (isRecord(rawManifest) && Object.prototype.hasOwnProperty.call(rawManifest, 'commands')) {
+    if (hasUnsupportedCommands(rawManifest)) {
       diagnostics.push({
         severity: 'error',
         code: 'commands-not-supported',
