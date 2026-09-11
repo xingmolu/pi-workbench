@@ -100,6 +100,7 @@ import {
 import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
 import { SessionEditService, latestUserId, type EditHostState } from './session-edit'
+import { selectProjectedProviders } from './auth-projection'
 import { CustomEndpointConfig } from './custom-endpoint-config'
 import { CustomEndpointService, type EndpointSafety } from './custom-endpoints'
 import { EndpointSessionSafety, assertEndpointContext } from './endpoint-session-safety'
@@ -1228,12 +1229,20 @@ class PiDesktopHost {
     const providers = this.modelRuntime.getProviders()
     const credentials = await this.modelRuntime.listCredentials()
     const stored = new Map(credentials.map((item) => [item.providerId, item]))
-    const relevant = providers.filter((provider) => {
-      return (
-        provider.id === 'openai-codex' ||
-        provider.id.startsWith('openai-codex-') ||
-        stored.has(provider.id)
+    const available = await this.modelRuntime.getAvailable()
+    const availableProviders = new Set(available.map((model) => model.provider))
+    let modelsJsonIds = new Set<string>()
+    try {
+      modelsJsonIds = new Set(
+        (await this.endpointConfig().read()).endpoints.map((endpoint) => endpoint.id)
       )
+    } catch {
+      // Unreadable models.json must not hide Codex or stored accounts.
+    }
+    const relevant = selectProjectedProviders(providers, {
+      stored: new Set(stored.keys()),
+      modelsJson: modelsJsonIds,
+      available: availableProviders
     })
     const checks = await Promise.all(
       relevant.map(
@@ -1244,8 +1253,6 @@ class PiDesktopHost {
     this.accounts = relevant.map((provider) =>
       this.accountSummary(provider, stored.get(provider.id), Boolean(checked.get(provider.id)))
     )
-
-    const available = await this.modelRuntime.getAvailable()
     this.models = available.map((model) => this.modelRejections.project(this.modelSummary(model)))
   }
 

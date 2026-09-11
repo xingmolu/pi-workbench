@@ -125,7 +125,7 @@ manifest 的 `permissions` 当前只用于清单展示，并不授予文件、sh
 
 **Claude**：Pi `/login anthropic` 是 extra usage，不是 Claude Code 套餐限额。不要默认导入 Claude Code token。这是本产品要求持续显示的政策文案。
 
-**自定义端点**：独立设置组件提供 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages，不把两种 OpenAI 协议混用。全局 Pi 配置影响所有项目及 CLI，新增端点不自动选中。使用 jsonc-parser 局部编辑 canonical models.json，凭证只调用公开 ModelRuntime login；高级配置保守只读，损坏/过期文件不覆盖。只返回白名单元数据，密码本地组件态、从不回填，提交/关闭清空；编辑留空保留现有 key。
+**自定义端点**：独立设置组件提供 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages，不把两种 OpenAI 协议混用。全局 Pi 配置影响所有项目及 CLI，新增端点不自动选中。使用 jsonc-parser 局部编辑 canonical models.json，凭证只调用公开 ModelRuntime login；高级配置保守只读，损坏/过期文件不覆盖。只返回白名单元数据，密码本地组件态、从不回填，提交/关闭清空；编辑留空保留现有 key。CLI `models.json` 里已有、且运行时已具备可用模型的 provider（含非 `custom-*`、带嵌入 `apiKey` 的只读项）会出现在 composer 账号菜单中供显式选择；没有可用认证的端点仍不能发送。
 
 表单分别展示 metadata/credential/runtime 确定结果和部分成功；传输失败提示结果未知、禁止自动重试。刷新列表只读，不伪称修复运行时。保存与登录启动/别名重载在同一 actor 排队，执行时再次检查 OAuth、会话代际和忙碌。运行时同步失败与模型选择失效用两个独立门禁同时约束 Host/composer；普通保存成功不能清掉待显式选择的失效状态。原会话记录保留，同 ID 重新绑定仍使用 canonical model_change 和 mutation guard。
 
@@ -155,7 +155,7 @@ Renderer (React) — 零 Node、零 Electron、零 Pi import。typed IPC。Main�
 
 1. 壳：三栏 + Hero + 工作区会话树（MVP 已覆盖）
 2. 对话节点流 + composer + metrics（MVP 已覆盖 snapshot + revision patch、状态、Context 与 Queue；`@` / 图片附件和可拖内容轴延期）
-   - **2b.** 账号：Codex 直登 + composer 两级切换（已覆盖显式选择、session pinning 和自定义兼容端点 UI；`~/.codex/auth.json` 便利导入延期）
+   - **2b.** 账号：Codex 直登 + composer 两级切换（已覆盖显式选择、session pinning、Settings `custom-*` 端点，以及 CLI `models.json` 中运行时可用的只读 provider；`~/.codex/auth.json` 便利导入延期）
    - **2c.** 手机：gateway + 配对 + LAN QR + Quick Tunnel
 3. Browser + agent 共享控制（已覆盖首个真实 Workbench mode、隔离 profile、typed capability 与 E2E）
    - **3b.** Workbench contribution registry + 本地 sandboxed web plugin（MVP 已覆盖严格发现、启停/重载、context/state generation、崩溃隔离与真实 Electron E2E；分发、第三方 command/backend 和 MCP Apps 延期）
