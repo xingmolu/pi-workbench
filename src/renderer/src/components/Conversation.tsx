@@ -815,7 +815,7 @@ function Composer({
                   <span>
                     <strong>{item.name}</strong>
                     <small>
-                      {item.alias ? item.id : '主账号'}
+                      {item.id === 'openai-codex' ? '主账号' : item.id}
                       {item.id === modelSelection.stagedProvider ? ' · 已暂存' : ''}
                     </small>
                   </span>
