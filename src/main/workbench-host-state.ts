@@ -586,6 +586,7 @@ export function createWorkbenchHostState(
           )
           if (builtinContribution) {
             if (!isAvailable(builtinContribution.activation)) {
+              if (!command.visible) break
               throw new Error('Workbench panel is unavailable')
             }
             const selection = beginSelection(command.viewId, command.visible, command.bounds)
@@ -603,12 +604,15 @@ export function createWorkbenchHostState(
             candidate.workbench.some(({ contribution }) => contribution.viewId === command.viewId)
           )
           if (!plugin || !isDesktopEnabled(plugin.pluginId)) {
+            // Destruction can race Renderer cleanup. An already absent panel is hidden.
+            if (!command.visible) break
             throw new Error('Workbench panel is unavailable')
           }
           const entry = plugin.workbench.find(
             ({ contribution }) => contribution.viewId === command.viewId
           )
           if (!entry || !isAvailable(entry.contribution.activation)) {
+            if (!command.visible) break
             throw new Error('Workbench panel is unavailable')
           }
           const selection = beginSelection(command.viewId, command.visible, command.bounds)

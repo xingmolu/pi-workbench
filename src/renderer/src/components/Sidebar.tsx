@@ -1,13 +1,9 @@
-import {
-  ChevronsLeft,
-  ChevronsRight,
-  FolderOpen,
-  MessageSquarePlus,
-  PanelLeft,
-  Settings2
-} from 'lucide-react'
+import { ChevronsLeft, FolderOpen, MessageSquarePlus, PanelLeft, Settings2 } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
-import { canCreateSession, sessionStatusDisplay } from '../../../shared/session-presentation'
+import { canCreateSession } from '../../../shared/session-presentation'
+import ProjectSessionList from './ProjectSessionList'
+import { projectNavigationReason } from '../../../shared/project-catalog'
+import type { ProjectNavigationFailures } from '../../../shared/project-catalog'
 
 type SidebarProps = {
   collapsed: boolean
@@ -16,19 +12,11 @@ type SidebarProps = {
   onToggle: () => void
   onChooseProject: () => void
   onNewSession: () => void
-  onOpenSession: (path: string) => void
+  onNavigate: (cwd: string, sessionPath?: string) => void
+  navigationFailures?: ProjectNavigationFailures
+  pending?: boolean
+  disabledReason?: string | null
   onOpenSettings: () => void
-}
-
-function relativeTime(value: string): string {
-  const elapsed = Math.max(0, Date.now() - new Date(value).getTime())
-  const minutes = Math.floor(elapsed / 60_000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
-  const days = Math.floor(hours / 24)
-  return days < 30 ? `${days} 天前` : new Date(value).toLocaleDateString('zh-CN')
 }
 
 export default function Sidebar({
@@ -38,10 +26,14 @@ export default function Sidebar({
   onToggle,
   onChooseProject,
   onNewSession,
-  onOpenSession,
+  onNavigate,
+  navigationFailures,
+  pending = false,
+  disabledReason,
   onOpenSettings
 }: SidebarProps): React.JSX.Element {
-  const newSessionEnabled = canCreateSession(snapshot.project)
+  const reason = disabledReason ?? (pending ? '正在切换会话' : projectNavigationReason(snapshot))
+  const newSessionEnabled = snapshot.ready && canCreateSession(snapshot.project) && !reason
   if (collapsed) {
     return (
       <aside className="sidebar is-collapsed" aria-label="折叠的侧栏">
@@ -65,7 +57,13 @@ export default function Sidebar({
             <MessageSquarePlus size={17} />
           </button>
           {snapshot.project ? (
-            <button className="icon-btn" type="button" onClick={onChooseProject} title="切换工作区">
+            <button
+              className="icon-btn"
+              type="button"
+              onClick={onChooseProject}
+              title="添加项目"
+              disabled={Boolean(reason)}
+            >
               <FolderOpen size={17} />
             </button>
           ) : (
@@ -95,72 +93,37 @@ export default function Sidebar({
         </button>
       </div>
 
-      <button
-        className="new-session"
-        type="button"
-        onClick={onNewSession}
-        disabled={!newSessionEnabled}
-      >
-        <MessageSquarePlus size={15} />
-        新会话
-      </button>
+      <div className="sidebar-project-actions">
+        <button
+          type="button"
+          onClick={onChooseProject}
+          disabled={Boolean(reason)}
+          title={reason ?? '添加项目'}
+        >
+          <FolderOpen size={14} />
+          添加项目
+        </button>
+        <button
+          type="button"
+          onClick={onNewSession}
+          disabled={!newSessionEnabled}
+          title={reason ?? '在当前项目中新建会话'}
+        >
+          <MessageSquarePlus size={14} />
+          新会话
+        </button>
+      </div>
+      <ProjectSessionList
+        snapshot={snapshot}
+        onNavigate={onNavigate}
+        navigationFailures={navigationFailures}
+        pending={pending}
+        disabledReason={disabledReason}
+      />
 
-      <section className="sidebar-section project-section">
-        <div className="sidebar-label">工作区</div>
-        {snapshot.project ? (
-          <button
-            className="project-row"
-            type="button"
-            onClick={onChooseProject}
-            title={snapshot.project.path}
-          >
-            <FolderOpen size={15} />
-            <span>
-              <strong>{snapshot.project.name}</strong>
-              <small>{snapshot.project.path}</small>
-            </span>
-            <ChevronsRight size={14} />
-          </button>
-        ) : (
-          <div className="project-empty-state" aria-label="尚未选择工作区">
-            <FolderOpen size={16} />
-            尚未选择
-          </div>
-        )}
-      </section>
-
-      <section className="sidebar-section session-section">
-        <div className="sidebar-label">会话</div>
-        <div className="session-list">
-          {snapshot.sessions.map((session) => {
-            const status = sessionStatusDisplay(session.status)
-            return (
-              <button
-                key={session.path}
-                className={`session-row${session.active ? ' is-active' : ''}`}
-                type="button"
-                onClick={() => onOpenSession(session.path)}
-                title={session.title}
-              >
-                <span className="session-title">{session.title}</span>
-                <span className="session-meta">
-                  <i className={`session-status-dot is-${status.tone}`} aria-hidden="true" />
-                  <span className={`session-status-label is-${status.tone}`}>{status.label}</span>
-                  <span>{relativeTime(session.modified)}</span>
-                </span>
-              </button>
-            )
-          })}
-          {snapshot.project && snapshot.sessions.length === 0 ? (
-            <p className="sidebar-empty">还没有会话。从上面的按钮开始。</p>
-          ) : null}
-        </div>
-      </section>
-
-      <div className="sidebar-spacer" />
       <div className="sidebar-host" title={snapshot.agentDir}>
         <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
-        <span>{snapshot.ready ? 'Pi 引擎已就绪' : '正在连接 Pi 引擎'}</span>
+        <span>{snapshot.ready ? 'Pi 引擎已就绪' : 'Pi 引擎未连接'}</span>
       </div>
       <div className="sidebar-foot">
         <button type="button" onClick={onOpenSettings}>

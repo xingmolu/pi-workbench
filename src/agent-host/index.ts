@@ -1,3 +1,12 @@
+import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import { observeAttachmentPrompt } from './attachment-acceptance'
+import type { AttachmentHostCommand, AttachmentReceipt } from '../shared/text-attachments'
+import {
+  assertProjectSession,
+  continueProjectSession,
+  listProjectSessions,
+  requireProjectSessionPath
+} from './project-sessions'
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -17,13 +26,12 @@ import type {
   CredentialInfo,
   Message,
   Model,
-  Provider,
-  ToolResultMessage,
-  UserMessage
+  Provider
 } from '@earendil-works/pi-ai'
 import { randomUUID } from 'node:crypto'
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -56,7 +64,6 @@ import {
   type PermissionMode,
   type SessionStatus,
   type SessionSummary,
-  type ToolIntent,
   type ToolStatus,
   type UsageMetrics
 } from '../shared/contracts'
@@ -72,6 +79,17 @@ import { createStatePatch } from '../shared/state-patch'
 import { resolveAgentDirectory } from '../main/e2e-temp-directory'
 import { ApprovalRegistry } from './approval-registry'
 import { ConversationProjection } from './conversation-projection'
+import {
+  DisplayFailureQuarantine,
+  HistoryModelObserver,
+  SessionHistoryController
+} from './session-history-controller'
+import {
+  assistantTerminalNode,
+  measuredGenerationSpeed,
+  ModelRejections,
+  projectRunStatus
+} from './assistant-outcome'
 import { LoginPromptRegistry } from './login-prompt-registry'
 import { PatchBatcher } from './patch-batcher'
 import {
@@ -81,6 +99,25 @@ import {
 } from './pi-package-roots'
 import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
+import { SessionEditService, latestUserId, type EditHostState } from './session-edit'
+import { CustomEndpointConfig } from './custom-endpoint-config'
+import { CustomEndpointService, type EndpointSafety } from './custom-endpoints'
+import { EndpointSessionSafety, assertEndpointContext } from './endpoint-session-safety'
+import { renameSession } from './session-rename'
+import {
+  guardModelMutation,
+  SessionMutationGuard,
+  SessionRuntimeUnsafeError
+} from './session-mutation-safety'
+import { SessionListRefresh } from './session-list-refresh'
+import { isCompletedAssistant, recordMessageFeedback } from './message-actions'
+import {
+  assertPromptIdentity,
+  forkCurrentSession,
+  refreshForkFailure,
+  type SessionForkState,
+  type SessionForkTarget
+} from './session-fork'
 import {
   runPreparedSessionReplacement,
   runSessionReplacement,
@@ -102,6 +139,9 @@ import {
   type SessionModelMutationTarget,
   type SessionModelProjection
 } from './session-model'
+
+import { canonicalProjectDirectory, discoverProjectSessions, readProjectCatalog } from './project-catalog'
+import type { ProjectNavigateCommand } from '../shared/project-catalog'
 
 const AGENT_DIR = resolveAgentDirectory({
   e2eMode: process.env.PI_DESKTOP_E2E === '1',
@@ -168,15 +208,26 @@ type RunTiming = {
   llmDurationMs: number
   firstTokenSamples: number[]
   outputTokens: number
+  usageIncomplete?: boolean
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+const displayQuarantine = new DisplayFailureQuarantine(
+  (exit) => setImmediate(exit),
+  (message) => {
+    console.error(message)
+    // Let SDK event listeners return normally; never run disposal/retry hooks here.
+    process.exit(1)
+  }
+)
+
 function send(
   message: HostMessage | BrowserCapabilityRequest | BrowserCapabilityCancel | PiPackageRootsMessage
 ): void {
+  if (displayQuarantine.failed) return
   process.parentPort.postMessage(message)
 }
 
@@ -200,65 +251,6 @@ function isPiMessage(value: unknown): value is Message {
 
 function isConcreteModel(model: { provider: string; id: string } | undefined): boolean {
   return Boolean(model && model.provider !== 'unknown' && model.id !== 'unknown')
-}
-
-function textFromContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter((item): item is { type: 'text'; text: string } => {
-      return isRecord(item) && item.type === 'text' && typeof item.text === 'string'
-    })
-    .map((item) => item.text)
-    .join('\n')
-}
-
-function toolIntent(name: string): ToolIntent {
-  if (name === 'bash' || name === 'powershell') return 'terminal'
-  if (name === 'read' || name === 'ls') return 'read'
-  if (name === 'write' || name === 'edit') return 'diff'
-  if (name === 'grep' || name === 'find') return 'search'
-  if (name === 'web' || name.includes('browser')) return 'web'
-  return 'generic'
-}
-
-function stringArg(args: Record<string, unknown>, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = args[key]
-    if (typeof value === 'string' && value.trim()) return value.trim()
-  }
-  return undefined
-}
-
-function toolPresentation(name: string, rawArgs: unknown): { title: string; detail: string } {
-  const args = isRecord(rawArgs) ? rawArgs : {}
-  const command = stringArg(args, 'command')
-  const path = stringArg(args, 'path', 'filePath')
-  const pattern = stringArg(args, 'pattern', 'query')
-  const title =
-    name === 'bash' || name === 'powershell'
-      ? command?.split('\n')[0] || '运行命令'
-      : name === 'read'
-        ? `读取 ${path ?? '文件'}`
-        : name === 'ls'
-          ? `列出 ${path ?? '目录'}`
-          : name === 'write'
-            ? `写入 ${path ?? '文件'}`
-            : name === 'edit'
-              ? `编辑 ${path ?? '文件'}`
-              : name === 'grep' || name === 'find'
-                ? `搜索 ${pattern ?? path ?? ''}`.trim()
-                : name === 'browser'
-                  ? `浏览器 · ${stringArg(args, 'action') ?? '操作'}`
-                  : name
-
-  let detail = ''
-  try {
-    detail = JSON.stringify(args, null, 2)
-  } catch {
-    detail = String(rawArgs ?? '')
-  }
-  return { title, detail }
 }
 
 function multiLoginExtensionPath(): string | undefined {
@@ -291,6 +283,8 @@ function codexLoopbackAvailable(): Promise<boolean> {
 class PiDesktopHost {
   private sdk: PiSdk | null = null
   private modelRuntime: ModelRuntime | null = null
+  private endpointService: CustomEndpointService<Model<string>> | null = null
+  private endpointSafety = new EndpointSessionSafety()
   private runtime: AgentSessionRuntime | null = null
   private projectPath: string | null = null
   private permissionMode: PermissionMode = 'ask'
@@ -303,9 +297,10 @@ class PiDesktopHost {
   private login: LoginStatus = { phase: 'idle' }
   private loginPrompt: LoginPrompt | null = null
   private lastError: string | undefined
+  private readonly modelRejections = new ModelRejections()
+  private stopped = false
   private initialized = false
   private initializing: Promise<void> | null = null
-  private unsubscribeSession: (() => void) | undefined
   private sessionGeneration = 0
   private sessionInvalidationSequence = 0
   private revision = 0
@@ -313,6 +308,14 @@ class PiDesktopHost {
   private patchesSuspended = false
   private toolExecution = new ToolExecutionState()
   private conversationProjection = new ConversationProjection()
+  private history = new SessionHistoryController(this.conversationProjection)
+  private historyObserver = new HistoryModelObserver(
+    () =>
+      this.runtime
+        ? { manager: this.runtime.session.sessionManager, generation: this.sessionGeneration }
+        : null,
+    () => this.schedulePatch()
+  )
   private approvalRegistry = new ApprovalRegistry((change) => {
     const state =
       change.status === 'pending'
@@ -333,9 +336,38 @@ class PiDesktopHost {
   private lastTiming: RunTiming | null = null
   private followUp: string[] = []
   private sessionTransition = new SerialExecutor()
+  private readonly sessionPersistenceGuard = new SessionMutationGuard()
+  private readonly sessionListRefresh = new SessionListRefresh()
   private modelMutationInProgress = false
+  private readonly sessionEdits = new SessionEditService({
+    read: () => this.editState(),
+    refresh: () => this.refreshAuthProjection(),
+    rebind: async () => {
+      this.rejectBrowserCapabilities('编辑已改变会话上下文，旧浏览器操作已取消')
+      await this.bindSession()
+    },
+    publish: () => {
+      this.emitSnapshot()
+    },
+    unsafe: (error) => {
+      this.lastError = error.message
+      void this.sessionPersistenceGuard
+        .run(() => Promise.reject(error))
+        .catch(() => {
+          // Canonical append failure can leave Pi memory ahead of disk. The main
+          // process retains its canvas and exposes its existing reconnect path.
+          setImmediate(() => process.exit(1))
+        })
+    }
+  })
   private pendingPromptsBySession = new Map<string, number>()
-  private patchBatcher = new PatchBatcher(() => this.emitStreamingPatch(), MESSAGE_UPDATE_BATCH_MS)
+  private attachmentReceipts = new Map<
+    string,
+    { scope: string; receipt: AttachmentReceipt; at: number }
+  >()
+  private patchBatcher = new PatchBatcher(() => {
+    displayQuarantine.run(() => this.emitStreamingPatch())
+  }, MESSAGE_UPDATE_BATCH_MS)
   private pendingStreamingMessage: AssistantMessage | null = null
   private pendingPackageRootsPublication: PiPackageRootsPublication<AgentSessionRuntime> | null =
     null
@@ -347,6 +379,32 @@ class PiDesktopHost {
     }
   >()
 
+  private readEndpointSafety(): EndpointSafety {
+    const session = this.runtime?.session
+    const sessionId = session?.sessionManager.getSessionId() ?? null
+    return {
+      generation: this.sessionGeneration,
+      sessionId,
+      busy: session?.isStreaming ?? false,
+      promptPending: sessionId !== null && (this.pendingPromptsBySession.get(sessionId) ?? 0) > 0,
+      loginActive: this.loginAbort !== null
+    }
+  }
+
+  private endpointConfig(): CustomEndpointConfig {
+    const runtime = this.modelRuntime
+    const protectedProviderIds = runtime
+      ? [
+          ...runtime.getRegisteredProviderIds(),
+          ...runtime
+            .getProviders()
+            .filter((p) => runtime.getRegisteredNativeProvider(p.id) || runtime.isUsingOAuth(p.id))
+            .map((p) => p.id)
+        ]
+      : []
+    return new CustomEndpointConfig(join(AGENT_DIR, 'models.json'), { protectedProviderIds })
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return
     if (this.initializing) return this.initializing
@@ -357,6 +415,23 @@ class PiDesktopHost {
         authPath: join(AGENT_DIR, 'auth.json'),
         modelsPath: join(AGENT_DIR, 'models.json'),
         allowModelNetwork: false
+      })
+      this.endpointService = new CustomEndpointService({
+        config: {
+          read: () => this.endpointConfig().read(),
+          create: (input) => this.endpointConfig().create(input),
+          update: (input) => this.endpointConfig().update(input)
+        },
+        runtime: this.modelRuntime,
+        readSafety: () => this.readEndpointSafety(),
+        getSession: () => this.runtime?.session ?? null,
+        setSessionBlocked: (target, blocked) =>
+          this.endpointSafety.setRuntimeBlocked(target, blocked),
+        invalidateSelection: (target) => this.endpointSafety.invalidate(target),
+        rebuildProjections: () => this.refreshAuthProjection(),
+        refreshHistory: async () => {
+          displayQuarantine.run(() => this.history.refresh())
+        }
       })
       await this.refreshAuthProjection()
       this.initialized = true
@@ -370,7 +445,17 @@ class PiDesktopHost {
   }
 
   async handle(request: HostRequest): Promise<HostResult> {
+    displayQuarantine.assertHealthy()
     await this.initialize()
+    if (request.type === 'project:catalog') {
+      if (!this.sdk) throw new Error('Pi SDK 尚未加载')
+      try {
+        return {kind:'project-catalog',catalog:await readProjectCatalog({
+          ...request, manager:this.sdk.SessionManager,agentDir:AGENT_DIR,
+          recentPaths:[...(this.projectPath ? [this.projectPath] : []),...(request.recentPaths ?? [])]
+        })}
+      } catch { throw new Error('项目目录暂时不可读取，请重试') }
+    }
     if (usesSessionTransition(request)) {
       return this.sessionTransition.run(() => this.handleInitialized(request))
     }
@@ -378,14 +463,73 @@ class PiDesktopHost {
   }
 
   private async handleInitialized(request: HostRequest): Promise<HostResult> {
-    if (request.type !== 'bootstrap' && request.type !== 'state:get') this.lastError = undefined
+    displayQuarantine.assertHealthy()
+    const result = await this.sessionPersistenceGuard.run(() => this.handleHealthy(request))
+    displayQuarantine.assertHealthy()
+    return result
+  }
+
+  private async handleHealthy(request: HostRequest): Promise<HostResult> {
+    displayQuarantine.assertHealthy()
+    if (
+      usesSessionTransition(request) &&
+      !request.type.startsWith('session:edit:') &&
+      this.sessionEdits.pending
+    )
+      throw new Error('编辑发送尚未结束或确认，请先停止或查询发送结果')
+    if (
+      request.type !== 'bootstrap' &&
+      request.type !== 'state:get' &&
+      request.type !== 'attachment:query'
+    )
+      this.lastError = undefined
 
     switch (request.type) {
+      case 'message:feedback': {
+        const state = this.forkState()
+        const manager = this.runtime?.session.sessionManager
+        if (!state || !manager) throw new Error('请先打开会话')
+        recordMessageFeedback(request, { ...state, manager })
+        this.history.refresh()
+        this.emitSnapshot()
+        break
+      }
+      case 'session:edit:prepare':
+        return { kind: 'session-edit', result: this.sessionEdits.prepare(request) }
+      case 'session:edit:cancel':
+        return { kind: 'session-edit', result: this.sessionEdits.cancel(request.token) }
+      case 'session:edit:send':
+        return { kind: 'session-edit', result: await this.sessionEdits.send(request) }
+      case 'session:edit:query':
+        return { kind: 'session-edit', result: this.sessionEdits.query(request.submissionId) }
+      case 'attachment:prompt':
+      case 'attachment:query':
+        return { kind: 'attachment', receipt: await this.attachmentPrompt(request) }
+      case 'endpoint:list':
+        return {
+          kind: 'endpoint-list',
+          snapshot: await this.endpointConfig().read(),
+          configPath: join(AGENT_DIR, 'models.json')
+        }
+      case 'endpoint:save': {
+        assertEndpointContext(request.context, {
+          ...this.readEndpointSafety(),
+          projectPath: this.projectPath
+        })
+        const result = await this.endpointService!.save(request.request)
+        if (result.ok && result.runtime === 'synchronized')
+          this.endpointSafety.setRuntimeBlocked(request.context, false)
+        this.emitPatch()
+        return { kind: 'endpoint-save', result }
+      }
       case 'bootstrap':
       case 'state:get':
         break
       case 'project:open':
         await this.openProject(request.cwd)
+        break
+      case 'project:navigate':
+        await this.navigateProject(request)
         break
       case 'session:new':
         await this.newSession(
@@ -396,7 +540,39 @@ class PiDesktopHost {
       case 'session:open':
         await this.openSession(request.path)
         break
+      case 'session:fork': {
+        const result = await this.forkSession(request)
+        const snapshot = this.emitSnapshot()
+        if (!snapshot) throw new Error('会话显示更新失败，请重新连接')
+        return { kind: 'session-fork', cancelled: result.cancelled, snapshot }
+      }
+      case 'session:rename': {
+        const session = this.runtime?.session
+        const sessionId = session?.sessionManager.getSessionId()
+        await renameSession(
+          request,
+          session && sessionId
+            ? {
+                sessionId,
+                generation: this.sessionGeneration,
+                persisted: Boolean(session.sessionFile && existsSync(session.sessionFile)),
+                busy: session.isStreaming,
+                promptPending: (this.pendingPromptsBySession.get(sessionId) ?? 0) > 0,
+                currentName: session.sessionManager.getSessionName()
+              }
+            : null,
+          {
+            setSessionName: (name) => session!.setSessionName(name),
+            refreshSessions: (generation) => this.refreshSessions(generation)
+          }
+        )
+        break
+      }
       case 'prompt:send':
+        assertPromptIdentity(request, {
+          sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
+          generation: this.sessionGeneration
+        })
         this.sendPrompt(request.text)
         break
       case 'prompt:abort':
@@ -433,12 +609,16 @@ class PiDesktopHost {
       request.type === 'bootstrap' ||
       request.type === 'state:get' ||
       request.type === 'project:open' ||
+      request.type === 'project:navigate' ||
       request.type === 'session:new' ||
       request.type === 'session:open'
     ) {
-      return { kind: 'snapshot', snapshot: this.emitSnapshot() }
+      const snapshot = this.emitSnapshot()
+      if (!snapshot) throw new Error('会话显示更新失败，请重新连接')
+      return { kind: 'snapshot', snapshot }
     }
     const snapshot = this.emitPatch()
+    if (!snapshot) throw new Error('会话显示更新失败，请重新连接')
     return {
       kind: 'ack',
       sessionId: snapshot.sessionId,
@@ -484,6 +664,27 @@ class PiDesktopHost {
         })
       }
     }
+  }
+
+  private historyExtension(): InlineExtension {
+    return {
+      name: 'pi-desktop-canonical-history-observer',
+      hidden: true,
+      factory: (pi) => {
+        pi.on('model_select', (_event, ctx) => {
+          displayQuarantine.run(() => this.historyObserver.observe(() => ctx.sessionManager))
+        })
+      }
+    }
+  }
+
+  private refreshDirtyHistory(): boolean {
+    if (this.modelMutationInProgress || !this.historyObserver.take()) return false
+    const session = this.runtime?.session
+    if (!session) return false
+    this.history.refresh()
+    this.activeExplicitModel = this.projectActiveSessionModel(session).identity
+    return true
   }
 
   private browserExtension(): InlineExtension {
@@ -625,6 +826,7 @@ class PiDesktopHost {
       throw new Error('Agent Host 尚未选择工作区')
     }
     const sdk = this.sdk
+    assertProjectSession(sessionManager, projectPath)
     const fixedModelRuntime = this.modelRuntime
     const extensionPath = multiLoginExtensionPath()
     const selectModelOverride = createOneShotRecoveryModelSelector(recoveryModel)
@@ -638,13 +840,18 @@ class PiDesktopHost {
       sessionManager: SessionManager
       sessionStartEvent?: SessionStartEvent
     }): Promise<CreateAgentSessionRuntimeResult> => {
+      assertProjectSession(nextManager, projectPath, cwd)
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir: AGENT_DIR,
         modelRuntime: fixedModelRuntime,
         resourceLoaderOptions: {
           additionalExtensionPaths: extensionPath ? [extensionPath] : [],
-          extensionFactories: [this.permissionExtension(), this.browserExtension()]
+          extensionFactories: [
+            this.permissionExtension(),
+            this.browserExtension(),
+            this.historyExtension()
+          ]
         }
       })
       const entries = nextManager.buildContextEntries()
@@ -694,13 +901,42 @@ class PiDesktopHost {
     })
   }
 
-  private async openProject(cwd: string): Promise<void> {
+  private async navigateProject(request: ProjectNavigateCommand): Promise<void> {
+    const current = this.runtime?.session
+    if (request.sessionId !== (current?.sessionManager.getSessionId() ?? null) || request.generation !== this.sessionGeneration)
+      throw new Error('当前会话已改变，请重新选择目标会话')
+    if (current?.isStreaming || (current && (this.pendingPromptsBySession.get(current.sessionManager.getSessionId()) ?? 0) > 0)
+      || this.approvalRegistry.requests(this.sessionGeneration).length || this.loginAbort || this.sessionEdits.pending)
+      throw new Error('请先停止当前任务、完成编辑或登录后再切换会话')
+    if (!this.sdk) throw new Error('Pi SDK 尚未加载')
+    const cwd = await canonicalProjectDirectory(request.cwd)
+    if (!cwd || cwd !== request.cwd) throw new Error('所选项目目录不可用，请重试')
+    let manager: SessionManager
+    if (request.sessionPath) {
+      const sessions = await discoverProjectSessions({manager:this.sdk.SessionManager,agentDir:AGENT_DIR})
+      requireProjectSessionPath(sessions,cwd,request.sessionPath)
+      manager = this.sdk.SessionManager.open(request.sessionPath, projectSessionDirectory(cwd))
+      assertProjectSession(manager,cwd)
+    } else {
+      manager = this.sdk.SessionManager.create(cwd,projectSessionDirectory(cwd))
+    }
+    // Prepare the exact target before invalidating the outgoing runtime.
+    await this.openProject(cwd, manager)
+  }
+
+  private async openProject(cwd: string, exactManager?: SessionManager): Promise<void> {
     const stats = statSync(cwd)
     if (!stats.isDirectory()) throw new Error('所选工作区不是文件夹')
 
     if (!this.sdk) throw new Error('Pi SDK 尚未加载')
-    const sessionManager = this.sdk.SessionManager.continueRecent(cwd, projectSessionDirectory(cwd))
     const generationBeforeReplacement = this.sessionGeneration
+    const sessionManager = exactManager ?? await continueProjectSession(
+      this.sdk.SessionManager,
+      cwd,
+      projectSessionDirectory(cwd)
+    )
+    if (this.sessionGeneration !== generationBeforeReplacement)
+      throw new Error('工作区已变更，请重试')
     await runPreparedSessionReplacement({
       generationBeforeReplacement,
       prepare: () => this.createRuntime(sessionManager, cwd),
@@ -725,6 +961,7 @@ class PiDesktopHost {
 
   private configureRuntime(runtime: AgentSessionRuntime): void {
     runtime.setBeforeSessionInvalidate(() => {
+      this.sessionEdits.invalidate()
       this.sessionInvalidationSequence += 1
     })
     runtime.setRebindSession(async () => this.bindSession())
@@ -765,13 +1002,15 @@ class PiDesktopHost {
     this.rejectApprovals(true, 'session-switch')
     this.sessionGeneration += 1
     const generation = this.sessionGeneration
+    this.endpointSafety.bind({ generation, sessionId: session.sessionManager.getSessionId() })
     this.pendingPackageRootsPublication = null
     this.resetPublishedState()
-    this.unsubscribeSession?.()
-    this.unsubscribeSession = undefined
+    this.history.detach()
+    this.historyObserver.clear()
     this.toolExecution.clear()
     this.followUp = [...session.getFollowUpMessages()]
     this.lastTiming = null
+    this.stopped = false
     this.timing = null
 
     await session.bindExtensions({
@@ -811,10 +1050,20 @@ class PiDesktopHost {
       }
     }
 
-    this.unsubscribeSession = session.subscribe((event) => {
-      if (generation !== this.sessionGeneration) return
-      this.handleSessionEvent(event)
-    })
+    if (
+      this.runtime !== runtime ||
+      runtime.session !== session ||
+      generation !== this.sessionGeneration
+    )
+      return
+
+    displayQuarantine.run(() =>
+      this.history.connect(session, generation, {
+        quarantine: displayQuarantine,
+        onEvent: (event) => this.handleSessionEvent(event),
+        onCommitted: () => this.flushPatch()
+      })
+    )
     const projection = this.projectActiveSessionModel(session, this.pendingNewSessionModel)
     this.activeExplicitModel = projection.identity
     this.pendingNewSessionModel = null
@@ -825,6 +1074,8 @@ class PiDesktopHost {
     const now = Date.now()
     switch (event.type) {
       case 'agent_start':
+        this.stopped = false
+        this.lastError = undefined
         this.timing = {
           firstTokenSeen: false,
           llmDurationMs: 0,
@@ -833,9 +1084,6 @@ class PiDesktopHost {
         }
         break
       case 'message_start':
-        if (isPiMessage(event.message)) {
-          this.projectEventMessage(event.message, event.message.role === 'assistant')
-        }
         if (event.message.role === 'assistant' && this.timing) {
           this.timing.llmStartedAt = now
           this.timing.firstTokenSeen = false
@@ -861,14 +1109,20 @@ class PiDesktopHost {
       }
       case 'message_end':
         this.pendingStreamingMessage = null
-        if (isPiMessage(event.message)) this.projectEventMessage(event.message, false)
         if (event.message.role === 'assistant' && this.timing) {
           if (this.timing.llmStartedAt) this.timing.llmDurationMs += now - this.timing.llmStartedAt
           this.timing.outputTokens += event.message.usage.output
+          if (event.message.stopReason === 'aborted' || event.message.stopReason === 'error') {
+            this.timing.usageIncomplete = true
+          }
           this.timing.llmStartedAt = undefined
         }
-        if (event.message.role === 'assistant' && event.message.errorMessage) {
-          this.lastError = event.message.errorMessage
+        if (event.message.role === 'assistant') {
+          const outcome = assistantTerminalNode(event.message)
+          if (outcome?.type === 'stopped') this.stopped = true
+          if (outcome?.type === 'error') this.lastError = outcome.message
+          this.modelRejections.record(event.message)
+          this.models = this.models.map((model) => this.modelRejections.project(model))
         }
         break
       case 'tool_execution_start':
@@ -905,6 +1159,7 @@ class PiDesktopHost {
         break
       }
       case 'agent_settled':
+        this.history.refresh()
         if (this.timing) this.lastTiming = { ...this.timing }
         this.timing = null
         this.flushPatch()
@@ -916,6 +1171,12 @@ class PiDesktopHost {
         this.followUp = [...event.followUp]
         break
       case 'entry_appended':
+        this.history.refresh()
+        this.emitPatch()
+        break
+      case 'compaction_end':
+        if (!event.errorMessage && !event.aborted) this.history.refresh()
+        break
       case 'session_info_changed':
         void this.refreshSessions(this.sessionGeneration).then((refreshed) => {
           if (refreshed) this.emitPatch()
@@ -927,29 +1188,39 @@ class PiDesktopHost {
   }
 
   private async refreshSessions(expectedGeneration?: number): Promise<boolean> {
-    if (!this.projectPath) {
-      this.sessions = []
-      return true
-    }
+    const generation = expectedGeneration ?? this.sessionGeneration
+    const projectPath = this.projectPath
     const current = this.runtime?.session.sessionFile
-    if (!this.sdk) return false
-    const listed = await this.sdk.SessionManager.list(
-      this.projectPath,
-      projectSessionDirectory(this.projectPath)
+    const sdk = this.sdk
+    if (projectPath && !sdk) return false
+    return this.sessionListRefresh.run(
+      generation,
+      () => this.sessionGeneration,
+      async () =>
+        projectPath && sdk
+          ? listProjectSessions(
+              sdk.SessionManager,
+              projectPath,
+              projectSessionDirectory(projectPath)
+            )
+          : [],
+      (listed) => {
+        this.sessions = listed.map((session): SessionSummary => ({
+          id: session.id,
+          path: session.path,
+          title: projectSessionTitle(session),
+          modified: session.modified.toISOString(),
+          messageCount: session.messageCount,
+          active: session.path === current,
+          status: 'idle',
+          ...(session.parentSessionPath
+            ? listed.some((parent) => parent.path === session.parentSessionPath)
+              ? { parentSessionPath: session.parentSessionPath }
+              : { parentUnavailable: true }
+            : {})
+        }))
+      }
     )
-    if (expectedGeneration !== undefined && expectedGeneration !== this.sessionGeneration) {
-      return false
-    }
-    this.sessions = listed.map((session) => ({
-      id: session.id,
-      path: session.path,
-      title: projectSessionTitle(session),
-      modified: session.modified.toISOString(),
-      messageCount: session.messageCount,
-      active: session.path === current,
-      status: 'idle'
-    }))
-    return true
   }
 
   private async refreshAuthProjection(): Promise<void> {
@@ -975,7 +1246,7 @@ class PiDesktopHost {
     )
 
     const available = await this.modelRuntime.getAvailable()
-    this.models = available.map((model) => this.modelSummary(model))
+    this.models = available.map((model) => this.modelRejections.project(this.modelSummary(model)))
   }
 
   private accountSummary(
@@ -1053,24 +1324,170 @@ class PiDesktopHost {
     }
   }
 
+  private editState(): EditHostState | null {
+    const runtime = this.runtime
+    const session = runtime?.session
+    if (!session || !runtime) return null
+    const sessionId = session.sessionManager.getSessionId()
+    const projection = this.projectActiveSessionModel(session)
+    return {
+      runtime,
+      session,
+      generation: this.sessionGeneration,
+      busy:
+        this.modelMutationInProgress ||
+        this.followUp.length > 0 ||
+        (this.pendingPromptsBySession.get(sessionId) ?? 0) > 0 ||
+        this.approvalRegistry.requests(this.sessionGeneration).length > 0 ||
+        this.loginAbort !== null ||
+        Boolean(this.loginPrompt),
+      unavailable:
+        Boolean(this.endpointSafety.reason(this.readEndpointSafety())) ||
+        projection.modelAvailability !== 'available' ||
+        !projection.identity ||
+        session.model?.provider !== projection.identity.providerId ||
+        session.model?.id !== projection.identity.modelId
+    }
+  }
+
+  private editProjection(): NonNullable<AgentSnapshot['edit']> {
+    const state = this.editState()
+    if (!state) return { entryId: null, leafId: null, reason: '请先打开会话', pending: false }
+    const session = state.session
+    const pending = this.sessionEdits.pending
+    return {
+      entryId: latestUserId(session.sessionManager),
+      leafId: session.sessionManager.getLeafId(),
+      pending,
+      reason:
+        state.busy ||
+        pending ||
+        !session.isIdle ||
+        session.isStreaming ||
+        session.isCompacting ||
+        session.isRetrying ||
+        session.isBashRunning ||
+        session.pendingMessageCount > 0
+          ? '当前会话正在运行或等待处理，暂时不能编辑'
+          : null
+    }
+  }
+
+  private forkState(selectedEntryId?: string): SessionForkState | null {
+    const session = this.runtime?.session
+    if (!session) return null
+    const manager = session.sessionManager
+    const sessionId = manager.getSessionId()
+    const entryId = selectedEntryId ?? manager.getLeafId()
+    if (selectedEntryId && selectedEntryId !== manager.getLeafId() &&
+      !isCompletedAssistant(manager.getBranch().find(entry => entry.id === selectedEntryId))) return null
+    let saved = false
+    try {
+      saved = Boolean(session.sessionFile && lstatSync(session.sessionFile).isFile())
+    } catch {
+      /* Unsaved or unavailable. */
+    }
+    const busy =
+      !session.isIdle ||
+      session.isStreaming ||
+      session.isCompacting ||
+      session.isRetrying ||
+      session.isBashRunning ||
+      session.pendingMessageCount > 0 ||
+      this.followUp.length > 0 ||
+      (this.pendingPromptsBySession.get(sessionId) ?? 0) > 0 ||
+      this.approvalRegistry.requests(this.sessionGeneration).length > 0 ||
+      this.login.phase === 'starting' ||
+      this.login.phase === 'waiting' ||
+      Boolean(this.loginPrompt)
+    const reason = busy
+      ? '当前会话正在运行或等待处理，暂时不能分叉'
+      : !saved ||
+          !entryId ||
+          !manager
+            .getBranch()
+            .some((entry) => entry.type === 'message' && entry.message.role === 'assistant')
+        ? '保存包含助手回复的会话后可以分叉'
+        : null
+    return {
+      sessionId,
+      generation: this.sessionGeneration,
+      entryId: entryId ?? '',
+      eligible: !reason,
+      reason
+    }
+  }
+
+  private async forkSession(target: SessionForkTarget): Promise<{ cancelled: boolean }> {
+    return forkCurrentSession(target, {
+      readTarget: (entryId) => this.forkState(entryId),
+      prepare: () => this.refreshAuthProjection(),
+      fork: async (entryId) => {
+        const invalidatedRuntime = this.runtime!
+        const projectPath = this.projectPath!
+        const outgoingSessionManager = invalidatedRuntime.session.sessionManager
+        const recoveryModel = prepareSessionRecoveryModelSelection(
+          this.activeExplicitModel,
+          isConcreteModel(invalidatedRuntime.session.model)
+            ? invalidatedRuntime.session.model!
+            : null,
+          hasPersistentTranscript(outgoingSessionManager.buildContextEntries())
+        )
+        return runSessionReplacement({
+          generationBeforeReplacement: this.sessionGeneration,
+          invalidationBeforeReplacement: this.sessionInvalidationSequence,
+          replaceSession: () => invalidatedRuntime.fork(entryId, { position: 'at' }),
+          refreshSessions: async () => {
+            await this.refreshAuthProjection()
+            await this.refreshSessions()
+          },
+          readGeneration: () => this.sessionGeneration,
+          readInvalidation: () => this.sessionInvalidationSequence,
+          recoverInvalidatedSession: () =>
+            this.recoverInvalidatedSession(outgoingSessionManager, projectPath, recoveryModel),
+          clearSessionAfterRecoveryFailure: () =>
+            this.clearSessionAfterRecoveryFailure(invalidatedRuntime),
+          publishSnapshot: () => {
+            this.emitSnapshot()
+          }
+        })
+      },
+      refreshAfterFailure: () =>
+        refreshForkFailure({
+          refreshAuth: () => this.refreshAuthProjection(),
+          refreshSessions: () => this.refreshSessions(),
+          publishSnapshot: () => {
+            this.emitSnapshot()
+          }
+        })
+    })
+  }
+
   private async openSession(path: string): Promise<void> {
     if (!this.runtime || !this.projectPath) throw new Error('请先选择工作区')
     if (!this.sdk) throw new Error('Pi SDK 尚未加载')
-    const sessions = await this.sdk.SessionManager.list(
-      this.projectPath,
-      projectSessionDirectory(this.projectPath)
-    )
-    if (!sessions.some((session) => session.path === path)) throw new Error('会话不属于当前工作区')
+    const projectPath = this.projectPath
     const generationBeforeReplacement = this.sessionGeneration
-    const invalidationBeforeReplacement = this.sessionInvalidationSequence
     const invalidatedRuntime = this.runtime
+    const sessions = await listProjectSessions(
+      this.sdk.SessionManager,
+      projectPath,
+      projectSessionDirectory(projectPath)
+    )
+    if (
+      this.projectPath !== projectPath ||
+      this.sessionGeneration !== generationBeforeReplacement ||
+      this.runtime !== invalidatedRuntime
+    )
+      throw new Error('工作区已变更，请重试')
+    requireProjectSessionPath(sessions, projectPath, path)
+    const invalidationBeforeReplacement = this.sessionInvalidationSequence
     const outgoingSessionManager = invalidatedRuntime.session.sessionManager
     const recoveryModel = prepareSessionRecoveryModelSelection(
       this.activeExplicitModel,
       isConcreteModel(invalidatedRuntime.session.model) ? invalidatedRuntime.session.model! : null,
       hasPersistentTranscript(outgoingSessionManager.buildContextEntries())
     )
-    const projectPath = this.projectPath
     await runSessionReplacement({
       generationBeforeReplacement,
       invalidationBeforeReplacement,
@@ -1088,9 +1505,104 @@ class PiDesktopHost {
     })
   }
 
+  private async attachmentPrompt(request: AttachmentHostCommand): Promise<AttachmentReceipt> {
+    const { submissionId, scope } = request
+    const key = JSON.stringify(scope)
+    const result = (
+      status: AttachmentReceipt['status'],
+      code: AttachmentReceipt['code']
+    ): AttachmentReceipt => ({ submissionId, status, code })
+    for (const [id, entry] of this.attachmentReceipts) {
+      if (entry.receipt.status !== 'uncertain' && Date.now() - entry.at > 30 * 60 * 1000)
+        this.attachmentReceipts.delete(id)
+    }
+    const existing = this.attachmentReceipts.get(submissionId)
+    if (existing) return existing.scope === key ? existing.receipt : result('rejected', 'stale')
+    if (request.type === 'attachment:query') return result('uncertain', 'unknown')
+    const runtime = this.runtime
+    const session = runtime?.session
+    if (
+      !session ||
+      this.projectPath !== scope.projectPath ||
+      this.sessionGeneration !== scope.generation ||
+      session.sessionManager.getSessionId() !== scope.sessionId
+    )
+      return result('rejected', 'stale')
+    if (
+      session.isStreaming ||
+      (this.pendingPromptsBySession.get(scope.sessionId) ?? 0) > 0 ||
+      [...this.attachmentReceipts.values()].some(
+        (e) => e.scope === key && e.receipt.status === 'uncertain'
+      )
+    )
+      return result('rejected', 'busy')
+    const projection = this.projectActiveSessionModel(session)
+    if (
+      this.modelMutationInProgress ||
+      this.endpointSafety.reason(this.readEndpointSafety()) ||
+      this.login.phase === 'starting' ||
+      this.login.phase === 'waiting' ||
+      !projection.identity ||
+      projection.modelAvailability !== 'available' ||
+      session.model?.provider !== projection.identity.providerId ||
+      session.model?.id !== projection.identity.modelId
+    )
+      return result('rejected', 'unavailable')
+    // Keep one unknown result in the active scope, plus 32 completed receipts.
+    for (const [id, entry] of this.attachmentReceipts) {
+      if (entry.scope !== key && entry.receipt.status === 'uncertain')
+        this.attachmentReceipts.delete(id)
+    }
+    while (this.attachmentReceipts.size >= 32) {
+      const oldest = [...this.attachmentReceipts].find(([, e]) => e.receipt.status !== 'uncertain')
+      if (!oldest) break
+      this.attachmentReceipts.delete(oldest[0])
+    }
+    const entry = { scope: key, receipt: result('uncertain', 'unknown'), at: Date.now() }
+    this.attachmentReceipts.set(submissionId, entry)
+    this.pendingPromptsBySession.set(scope.sessionId, 1)
+    this.stopped = false
+    const observed = observeAttachmentPrompt(
+      session,
+      request.text,
+      15000,
+      (status) => {
+        if (
+          this.runtime !== runtime ||
+          this.sessionGeneration !== scope.generation ||
+          session.sessionManager.getSessionId() !== scope.sessionId
+        )
+          return
+        entry.receipt = result(status, status === 'accepted' ? 'accepted' : 'preflight')
+        entry.at = Date.now()
+      },
+      (error) => {
+        if (this.runtime !== runtime || this.sessionGeneration !== scope.generation) return
+        this.lastError = errorMessage(error)
+        this.emitPatch()
+      }
+    )
+    void observed.finished.finally(() => {
+      if (this.runtime !== runtime || this.sessionGeneration !== scope.generation) return
+      const remaining = (this.pendingPromptsBySession.get(scope.sessionId) ?? 1) - 1
+      if (remaining > 0) this.pendingPromptsBySession.set(scope.sessionId, remaining)
+      else this.pendingPromptsBySession.delete(scope.sessionId)
+      this.emitPatch()
+    })
+    await observed.receipt
+    return entry.receipt
+  }
+
   private sendPrompt(rawText: string): void {
     const session = this.runtime?.session
     if (!session) throw new Error('请先选择工作区')
+    const endpointBlock = this.endpointSafety.reason(this.readEndpointSafety())
+    if (endpointBlock)
+      throw new Error(
+        endpointBlock === 'endpoint-runtime-unsynchronized'
+          ? '端点运行时未同步，请检查端点配置并重新保存，或重启引擎后检查模型'
+          : '当前模型选择已失效，请明确重新选择模型后发送'
+      )
     if (this.modelMutationInProgress) throw new Error('正在切换模型，请稍后再发送')
     const text = rawText.trim()
     if (!text) throw new Error('请输入任务内容')
@@ -1111,6 +1623,8 @@ class PiDesktopHost {
     }
 
     const behavior = session.isStreaming ? 'followUp' : undefined
+    if (!behavior) this.stopped = false
+    const generation = this.sessionGeneration
     const sessionId = session.sessionManager.getSessionId()
     this.pendingPromptsBySession.set(
       sessionId,
@@ -1122,6 +1636,13 @@ class PiDesktopHost {
         source: 'rpc'
       })
       .catch((error) => {
+        if (generation !== this.sessionGeneration) return
+        if (
+          this.stopped &&
+          error instanceof Error &&
+          (error.name === 'AbortError' || error.message === 'Request was aborted')
+        )
+          return
         this.lastError = errorMessage(error)
         this.emitPatch()
       })
@@ -1129,10 +1650,14 @@ class PiDesktopHost {
         const remaining = (this.pendingPromptsBySession.get(sessionId) ?? 1) - 1
         if (remaining > 0) this.pendingPromptsBySession.set(sessionId, remaining)
         else this.pendingPromptsBySession.delete(sessionId)
+        // Extension commands can finish without an agent event; release fork eligibility too.
+        if (generation === this.sessionGeneration) this.emitPatch()
       })
   }
 
   private async abortPrompt(): Promise<void> {
+    this.sessionEdits.abort()
+    if (this.runtime?.session.isStreaming) this.stopped = true
     this.rejectApprovals(false, 'abort')
     await this.runtime?.session.abort()
   }
@@ -1159,6 +1684,7 @@ class PiDesktopHost {
               (model) => model.provider === identity.providerId && model.id === identity.modelId
             ),
         applyModel: async (target, model) => {
+          displayQuarantine.assertHealthy()
           const current = this.sessionModelMutationTarget()
           const session = this.runtime?.session
           if (
@@ -1172,12 +1698,15 @@ class PiDesktopHost {
           if (current.busy || current.promptPending) {
             throw new Error('当前会话正在运行，不能切换模型')
           }
-          await session.setModel(model)
+          await guardModelMutation(session, () => session.setModel(model))
         }
       })
       this.activeExplicitModel = selection
+      displayQuarantine.run(() => this.history.refresh())
+      this.endpointSafety.selected(this.readEndpointSafety())
     } finally {
       this.modelMutationInProgress = false
+      if (this.historyObserver.pending) this.schedulePatch()
     }
   }
 
@@ -1275,6 +1804,7 @@ class PiDesktopHost {
       .login(providerId, 'oauth', interaction)
       .then(async () => {
         this.rejectLoginPrompts()
+        this.modelRejections.clear(providerId)
         await completeLoginSuccess(providerId, {
           refreshAuthProjection: () => this.refreshAuthProjection(),
           publishLogin: (login) => {
@@ -1329,6 +1859,9 @@ class PiDesktopHost {
   }
 
   private async addAlias(slug: string): Promise<void> {
+    if (this.loginAbort) throw new Error('登录仍在进行，请完成登录后再添加账号')
+    const safety = this.readEndpointSafety()
+    if (safety.busy || safety.promptPending) throw new Error('当前会话正在运行，请结束后再添加账号')
     if (!this.runtime) throw new Error('请先选择工作区，再添加第二个 Codex 账号')
     const normalized = slug.trim()
     if (!ALIAS_SLUG.test(normalized)) throw new Error('账号别名只能使用小写字母、数字和单个连字符')
@@ -1359,130 +1892,6 @@ class PiDesktopHost {
     await this.refreshAuthProjection()
   }
 
-  private projectMessages(session: AgentSession): ConversationNode[] {
-    const messages = [...session.messages] as Message[]
-    const streaming = session.agent.state.streamingMessage as Message | undefined
-    if (streaming && !messages.includes(streaming)) messages.push(streaming)
-    const results = new Map<string, ToolResultMessage>()
-    for (const message of messages) {
-      if (message.role === 'toolResult') results.set(message.toolCallId, message)
-    }
-
-    return messages.flatMap((message, messageIndex) => {
-      if (message.role === 'user') return this.projectUserMessage(message, messageIndex)
-      if (message.role === 'assistant') {
-        return this.projectAssistantMessage(message, message === streaming, results)
-      }
-      return []
-    })
-  }
-
-  private projectEventMessage(message: Message, streaming: boolean): void {
-    if (message.role === 'assistant') {
-      this.conversationProjection.replaceGroup(
-        `assistant-message-${message.timestamp}`,
-        this.projectAssistantMessage(message, streaming)
-      )
-      return
-    }
-    if (message.role === 'user') {
-      const messages = (this.runtime?.session.messages ?? []) as Message[]
-      const matchingIndex = messages.findIndex(
-        (candidate) =>
-          candidate === message ||
-          (candidate.role === 'user' && candidate.timestamp === message.timestamp)
-      )
-      const messageIndex = matchingIndex >= 0 ? matchingIndex : messages.length
-      this.conversationProjection.replaceGroup(
-        `user-message-${message.timestamp}`,
-        this.projectUserMessage(message, messageIndex)
-      )
-      return
-    }
-    this.updateToolNode(
-      message.toolCallId,
-      this.toolOutputFields(
-        textFromContent(message.content),
-        this.toolExecution.get(message.toolCallId)?.status === 'blocked'
-          ? 'blocked'
-          : message.isError
-            ? 'error'
-            : 'success',
-        this.toolExecution.get(message.toolCallId)?.durationMs
-      )
-    )
-  }
-
-  private projectUserMessage(message: UserMessage, messageIndex: number): ConversationNode[] {
-    const text = textFromContent(message.content)
-    return text ? [{ id: `user-${message.timestamp}-${messageIndex}`, type: 'user', text }] : []
-  }
-
-  private projectAssistantMessage(
-    message: AssistantMessage,
-    streaming: boolean,
-    results: ReadonlyMap<string, ToolResultMessage> = new Map()
-  ): ConversationNode[] {
-    const nodes = message.content.flatMap<ConversationNode>((block, blockIndex) => {
-      if (block.type === 'text' && block.text) {
-        return [
-          {
-            id: `assistant-${message.timestamp}-${blockIndex}`,
-            type: 'assistant',
-            markdown: block.text,
-            streaming
-          }
-        ]
-      }
-      if (block.type === 'thinking' && block.thinking) {
-        return [
-          {
-            id: `think-${message.timestamp}-${blockIndex}`,
-            type: 'think',
-            text: block.thinking,
-            streaming
-          }
-        ]
-      }
-      if (block.type !== 'toolCall') return []
-
-      const result = results.get(block.id)
-      const rawOutput = result ? textFromContent(result.content) : undefined
-      const presentation = toolPresentation(block.name, block.arguments)
-      const trackedState = this.toolExecution.get(block.id)
-      const trackedStatus = trackedState?.status
-      const status =
-        trackedStatus === 'blocked'
-          ? 'blocked'
-          : result
-            ? result.isError
-              ? 'error'
-              : 'success'
-            : (trackedStatus ?? 'queued')
-      return [
-        {
-          id: `tool-${block.id}`,
-          type: 'tool',
-          toolCallId: block.id,
-          name: block.name,
-          intent: toolIntent(block.name),
-          title: presentation.title,
-          detail: presentation.detail,
-          ...(rawOutput !== undefined ? this.toolOutputFields(rawOutput, status) : { status }),
-          ...(trackedState?.durationMs !== undefined ? { durationMs: trackedState.durationMs } : {})
-        }
-      ]
-    })
-    if (message.errorMessage) {
-      nodes.push({
-        id: `error-${message.timestamp}`,
-        type: 'error',
-        message: message.errorMessage
-      })
-    }
-    return nodes
-  }
-
   private toolOutputFields(
     output: string,
     status: ToolStatus,
@@ -1504,9 +1913,7 @@ class PiDesktopHost {
     toolCallId: string,
     changes: Partial<Extract<ConversationNode, { type: 'tool' }>>
   ): void {
-    this.conversationProjection.update(`tool-${toolCallId}`, (node) => {
-      return node.type === 'tool' ? { ...node, ...changes } : node
-    })
+    displayQuarantine.run(() => this.history.updateTool(toolCallId, changes))
   }
 
   private metrics(session?: AgentSession): UsageMetrics {
@@ -1519,9 +1926,7 @@ class PiDesktopHost {
       ? timing.firstTokenSamples.reduce((sum, value) => sum + value, 0) /
         timing.firstTokenSamples.length
       : undefined
-    const tokensPerSecond = timing?.llmDurationMs
-      ? timing.outputTokens / (timing.llmDurationMs / 1000)
-      : undefined
+    const tokensPerSecond = timing ? measuredGenerationSpeed(timing) : undefined
     return {
       turns: stats.userMessages,
       steps: stats.toolCalls,
@@ -1540,16 +1945,18 @@ class PiDesktopHost {
         : {}),
       ...(timing?.llmDurationMs ? { llmDurationMs: timing.llmDurationMs } : {}),
       ...(firstTokenMs !== undefined ? { firstTokenMs } : {}),
-      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {})
+      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+      ...(timing?.usageIncomplete ? { usageIncomplete: true } : {})
     }
   }
 
   private sessionStatus(session?: AgentSession): SessionStatus {
-    if (this.lastError) return 'error'
-    if (this.approvalRegistry.requests(this.sessionGeneration).length > 0) {
-      return 'awaiting-approval'
-    }
-    return session?.isStreaming ? 'running' : 'idle'
+    return projectRunStatus({
+      busy: session?.isStreaming ?? false,
+      awaitingApproval: this.approvalRegistry.requests(this.sessionGeneration).length > 0,
+      stopped: this.stopped || this.conversationProjection.view().at(-1)?.type === 'stopped',
+      error: this.lastError
+    })
   }
 
   private sessionModelMutationTarget(): SessionModelMutationTarget | null {
@@ -1590,6 +1997,7 @@ class PiDesktopHost {
     const sessionFile = session?.sessionFile
     const activeSessionPath = sessionFile && existsSync(sessionFile) ? sessionFile : null
     const approvals = this.approvalRegistry.requests(this.sessionGeneration)
+    const forkState = this.forkState()
     return {
       sessionId: session?.sessionManager.getSessionId() ?? null,
       generation: this.sessionGeneration,
@@ -1605,13 +2013,20 @@ class PiDesktopHost {
         status: projectedSessionStatus(summary.path, activeSessionPath, status)
       })),
       activeSessionPath,
+      edit: this.editProjection(),
+      fork: {
+        entryId: forkState?.entryId || null,
+        reason: forkState?.reason ?? (!session ? '请先打开会话' : null)
+      },
       nodes: this.conversationProjection.view(),
       accounts: this.accounts,
       models: this.models,
       activeProvider: modelProjection?.identity?.providerId ?? null,
       activeModel: modelProjection?.identity?.modelId ?? null,
       modelAvailability: modelProjection?.modelAvailability ?? 'unselected',
-      composeBlockReason: composeBlockReasonForSnapshot(Boolean(this.projectPath), modelProjection),
+      composeBlockReason:
+        this.endpointSafety.reason(this.readEndpointSafety()) ??
+        composeBlockReasonForSnapshot(Boolean(this.projectPath), modelProjection),
       busy: session?.isStreaming ?? false,
       status,
       approvals,
@@ -1637,18 +2052,16 @@ class PiDesktopHost {
     this.conversationProjection.reset([])
   }
 
-  private emitSnapshot(): AgentSnapshot {
+  private emitSnapshot(): AgentSnapshot | undefined {
+    return displayQuarantine.run(() => this.buildSnapshot())
+  }
+
+  private buildSnapshot(): AgentSnapshot {
     this.clearPatchTimer()
-    this.pendingStreamingMessage = null
-    const session = this.runtime?.session
-    this.conversationProjection.reset(session ? this.projectMessages(session) : [])
-    const streaming = session?.agent.state.streamingMessage
-    if (isPiMessage(streaming) && streaming.role === 'assistant') {
-      this.conversationProjection.trackGroup(
-        `assistant-message-${streaming.timestamp}`,
-        this.projectAssistantMessage(streaming, true).map((node) => node.id)
-      )
-    }
+    this.projectPendingStreamingMessage()
+    this.refreshDirtyHistory()
+    this.history.refresh()
+    this.conversationProjection.drainChanges()
     const snapshot = this.snapshot()
     this.publishedSnapshot = snapshot
     send({ type: 'event', event: 'snapshot', data: snapshot })
@@ -1678,9 +2091,14 @@ class PiDesktopHost {
     send(message)
   }
 
-  private emitPatch(): AgentSnapshot {
+  private emitPatch(): AgentSnapshot | undefined {
+    return displayQuarantine.run(() => this.buildPatch())
+  }
+
+  private buildPatch(): AgentSnapshot {
     this.clearPatchTimer()
     this.projectPendingStreamingMessage()
+    this.refreshDirtyHistory()
     if (this.patchesSuspended) return this.snapshot()
     const previous = this.publishedSnapshot
     if (
@@ -1688,7 +2106,7 @@ class PiDesktopHost {
       previous.sessionId !== (this.runtime?.session.sessionManager.getSessionId() ?? null) ||
       previous.generation !== this.sessionGeneration
     ) {
-      return this.emitSnapshot()
+      return this.buildSnapshot()
     }
 
     const next = this.snapshot(this.revision + 1)
@@ -1703,9 +2121,14 @@ class PiDesktopHost {
     return next
   }
 
-  private emitStreamingPatch(): AgentSnapshot {
+  private emitStreamingPatch(): AgentSnapshot | undefined {
+    return displayQuarantine.run(() => this.buildStreamingStatePatch())
+  }
+
+  private buildStreamingStatePatch(): AgentSnapshot {
     this.clearPatchTimer()
     this.projectPendingStreamingMessage()
+    if (this.refreshDirtyHistory()) return this.buildPatch()
     if (this.patchesSuspended) return this.publishedSnapshot ?? this.snapshot()
 
     const result = buildStreamingPatch({
@@ -1714,7 +2137,7 @@ class PiDesktopHost {
       generation: this.sessionGeneration,
       nodes: this.conversationProjection.view(),
       changes: this.conversationProjection.drainChanges(),
-      buildDurableSnapshot: () => this.emitSnapshot()
+      buildDurableSnapshot: () => this.buildSnapshot()
     })
     if (result.kind === 'snapshot') return result.snapshot
 
@@ -1725,6 +2148,7 @@ class PiDesktopHost {
   }
 
   private schedulePatch(): void {
+    if (displayQuarantine.failed) return
     this.patchBatcher.schedule()
   }
 
@@ -1732,7 +2156,7 @@ class PiDesktopHost {
     const pending = this.pendingStreamingMessage
     if (!pending) return
     this.pendingStreamingMessage = null
-    this.projectEventMessage(pending, true)
+    this.history.update(pending, true)
   }
 
   private flushPatch(): void {
@@ -1747,10 +2171,11 @@ class PiDesktopHost {
   }
 
   private abandonRuntime(): void {
+    this.sessionEdits.invalidate()
     this.rejectBrowserCapabilities('会话已切换，浏览器操作已取消')
     this.rejectApprovals(true, 'session-switch')
-    this.unsubscribeSession?.()
-    this.unsubscribeSession = undefined
+    this.history.detach()
+    this.historyObserver.clear()
     this.sessionGeneration += 1
     this.pendingPackageRootsPublication = null
     this.resetPublishedState()
@@ -1798,12 +2223,17 @@ process.parentPort.on('message', (event) => {
       send({ type: 'response', requestId: request.requestId, ok: true, data: result })
     })
     .catch((error) => {
-      send({
-        type: 'response',
-        requestId: request.requestId,
-        ok: false,
-        error: errorMessage(error)
-      })
+      try {
+        send({
+          type: 'response',
+          requestId: request.requestId,
+          ok: false,
+          error: errorMessage(error)
+        })
+      } finally {
+        // Skip SDK disposal hooks: they could persist the poisoned in-memory entry.
+        if (error instanceof SessionRuntimeUnsafeError) process.exit(1)
+      }
     })
 })
 

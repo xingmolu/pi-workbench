@@ -7,6 +7,66 @@ import {
 } from './composer-model-selection'
 
 describe('composer account staging', () => {
+  it.each([null, 'provider-a'])(
+    'follows a confirmed provider change from %s without explicit staging',
+    (provider) => {
+      const initial = initialComposerModelSelection({
+        generation: 4,
+        sessionId: 'session-a',
+        activeProvider: provider
+      })
+      const synced = composerModelSelectionReducer(initial, {
+        type: 'snapshot:sync',
+        generation: 4,
+        sessionId: 'session-a',
+        activeProvider: 'provider-b'
+      })
+      expect(synced.stagedProvider).toBe('provider-b')
+      expect(
+        composerModelSelectionReducer(synced, {
+          type: 'snapshot:sync',
+          generation: 4,
+          sessionId: 'session-a',
+          activeProvider: 'provider-c'
+        }).stagedProvider
+      ).toBe('provider-c')
+    }
+  )
+
+  it('preserves deliberate account browsing until its selection is confirmed', () => {
+    const initial = initialComposerModelSelection({
+      generation: 4,
+      sessionId: 'session-a',
+      activeProvider: 'provider-a'
+    })
+    const staged = composerModelSelectionReducer(initial, {
+      type: 'provider:stage',
+      providerId: 'provider-b'
+    })
+    const background = composerModelSelectionReducer(staged, {
+      type: 'snapshot:sync',
+      generation: 4,
+      sessionId: 'session-a',
+      activeProvider: 'provider-c'
+    })
+    expect(background.stagedProvider).toBe('provider-b')
+    const confirmed = composerModelSelectionReducer(background, {
+      type: 'snapshot:sync',
+      generation: 4,
+      sessionId: 'session-a',
+      activeProvider: 'provider-b'
+    })
+    expect(confirmed.stagedProvider).toBe('provider-b')
+    expect(
+      composerModelSelectionReducer(confirmed, {
+        type: 'snapshot:sync',
+        generation: 4,
+        sessionId: 'session-a',
+        activeProvider: 'provider-d'
+      }).stagedProvider
+    ).toBe('provider-d')
+  })
+
   it('stages account browsing locally without producing a host command', () => {
     const initial = initialComposerModelSelection({
       generation: 4,
@@ -22,6 +82,7 @@ describe('composer account staging', () => {
     expect(staged).toEqual({
       generation: 4,
       sessionId: 'session-a',
+      activeProvider: 'openai-codex-work',
       stagedProvider: 'openai-codex-personal'
     })
     expect(staged).not.toHaveProperty('command')
@@ -31,6 +92,7 @@ describe('composer account staging', () => {
     const staged = {
       generation: 4,
       sessionId: 'session-a',
+      activeProvider: 'openai-codex-work',
       stagedProvider: 'openai-codex-personal'
     }
 
@@ -44,6 +106,7 @@ describe('composer account staging', () => {
     ).toEqual({
       generation: 5,
       sessionId: 'session-b',
+      activeProvider: 'openai-codex-work',
       stagedProvider: 'openai-codex-work'
     })
   })

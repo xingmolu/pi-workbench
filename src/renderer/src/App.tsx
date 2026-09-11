@@ -8,7 +8,10 @@ import type {
 import Sidebar from './components/Sidebar'
 import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
-import { modelSelectionCommand, newSessionCommand } from './store/composer-model-selection'
+import { modelSelectionCommand } from './store/composer-model-selection'
+import { projectNavigationReason } from '../../shared/project-catalog'
+import type { ProjectNavigationFailures } from '../../shared/project-catalog'
+import { useSessionEdit } from './store/session-edit'
 import { usePiStore } from './store/pi-store'
 import { startWorkbenchEventCoordinator } from './store/workbench-event-coordinator'
 import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/workbench-selection'
@@ -22,6 +25,20 @@ export default function App(): React.JSX.Element {
   const setSnapshot = usePiStore((state) => state.setSnapshot)
   const applyPatch = usePiStore((state) => state.applyPatch)
   const setClientError = usePiStore((state) => state.setClientError)
+  const disconnect = usePiStore((state) => state.disconnect)
+  const recover = usePiStore((state) => state.recover)
+  const [reconnecting, setReconnecting] = useState(false)
+  const navigationLock = useRef(false)
+  const navigationAttempt = useRef(0)
+  const [navigationFailures, setNavigationFailures] = useState<ProjectNavigationFailures>({})
+  const [navigating, setNavigating] = useState(false)
+  const forkPending = usePiStore((state) => state.forkPending)
+  const editPhase = useSessionEdit((state) => state.phase)
+  const navigationDisabledReason = forkPending
+    ? '正在分叉会话'
+    : editPhase !== 'closed'
+      ? '请先完成或取消编辑'
+      : null
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
   const [workbenchStatus, dispatchWorkbenchStatus] = useReducer(
     workbenchStatusReducer,
@@ -48,6 +65,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     const unsubscribe = window.pi.onEvent((event) => {
+      if (event.event === 'disconnected') disconnect(event.data.message)
       if (event.event === 'snapshot') setSnapshot(event.data)
       if (event.event === 'patch' && applyPatch(event.data) === 'needsSnapshot') {
         void window.pi
@@ -73,7 +91,7 @@ export default function App(): React.JSX.Element {
       cancelled = true
       unsubscribe()
     }
-  }, [applyPatch, setClientError, setSnapshot])
+  }, [applyPatch, disconnect, setClientError, setSnapshot])
 
   useEffect(
     () =>
@@ -103,25 +121,115 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const send = useCallback(
-    async (command: HostCommand): Promise<void> => {
+    async (command: HostCommand): Promise<boolean> => {
+      if (usePiStore.getState().disconnected) {
+        setClientError('Pi 引擎未连接，请先重新连接引擎。')
+        return false
+      }
       try {
         const result = await window.pi.send(command)
         if (result.kind === 'snapshot') setSnapshot(result.snapshot)
+        return true
       } catch (error) {
-        setClientError(error instanceof Error ? error.message : String(error))
+        const message = error instanceof Error ? error.message : String(error)
+        setClientError(
+          message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
+        )
+        return false
       }
     },
     [setClientError, setSnapshot]
   )
 
+  const reconnect = async (): Promise<void> => {
+    if (reconnecting) return
+    setReconnecting(true)
+    try {
+      recover(await window.pi.reconnect())
+    } catch {
+      disconnect('重新连接失败。草稿和当前画布已保留，请稍后重试。')
+    } finally {
+      setReconnecting(false)
+    }
+  }
+
   const chooseProject = useCallback(async (): Promise<void> => {
+    if (
+      navigationLock.current ||
+      usePiStore.getState().forkPending ||
+      useSessionEdit.getState().phase !== 'closed' ||
+      projectNavigationReason(usePiStore.getState().snapshot)
+    )
+      return
+    if (usePiStore.getState().disconnected) {
+      setClientError('Pi 引擎未连接，请先重新连接引擎。')
+      return
+    }
+    navigationLock.current = true
+    setNavigating(true)
     try {
       const state = await window.pi.selectProject()
       if (state) setSnapshot(state)
     } catch (error) {
       setClientError(error instanceof Error ? error.message : String(error))
+    } finally {
+      navigationLock.current = false
+      setNavigating(false)
     }
   }, [setClientError, setSnapshot])
+
+  const navigateProject = useCallback(
+    async (cwd: string, sessionPath?: string): Promise<void> => {
+      const current = usePiStore.getState().snapshot
+      if (
+        navigationLock.current ||
+        usePiStore.getState().forkPending ||
+        useSessionEdit.getState().phase !== 'closed' ||
+        projectNavigationReason(current)
+      )
+        return
+      setNavigationFailures((previous) => {
+        const next = { ...previous }
+        delete next[cwd]
+        return next
+      })
+      if (cwd === current.project?.path && sessionPath && sessionPath === current.activeSessionPath)
+        return
+      navigationLock.current = true
+      const attempt = ++navigationAttempt.current
+      setNavigating(true)
+      try {
+        const result = await window.pi.send({
+          type: 'project:navigate',
+          cwd,
+          ...(sessionPath ? { sessionPath } : {}),
+          sessionId: current.sessionId,
+          generation: current.generation
+        })
+        if (attempt === navigationAttempt.current) setSnapshot(result.snapshot)
+      } catch (error) {
+        // A failed transition may already have published a new identity; read the actual state.
+        try {
+          setSnapshot(await window.pi.getState())
+        } catch {
+          /* Keep last observed snapshot. */
+        }
+        const message =
+          error instanceof Error
+            ? error.message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
+            : '项目切换未完成，请重试'
+        if (attempt === navigationAttempt.current)
+          setNavigationFailures((previous) => ({
+            ...previous,
+            [cwd]: { message, ...(sessionPath ? { sessionPath } : {}) }
+          }))
+      } finally {
+        navigationLock.current = false
+        setNavigating(false)
+      }
+    },
+    [setSnapshot]
+  )
 
   const sendWorkbench = useCallback(
     async (command: WorkbenchCommand): Promise<void> => {
@@ -163,8 +271,13 @@ export default function App(): React.JSX.Element {
         snapshot={snapshot}
         onToggle={() => dispatchLayout({ type: 'sidebar:toggle' })}
         onChooseProject={() => void chooseProject()}
-        onNewSession={() => void send(newSessionCommand(snapshot))}
-        onOpenSession={(path) => void send({ type: 'session:open', path })}
+        onNewSession={() => {
+          if (snapshot.project) void navigateProject(snapshot.project.path)
+        }}
+        onNavigate={(cwd, path) => void navigateProject(cwd, path)}
+        navigationFailures={navigationFailures}
+        pending={navigating}
+        disabledReason={navigationDisabledReason}
         onOpenSettings={openSettings}
       />
 
@@ -172,9 +285,12 @@ export default function App(): React.JSX.Element {
         snapshot={snapshot}
         approvals={snapshot.approvals}
         loading={loading}
-        error={snapshot.error ?? clientError}
+        error={clientError ?? snapshot.error}
         onChooseProject={() => void chooseProject()}
-        onSend={(text) => void send({ type: 'prompt:send', text })}
+        onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
+        onOpenSession={(path) => void send({ type: 'session:open', path })}
+        onReconnect={() => void reconnect()}
+        reconnecting={reconnecting}
         onAbort={() => void send({ type: 'prompt:abort' })}
         onClearQueue={() => void send({ type: 'queue:clear' })}
         onPermissionChange={(permission) => void send({ type: 'permission:set', mode: permission })}

@@ -42,7 +42,11 @@ import {
   pluginSettingsOperationReducer
 } from '../store/plugin-settings'
 import BrowserPane from './BrowserPane'
+import FilesPane from './FilesPane'
+import GitReviewPane from './GitReviewPane'
 import SandboxedPluginPane from './SandboxedPluginPane'
+import TerminalPane from './TerminalPane'
+import CustomEndpoints from './CustomEndpoints'
 
 const WORKBENCH_ICONS: Record<WorkbenchIcon, LucideIcon> = {
   files: Files,
@@ -51,15 +55,6 @@ const WORKBENCH_ICONS: Record<WorkbenchIcon, LucideIcon> = {
   browser: Globe2,
   plugin: Puzzle,
   flask: FlaskConical
-}
-
-const FIRST_PARTY_HINTS: Record<
-  Extract<WorkbenchContribution['surface'], { kind: 'first-party' }>['adapter'],
-  { title: string; copy: string }
-> = {
-  files: { title: '文件面板', copy: '本轮保持占位，不读取或复制项目文件树。' },
-  review: { title: 'Git Review', copy: '本轮保持占位，不接入 Git diff 或审查工作流。' },
-  terminal: { title: '用户终端', copy: '本轮保持占位。Agent 命令会作为对话工具卡片显示。' }
 }
 
 type WorkbenchProps = {
@@ -550,6 +545,8 @@ function SettingsPanel({
           ))}
         </section>
 
+        <CustomEndpoints snapshot={agentSnapshot} />
+
         <PluginSettingsSection snapshot={workbenchSnapshot} onCommand={onWorkbenchCommand} />
 
         <section className="settings-section provider-note">
@@ -591,25 +588,32 @@ function EmptyWorkbench({ hasContributions }: { hasContributions: boolean }): Re
 function ContributionSurface({
   contribution,
   projectReady,
+  gitReady,
+  projectPath,
   onCommand,
   onError
 }: {
   contribution: WorkbenchContribution | undefined
   projectReady: boolean
+  gitReady: boolean
+  projectPath: string | null
   onCommand: (command: WorkbenchCommand) => Promise<void>
   onError: (message: string) => void
 }): React.JSX.Element {
   if (!contribution) return <EmptyWorkbench hasContributions={false} />
   if (contribution.surface.kind === 'first-party') {
-    const hint = FIRST_PARTY_HINTS[contribution.surface.adapter]
-    return (
-      <div className="workbench-body">
-        <MonitorCog size={23} />
-        <p className="workbench-empty-title">{hint.title}</p>
-        <p className="workbench-empty-copy">{hint.copy}</p>
-        <span className="placeholder-pill">占位</span>
-      </div>
-    )
+    if (contribution.surface.adapter === 'files')
+      return <FilesPane key={projectPath ?? 'no-project'} projectPath={projectPath} />
+    if (contribution.surface.adapter === 'review')
+      return (
+        <GitReviewPane
+          key={`${projectPath ?? 'no-project'}:${gitReady}`}
+          projectPath={projectPath}
+          ready={gitReady}
+        />
+      )
+    // Terminal is owned by the persistent stage below, outside conditional surfaces.
+    return <></>
   }
   if (contribution.surface.kind === 'native-view') {
     return (
@@ -687,59 +691,71 @@ export default function Workbench({
         </div>
       </nav>
 
-      {!collapsed ? (
-        <div className="workbench-stage">
-          <header className="workbench-stage-head">
-            <div className="workbench-stage-title">
-              {settingsOpen ? <Settings2 size={15} /> : <SelectedIcon size={15} />}
-              <span title={settingsOpen ? '设置' : selectedContribution?.title}>
-                {settingsOpen ? '设置' : (selectedContribution?.title ?? '工作台')}
-              </span>
-              {!settingsOpen && selectedContribution ? (
-                <small>{selectedPlugin?.builtin ? '内置' : '插件'}</small>
-              ) : null}
-            </div>
-            <button
-              className="icon-btn workbench-fold"
-              type="button"
-              onClick={onToggle}
-              title={settingsOpen ? '关闭设置' : '折叠工作台'}
-              aria-label={settingsOpen ? '关闭设置' : '折叠工作台'}
+      <div className="workbench-stage" hidden={collapsed}>
+        <header className="workbench-stage-head">
+          <div className="workbench-stage-title">
+            {settingsOpen ? <Settings2 size={15} /> : <SelectedIcon size={15} />}
+            <span
+              title={collapsed ? undefined : settingsOpen ? '设置' : selectedContribution?.title}
             >
-              <ChevronRight size={17} />
-            </button>
-          </header>
-
-          {workbenchError ? (
-            <div className="workbench-error" role="alert">
-              <CircleAlert size={14} aria-hidden="true" />
-              <span>{workbenchError}</span>
-            </div>
-          ) : null}
-
-          <div className="workbench-stage-body">
-            {settingsOpen ? (
-              <SettingsPanel
-                agentSnapshot={agentSnapshot}
-                workbenchSnapshot={workbenchSnapshot}
-                onWorkbenchCommand={onWorkbenchCommand}
-                onLogin={onLogin}
-                onAddAlias={onAddAlias}
-                onLoginPrompt={onLoginPrompt}
-              />
-            ) : selectedContribution ? (
-              <ContributionSurface
-                contribution={selectedContribution}
-                projectReady={Boolean(agentSnapshot.project)}
-                onCommand={onWorkbenchCommand}
-                onError={onWorkbenchError}
-              />
-            ) : (
-              <EmptyWorkbench hasContributions={workbenchSnapshot.contributions.length > 0} />
-            )}
+              {settingsOpen ? '设置' : (selectedContribution?.title ?? '工作台')}
+            </span>
+            {!settingsOpen && selectedContribution ? (
+              <small>{selectedPlugin?.builtin ? '内置' : '插件'}</small>
+            ) : null}
           </div>
+          <button
+            className="icon-btn workbench-fold"
+            type="button"
+            onClick={onToggle}
+            title={settingsOpen ? '关闭设置' : '折叠工作台'}
+            aria-label={settingsOpen ? '关闭设置' : '折叠工作台'}
+          >
+            <ChevronRight size={17} />
+          </button>
+        </header>
+
+        {workbenchError ? (
+          <div className="workbench-error" role="alert">
+            <CircleAlert size={14} aria-hidden="true" />
+            <span>{workbenchError}</span>
+          </div>
+        ) : null}
+
+        <div className="workbench-stage-body">
+          <TerminalPane
+            projectPath={agentSnapshot.project?.path ?? null}
+            visible={
+              !collapsed &&
+              !settingsOpen &&
+              selectedContribution?.surface.kind === 'first-party' &&
+              selectedContribution.surface.adapter === 'terminal'
+            }
+          />
+          {collapsed ? null : settingsOpen ? (
+            <SettingsPanel
+              agentSnapshot={agentSnapshot}
+              workbenchSnapshot={workbenchSnapshot}
+              onWorkbenchCommand={onWorkbenchCommand}
+              onLogin={onLogin}
+              onAddAlias={onAddAlias}
+              onLoginPrompt={onLoginPrompt}
+            />
+          ) : selectedContribution?.surface.kind === 'first-party' &&
+            selectedContribution.surface.adapter === 'terminal' ? null : selectedContribution ? (
+            <ContributionSurface
+              contribution={selectedContribution}
+              projectReady={Boolean(agentSnapshot.project)}
+              gitReady={agentSnapshot.ready}
+              projectPath={agentSnapshot.project?.path ?? null}
+              onCommand={onWorkbenchCommand}
+              onError={onWorkbenchError}
+            />
+          ) : (
+            <EmptyWorkbench hasContributions={workbenchSnapshot.contributions.length > 0} />
+          )}
         </div>
-      ) : null}
+      </div>
     </aside>
   )
 }

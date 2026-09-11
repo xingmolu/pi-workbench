@@ -5,6 +5,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/agent-host/**/*",
+    "src/terminal-host/**/*",
     "playwright.config.ts",
     "tests/e2e/**/*"
   ],

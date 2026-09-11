@@ -1,4 +1,42 @@
-import type { ConversationNode, UsageMetrics } from '../../../shared/contracts'
+import type { ApprovalRequest, ConversationNode, UsageMetrics } from '../../../shared/contracts'
+
+export function currentToolApproval(
+  node: Extract<ConversationNode, { type: 'tool' }>,
+  approvals: readonly ApprovalRequest[]
+): ApprovalRequest | null {
+  return node.status === 'awaiting-approval'
+    ? (approvals.find((request) => request.toolCallId === node.toolCallId) ?? null)
+    : null
+}
+
+export function approvalSummary(approval: ApprovalRequest): string {
+  if (approval.intent === 'web') {
+    try {
+      const input = JSON.parse(approval.detail)
+      const actions: Record<string, string> = {
+        new_tab: '打开新网页',
+        navigate: '前往网页',
+        click: '点击网页元素',
+        fill: '填写网页内容',
+        select: '选择网页选项',
+        keypress: '向网页发送按键',
+        close_tab: '关闭网页',
+        reload: '重新加载网页',
+        back: '网页后退',
+        forward: '网页前进'
+      }
+      const action = actions[input.action] ?? '操作网页'
+      return typeof input.url === 'string' ? `${action} · ${new URL(input.url).hostname}` : action
+    } catch {
+      return '操作右侧浏览器中的网页'
+    }
+  }
+  return approval.intent === 'diff'
+    ? '修改项目文件'
+    : approval.intent === 'terminal'
+      ? '运行本地命令'
+      : approval.title
+}
 
 export type ContextDisplay = {
   percent: number | null
@@ -44,7 +82,9 @@ export function runtimeMetricsDisplay(metrics: UsageMetrics): [label: string, va
     ],
     [
       '生成速度',
-      metrics.tokensPerSecond === undefined ? '未知' : `${metrics.tokensPerSecond.toFixed(1)} tok/s`
+      metrics.usageIncomplete || metrics.tokensPerSecond === undefined
+        ? '未知'
+        : `${metrics.tokensPerSecond.toFixed(1)} tok/s`
     ]
   ]
 }
@@ -52,6 +92,7 @@ export function runtimeMetricsDisplay(metrics: UsageMetrics): [label: string, va
 export function composerStatsDisplay(metrics: UsageMetrics): string[] | null {
   if (!metrics.turns && !metrics.input && !metrics.output) return null
 
+  if (metrics.usageIncomplete) metrics = { ...metrics, tokensPerSecond: undefined }
   const promptTokens = metrics.input + metrics.cacheRead + metrics.cacheWrite
   const groups = [`${metrics.turns}轮 · ${metrics.steps}步`]
   if (metrics.llmDurationMs !== undefined) {
@@ -69,6 +110,7 @@ export function composerStatsDisplay(metrics: UsageMetrics): string[] | null {
     groups.push(`缓存命中 ${hit.toFixed(0)}%`)
   }
   groups.push(`输入 ${formatTokens(promptTokens)} tok · 输出 ${formatTokens(metrics.output)} tok`)
+  if (metrics.usageIncomplete) groups.push('中断用量未知 · 累计仅含已报告用量')
   return groups
 }
 

@@ -3,6 +3,7 @@ import type { AgentSnapshot, HostCommand } from '../../../shared/contracts'
 export type ComposerModelSelectionState = {
   generation: number
   sessionId: string | null
+  activeProvider: string | null
   stagedProvider: string | null
 }
 
@@ -28,6 +29,7 @@ export function initialComposerModelSelection(
   return {
     generation: snapshot.generation,
     sessionId: snapshot.sessionId,
+    activeProvider: snapshot.activeProvider,
     stagedProvider: snapshot.activeProvider
   }
 }
@@ -39,10 +41,20 @@ export function composerModelSelectionReducer(
   if (action.type === 'provider:stage') {
     return { ...state, stagedProvider: action.providerId }
   }
-  if (action.generation === state.generation && action.sessionId === state.sessionId) return state
+  if (action.generation === state.generation && action.sessionId === state.sessionId) {
+    if (action.activeProvider === state.activeProvider) return state
+    return {
+      ...state,
+      activeProvider: action.activeProvider,
+      // Follow Host changes only when the user is not browsing another account.
+      stagedProvider:
+        state.stagedProvider === state.activeProvider ? action.activeProvider : state.stagedProvider
+    }
+  }
   return {
     generation: action.generation,
     sessionId: action.sessionId,
+    activeProvider: action.activeProvider,
     stagedProvider: action.activeProvider
   }
 }

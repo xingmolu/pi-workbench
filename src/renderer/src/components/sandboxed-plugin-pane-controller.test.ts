@@ -53,6 +53,13 @@ async function settle(): Promise<void> {
 }
 
 describe('Sandboxed plugin pane command backpressure', () => {
+  it('ignores expected unavailability during suspension after a crash', async () => {
+    const { controller, requests, errors } = setup()
+    controller.suspend()
+    requests[0]!.reject(new Error('Workbench panel is unavailable'))
+    await settle()
+    expect(errors).not.toHaveBeenCalled()
+  })
   it('allows only one visible request while retaining the latest bounds', () => {
     const { controller, commands } = setup()
 

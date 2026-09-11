@@ -1,5 +1,26 @@
 import { z } from 'zod'
+import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
+import {
+  editPrepareSchema,
+  editCancelSchema,
+  editSendSchema,
+  editQuerySchema,
+  editResultSchema
+} from './session-edit'
+import {
+  attachmentPromptCommandSchema,
+  attachmentQueryCommandSchema,
+  attachmentReceiptSchema
+} from './text-attachments'
+import { browserRefSchema } from './browser-ref'
+import {
+  customEndpointConfigSnapshotSchema,
+  customEndpointContextSchema,
+  customEndpointSaveRequestSchema,
+  customEndpointSaveResultSchema
+} from './custom-endpoints'
 import { AGENT_ENGINE } from './contracts'
+import { normalizeSessionName } from './session-name'
 import type {
   AgentSnapshot,
   AgentStatePatch,
@@ -19,7 +40,7 @@ import type {
 
 const nonNegativeInteger = z.number().int().nonnegative()
 const permissionModeSchema = z.enum(['open', 'ask'])
-const sessionStatusSchema = z.enum(['idle', 'running', 'awaiting-approval', 'error'])
+const sessionStatusSchema = z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped'])
 const toolIntentSchema = z.enum(['terminal', 'read', 'diff', 'search', 'web', 'generic'])
 const toolStatusSchema = z.enum([
   'queued',
@@ -30,19 +51,50 @@ const toolStatusSchema = z.enum([
   'blocked'
 ])
 
+const nodeIdentitySchema = {
+  id: z.string(),
+  presentationIdentity: z.string().min(1).max(1024).optional()
+}
 const conversationNodeSchema = z.discriminatedUnion('type', [
-  z.object({ id: z.string(), type: z.literal('user'), text: z.string() }).strict(),
   z
     .object({
-      id: z.string(),
+      ...nodeIdentitySchema,
+      type: z.literal('model'),
+      provider: z.string(),
+      modelId: z.string(),
+      name: z.string().optional(),
+      initial: z.boolean()
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeIdentitySchema,
+      type: z.literal('compaction'),
+      tokensBefore: nonNegativeInteger
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeIdentitySchema,
+      type: z.literal('user'),
+      text: z.string(),
+      canonicalEntryId: z.string().min(1).optional(),
+      imageCount: nonNegativeInteger.optional()
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeIdentitySchema,
       type: z.literal('assistant'),
       markdown: z.string(),
+      canonicalEntryId: z.string().min(1).optional(),
+      feedback: messageFeedbackDataSchema.shape.value.optional(),
       streaming: z.boolean().optional()
     })
     .strict(),
   z
     .object({
-      id: z.string(),
+      ...nodeIdentitySchema,
       type: z.literal('think'),
       text: z.string(),
       streaming: z.boolean().optional()
@@ -50,7 +102,7 @@ const conversationNodeSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
-      id: z.string(),
+      ...nodeIdentitySchema,
       type: z.literal('tool'),
       toolCallId: z.string(),
       name: z.string(),
@@ -64,7 +116,8 @@ const conversationNodeSchema = z.discriminatedUnion('type', [
       status: toolStatusSchema
     })
     .strict(),
-  z.object({ id: z.string(), type: z.literal('error'), message: z.string() }).strict()
+  z.object({ ...nodeIdentitySchema, type: z.literal('error'), message: z.string() }).strict(),
+  z.object({ ...nodeIdentitySchema, type: z.literal('stopped'), message: z.string() }).strict()
 ])
 
 const projectInfoSchema = z.object({ path: z.string(), name: z.string() }).strict()
@@ -76,7 +129,9 @@ const sessionSummarySchema = z
     modified: z.string(),
     messageCount: nonNegativeInteger,
     active: z.boolean(),
-    status: sessionStatusSchema
+    status: sessionStatusSchema,
+    parentSessionPath: z.string().optional(),
+    parentUnavailable: z.boolean().optional()
   })
   .strict()
 const accountSummarySchema = z
@@ -95,7 +150,8 @@ const modelSummarySchema = z
     id: z.string(),
     name: z.string(),
     contextWindow: nonNegativeInteger,
-    reasoning: z.boolean()
+    reasoning: z.boolean(),
+    unavailableReason: z.string().optional()
   })
   .strict()
 const modelAvailabilitySchema = z.enum(['available', 'unavailable', 'unselected'])
@@ -105,7 +161,9 @@ const composeBlockReasonSchema = z
     'login-required',
     'model-required',
     'model-unavailable',
-    'pinned-model-unavailable'
+    'pinned-model-unavailable',
+    'endpoint-runtime-unsynchronized',
+    'endpoint-selection-invalidated'
   ])
   .nullable()
 const usageMetricsSchema = z
@@ -121,7 +179,8 @@ const usageMetricsSchema = z
     contextPercent: z.number().nonnegative().optional(),
     llmDurationMs: z.number().nonnegative().optional(),
     firstTokenMs: z.number().nonnegative().optional(),
-    tokensPerSecond: z.number().nonnegative().optional()
+    tokensPerSecond: z.number().nonnegative().optional(),
+    usageIncomplete: z.boolean().optional()
   })
   .strict()
 const approvalRequestSchema = z
@@ -194,14 +253,14 @@ export const browserOperationSchema: z.ZodType<BrowserOperation> = z.discriminat
     z.object({ action: z.literal(action), ...browserPageTargetShape }).strict()
   ),
   z
-    .object({ action: z.literal('click'), ref: z.string().min(1), ...browserPageTargetShape })
+    .object({ action: z.literal('click'), ref: browserRefSchema, ...browserPageTargetShape })
     .strict(),
   ...(['fill', 'select'] as const).map((action) =>
     z
       .object({
         action: z.literal(action),
-        ref: z.string().min(1),
-        value: z.string(),
+        ref: browserRefSchema,
+        value: z.string().max(10000),
         ...browserPageTargetShape
       })
       .strict()
@@ -220,7 +279,7 @@ export const browserOperationSchema: z.ZodType<BrowserOperation> = z.discriminat
   z
     .object({
       action: z.literal('wait'),
-      text: z.string().min(1).optional(),
+      text: z.string().min(1).max(10000).optional(),
       url: z.string().min(1).optional(),
       timeoutMs: z.number().int().positive().max(30_000).optional(),
       ...browserPageTargetShape
@@ -337,6 +396,19 @@ export const browserCapabilityResponseSchema: z.ZodType<BrowserCapabilityRespons
   ])
 
 const agentSnapshotMetaShape = {
+  edit: z
+    .object({
+      entryId: z.string().nullable(),
+      leafId: z.string().nullable(),
+      reason: z.string().nullable(),
+      pending: z.boolean()
+    })
+    .strict()
+    .optional(),
+  fork: z
+    .object({ entryId: z.string().nullable(), reason: z.string().nullable() })
+    .strict()
+    .optional(),
   ready: z.boolean(),
   engine: z.literal(AGENT_ENGINE),
   agentDir: z.string(),
@@ -391,6 +463,19 @@ const stateGetCommandSchema = z.object({ type: z.literal('state:get') }).strict(
 const projectOpenCommandSchema = z
   .object({ type: z.literal('project:open'), cwd: z.string().min(1) })
   .strict()
+const projectCatalogCommandSchema = z.object({
+  type: z.literal('project:catalog'),
+  cwd: z.string().min(1).optional(),
+  offset: z.number().int().min(0).max(1_000_000).optional(),
+  recentPaths: z.array(z.string().min(1)).max(100).optional()
+}).strict()
+const projectNavigateCommandSchema = z.object({
+  type: z.literal('project:navigate'),
+  cwd: z.string().min(1),
+  sessionPath: z.string().min(1).optional(),
+  sessionId: z.string().min(1).nullable(),
+  generation: nonNegativeInteger
+}).strict()
 const sessionNewBareCommandSchema = z.object({ type: z.literal('session:new') }).strict()
 const sessionNewExactCommandSchema = z
   .object({
@@ -403,8 +488,35 @@ const sessionNewCommandSchema = z.union([sessionNewBareCommandSchema, sessionNew
 const sessionOpenCommandSchema = z
   .object({ type: z.literal('session:open'), path: z.string().min(1) })
   .strict()
+const sessionForkCommandSchema = z
+  .object({
+    type: z.literal('session:fork'),
+    sessionId: z.string().min(1),
+    generation: nonNegativeInteger,
+    entryId: z.string().min(1)
+  })
+  .strict()
+const sessionRenameCommandSchema = z
+  .object({
+    type: z.literal('session:rename'),
+    sessionId: z.string().min(1),
+    generation: nonNegativeInteger,
+    name: z.string().superRefine((name, context) => {
+      try {
+        normalizeSessionName(name)
+      } catch (error) {
+        context.addIssue({ code: 'custom', message: (error as Error).message })
+      }
+    })
+  })
+  .strict()
 const promptSendCommandSchema = z
-  .object({ type: z.literal('prompt:send'), text: z.string().min(1) })
+  .object({
+    type: z.literal('prompt:send'),
+    text: z.string().min(1),
+    sessionId: z.string().min(1),
+    generation: nonNegativeInteger
+  })
   .strict()
 const promptAbortCommandSchema = z.object({ type: z.literal('prompt:abort') }).strict()
 const queueClearCommandSchema = z.object({ type: z.literal('queue:clear') }).strict()
@@ -446,12 +558,33 @@ const browserE2ECommandSchema = z
   .object({ type: z.literal('browser:e2e'), operation: browserOperationSchema })
   .strict()
 
+const endpointListCommandSchema = z.object({ type: z.literal('endpoint:list') }).strict()
+const endpointSaveCommandSchema = z
+  .object({
+    type: z.literal('endpoint:save'),
+    context: customEndpointContextSchema,
+    request: customEndpointSaveRequestSchema
+  })
+  .strict()
 const commandSchemas = [
+  messageFeedbackCommandSchema,
+  projectCatalogCommandSchema,
+  projectNavigateCommandSchema,
+  editPrepareSchema,
+  editCancelSchema,
+  editSendSchema,
+  editQuerySchema,
+  attachmentPromptCommandSchema,
+  attachmentQueryCommandSchema,
+  endpointListCommandSchema,
+  endpointSaveCommandSchema,
   bootstrapCommandSchema,
   stateGetCommandSchema,
   projectOpenCommandSchema,
   sessionNewCommandSchema,
   sessionOpenCommandSchema,
+  sessionForkCommandSchema,
+  sessionRenameCommandSchema,
   promptSendCommandSchema,
   promptAbortCommandSchema,
   queueClearCommandSchema,
@@ -468,12 +601,25 @@ export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
 
 const requestIdShape = { requestId: z.string().min(1) }
 export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
+  messageFeedbackCommandSchema.extend(requestIdShape),
+  projectCatalogCommandSchema.extend(requestIdShape),
+  projectNavigateCommandSchema.extend(requestIdShape),
+  editPrepareSchema.extend(requestIdShape),
+  editCancelSchema.extend(requestIdShape),
+  editSendSchema.extend(requestIdShape),
+  editQuerySchema.extend(requestIdShape),
+  attachmentPromptCommandSchema.extend(requestIdShape),
+  attachmentQueryCommandSchema.extend(requestIdShape),
+  endpointListCommandSchema.extend(requestIdShape),
+  endpointSaveCommandSchema.extend(requestIdShape),
   bootstrapCommandSchema.extend(requestIdShape),
   stateGetCommandSchema.extend(requestIdShape),
   projectOpenCommandSchema.extend(requestIdShape),
   sessionNewBareCommandSchema.extend(requestIdShape),
   sessionNewExactCommandSchema.extend(requestIdShape),
   sessionOpenCommandSchema.extend(requestIdShape),
+  sessionForkCommandSchema.extend(requestIdShape),
+  sessionRenameCommandSchema.extend(requestIdShape),
   promptSendCommandSchema.extend(requestIdShape),
   promptAbortCommandSchema.extend(requestIdShape),
   queueClearCommandSchema.extend(requestIdShape),
@@ -487,6 +633,30 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
 ])
 
 export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kind', [
+  z.object({kind:z.literal('project-catalog'),catalog:z.object({
+    projects:z.array(z.object({
+      path:z.string().min(1),name:z.string().min(1),sessions:z.array(sessionSummarySchema).max(50),
+      totalSessions:nonNegativeInteger,nextOffset:nonNegativeInteger.nullable(),
+      error:z.literal('directory-unavailable').optional()
+  }).strict()).max(100),totalProjects:nonNegativeInteger,truncated:z.boolean(),skippedDirectories:nonNegativeInteger.optional()
+  }).strict()}).strict(),
+  z.object({ kind: z.literal('session-edit'), result: editResultSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('session-fork'),
+      cancelled: z.boolean(),
+      snapshot: agentSnapshotSchema
+    })
+    .strict(),
+  z.object({ kind: z.literal('attachment'), receipt: attachmentReceiptSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('endpoint-list'),
+      snapshot: customEndpointConfigSnapshotSchema,
+      configPath: z.string()
+    })
+    .strict(),
+  z.object({ kind: z.literal('endpoint-save'), result: customEndpointSaveResultSchema }).strict(),
   z.object({ kind: z.literal('snapshot'), snapshot: agentSnapshotSchema }).strict(),
   z
     .object({
