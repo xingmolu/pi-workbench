@@ -13,7 +13,9 @@ import { build as bundleFixture } from 'esbuild'
 let app: ElectronApplication, page: Page, root: string, state: AgentSnapshot
 async function publish(markdown: string, streaming = false): Promise<void> {
   state.revision++
-  state.nodes = [{ id: 'table', type: 'assistant', markdown, streaming }]
+  // Match Host projection: only finished actionable replies have canonical identity.
+  state.nodes = [{ id: 'table', type: 'assistant', markdown, streaming,
+    ...(!streaming ? { canonicalEntryId: 'table-reply' } : {}) }]
   await app.evaluate(({ BrowserWindow }, data) => {
     BrowserWindow.getAllWindows()[0].webContents.send('pi:event', {
       type: 'event',
