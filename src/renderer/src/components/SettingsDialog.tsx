@@ -1,6 +1,8 @@
 import { useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { KeyRound, Puzzle, Server, Sparkles, X } from 'lucide-react'
+import { KeyRound, Puzzle, Server, Sparkles, X, Settings, Palette } from 'lucide-react'
+import GeneralSettings from './GeneralSettings'
+import AppearanceSettings from './AppearanceSettings'
 import type {
   AgentSnapshot,
   LoginMethod,
@@ -36,6 +38,8 @@ export default function SettingsDialog({
 }: SettingsDialogProps): React.JSX.Element {
   const [section, setSection] = useState('accounts')
   const sections = [
+    { id: 'general', label: '常规', icon: Settings },
+    { id: 'appearance', label: '外观', icon: Palette },
     { id: 'accounts', label: '账号与模型', icon: KeyRound },
     { id: 'skills', label: 'Skills 技能', icon: Sparkles },
     { id: 'mcp', label: 'MCP 服务器', icon: Server },
@@ -65,6 +69,11 @@ export default function SettingsDialog({
             <nav className="settings-navigation" aria-label="设置分类">
               {sections.map(({ id, label, icon: Icon }) => (
                 <div key={id}>
+                  {id === 'general' || id === 'skills' ? (
+                    <p className="settings-group-label">
+                      {id === 'general' ? '基础设置' : 'Agent 能力'}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     key={id}
@@ -79,7 +88,11 @@ export default function SettingsDialog({
               <small>Pi Desktop</small>
             </nav>
             <div className="settings-content">
-              {section === 'accounts' ? (
+              {section === 'general' ? (
+                <GeneralSettings />
+              ) : section === 'appearance' ? (
+                <AppearanceSettings />
+              ) : section === 'accounts' ? (
                 <SettingsAccounts {...props} />
               ) : section === 'skills' ? (
                 (skillsContent ?? <p className="inline-hint">技能设置模块尚未加载。</p>)

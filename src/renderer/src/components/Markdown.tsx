@@ -1,5 +1,6 @@
 import { memo, useContext, useState, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import { useDesktopSettings } from '../store/desktop-settings'
 import remarkGfm from 'remark-gfm'
 import { MarkdownTable, MarkdownActionContext } from './MarkdownTable'
 import { useMarkdownCopy } from './markdown-copy-action'
@@ -25,7 +26,9 @@ function CodeBlock({ node, children }: PreProps): React.JSX.Element {
   const language = Array.isArray(classes)
     ? String(classes.find((name) => String(name).startsWith('language-')) ?? '').slice(9)
     : ''
-  const [wrap, setWrap] = useState(false)
+  const defaultWrap = useDesktopSettings(state => state.settings.codeWrap)
+  const [wrapOverride, setWrap] = useState<boolean | null>(null)
+  const wrap = wrapOverride ?? defaultWrap
   const context = useContext(MarkdownActionContext)
   const { status, copy } = useMarkdownCopy(
     context.identity + ':' + node?.position?.start.offset + ':' + value

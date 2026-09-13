@@ -256,6 +256,8 @@ test('real Composer discards delayed lists and stale insertions across sessions 
     import React, {StrictMode} from 'react';
     import {createRoot} from 'react-dom/client';
     import Conversation from ${JSON.stringify(resolve('src/renderer/src/components/Conversation.tsx'))};
+    import {useDesktopSettings} from ${JSON.stringify(resolve('src/renderer/src/store/desktop-settings.ts'))};
+    useDesktopSettings.setState({hasLoaded:true,status:'ready'});
     import {EMPTY_SNAPSHOT,usePiStore} from ${JSON.stringify(resolve('src/renderer/src/store/pi-store.ts'))};
     import {useSkillInsertion} from ${JSON.stringify(resolve('src/renderer/src/store/skill-draft.ts'))};
     const skill={id:'c9557759-94b9-4943-a25f-084bf742f419',name:'example',description:'Fixture',scope:'project',origin:'top-level',mode:'manual-only',canInsert:true};

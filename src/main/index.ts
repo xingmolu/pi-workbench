@@ -1,3 +1,5 @@
+import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
+import { handleDesktopSettings } from './desktop-settings'
 import {
   app,
   BrowserWindow,
@@ -188,6 +190,7 @@ const workbenchPanelIpc = createWorkbenchPanelIpcRouter({
 })
 
 type Preferences = {
+  desktopSettings?: import('../shared/desktop-settings').DesktopSettings
   recentProjects?: string[]
   lastProjectPath?: string
   workbenchDesktopEnabled?: Record<string, boolean>
@@ -494,6 +497,10 @@ function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(DESKTOP_SETTINGS_CHANNEL, (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    return handleDesktopSettings(preferenceStore(), command)
+  })
   const tableExporter = new MarkdownTableExporter((owner) => dialog.showSaveDialog(BrowserWindow.fromId(owner.id)!, { title: '保存表格 CSV', defaultPath: '表格.csv', filters: [{ name: 'CSV 表格', extensions: ['csv'] }], properties: ['showOverwriteConfirmation'] }))
   ipcMain.handle(MARKDOWN_TABLE_EXPORT_CHANNEL, (event, request: unknown) => {
     try {

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { DESKTOP_SETTINGS_CHANNEL, desktopSettingsCommandSchema, desktopSettingsSchema } from '../shared/desktop-settings'
 import { MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable } from '../shared/markdown-table-export'
 import type {
   AgentSnapshot,
@@ -41,6 +42,7 @@ const subscribeToBrowserEvent = createBrowserEventSubscriber({
 })
 
 const api: PiDesktopAPI = {
+  desktopSettings: async (command) => desktopSettingsSchema.parse(await ipcRenderer.invoke(DESKTOP_SETTINGS_CHANNEL, desktopSettingsCommandSchema.parse(command))),
   exportMarkdownTable: (request) => ipcRenderer.invoke(MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable(request)),
   textAttachments: (command) => ipcRenderer.invoke(TEXT_ATTACHMENT_CHANNEL, attachmentCommandSchema.parse(command)),
   terminal: (command) => ipcRenderer.invoke(TERMINAL_CHANNEL, terminalCommandSchema.parse(command)),

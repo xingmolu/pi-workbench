@@ -3,6 +3,8 @@ import * as Collapsible from '@radix-ui/react-collapsible'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import { Markdown } from './Markdown'
+import { useDesktopSettings } from '../store/desktop-settings'
+import { shouldSendOnKey } from '../../../shared/desktop-settings'
 import MessageActions from './MessageActions'
 import SkillPicker, { type SkillPickerHandle, type SkillMenuState } from './SkillPicker'
 import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../store/skill-draft'
@@ -506,6 +508,8 @@ function Composer({
   | 'onOpenSettings'
 >): React.JSX.Element {
   const draftKey = JSON.stringify([snapshot.project?.path, snapshot.sessionId])
+  const desktopSettings = useDesktopSettings(state => state.settings)
+  const preferencesLoaded = useDesktopSettings(state => state.hasLoaded)
   const forkPending = usePiStore((state) => state.forkPending)
   const editOpen = useSessionEdit((state) => state.phase !== 'closed')
   const attachments = useTextAttachments()
@@ -768,13 +772,14 @@ function Composer({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (skillPicker.current?.handleKeyDown(event)) return
+            if (!preferencesLoaded) return
             if (event.keyCode === 229) return
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (shouldSendOnKey({ key: event.key, shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, keyCode: event.keyCode, isComposing: event.nativeEvent.isComposing }, desktopSettings.sendShortcut)) {
               event.preventDefault()
               submit()
             }
           }}
-          placeholder={snapshot.busy ? '输入可排队到当前任务之后…' : '给 Pi 下达任务…'}
+          placeholder={!preferencesLoaded ? '发送偏好尚未读取，请使用发送按钮…' : `${snapshot.busy ? '输入可排队到当前任务之后…' : '给 Pi 下达任务…'}（${desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'} 发送，Shift + Enter 换行）`}
           aria-label="给 Pi 的任务"
           aria-controls={skillMenuState.listId}
           aria-activedescendant={skillMenuState.activeId}
@@ -974,7 +979,7 @@ function Composer({
           </button>
         </div>
       </div>
-      <Stats metrics={snapshot.metrics} />
+      {desktopSettings.showUsage ? <Stats metrics={snapshot.metrics} /> : null}
     </div>
   )
 }

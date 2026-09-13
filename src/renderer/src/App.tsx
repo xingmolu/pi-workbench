@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useDesktopSettings } from './store/desktop-settings'
+import './assets/desktop-settings.css'
 import type {
   HostCommand,
   LoginMethod,
@@ -60,6 +62,13 @@ export default function App(): React.JSX.Element {
   )
   const workbenchRevision = useRef(-1)
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  const desktopSettings = useDesktopSettings(state => state.settings)
+  useEffect(() => { void useDesktopSettings.getState().hydrate() }, [])
+  useEffect(() => {
+    document.documentElement.style.setProperty('--message-font-size', `${desktopSettings.messageFontSize}px`)
+    document.documentElement.style.setProperty('--code-font-size', `${desktopSettings.codeFontSize}px`)
+    document.documentElement.dataset.reducedMotion = String(desktopSettings.reducedMotion)
+  }, [desktopSettings])
 
   const acceptWorkbenchSnapshot = useCallback((state: WorkbenchSnapshot): void => {
     if (state.revision <= workbenchRevision.current) return

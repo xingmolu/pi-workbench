@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight } from 'lucide-react'
+import { useDesktopSettings } from '../store/desktop-settings'
 import { workPresentation, type WorkNode } from '../store/conversation-work-groups'
 
 export default function WorkSummary({
@@ -12,7 +13,9 @@ export default function WorkSummary({
   running: boolean
   children: ReactNode
 }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const defaultExpanded = useDesktopSettings(state => state.settings.workDetails === 'expanded')
+  const [expandedOverride, setExpanded] = useState<boolean | null>(null)
+  const expanded = expandedOverride ?? defaultExpanded
   const { label, requiresAttention } = workPresentation(nodes, running)
   return (
     <Collapsible.Root

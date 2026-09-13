@@ -494,6 +494,7 @@ export type DesktopEvent =
     }
 
 export type PiDesktopAPI = {
+  desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
   exportMarkdownTable: (
     request: import('./markdown-table-export').MarkdownTableRequest
   ) => Promise<import('./markdown-table-export').MarkdownTableResult>
