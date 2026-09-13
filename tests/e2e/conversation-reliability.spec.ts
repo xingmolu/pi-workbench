@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -398,8 +399,9 @@ test('table layout, header metadata and interrupted usage stay readable in a nar
     await cell.evaluate((element) => parseFloat(getComputedStyle(element).paddingLeft))
   ).toBeGreaterThanOrEqual(12)
   const meta = page.locator('.conversation-head-meta small')
-  await expect(meta).toBeInViewport()
-  expect(await meta.evaluate((element) => element.clientWidth >= element.scrollWidth)).toBe(true)
+  await expect(meta).toBeHidden()
+  await expect(page.locator('.conversation-status')).toBeInViewport()
+  expect(await page.locator('.conversation-head').evaluate(element => element.getBoundingClientRect().height)).toBe(48)
   await page.locator('.work-summary-trigger').click()
   await expect(page.getByRole('button', { name: '思考了一会儿', exact: true })).toBeVisible()
   await expect(page.locator('.composer-stats')).toContainText('中断用量未知')
@@ -425,7 +427,7 @@ test('narrow composer keeps account and model readable with the workbench and qu
     }
   ]
   await publish()
-  await page.getByRole('button', { name: '文件', exact: true }).click()
+  await openWorkbenchTool(page, '文件')
   await page.getByRole('textbox', { name: '给 Pi 的任务' }).fill('继续检查边界情况')
   for (const width of [960, 1240, 1440]) {
     await app.evaluate(

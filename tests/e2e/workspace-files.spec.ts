@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -66,7 +67,7 @@ test.beforeEach(async () => {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), projectA)
-  await page.getByRole('button', { name: '文件', exact: true }).click()
+  await openWorkbenchTool(page, '文件')
 })
 
 test.afterEach(async () => {

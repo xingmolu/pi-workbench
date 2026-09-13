@@ -796,6 +796,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'Pi Desktop',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
     backgroundColor: '#0A0A0A',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {

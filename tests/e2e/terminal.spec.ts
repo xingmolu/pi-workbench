@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -77,7 +78,7 @@ test.beforeEach(async () => {
   })
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await openWorkbenchTool(page, '终端')
 })
 test.afterEach(async () => {
   if (app?.process().exitCode === null) await app.close()
@@ -98,14 +99,14 @@ test('explicit new opens two independent terminal tabs and preserves a shell thr
     .getAttribute('data-terminal-id')
   const pid = (await screen().innerText()).match(/中文_(\d+)/)![1]
   await create()
-  await expect(page.getByRole('tab')).toHaveCount(2)
+  await expect(page.locator('.terminal-pane').getByRole('tab')).toHaveCount(2)
   await command("printf '%s_%s\\n' 'SECOND' $$")
   await expect(screen()).toContainText(/SECOND_\d+/)
   expect((await screen().innerText()).match(/SECOND_(\d+)/)![1]).not.toBe(pid)
   await page.getByRole('button', { name: '折叠工作台', exact: true }).click()
-  await page.getByRole('button', { name: '终端', exact: true }).click()
-  await expect(page.getByRole('tab')).toHaveCount(2)
-  await page.getByRole('tab').first().click()
+  await openWorkbenchTool(page, '终端')
+  await expect(page.locator('.terminal-pane').getByRole('tab')).toHaveCount(2)
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   expect(
     await page.locator('.terminal-session:not([hidden])').getAttribute('data-terminal-id')
   ).toBe(firstId)
@@ -193,8 +194,8 @@ test('dangerous paste is previewed before any bytes, canceled on context changes
   await input().press('Enter')
   await expect(screen()).toContainText('PASTE_OK')
   await paste('never\n')
-  await page.getByRole('button', { name: '文件', exact: true }).click()
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await openWorkbenchTool(page, '文件')
+  await openWorkbenchTool(page, '终端')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(screen()).not.toContainText('never')
 })
@@ -231,7 +232,7 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
   await input().press('Control+c')
   await page.reload()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await openWorkbenchTool(page, '终端')
   const trigger = page.getByRole('button', { name: '结束并新建', exact: true })
   await trigger.click()
   await page.keyboard.press('Escape')
@@ -250,7 +251,7 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
 test('background parser answers DSR and DA exactly once to its original PTY after a captured mouse drag', async () => {
   await create()
   await create()
-  await page.getByRole('tab').first().click()
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   await command(
     `perl -MIO::Select -e '$|=1; system("stty -echo raw"); print "\\e[?1002h\\e[?1006hMOUSE_"."READY"; for(1..500){last if -e "${join(root, 'query-ready')}"; select undef,undef,undef,0.01} print "\\e[H\\e[6n\\e[c"; my $s=IO::Select->new(*STDIN); my $r=""; while($s->can_read(1)){sysread(STDIN,my $b,4096);$r.=$b} print "\\e[?1002l\\e[?1006l"; system("stty sane"); print "\\r\\nREPLY=".unpack("H*",$r)."\\r\\n";'`
   )
@@ -259,6 +260,7 @@ test('background parser answers DSR and DA exactly once to its original PTY afte
   await page.mouse.move(bounds!.x + 35, bounds!.y + 35)
   await page.mouse.down()
   await page
+    .locator('.terminal-pane')
     .getByRole('tab')
     .nth(1)
     .evaluate((element: HTMLElement) => element.click())
@@ -268,7 +270,7 @@ test('background parser answers DSR and DA exactly once to its original PTY afte
   await input().pressSequentially("printf '%s%s\\n' 'ONLY_' 'B'")
   await input().press('Enter')
   await expect(screen()).toContainText('ONLY_B')
-  await page.getByRole('tab').first().click()
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   await expect(screen()).toContainText(/REPLY=[0-9a-f]+/)
   const raw = (await page.locator('body').getAttribute('data-terminal-output'))!
   const hex = raw.match(/REPLY=([0-9a-f]+)[\r\n]/)![1]
@@ -309,7 +311,7 @@ test('hidden real parser consumes a MiB burst without truncation and leaves both
   expect(
     Number(await page.locator('body').getAttribute('data-stress-bytes'))
   ).toBeGreaterThanOrEqual(1048576)
-  await page.getByRole('tab').first().click()
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   await expect(screen()).toContainText('STRESS_DONE')
   await command("printf '%s%s\\n' 'AFTER_' 'RESPONSIVE'")
   await expect(screen()).toContainText('AFTER_RESPONSIVE')
@@ -318,7 +320,7 @@ test('hidden real parser consumes a MiB burst without truncation and leaves both
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: '关闭终端', exact: true }).click()
     await page.getByRole('button', { name: '确认结束', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveCount(1 - i)
+    await expect(page.locator('.terminal-pane').getByRole('tab')).toHaveCount(1 - i)
   }
   const listed = await page.evaluate(
     (projectPath) => window.pi.terminal({ type: 'list', projectPath }),
@@ -361,7 +363,7 @@ test('untrusted OSC titles are bounded display text and OSC52 or OSC8 cannot acc
   await command(
     `printf '\\033]2;<img src=x onerror=alert(1)>EVIL\\007\\033]52;c;c2VjcmV0\\007\\033]8;;file:///tmp/evil\\007LINK\\033]8;;\\007\\n'; printf '%s%s\\n' 'OSC_' 'DONE'`
   )
-  await expect(page.getByRole('tab')).toContainText('<img src=x onerror=alert(1)>EVIL')
+  await expect(page.locator('.terminal-pane').getByRole('tab')).toContainText('<img src=x onerror=alert(1)>EVIL')
   await expect(screen()).toContainText('OSC_DONE')
   expect(await page.locator('.terminal-pane img').count()).toBe(0)
   expect(errors).toEqual([])
@@ -441,7 +443,7 @@ test('synthetic Chinese IME and terminal keys stay byte-exact and Enter does not
 test('switching tabs cancels pending IME composition without sending it to either terminal', async () => {
   await create()
   await create()
-  await page.getByRole('tab').first().click()
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   await input().evaluate((element: HTMLTextAreaElement) => {
     element.value = ''
     element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
@@ -457,7 +459,7 @@ test('switching tabs cancels pending IME composition without sending it to eithe
   await command("printf '%s%s\\n' 'B_' 'CLEAN'")
   await expect(screen()).toContainText('B_CLEAN')
   await expect(screen()).not.toContainText('绝不发送')
-  await page.getByRole('tab').first().click()
+  await page.locator('.terminal-pane').getByRole('tab').first().click()
   await command("printf '%s%s\\n' 'A_' 'CLEAN'")
   await expect(screen()).toContainText('A_CLEAN')
   await expect(screen()).not.toContainText('绝不发送')
@@ -523,7 +525,7 @@ test('renderer reload exposes management-only degraded state and requires confir
   )
   await page.reload()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await openWorkbenchTool(page, '终端')
   await expect(page.getByText('终端进程仍在，屏幕状态未恢复')).toBeVisible()
   await expect(page.locator('.xterm')).toHaveCount(0)
   await expectToolbarInsideWindow()

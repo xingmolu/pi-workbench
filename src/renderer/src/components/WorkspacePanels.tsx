@@ -32,7 +32,7 @@ export default function WorkspacePanels({
     // Panel constraints are registered by the library during this layout commit.
     // Apply the remembered size after that registration has settled.
     const frame = requestAnimationFrame(() => {
-      panel.current?.resize(collapsed ? '52px' : `${expandedWidth.current}px`)
+      panel.current?.resize(collapsed ? '0px' : `${expandedWidth.current}px`)
     })
     return () => cancelAnimationFrame(frame)
   }, [collapsed])
@@ -78,9 +78,9 @@ export default function WorkspacePanels({
         <ResizablePanel
           id="workbench"
           panelRef={panel}
-          defaultSize="52px"
-          minSize={collapsed ? '52px' : '252px'}
-          maxSize={collapsed ? '52px' : '65%'}
+          defaultSize="0px"
+          minSize={collapsed ? '0px' : '252px'}
+          maxSize={collapsed ? '0px' : '65%'}
           groupResizeBehavior="preserve-pixel-size"
           className="workbench-panel"
         >

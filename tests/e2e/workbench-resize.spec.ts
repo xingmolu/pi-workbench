@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -101,7 +102,7 @@ for (const pointer of ['fine', 'coarse'] as const) {
       pointer === 'coarse'
     )
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
-    await page.getByRole('button', { name: '浏览器', exact: true }).click()
+    await openWorkbenchTool(page, '浏览器')
     const visible = () =>
       page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)
     await expect.poll(visible).toBe(true)
@@ -146,7 +147,7 @@ for (const pointer of ['fine', 'coarse'] as const) {
 
 test('mouse and keyboard resizing preserve draft and terminal through fold and window resize', async () => {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await openWorkbenchTool(page, '终端')
   const handle = page.getByRole('separator', { name: '调整工作台宽度' })
   await expect(handle).toBeVisible()
   await page.getByRole('button', { name: '新建终端', exact: true }).click()
@@ -181,8 +182,8 @@ test('mouse and keyboard resizing preserve draft and terminal through fold and w
   await expect.poll(width).toBeLessThan(dragged - 5)
   const remembered = await width()
   await page.getByRole('button', { name: '折叠工作台', exact: true }).click()
-  await expect.poll(width).toBeCloseTo(52, 0)
-  await page.getByRole('button', { name: '终端', exact: true }).click()
+  await expect.poll(width).toBeCloseTo(0, 0)
+  await openWorkbenchTool(page, '终端')
   await expect.poll(width).toBeCloseTo(remembered, 0)
   await expect(draft).toHaveValue('resize preserves this draft')
   await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
@@ -216,9 +217,7 @@ test('mouse and keyboard resizing preserve draft and terminal through fold and w
 test('native browser and sandbox views suspend during drag and keep identity, state and modal visibility', async () => {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
   for (const kind of ['browser', 'plugin'] as const) {
-    await page
-      .getByRole('button', { name: kind === 'browser' ? '浏览器' : 'Resize 沙箱', exact: true })
-      .click()
+    await openWorkbenchTool(page, kind === 'browser' ? '浏览器' : 'Resize 沙箱')
     const handle = page.getByRole('separator', { name: '调整工作台宽度' })
     await handle.focus()
     await handle.press('Home')
@@ -236,6 +235,18 @@ test('native browser and sandbox views suspend during drag and keep identity, st
       }, kind === 'plugin')
     await expect.poll(async () => (await info())?.visible).toBe(true)
     const original = (await info())!
+    await page.getByRole('button', { name: '打开工具', exact: true }).click()
+    await expect.poll(async () => (await info())?.visible).toBe(false)
+    await expect(page.getByRole('menuitem', { name: '文件', exact: true })).toBeVisible()
+    await page.screenshot({ path: `artifacts/e2e/workbench-menu-${kind}.png` })
+    await page.getByRole('menuitem', { name: '文件', exact: true }).click()
+    await expect(page.getByRole('tab', { name: '文件', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await openWorkbenchTool(page, kind === 'browser' ? '浏览器' : 'Resize 沙箱')
+    await expect.poll(async () => (await info())?.visible).toBe(true)
+    expect((await info())!.id).toBe(original.id)
     await app.evaluate(
       ({ webContents }, id) =>
         webContents.fromId(id)!.executeJavaScript('window.resizeSentinel = "retained"'),
@@ -275,9 +286,7 @@ test('native browser and sandbox views suspend during drag and keep identity, st
     await expect.poll(async () => (await info())?.visible).toBe(true)
     await page.getByRole('button', { name: '折叠工作台', exact: true }).click()
     await expect.poll(async () => (await info())?.visible).toBe(false)
-    await page
-      .getByRole('button', { name: kind === 'browser' ? '浏览器' : 'Resize 沙箱', exact: true })
-      .click()
+    await openWorkbenchTool(page, kind === 'browser' ? '浏览器' : 'Resize 沙箱')
     await expect.poll(async () => (await info())?.visible).toBe(true)
     expect((await info())!.id).toBe(original.id)
     expect(
@@ -329,4 +338,121 @@ test('native browser and sandbox views suspend during drag and keep identity, st
     )
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
   }
+})
+
+test('pruning the last open tab dismisses its menu and a browser opened from the launcher is visible', async () => {
+  await openWorkbenchTool(page, 'Resize 沙箱')
+  await page.getByRole('button', { name: '打开工具', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '浏览器', exact: true })).toBeVisible()
+  await page.evaluate(() =>
+    window.pi.workbench({
+      type: 'plugin:set-enabled',
+      pluginId: 'example.resize',
+      desktopEnabled: false
+    })
+  )
+  await expect(page.getByRole('navigation', { name: '打开工作台工具' })).toBeVisible()
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
+  await openWorkbenchTool(page, '浏览器')
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)
+    )
+    .toBe(true)
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow, WebContentsView }) =>
+        BrowserWindow.getAllWindows()[0].contentView.children.some(
+          (child) =>
+            child instanceof WebContentsView &&
+            child.webContents.getURL() === 'about:blank' &&
+            child.getVisible()
+        )
+      )
+    )
+    .toBe(true)
+})
+
+test('a large registry stays scrollable in a short window and keyboard selection reaches its last tool', async () => {
+  const manifestPath = join(root, 'agent/desktop-plugins/resize-plugin/pi-desktop.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  const title = '长名称工具'.repeat(12)
+  manifest.contributes.workbench = Array.from({ length: 40 }, (_, index) => ({
+    id: `example.resize.tool${index}`,
+    title: `${index} ${title}`,
+    icon: 'flask',
+    activation: 'onApp',
+    surface: { kind: 'sandboxed-web', entry: './index.html' }
+  }))
+  await writeFile(manifestPath, JSON.stringify(manifest))
+  await page.evaluate(() => window.pi.workbench({ type: 'plugins:reload' }))
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 640))
+  await page.getByRole('button', { name: '展开工作台', exact: true }).click()
+  const launcher = page.getByRole('navigation', { name: '打开工作台工具' })
+  await expect
+    .poll(() => launcher.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  const last = launcher.getByRole('button', { name: `39 ${title}`, exact: true })
+  await last.focus()
+  await expect(last).toBeInViewport()
+  await last.press('Enter')
+  await page.getByRole('button', { name: '打开工具', exact: true }).click()
+  const menu = page.getByRole('menu')
+  await expect
+    .poll(() => menu.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  await page.keyboard.press('End')
+  const lastOption = page.getByRole('menuitem', { name: `39 ${title}`, exact: true })
+  await expect(lastOption).toBeFocused()
+  await expect(lastOption).toBeInViewport()
+  await lastOption.press('Enter')
+  await expect(page.getByRole('tab', { name: `39 ${title}`, exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+})
+
+test('empty launcher, tabs, close and reopen preserve workbench state at 960px', async () => {
+  const width = () => page.locator('.workbench').evaluate((el) => el.getBoundingClientRect().width)
+  await expect.poll(width).toBe(0)
+  await page.getByRole('button', { name: '展开工作台', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '打开工作台工具' })).toBeVisible()
+  await expect(page.getByRole('tablist', { name: '已打开的工作台工具' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '打开工具', exact: true })).toHaveCount(0)
+  await page.screenshot({ path: 'artifacts/e2e/workbench-launcher.png' })
+  await openWorkbenchTool(page, '终端')
+  await page.getByRole('button', { name: '新建终端', exact: true }).click()
+  await expect(page.locator('.terminal-status')).toContainText('运行中')
+  const terminalId = await page
+    .locator('.terminal-session:not([hidden])')
+    .getAttribute('data-terminal-id')
+  await page.getByRole('button', { name: '关闭终端标签', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '打开工作台工具' })).toBeVisible()
+  await expect(
+    page.getByRole('navigation', { name: '打开工作台工具' }).getByRole('button').first()
+  ).toBeFocused()
+  await openWorkbenchTool(page, '终端')
+  await expect(page.locator('.terminal-session:not([hidden])')).toHaveAttribute(
+    'data-terminal-id',
+    terminalId!
+  )
+  await openWorkbenchTool(page, '文件')
+  const filesTab = page.getByRole('tab', { name: '文件', exact: true })
+  await filesTab.focus()
+  await filesTab.press('Home')
+  await expect(page.getByRole('tab', { name: '终端', exact: true })).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(filesTab).toBeFocused()
+  await expect(
+    page.getByRole('tablist', { name: '已打开的工作台工具' }).getByRole('tab')
+  ).toHaveCount(2)
+  await page.getByRole('button', { name: '折叠工作台', exact: true }).click()
+  await expect.poll(width).toBe(0)
+  await page.getByRole('button', { name: '展开工作台', exact: true }).click()
+  await expect(page.getByRole('tab', { name: '文件', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 900))
+  await page.screenshot({ path: 'artifacts/e2e/workbench-tabs-960.png' })
 })

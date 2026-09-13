@@ -1,21 +1,10 @@
-import {
-  Blocks,
-  ChevronRight,
-  CircleAlert,
-  Files,
-  FlaskConical,
-  GitPullRequest,
-  Globe2,
-  MonitorCog,
-  Puzzle,
-  TerminalSquare,
-  type LucideIcon
-} from 'lucide-react'
+import { useLayoutEffect, useState } from 'react'
+import { CircleAlert, MonitorCog } from 'lucide-react'
+import WorkbenchTabs, { WorkbenchLauncher } from './WorkbenchTabs'
 import type {
   AgentSnapshot,
   WorkbenchCommand,
   WorkbenchContribution,
-  WorkbenchIcon,
   WorkbenchSnapshot
 } from '../../../shared/contracts'
 import BrowserPane from './BrowserPane'
@@ -25,30 +14,18 @@ import SandboxedPluginPane from './SandboxedPluginPane'
 import TerminalPane from './TerminalPane'
 import { useWorkspaceResizing } from './WorkspacePanels'
 
-const WORKBENCH_ICONS: Record<WorkbenchIcon, LucideIcon> = {
-  files: Files,
-  'git-review': GitPullRequest,
-  terminal: TerminalSquare,
-  browser: Globe2,
-  plugin: Puzzle,
-  flask: FlaskConical
-}
-
 type WorkbenchProps = {
   collapsed: boolean
   selectedViewId: string | null
+  openedViewIds: readonly string[]
+  onCloseView: (viewId: string) => void
   settingsOpen: boolean
   agentSnapshot: AgentSnapshot
   workbenchSnapshot: WorkbenchSnapshot
   workbenchError: string | null
   onSelectView: (viewId: string) => void
-  onToggle: () => void
   onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
   onWorkbenchError: (message: string) => void
-}
-
-function contributionIcon(icon: WorkbenchIcon): LucideIcon {
-  return WORKBENCH_ICONS[icon] ?? Blocks
 }
 
 function EmptyWorkbench({ hasContributions }: { hasContributions: boolean }): React.JSX.Element {
@@ -126,75 +103,41 @@ function ContributionSurface({
 export default function Workbench({
   collapsed,
   selectedViewId,
+  openedViewIds,
+  onCloseView,
   settingsOpen,
   agentSnapshot,
   workbenchSnapshot,
   workbenchError,
   onSelectView,
-  onToggle,
   onWorkbenchCommand,
   onWorkbenchError
 }: WorkbenchProps): React.JSX.Element {
   const resizing = useWorkspaceResizing()
+  const [menuOpen, setMenuOpen] = useState(false)
+  // A registry prune can unmount the dropdown without firing onOpenChange.
+  // Its native-view suspension must never outlive the tab/menu that owns it.
+  useLayoutEffect(() => {
+    setMenuOpen(false)
+  }, [collapsed, selectedViewId, openedViewIds.length])
   const selectedContribution = workbenchSnapshot.contributions.find(
     ({ viewId }) => viewId === selectedViewId
   )
-  const selectedPlugin = selectedContribution
-    ? workbenchSnapshot.plugins.find(({ pluginId }) => pluginId === selectedContribution.pluginId)
-    : undefined
-  const SelectedIcon = selectedContribution
-    ? contributionIcon(selectedContribution.icon)
-    : MonitorCog
-
   return (
     <aside
       className={`workbench${collapsed ? ' is-collapsed' : ''}`}
       aria-label={collapsed ? '折叠的工作台' : '工作台'}
     >
-      <nav className="workbench-rail" aria-label="工作台视图">
-        <div className="workbench-rail-spacer" aria-hidden="true" />
-        <div className="workbench-rail-scroll">
-          {workbenchSnapshot.contributions.map((contribution) => {
-            const Icon = contributionIcon(contribution.icon)
-            const active = contribution.viewId === selectedViewId
-            return (
-              <button
-                key={contribution.viewId}
-                type="button"
-                className={`workbench-rail-button${active ? ' is-active' : ''}`}
-                title={contribution.title}
-                aria-label={contribution.title}
-                aria-pressed={active}
-                onClick={() => onSelectView(contribution.viewId)}
-              >
-                <Icon size={17} aria-hidden="true" />
-              </button>
-            )
-          })}
-        </div>
-      </nav>
-
       <div className="workbench-stage" hidden={collapsed}>
-        <header className="workbench-stage-head">
-          <div className="workbench-stage-title">
-            <SelectedIcon size={15} />
-            <span title={collapsed ? undefined : selectedContribution?.title}>
-              {selectedContribution?.title ?? '工作台'}
-            </span>
-            {selectedContribution ? (
-              <small>{selectedPlugin?.builtin ? '内置' : '插件'}</small>
-            ) : null}
-          </div>
-          <button
-            className="icon-btn workbench-fold"
-            type="button"
-            onClick={onToggle}
-            title="折叠工作台"
-            aria-label="折叠工作台"
-          >
-            <ChevronRight size={17} />
-          </button>
-        </header>
+        <WorkbenchTabs
+          contributions={workbenchSnapshot.contributions}
+          openedViewIds={openedViewIds}
+          selectedViewId={selectedViewId}
+          onSelect={onSelectView}
+          onClose={onCloseView}
+          menuOpen={menuOpen}
+          onMenuOpenChange={setMenuOpen}
+        />
 
         {workbenchError ? (
           <div className="workbench-error" role="alert">
@@ -203,7 +146,12 @@ export default function Workbench({
           </div>
         ) : null}
 
-        <div className="workbench-stage-body">
+        <div
+          className="workbench-stage-body"
+          id="workbench-active-panel"
+          role={selectedViewId ? 'tabpanel' : undefined}
+          aria-labelledby={selectedViewId ? `workbench-tab-${selectedViewId}` : undefined}
+        >
           <TerminalPane
             projectPath={agentSnapshot.project?.path ?? null}
             visible={
@@ -220,12 +168,15 @@ export default function Workbench({
               projectReady={Boolean(agentSnapshot.project)}
               gitReady={agentSnapshot.ready}
               projectPath={agentSnapshot.project?.path ?? null}
-              visible={!collapsed && !settingsOpen && !resizing}
+              visible={!collapsed && !settingsOpen && !resizing && !menuOpen}
               onCommand={onWorkbenchCommand}
               onError={onWorkbenchError}
             />
           ) : (
-            <EmptyWorkbench hasContributions={workbenchSnapshot.contributions.length > 0} />
+            <WorkbenchLauncher
+              contributions={workbenchSnapshot.contributions}
+              onSelect={onSelectView}
+            />
           )}
         </div>
       </div>

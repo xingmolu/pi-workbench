@@ -19,6 +19,7 @@ import {
 } from '../store/text-attachments'
 import {
   ArrowUp,
+  ArrowLeft,
   Bot,
   Brain,
   Check,
@@ -1036,14 +1037,16 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           <div className="conversation-actions">
             {snapshot.sessions.find((session) => session.active)?.parentSessionPath ? (
               <button
-                className="session-action"
+                className="session-action session-parent-action"
+                aria-label="来源会话"
+                title="来源会话"
                 onClick={() =>
                   props.onOpenSession(
                     snapshot.sessions.find((session) => session.active)!.parentSessionPath!
                   )
                 }
               >
-                来源会话
+                <ArrowLeft size={13} /><span>来源会话</span>
               </button>
             ) : snapshot.sessions.find((session) => session.active)?.parentUnavailable ? (
               <span className="session-parent-unavailable">来源会话当前不可用</span>

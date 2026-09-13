@@ -59,7 +59,7 @@ test.beforeEach(async () => {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
-  await page.getByRole('button', { name: '审查', exact: true }).click()
+  await openWorkbenchTool(page, '审查')
 })
 test.afterEach(async () => {
   await app?.close()
@@ -295,3 +295,4 @@ test('isolated transport fixture: late patches, preview, mode/project changes an
   await release('git:release')
   await expect(pane.locator('pre')).toHaveText('CURRENT PATCH')
 })
+import { openWorkbenchTool } from './workbench-helpers'

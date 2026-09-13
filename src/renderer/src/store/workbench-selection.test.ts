@@ -1,111 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import type { WorkbenchContribution } from '../../../shared/contracts'
-import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './workbench-selection'
-
-function contribution(viewId: string): WorkbenchContribution {
-  return {
-    pluginId: 'works.pi.desktop.test',
-    viewId,
-    title: viewId,
-    icon: 'plugin',
-    activation: 'onApp',
-    surface: { kind: 'sandboxed-web' }
-  }
-}
-
-describe('workbenchSelectionReducer', () => {
-  it('initially selects the first contribution in snapshot order', () => {
-    const state = workbenchSelectionReducer(INITIAL_WORKBENCH_SELECTION, {
-      type: 'snapshot',
-      contributions: [contribution('files'), contribution('review')]
-    })
-
-    expect(state).toEqual({
-      selectedViewId: 'files',
-      availableViewIds: ['files', 'review']
+import {
+  INITIAL_WORKBENCH_SELECTION,
+  workbenchSelectionReducer as reduce
+} from './workbench-selection'
+const snapshot = (ids: string[]) => ({
+  type: 'snapshot' as const,
+  contributions: ids.map((viewId) => ({ viewId }))
+})
+const available = () =>
+  reduce(INITIAL_WORKBENCH_SELECTION, snapshot(['files', 'browser', 'terminal']))
+const opened = () =>
+  ['files', 'browser', 'terminal'].reduce(
+    (state, viewId) => reduce(state, { type: 'select', viewId }),
+    available()
+  )
+describe('workbench tabs', () => {
+  it('starts with a launcher and deduplicates registry IDs', () => {
+    expect(reduce(INITIAL_WORKBENCH_SELECTION, snapshot(['files', 'files']))).toEqual({
+      availableViewIds: ['files'],
+      openedViewIds: [],
+      selectedViewId: null
     })
   })
-
-  it('preserves the current selection across reordered snapshot refreshes', () => {
-    const selected = workbenchSelectionReducer(
-      {
-        selectedViewId: 'review',
-        availableViewIds: ['files', 'review']
-      },
-      {
-        type: 'snapshot',
-        contributions: [contribution('review'), contribution('files')]
-      }
-    )
-
-    expect(selected).toEqual({
-      selectedViewId: 'review',
-      availableViewIds: ['review', 'files']
-    })
+  it('validates selection and reveal', () => {
+    const state = available()
+    for (const type of ['select', 'reveal', 'close'] as const)
+      expect(reduce(state, { type, viewId: 'absent' })).toBe(state)
   })
-
-  it('falls back to the first contribution when the selected view is disabled or removed', () => {
-    const state = workbenchSelectionReducer(
-      {
-        selectedViewId: 'review',
-        availableViewIds: ['files', 'review']
-      },
-      { type: 'snapshot', contributions: [contribution('browser'), contribution('files')] }
-    )
-
+  it('opens and selects revealed contributions only once', () => {
+    const state = reduce(available(), { type: 'reveal', viewId: 'browser' })
+    expect(state.openedViewIds).toEqual(['browser'])
     expect(state.selectedViewId).toBe('browser')
+    expect(reduce(state, { type: 'select', viewId: 'browser' })).toBe(state)
   })
-
-  it('falls back to null when no contributions remain', () => {
-    const state = workbenchSelectionReducer(
-      {
-        selectedViewId: 'review',
-        availableViewIds: ['review']
-      },
-      { type: 'snapshot', contributions: [] }
-    )
-
-    expect(state).toEqual({ selectedViewId: null, availableViewIds: [] })
+  it('selects the right neighbor then left when closing the active tab', () => {
+    const state = reduce(opened(), { type: 'select', viewId: 'browser' })
+    const next = reduce(state, { type: 'close', viewId: 'browser' })
+    expect(next.selectedViewId).toBe('terminal')
+    expect(reduce(next, { type: 'close', viewId: 'terminal' }).selectedViewId).toBe('files')
   })
-
-  it('ignores a reveal for an absent contribution', () => {
-    const state = {
-      selectedViewId: 'files',
-      availableViewIds: ['files', 'review']
-    } as const
-
-    expect(workbenchSelectionReducer(state, { type: 'reveal', viewId: 'missing' })).toBe(state)
-  })
-
-  it('ignores an explicit user selection for an absent contribution', () => {
-    const state = {
-      selectedViewId: 'files',
-      availableViewIds: ['files', 'review']
-    } as const
-
-    expect(workbenchSelectionReducer(state, { type: 'select', viewId: 'missing' })).toBe(state)
-  })
-
-  it('keeps contribution ordering deterministic without mutating the snapshot', () => {
-    const contributions = [
-      contribution('review'),
-      contribution('files'),
-      contribution('review'),
-      contribution('browser')
-    ]
-    const original = contributions.map(({ viewId }) => viewId)
-
-    const first = workbenchSelectionReducer(INITIAL_WORKBENCH_SELECTION, {
-      type: 'snapshot',
-      contributions
+  it('closing inactive tabs preserves selection; closing last returns launcher', () => {
+    const state = reduce(opened(), { type: 'close', viewId: 'browser' })
+    expect(state.selectedViewId).toBe('terminal')
+    const last = reduce(reduce(state, { type: 'close', viewId: 'files' }), {
+      type: 'close',
+      viewId: 'terminal'
     })
-    const second = workbenchSelectionReducer(INITIAL_WORKBENCH_SELECTION, {
-      type: 'snapshot',
-      contributions
-    })
-
-    expect(first.availableViewIds).toEqual(['review', 'files', 'browser'])
-    expect(second).toEqual(first)
-    expect(contributions.map(({ viewId }) => viewId)).toEqual(original)
+    expect(last.openedViewIds).toEqual([])
+    expect(last.selectedViewId).toBeNull()
+  })
+  it('refresh keeps tab order and falls back only among surviving opened tabs', () => {
+    const state = reduce(opened(), snapshot(['new', 'browser', 'files', 'browser']))
+    expect(state.openedViewIds).toEqual(['files', 'browser'])
+    expect(state.selectedViewId).toBe('browser')
+    expect(reduce(state, snapshot(['new'])).selectedViewId).toBeNull()
   })
 })

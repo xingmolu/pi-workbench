@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { PanelRight } from 'lucide-react'
 import { useDesktopSettings } from './store/desktop-settings'
 import './assets/desktop-settings.css'
 import type {
@@ -62,6 +63,7 @@ export default function App(): React.JSX.Element {
     INITIAL_WORKBENCH_SELECTION
   )
   const workbenchRevision = useRef(-1)
+  const availableWorkbenchViews = useRef<readonly string[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
   const desktopSettings = useDesktopSettings(state => state.settings)
   useEffect(() => { void useDesktopSettings.getState().hydrate() }, [])
@@ -74,6 +76,7 @@ export default function App(): React.JSX.Element {
   const acceptWorkbenchSnapshot = useCallback((state: WorkbenchSnapshot): void => {
     if (state.revision <= workbenchRevision.current) return
     workbenchRevision.current = state.revision
+    availableWorkbenchViews.current = state.contributions.map(({ viewId }) => viewId)
     dispatchWorkbenchStatus({ type: 'snapshot', snapshot: state })
     dispatchWorkbenchSelection({ type: 'snapshot', contributions: state.contributions })
   }, [])
@@ -120,8 +123,9 @@ export default function App(): React.JSX.Element {
         getState: () => window.pi.workbench({ type: 'state:get' }),
         onSnapshot: acceptWorkbenchSnapshot,
         onReveal: (viewId) => {
-          // A background extension must not dismiss settings or replace the user's panel.
+          // Background reveals must not replace the user's panel while settings are open.
           if (settingsOpenRef.current) return
+          if (!availableWorkbenchViews.current.includes(viewId)) return
           dispatchWorkbenchSelection({ type: 'reveal', viewId })
           setWorkbenchOpen(true)
         },
@@ -288,7 +292,15 @@ export default function App(): React.JSX.Element {
   )
 
   return (
-    <div className="shell">
+    <div className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}`}>
+      <button
+        className="icon-btn workbench-toggle"
+        aria-label={workbenchOpen ? '折叠工作台' : '展开工作台'}
+        aria-expanded={workbenchOpen}
+        onClick={() => setWorkbenchOpen((open) => !open)}
+      >
+        <PanelRight size={18} />
+      </button>
       <Sidebar
         collapsed={layout.sidebarCollapsed}
         collapseLocked={layout.settingsOpen}
@@ -338,18 +350,15 @@ export default function App(): React.JSX.Element {
           <Workbench
             collapsed={!workbenchOpen}
             selectedViewId={workbenchSelection.selectedViewId}
+            openedViewIds={workbenchSelection.openedViewIds}
+            onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
             settingsOpen={layout.settingsOpen}
             agentSnapshot={snapshot}
             workbenchSnapshot={workbenchStatus.snapshot}
             workbenchError={workbenchStatus.error}
             onSelectView={(viewId) => {
-              closeSettings()
               dispatchWorkbenchSelection({ type: 'select', viewId })
               setWorkbenchOpen(true)
-            }}
-            onToggle={() => {
-              if (layout.settingsOpen) closeSettings()
-              else setWorkbenchOpen(false)
             }}
             onWorkbenchCommand={sendWorkbench}
             onWorkbenchError={reportWorkbenchError}

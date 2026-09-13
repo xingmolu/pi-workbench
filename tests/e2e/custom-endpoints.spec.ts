@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -118,8 +119,8 @@ test('settings modal traps focus and preserves sidebar, workbench and conversati
   await expect(dialog).toHaveCount(0)
   await expect(opener).toBeFocused()
   await expect(draft).toHaveValue('保留这份未发送草稿')
-  await expect(page.locator('.workbench.is-collapsed')).toBeVisible()
-  await page.getByTitle('浏览器', { exact: true }).click()
+  await expect(page.locator('.workbench.is-collapsed')).toBeHidden()
+  await openWorkbenchTool(page, '浏览器')
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)

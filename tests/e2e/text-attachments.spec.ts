@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -114,7 +115,7 @@ test('picker, Files, cancel, remove and exact snapshot reach Pi and reopen after
   await expect(chips.locator('li')).toHaveCount(2)
   await page.getByRole('button', { name: '移除 empty.txt', exact: true }).click()
   await expect(chips.locator('li')).toHaveCount(1)
-  await page.getByRole('button', { name: '文件', exact: true }).click()
+  await openWorkbenchTool(page, '文件')
   const pane = page.getByRole('region', { name: '项目文件' })
   await pane.getByRole('button', { name: 'workspace.txt', exact: true }).click()
   await pane.getByRole('button', { name: '添加到对话', exact: true }).click()
