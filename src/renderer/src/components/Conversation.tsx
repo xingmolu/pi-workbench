@@ -195,17 +195,18 @@ const ToolNode = memo(function ToolNode({
 })
 
 const AssistantNode = memo(function AssistantNode({
-  node, snapshot
+  node, snapshot, showActions
 }: {
   node: Extract<ConversationNode, { type: 'assistant' }>
   snapshot: AgentSnapshot
+  showActions: boolean
 }): React.JSX.Element {
   return (
     <article className={`assistant-node${node.streaming ? ' is-streaming' : ''}`}>
       <Markdown identity={node.id} streaming={node.streaming}>
         {node.markdown}
       </Markdown>
-      <MessageActions node={node} snapshot={snapshot}/>
+      {showActions ? <MessageActions node={node} snapshot={snapshot}/> : null}
     </article>
   )
 })
@@ -222,6 +223,15 @@ function NodeFlow({
   onApproval: (id: string, allow: boolean) => void
 }): React.JSX.Element {
   const edit = useSessionEdit()
+  const lastReplyBlocks = useMemo(() => {
+    const blocks = new Map<string, ConversationNode>()
+    for (const node of nodes) {
+      if (node.type === 'assistant' && node.canonicalEntryId) {
+        blocks.set(node.canonicalEntryId, node)
+      }
+    }
+    return blocks
+  }, [nodes])
   const inlineEdit =
     edit.scope &&
     nodes.some((node) => node.type === 'user' && node.canonicalEntryId === edit.scope!.entryId)
@@ -259,7 +269,9 @@ function NodeFlow({
           )
         }
         if (node.type === 'assistant') {
-          return <AssistantNode key={key} node={node} snapshot={snapshot}/>
+          return <AssistantNode key={key} node={node} snapshot={snapshot}
+            showActions={!node.streaming && !!node.canonicalEntryId &&
+              lastReplyBlocks.get(node.canonicalEntryId) === node}/>
         }
         if (node.type === 'think') return <ThinkNode key={key} node={node} />
         if (node.type === 'model') {

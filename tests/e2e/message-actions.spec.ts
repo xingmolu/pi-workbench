@@ -156,7 +156,8 @@ test.afterEach(async () => {
 })
 
 test('message icons copy actual text, persist exclusive local feedback and fork the selected answer boundary', async () => {
-  const first = page.locator('.assistant-node').first()
+  const first = page.locator('.assistant-node').nth(1)
+  await expect(page.locator('.assistant-node').first().locator('.message-actions')).toHaveCount(0)
   await expect(first.getByRole('button', { name: '赞', exact: true })).toBeVisible()
   const copy = page.getByRole('button', { name: '复制问题', exact: true }).first()
   await copy.click()
@@ -169,6 +170,9 @@ test('message icons copy actual text, persist exclusive local feedback and fork 
   await first.getByRole('button', { name: '复制回复', exact: true }).click()
   await expect
     .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('同一回复的第二个文本块')
+  await page.getByRole('button', { name: '复制代码', exact: true }).click()
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
     .toContain('const preserved = true')
   await first.getByRole('button', { name: '赞', exact: true }).focus()
   await page.mouse.move(5,5)
@@ -178,9 +182,7 @@ test('message icons copy actual text, persist exclusive local feedback and fork 
     'aria-pressed',
     'true'
   )
-  await expect(
-    page.locator('.assistant-node').nth(1).getByRole('button', { name: '赞', exact: true })
-  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.assistant-node').first().locator('.message-actions')).toHaveCount(0)
   await first.getByRole('button', { name: '踩', exact: true }).click()
   await expect(first.getByRole('button', { name: '赞', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -252,18 +254,18 @@ test('feedback write failure never shows success and requires rereading after re
   await chmod(sourcePath, 0o400)
   await page
     .locator('.assistant-node')
-    .first()
+    .nth(1)
     .getByRole('button', { name: '赞', exact: true })
     .click()
   await expect(
-    page.locator('.assistant-node').first().getByRole('button', { name: '赞', exact: true })
+    page.locator('.assistant-node').nth(1).getByRole('button', { name: '赞', exact: true })
   ).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByRole('button', { name: '重新连接引擎', exact: true })).toBeVisible()
   expect(await readFile(sourcePath, 'utf8')).toBe(before)
   await chmod(sourcePath, 0o600)
 })
 
-test('uncertain transport result locks every block of the same canonical reply; later generations stay clean', async () => {
+test('uncertain transport result locks the canonical reply action strip; later generations stay clean', async () => {
   const source = await page.evaluate(() => window.pi.getState())
   await app.evaluate(({ ipcMain }) => {
     ipcMain.removeHandler('pi:command')
@@ -279,19 +281,17 @@ test('uncertain transport result locks every block of the same canonical reply; 
   })
   const first = page
     .locator('.assistant-node')
-    .first()
-    .getByRole('button', { name: '赞', exact: true })
-  const sibling = page
-    .locator('.assistant-node')
     .nth(1)
     .getByRole('button', { name: '赞', exact: true })
+  const earlierBlock = page.locator('.assistant-node').first()
   await first.click()
-  await expect(sibling).toHaveAttribute('aria-disabled', 'true')
+  await expect(first).toHaveAttribute('aria-disabled', 'true')
+  await expect(earlierBlock.locator('.message-actions')).toHaveCount(0)
   await app.evaluate(({ ipcMain }) => ipcMain.emit('feedback-fixture:reject'))
-  await expect(page.locator('.assistant-node').first().getByRole('alert')).toContainText(
+  await expect(page.locator('.assistant-node').nth(1).getByRole('alert')).toContainText(
     '不要直接重试'
   )
-  await expect(sibling).toHaveAttribute('aria-disabled', 'true')
+  await expect(first).toHaveAttribute('aria-disabled', 'true')
   expect(
     await app.evaluate(({ ipcMain }) => ipcMain.listenerCount('feedback-fixture:reject'))
   ).toBe(0)
@@ -323,7 +323,7 @@ test('uncertain transport result locks every block of the same canonical reply; 
 
 for (const outcome of ['cancellation', 'rejection'] as const)
 test(`same session generation change revokes message fork confirmation and ignores its late ${outcome}`, async () => {
-  const trigger = page.locator('.assistant-node').first().getByRole('button', {name:'从此回复分叉',exact:true})
+  const trigger = page.locator('.assistant-node').nth(1).getByRole('button', {name:'从此回复分叉',exact:true})
   await trigger.click()
   await page.evaluate(path=>window.pi.send({type:'session:open',path}),sourcePath)
   await expect(page.getByRole('dialog',{name:'分叉当前会话'})).toHaveCount(0)
@@ -371,7 +371,7 @@ test('busy public SDK command rejects local feedback without appending', async (
     source
   )
   await expect(
-    page.locator('.assistant-node').first().getByRole('button', { name: '赞', exact: true })
+    page.locator('.assistant-node').nth(1).getByRole('button', { name: '赞', exact: true })
   ).toHaveAttribute('aria-disabled', 'true')
   const error = await page.evaluate(async (s) => {
     try {
