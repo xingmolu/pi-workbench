@@ -366,6 +366,7 @@ export type SessionNewCommand =
   { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
 
 export type HostCommand =
+  | import('./skills').SkillsCommand
   | import('./mcp').McpCommand
   | MessageFeedbackCommand
   | ProjectCatalogCommand
@@ -410,6 +411,7 @@ export type AckHostCommand = Exclude<
   | ProjectCatalogCommand
   | Extract<HostCommand, { type: 'account:quota' }>
   | import('./mcp').McpCommand
+  | import('./skills').SkillsCommand
 >
 
 export type HostSnapshotResult = { kind: 'snapshot'; snapshot: AgentSnapshot }
@@ -426,6 +428,8 @@ export type HostEndpointListResult = {
 }
 export type HostEndpointSaveResult = { kind: 'endpoint-save'; result: CustomEndpointSaveResult }
 export type HostResult =
+  | { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
+  | { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
   | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
   | { kind: 'project-catalog'; catalog: ProjectCatalog }
@@ -436,7 +440,11 @@ export type HostResult =
   | HostEndpointListResult
   | HostEndpointSaveResult
   | { kind: 'attachment'; receipt: AttachmentReceipt }
-export type HostResultFor<Command extends HostCommand> = Command extends import('./mcp').McpCommand
+export type HostResultFor<Command extends HostCommand> = Command extends { type: 'skills:list' }
+  ? { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
+  : Command extends { type: 'skills:detail' }
+  ? { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
+  : Command extends import('./mcp').McpCommand
   ? { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   : Command extends { type: 'account:quota' }
   ? { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }

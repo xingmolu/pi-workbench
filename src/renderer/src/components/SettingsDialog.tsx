@@ -1,6 +1,6 @@
 import { useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { KeyRound, Puzzle, Server, X } from 'lucide-react'
+import { KeyRound, Puzzle, Server, Sparkles, X } from 'lucide-react'
 import type {
   AgentSnapshot,
   LoginMethod,
@@ -22,6 +22,7 @@ export type SettingsDialogProps = {
   onAddAlias: (slug: string) => void
   onLoginPrompt: (promptId: string, value?: string) => void
   mcpContent?: ReactNode
+  skillsContent?: ReactNode
   renderAccountQuota?: (account: AgentSnapshot['accounts'][number]) => ReactNode
 }
 
@@ -30,11 +31,13 @@ export default function SettingsDialog({
   returnFocusRef,
   onOpenChange,
   mcpContent,
+  skillsContent,
   ...props
 }: SettingsDialogProps): React.JSX.Element {
   const [section, setSection] = useState('accounts')
   const sections = [
     { id: 'accounts', label: '账号与模型', icon: KeyRound },
+    { id: 'skills', label: 'Skills 技能', icon: Sparkles },
     { id: 'mcp', label: 'MCP 服务器', icon: Server },
     { id: 'plugins', label: 'Desktop 插件', icon: Puzzle }
   ]
@@ -78,6 +81,8 @@ export default function SettingsDialog({
             <div className="settings-content">
               {section === 'accounts' ? (
                 <SettingsAccounts {...props} />
+              ) : section === 'skills' ? (
+                (skillsContent ?? <p className="inline-hint">技能设置模块尚未加载。</p>)
               ) : section === 'plugins' ? (
                 <PluginSettings
                   snapshot={props.workbenchSnapshot}

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { skillsListSchema, skillsDetailSchema, skillsCatalogSchema, skillDetailSchema } from './skills'
 import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpSnapshotSchema } from './mcp'
 import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
 import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
@@ -570,6 +571,7 @@ const endpointSaveCommandSchema = z
   })
   .strict()
 const commandSchemas = [
+  skillsListSchema, skillsDetailSchema,
   mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema,
   accountQuotaCommandSchema,
   messageFeedbackCommandSchema,
@@ -606,6 +608,8 @@ export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
 
 const requestIdShape = { requestId: z.string().min(1) }
 export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
+  skillsListSchema.extend(requestIdShape),
+  skillsDetailSchema.extend(requestIdShape),
   mcpListSchema.extend(requestIdShape),
   mcpShutdownSchema.extend(requestIdShape),
   mcpSaveSchema.extend(requestIdShape),
@@ -644,6 +648,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
 ])
 
 export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('skills-list'), catalog: skillsCatalogSchema }).strict(),
+  z.object({ kind: z.literal('skills-detail'), detail: skillDetailSchema }).strict(),
   z.object({ kind: z.literal('mcp'), result: mcpSnapshotSchema }).strict(),
   z.object({ kind: z.literal('account-quota'), quota: accountQuotaSchema }).strict(),
   z.object({kind:z.literal('project-catalog'),catalog:z.object({

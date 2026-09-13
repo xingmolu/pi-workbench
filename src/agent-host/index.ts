@@ -1,5 +1,6 @@
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
 import { observeAttachmentPrompt } from './attachment-acceptance'
+import { SkillsCatalog } from './skills'
 import type { AttachmentHostCommand, AttachmentReceipt } from '../shared/text-attachments'
 import {
   assertProjectSession,
@@ -307,6 +308,14 @@ class PiDesktopHost {
   private initialized = false
   private initializing: Promise<void> | null = null
   private sessionGeneration = 0
+  private readonly skillsCatalog = new SkillsCatalog(() => {
+    const session = this.runtime?.session
+    return session ? {
+      sessionId: session.sessionManager.getSessionId(),
+      generation: this.sessionGeneration,
+      skills: session.resourceLoader.getSkills().skills
+    } : null
+  })
   private sessionInvalidationSequence = 0
   private revision = 0
   private publishedSnapshot: AgentSnapshot | null = null
@@ -493,6 +502,10 @@ class PiDesktopHost {
       this.lastError = undefined
 
     switch (request.type) {
+      case 'skills:list':
+        return { kind: 'skills-list', catalog: await this.skillsCatalog.list(request) }
+      case 'skills:detail':
+        return { kind: 'skills-detail', detail: await this.skillsCatalog.detail(request) }
       case 'mcp:list':
       case 'mcp:shutdown':
       case 'mcp:save':

@@ -4,6 +4,8 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import { Markdown } from './Markdown'
 import MessageActions from './MessageActions'
+import SkillPicker, { type SkillPickerHandle, type SkillMenuState } from './SkillPicker'
+import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../store/skill-draft'
 import WorkSummary from './WorkSummary'
 import { groupConversationWork } from '../store/conversation-work-groups'
 import { parseTextContext } from '../../../shared/text-attachments'
@@ -509,6 +511,7 @@ function Composer({
   const attachments = useTextAttachments()
   const capturedAttachmentDraft = useRef<{ key: string; version: number | undefined } | null>(null)
   const [drafts, setDrafts] = useState<Record<string, { text: string; version: number }>>({})
+  const skillInsertion = useSkillInsertion(state => state.pending)
   const previousSession = useRef(snapshot)
   useEffect(() => {
     const previous = previousSession.current
@@ -548,6 +551,8 @@ function Composer({
     initialComposerModelSelection
   )
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const skillPicker = useRef<SkillPickerHandle>(null)
+  const [skillMenuState, setSkillMenuState] = useState<SkillMenuState>({})
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const activeModel = snapshot.models.find(
     (item) => item.provider === snapshot.activeProvider && item.id === snapshot.activeModel
@@ -567,6 +572,21 @@ function Composer({
     !providerIsStaged &&
     !forkPending
   )
+  const skillInsertionBlocked = !canCompose || editOpen || submitting || Boolean(attachments.files.length || attachments.staging || attachments.sending || attachments.submission)
+  const skillAttachmentConflict = /^\/skill:/.test(draft.trimStart()) && attachments.files.length > 0
+
+  useEffect(() => {
+    if (!skillInsertion) return
+    const request = useSkillInsertion.getState().consume()
+    if (!request || skillInsertionBlocked) return
+    const identity = skillDraftIdentity(snapshot)
+    setDrafts(current => {
+      const entry = current[draftKey]
+      const text = insertSkillDraft(entry?.text ?? '', request, identity)
+      return text === null ? current : { ...current, [draftKey]: { text, version: (entry?.version ?? 0) + 1 } }
+    })
+    textarea.current?.focus()
+  }, [skillInsertion, skillInsertionBlocked, snapshot, draftKey])
 
   useEffect(() => {
     dispatchModelSelection({
@@ -590,6 +610,7 @@ function Composer({
       onAbort()
       return
     }
+    if (skillAttachmentConflict) return
     if (!snapshot.ready || pendingKeys.current.has(draftKey) || usePiStore.getState().forkPending)
       return
     if (attachments.files.length) {
@@ -675,6 +696,11 @@ function Composer({
   return (
     <div className="composer-wrap">
       <div className={`composer${canCompose ? '' : ' is-locked'}`}>
+        <SkillPicker ref={skillPicker} snapshot={snapshot} draft={draft} disabled={skillInsertionBlocked}
+          onMenuStateChange={setSkillMenuState}
+          onInsert={request => useSkillInsertion.getState().request(request)} />
+        {skillAttachmentConflict && <p role="alert" className="inline-hint">技能命令暂不能与文本附件一起发送，请先移除附件。</p>}
+        {!skillAttachmentConflict && /^\/skill:/.test(draft.trimStart()) && <p className="inline-hint">技能命令暂不能搭配文本附件；移除技能命令后可添加附件。</p>}
         {!snapshot.ready ? (
           <div className="composer-lock is-static">
             <LockKeyhole size={14} />
@@ -741,6 +767,8 @@ function Composer({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (skillPicker.current?.handleKeyDown(event)) return
+            if (event.keyCode === 229) return
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               submit()
@@ -748,6 +776,9 @@ function Composer({
           }}
           placeholder={snapshot.busy ? '输入可排队到当前任务之后…' : '给 Pi 下达任务…'}
           aria-label="给 Pi 的任务"
+          aria-controls={skillMenuState.listId}
+          aria-activedescendant={skillMenuState.activeId}
+          aria-autocomplete="list"
           disabled={!canCompose}
         />
         <div className="composer-tools">
@@ -757,6 +788,7 @@ function Composer({
             title="添加 UTF-8 文本文件（最多 4 个，单个 1 MiB，合计 2 MiB）"
             aria-label="添加文本文件"
             disabled={
+              /^\/skill:/.test(draft.trimStart()) ||
               editOpen ||
               !snapshot.ready ||
               !snapshot.project ||
@@ -923,6 +955,7 @@ function Composer({
               snapshot.busy && (!draft.trim() || attachments.files.length > 0)
                 ? !snapshot.ready
                 : submitting ||
+                  skillAttachmentConflict ||
                   editOpen ||
                   attachments.staging ||
                   attachments.sending ||

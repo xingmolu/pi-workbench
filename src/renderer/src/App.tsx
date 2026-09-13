@@ -10,6 +10,9 @@ import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
 import SettingsDialog from './components/SettingsDialog'
 import McpSettings from './components/McpSettings'
+import SkillsSettings from './components/SkillsSettings'
+import { useSkillInsertion } from './store/skill-draft'
+import { useTextAttachments } from './store/text-attachments'
 import AccountQuota from './components/AccountQuota'
 import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
@@ -37,6 +40,7 @@ export default function App(): React.JSX.Element {
   const [navigating, setNavigating] = useState(false)
   const forkPending = usePiStore((state) => state.forkPending)
   const editPhase = useSessionEdit((state) => state.phase)
+  const skillAttachmentsBlocked = useTextAttachments((state) => Boolean(state.files.length || state.staging || state.sending || state.submission))
   const navigationDisabledReason = forkPending
     ? '正在分叉会话'
     : editPhase !== 'closed'
@@ -335,6 +339,14 @@ export default function App(): React.JSX.Element {
         onWorkbenchError={reportWorkbenchError}
       />
       <SettingsDialog
+        skillsContent={<SkillsSettings snapshot={snapshot}
+          insertDisabled={Boolean(forkPending) || editPhase !== 'closed' || skillAttachmentsBlocked || !snapshot.ready || snapshot.modelAvailability !== 'available' || snapshot.composeBlockReason !== null}
+          onInsert={(request) => {
+            settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="给 Pi 的任务"]')
+            useSkillInsertion.getState().request(request)
+            closeSettings()
+          }}
+        />}
         mcpContent={<McpSettings snapshot={snapshot} />}
         renderAccountQuota={(account) => (
           <AccountQuota
