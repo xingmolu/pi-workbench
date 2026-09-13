@@ -59,7 +59,7 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 
 - **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
 
-会话身份以 canonical session cwd 为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径经 `resolve` 相等；不做 symlink 别名合并，不回退进程 cwd。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)。
+会话身份以 SDK 的 session cwd 和经校验的项目归属为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径；当前归属检查优先比较 `realpath`，路径不可解析时回退 `resolve`，不回退进程 cwd。全局搜索保留 SDK 来源 cwd 与原 session path，打开时仍由 Main/Host 重新校验归属；项目目录列表对可用目录使用 canonical realpath。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。历史验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)；其早期 resolve-only 描述不代表当前实现。
 
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
 - **Workbench**：按用户提供的 Codex 截图采用顶部显示/隐藏开关，默认零宽折叠，无常驻 mode rail。展开且没有已打开工具时居中显示纵向 registry 列表；打开后只显示已打开 contribution 的标签及 `+` 纵向菜单。每个 contribution 一个标签，保留浏览器/终端内部多标签；关闭最后一个工具返回空态。隐藏工作台或关闭外层终端标签不结束 PTY，结束仍需显式操作。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 都是真实 surface；不注册占位 Trace/侧边聊天。长列表滚动、长标签省略并保留完整名称。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽、键盘调整及同窗口宽度记忆；拖拽、设置弹窗和 `+` 菜单覆盖时隐藏原生 Browser/plugin view，结束后恢复并同步位置/尺寸，不销毁服务状态。设置打开时忽略后台 reveal。macOS 原生隐藏标题栏，保留红绿灯，三栏顶部 48px；窄对话区图标化既有操作，保留状态并将重复模型/权限信息留给 composer。跨重启、按工作区记宽度和 tab 恢复后做。见 [验收记录](docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。

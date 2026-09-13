@@ -13,6 +13,8 @@ import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
 import WorkspacePanels from './components/WorkspacePanels'
 import SettingsDialog from './components/SettingsDialog'
+import GlobalCommandPalette from './components/GlobalCommandPalette'
+import { useOverlayState } from './store/overlay-state'
 import McpSettings from './components/McpSettings'
 import SkillsSettings from './components/SkillsSettings'
 import { useSkillInsertion } from './store/skill-draft'
@@ -53,6 +55,19 @@ export default function App(): React.JSX.Element {
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
   const settingsOpenRef = useRef(layout.settingsOpen)
   const settingsOpenerRef = useRef<HTMLElement | null>(null)
+  const paletteOpenerRef = useRef<HTMLElement | null>(null)
+  const nativePaletteTokenRef = useRef<string | undefined>(undefined)
+  const activeOverlay = useOverlayState(state => state.active)
+  const openPalette = useCallback((nativeToken?: string): void => {
+    if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"]') || !useOverlayState.getState().open('command')) {
+      if (nativeToken) void window.pi.nativePaletteFocus({ type: 'finish', token: nativeToken, restore: false }).catch(() => {})
+      return
+    }
+    if (!nativeToken) void window.pi.nativePaletteFocus({ type: 'invalidate' }).catch(() => {})
+    nativePaletteTokenRef.current = nativeToken
+    paletteOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }, [])
+  const closePalette = useCallback((): void => { useOverlayState.getState().close('command') }, [])
   settingsOpenRef.current = layout.settingsOpen
   const [workbenchStatus, dispatchWorkbenchStatus] = useReducer(
     workbenchStatusReducer,
@@ -88,6 +103,10 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     const unsubscribe = window.pi.onEvent((event) => {
+      if (event.event === 'command-palette') {
+        if (!useOverlayState.getState().active && !document.querySelector('[role="dialog"], [role="alertdialog"]')) openPalette(event.data.token)
+        else void window.pi.nativePaletteFocus({ type: 'finish', token: event.data.token, restore: false }).catch(() => {})
+      }
       if (event.event === 'disconnected') disconnect(event.data.message)
       if (event.event === 'snapshot') setSnapshot(event.data)
       if (event.event === 'patch' && applyPatch(event.data) === 'needsSnapshot') {
@@ -114,7 +133,7 @@ export default function App(): React.JSX.Element {
       cancelled = true
       unsubscribe()
     }
-  }, [applyPatch, disconnect, setClientError, setSnapshot])
+  }, [applyPatch, disconnect, setClientError, setSnapshot, openPalette])
 
   useEffect(
     () =>
@@ -124,7 +143,7 @@ export default function App(): React.JSX.Element {
         onSnapshot: acceptWorkbenchSnapshot,
         onReveal: (viewId) => {
           // Background reveals must not replace the user's panel while settings are open.
-          if (settingsOpenRef.current) return
+          if (settingsOpenRef.current || useOverlayState.getState().active) return
           if (!availableWorkbenchViews.current.includes(viewId)) return
           dispatchWorkbenchSelection({ type: 'reveal', viewId })
           setWorkbenchOpen(true)
@@ -135,15 +154,32 @@ export default function App(): React.JSX.Element {
   )
 
   useEffect(() => {
+    let composing = false
+    const startComposition = (): void => { composing = true }
+    const endComposition = (): void => { composing = false }
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.isComposing || event.keyCode === 229 || composing) return
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !event.altKey && !event.shiftKey) {
+        if (useOverlayState.getState().active === 'command') { event.preventDefault(); closePalette(); return }
+        if (useOverlayState.getState().active || document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+        event.preventDefault()
+        openPalette()
+        return
+      }
       if (event.metaKey && event.key.toLowerCase() === 'b' && !event.altKey && !event.shiftKey) {
         event.preventDefault()
         dispatchLayout({ type: 'sidebar:toggle' })
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+    window.addEventListener('compositionstart', startComposition)
+    window.addEventListener('compositionend', endComposition)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('compositionstart', startComposition)
+      window.removeEventListener('compositionend', endComposition)
+    }
+  }, [openPalette, closePalette])
 
   const send = useCallback(
     async (command: HostCommand): Promise<boolean> => {
@@ -266,6 +302,8 @@ export default function App(): React.JSX.Element {
   )
 
   const openSettings = useCallback((): void => {
+    if (!useOverlayState.getState().open('settings')) return
+    void window.pi.nativePaletteFocus({ type: 'invalidate' }).catch(() => {})
     if (!settingsOpenRef.current) {
       settingsOpenerRef.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -274,6 +312,7 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const closeSettings = useCallback((): void => {
+    useOverlayState.getState().close('settings')
     dispatchLayout({ type: 'settings:close' })
   }, [])
 
@@ -315,6 +354,7 @@ export default function App(): React.JSX.Element {
         pending={navigating}
         disabledReason={navigationDisabledReason}
         onOpenSettings={openSettings}
+        onOpenSearch={() => openPalette()}
       />
 
       <WorkspacePanels
@@ -352,7 +392,7 @@ export default function App(): React.JSX.Element {
             selectedViewId={workbenchSelection.selectedViewId}
             openedViewIds={workbenchSelection.openedViewIds}
             onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
-            settingsOpen={layout.settingsOpen}
+            settingsOpen={layout.settingsOpen || activeOverlay !== null}
             agentSnapshot={snapshot}
             workbenchSnapshot={workbenchStatus.snapshot}
             workbenchError={workbenchStatus.error}
@@ -365,6 +405,23 @@ export default function App(): React.JSX.Element {
           />
         }
       />
+      {activeOverlay === 'command' && <GlobalCommandPalette
+        snapshot={snapshot}
+        returnFocusRef={paletteOpenerRef}
+        nativeFocusToken={nativePaletteTokenRef.current}
+        disabledReason={navigationDisabledReason ?? (navigating ? '正在切换会话，请稍候' : null)}
+        filesAvailable={Boolean(snapshot.ready && snapshot.project && workbenchStatus.snapshot.contributions.some(item => item.surface.kind === 'first-party' && item.surface.adapter === 'files'))}
+        onClose={closePalette}
+        onNavigate={navigateProject}
+        onChooseProject={chooseProject}
+        onSearchFiles={() => {
+          const files = workbenchStatus.snapshot.contributions.find(item => item.surface.kind === 'first-party' && item.surface.adapter === 'files')
+          if (!files || !snapshot.project) return
+          dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
+          setWorkbenchOpen(true)
+          useOverlayState.getState().requestFileSearch(snapshot.project.path)
+        }}
+      />}
       <SettingsDialog
         skillsContent={<SkillsSettings snapshot={snapshot}
           insertDisabled={Boolean(forkPending) || editPhase !== 'closed' || skillAttachmentsBlocked || !snapshot.ready || snapshot.modelAvailability !== 'available' || snapshot.composeBlockReason !== null}

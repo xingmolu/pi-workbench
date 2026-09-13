@@ -147,6 +147,7 @@ import {
 } from './session-model'
 
 import { canonicalProjectDirectory, discoverProjectSessions, readProjectCatalog } from './project-catalog'
+import { searchProjects, searchSessions } from './session-search'
 import type { ProjectNavigateCommand } from '../shared/project-catalog'
 
 const AGENT_DIR = resolveAgentDirectory({
@@ -464,6 +465,16 @@ class PiDesktopHost {
   async handle(request: HostRequest): Promise<HostResult> {
     displayQuarantine.assertHealthy()
     await this.initialize()
+    if (request.type === 'session:search' || request.type === 'project:search') {
+      if (!this.sdk) throw new Error('Pi SDK 尚未加载')
+      const options = { ...request, manager: this.sdk.SessionManager, agentDir: AGENT_DIR,
+        recentPaths: [...(this.projectPath ? [this.projectPath] : []), ...(request.recentPaths ?? [])] }
+      try {
+        return request.type === 'session:search'
+          ? { kind: 'session-search', result: await searchSessions(options) }
+          : { kind: 'project-search', result: await searchProjects(options) }
+      } catch { throw new Error('全局目录暂时不可读取，请重试') }
+    }
     if (request.type === 'project:catalog') {
       if (!this.sdk) throw new Error('Pi SDK 尚未加载')
       try {

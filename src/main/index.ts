@@ -1,8 +1,11 @@
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
 import { handleDesktopSettings } from './desktop-settings'
+import { NativePaletteFocus } from './native-palette-focus'
+import { NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema } from '../shared/native-palette-focus'
 import {
   app,
   BrowserWindow,
+  WebContentsView,
   dialog,
   ipcMain,
   shell,
@@ -94,6 +97,8 @@ let rejectHostReady: ((error: Error) => void) | null = null
 let preferences: ElectronStore<Preferences> | null = null
 let browserManager: BrowserManager | null = null
 let browserOwner: BrowserWindowType | null = null
+const nativePaletteFocus = new NativePaletteFocus()
+const paletteSourceIdentity = (): string => JSON.stringify([activeProjectPath, activeHostIdentity.sessionId, activeHostIdentity.generation])
 let workbenchHost: WorkbenchHost | null = null
 let activeHostIdentity: Pick<AgentSnapshot, 'sessionId' | 'generation'> = {
   sessionId: null,
@@ -713,7 +718,7 @@ function registerIpc(): void {
       const snapshot = await openUserProject(parsed.data.cwd)
       return { kind: 'snapshot', snapshot } satisfies HostResult
     }
-    if (parsed.data.type === 'project:catalog') {
+    if (parsed.data.type === 'project:catalog' || parsed.data.type === 'session:search' || parsed.data.type === 'project:search') {
       return callHost({...parsed.data,recentPaths:mergeRecentProjects(preferenceStore().get('recentProjects'),preferenceStore().get('lastProjectPath'))})
     }
     if (parsed.data.type === 'project:navigate') {
@@ -780,7 +785,15 @@ function registerIpc(): void {
     if (!parsed.success) throw new Error('无效的 Workbench IPC 请求')
     const host = workbenchHost
     if (!host) throw new Error('Workbench 尚未就绪')
-    return host.dispatch(parsed.data)
+    const result = await host.dispatch(parsed.data)
+    nativePaletteFocus.surfaceUpdated()
+    return result
+  })
+  ipcMain.handle(NATIVE_PALETTE_FOCUS_CHANNEL, (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    const parsed = nativePaletteFocusSchema.parse(command)
+    if (parsed.type === 'invalidate') nativePaletteFocus.invalidate()
+    else nativePaletteFocus.finish(parsed.token, parsed.restore)
   })
   ipcMain.handle(WORKBENCH_PANEL_CHANNEL, (event, command: unknown) =>
     workbenchPanelIpc.handle(event, command)
@@ -894,6 +907,7 @@ function createWindow(): void {
     workbenchHost = null
     browserManager?.dispose()
     browserManager = null
+    nativePaletteFocus.invalidate()
     browserOwner = null
   })
 
@@ -907,6 +921,31 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('works.pi.desktop')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown') nativePaletteFocus.interruptPending() })
+    contents.on('focus', () => nativePaletteFocus.interruptPending())
+    contents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') nativePaletteFocus.interruptPending()
+      const owner = browserOwner
+      if (!owner || owner.isDestroyed() || contents === owner.webContents || !contents.isFocused()) return
+      const view = owner.contentView.children.find(view => view instanceof WebContentsView && view.webContents === contents)
+      if (!(view instanceof WebContentsView)) return
+      if (input.type !== 'keyDown' || input.isComposing || input.isAutoRepeat || input.key.toLowerCase() !== 'k' || !(input.meta || input.control) || input.alt || input.shift) return
+      event.preventDefault()
+      const token = randomUUID()
+      const identity = paletteSourceIdentity()
+      nativePaletteFocus.capture(token, {
+        valid: () => browserOwner === owner && !owner.isDestroyed() && !contents.isDestroyed() && owner.isFocused() &&
+          identity === paletteSourceIdentity() && owner.contentView.children.includes(view) &&
+          (owner.webContents.isFocused() || contents.isFocused()) &&
+          !owner.contentView.children.some(other => other instanceof WebContentsView && other !== view && other.webContents !== owner.webContents && other.getVisible()),
+        visible: () => view.getVisible(),
+        focus: () => contents.focus()
+      })
+      owner.webContents.focus()
+      owner.webContents.send('pi:event', { type: 'event', event: 'command-palette', data: { source: 'native-view', token } } satisfies DesktopEvent)
+    })
+  })
   try {
     const sessionData = app.getPath('sessionData')
     await mkdir(sessionData, { recursive: true })

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema } from '../shared/native-palette-focus'
 import { DESKTOP_SETTINGS_CHANNEL, desktopSettingsCommandSchema, desktopSettingsSchema } from '../shared/desktop-settings'
 import { MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable } from '../shared/markdown-table-export'
 import type {
@@ -42,6 +43,7 @@ const subscribeToBrowserEvent = createBrowserEventSubscriber({
 })
 
 const api: PiDesktopAPI = {
+  nativePaletteFocus: command => ipcRenderer.invoke(NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema.parse(command)),
   desktopSettings: async (command) => desktopSettingsSchema.parse(await ipcRenderer.invoke(DESKTOP_SETTINGS_CHANNEL, desktopSettingsCommandSchema.parse(command))),
   exportMarkdownTable: (request) => ipcRenderer.invoke(MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable(request)),
   textAttachments: (command) => ipcRenderer.invoke(TEXT_ATTACHMENT_CHANNEL, attachmentCommandSchema.parse(command)),

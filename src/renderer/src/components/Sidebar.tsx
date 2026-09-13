@@ -1,4 +1,4 @@
-import { ChevronsLeft, FolderOpen, MessageSquarePlus, PanelLeft, Settings2 } from 'lucide-react'
+import { ChevronsLeft, FolderOpen, MessageSquarePlus, PanelLeft, Search, Settings2 } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import { canCreateSession } from '../../../shared/session-presentation'
 import ProjectSessionList from './ProjectSessionList'
@@ -17,6 +17,7 @@ type SidebarProps = {
   pending?: boolean
   disabledReason?: string | null
   onOpenSettings: () => void
+  onOpenSearch: () => void
 }
 
 export default function Sidebar({
@@ -30,7 +31,8 @@ export default function Sidebar({
   navigationFailures,
   pending = false,
   disabledReason,
-  onOpenSettings
+  onOpenSettings,
+  onOpenSearch
 }: SidebarProps): React.JSX.Element {
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
   const reason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
@@ -40,6 +42,7 @@ export default function Sidebar({
     return (
       <aside className="sidebar is-collapsed" aria-label="折叠的侧栏">
         <div className="rail-top">
+          <button className="icon-btn" type="button" onClick={onOpenSearch} aria-label="搜索所有会话" title="搜索所有会话（⌘K）"><Search size={17} /></button>
           <button
             className="icon-btn"
             type="button"
@@ -121,6 +124,7 @@ export default function Sidebar({
           新会话
         </button>
       </div>
+      <button className="sidebar-global-search" type="button" onClick={onOpenSearch} aria-label="搜索所有会话"><Search size={14} />搜索所有会话<kbd>⌘K</kbd></button>
       <ProjectSessionList
         snapshot={snapshot}
         onNavigate={onNavigate}

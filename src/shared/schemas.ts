@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sessionSearchCommandSchema, projectSearchCommandSchema, sessionSearchResultSchema, projectSearchResultSchema } from './session-search'
 import { skillsListSchema, skillsDetailSchema, skillsCatalogSchema, skillDetailSchema } from './skills'
 import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpSnapshotSchema } from './mcp'
 import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
@@ -571,6 +572,7 @@ const endpointSaveCommandSchema = z
   })
   .strict()
 const commandSchemas = [
+  sessionSearchCommandSchema, projectSearchCommandSchema,
   skillsListSchema, skillsDetailSchema,
   mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema,
   accountQuotaCommandSchema,
@@ -608,6 +610,8 @@ export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
 
 const requestIdShape = { requestId: z.string().min(1) }
 export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
+  sessionSearchCommandSchema.extend({ ...requestIdShape, recentPaths: z.array(z.string().min(1).max(4096)).max(100).optional() }),
+  projectSearchCommandSchema.extend({ ...requestIdShape, recentPaths: z.array(z.string().min(1).max(4096)).max(100).optional() }),
   skillsListSchema.extend(requestIdShape),
   skillsDetailSchema.extend(requestIdShape),
   mcpListSchema.extend(requestIdShape),
@@ -648,6 +652,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
 ])
 
 export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('session-search'), result: sessionSearchResultSchema }).strict(),
+  z.object({ kind: z.literal('project-search'), result: projectSearchResultSchema }).strict(),
   z.object({ kind: z.literal('skills-list'), catalog: skillsCatalogSchema }).strict(),
   z.object({ kind: z.literal('skills-detail'), detail: skillDetailSchema }).strict(),
   z.object({ kind: z.literal('mcp'), result: mcpSnapshotSchema }).strict(),

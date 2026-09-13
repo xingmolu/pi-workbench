@@ -2,6 +2,10 @@ import type { HostCommand, HostResult } from './contracts'
 
 export function expectedHostResultKind(command: HostCommand): HostResult['kind'] {
   switch (command.type) {
+    case 'session:search':
+      return 'session-search'
+    case 'project:search':
+      return 'project-search'
     case 'skills:list':
       return 'skills-list'
     case 'skills:detail':

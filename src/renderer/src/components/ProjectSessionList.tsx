@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Folder, GitFork, Plus, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Folder, GitFork, Plus } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import type {
   CatalogProject,
@@ -46,12 +46,10 @@ export default function ProjectSessionList({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [retry, setRetry] = useState(0)
-  const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [loadingGroups, setLoadingGroups] = useState<string[]>([])
   const [groupErrors, setGroupErrors] = useState<Record<string, string>>({})
   const epoch = useRef(0)
-  const search = useRef<HTMLInputElement>(null)
   const historyKey = snapshot.sessions
     .map((session) => `${session.path}:${session.title}:${session.modified}`)
     .join('|')
@@ -139,7 +137,6 @@ export default function ProjectSessionList({
   // Keep native interaction guards; only transient pending gets stable visual styling.
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
   const navigationReason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
-  const term = query.trim().toLocaleLowerCase()
   const projects = catalog?.projects.map((project) => withLiveProject(project, snapshot)) ?? []
   const loaded = projects.reduce((total, project) => total + project.sessions.length, 0)
   return (
@@ -148,28 +145,6 @@ export default function ProjectSessionList({
       aria-label="项目会话目录"
       aria-busy={pending || undefined}
     >
-      <div className="session-search">
-        <Search size={13} aria-hidden="true" />
-        <input
-          ref={search}
-          aria-label="搜索会话标题"
-          placeholder="搜索已加载会话"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        {query && (
-          <button
-            type="button"
-            aria-label="清除搜索"
-            onClick={() => {
-              setQuery('')
-              search.current?.focus()
-            }}
-          >
-            <X size={13} />
-          </button>
-        )}
-      </div>
       <div className="catalog-scope">
         <span
           className="catalog-count"
@@ -208,19 +183,9 @@ export default function ProjectSessionList({
             </button>
           </p>
         ) : null}
-        {projects
-          .filter(
-            (project) =>
-              !term ||
-              navigationFailures[project.path] ||
-              project.nextOffset !== null ||
-              project.sessions.some((session) => session.title.toLocaleLowerCase().includes(term))
-          )
-          .map((project) => {
-            const matching = project.sessions.filter((session) =>
-              session.title.toLocaleLowerCase().includes(term)
-            )
-            const expanded = term.length > 0 || !collapsed.includes(project.path)
+        {projects.map((project) => {
+            const matching = project.sessions
+            const expanded = !collapsed.includes(project.path)
             const groupLoading = loadingGroups.includes(project.path)
             const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
             const pendingOnly = pending && !blockReason && !project.error
@@ -322,7 +287,7 @@ export default function ProjectSessionList({
                     })}
                     {!matching.length && (
                       <p className="project-group-empty">
-                        {term ? '已加载会话中无匹配' : '暂无会话'}
+                        暂无会话
                       </p>
                     )}
                     {project.nextOffset !== null && (
@@ -356,22 +321,11 @@ export default function ProjectSessionList({
         {!loading && catalog && !projects.length && (
           <p className="sidebar-empty">添加项目，开始第一段会话。</p>
         )}
-        {!loading &&
-          catalog &&
-          term &&
-          !projects.some((project) =>
-            project.sessions.some((session) => session.title.toLocaleLowerCase().includes(term))
-          ) && (
-            <p className="sidebar-empty" role="status">
-              没有匹配的会话标题（仅搜索已加载会话）
-            </p>
-          )}
         {catalog?.truncated && (
           <p className="catalog-scope">
-            显示 100 / {catalog.totalProjects} 个项目。使用“添加项目”打开其余项目。
+            显示 100 / {catalog.totalProjects} 个项目。使用“搜索所有会话”查找其余会话。
           </p>
         )}
-        {term && <p className="catalog-scope">仅搜索已加载标题；可展开项目并显示更多。</p>}
       </div>
     </section>
   )

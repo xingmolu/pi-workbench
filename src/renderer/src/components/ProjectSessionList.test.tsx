@@ -15,7 +15,8 @@ it('shows a truthful catalog loading state without inventing project history', (
     <ProjectSessionList snapshot={EMPTY_SNAPSHOT} onNavigate={() => {}} />
   )
   expect(html).toContain('正在读取项目目录')
-  expect(html).toContain('搜索已加载会话')
+  expect(html).toContain('已加载 0 个项目 · 0 个会话')
+  expect(html).not.toContain('搜索已加载会话')
   expect(html).not.toContain('空闲')
 })
 

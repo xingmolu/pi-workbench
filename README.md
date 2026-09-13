@@ -15,7 +15,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - Pi 多账号 provider 别名 `openai-codex-<slug>`；
 - 自定义 OpenAI Chat Completions / Responses、Anthropic Messages 端点设置；
 - 按 canonical session cwd 隔离的 Pi JSONL 会话列表、新建与恢复（保留 CLI 目录编码）；
-- 已保存会话重命名、当前工作区标题搜索和当前对话的问题导航；
+- 已保存会话重命名、跨项目全量标题搜索（⌘/Ctrl+K）和当前对话的问题导航；
 - 已保存会话当前历史分叉为新会话、来源导航与原会话草稿保留；
 - 左下角独立设置弹窗：常规、外观、账号与模型、Codex 订阅额度、Skills、MCP 服务器与 Desktop 插件；
 - Skills 已加载技能库：设置中搜索与只读详情，输入框键入 `/` 搜索并插入原生技能命令；
@@ -37,6 +37,8 @@ Files 不支持编辑、重命名、删除或自动附加到对话；仅预览�
 测试范围、截图和独立本地包见 [文本上下文验收](./docs/TEXT_CONTEXT_ACCEPTANCE_2026-09-11.md)。
 会话目录编码可能碰撞（例如 `a-b` 与 `a/b`）。Host 按 SDK 公共会话信息的绝对 cwd 过滤列表及自动恢复，显式打开还校验路径归属；创建项目服务前再次检查实际 manager cwd。详见 [会话 cwd 隔离验收](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)。
 
+
+全局搜索的验证、原生键盘焦点测试限制和后续范围见 [全局导航验收](./docs/GLOBAL_NAVIGATION_ACCEPTANCE_2026-09-14.md)。
 
 
 当前源码提供最近问题的「编辑问题」入口（已通过独立规格与质量审查）：独立编辑框只改文字，保留原文本快照和图片，不覆盖普通输入框草稿。取消不发送；明确发送后在同一会话从原问题之前继续，旧记录仍保留，但暂不提供旧分支切换器。文件和终端操作不会撤销，工具可能再次执行。发送结果未知时只查询，不直接重发；引擎断开后使用编辑区重连入口核对历史。附件增删、任意历史编辑和助手重试不在当前实现内。验收及包版本边界见 [编辑验收记录](./docs/SESSION_EDIT_ACCEPTANCE_2026-09-11.md)。

@@ -1,6 +1,7 @@
 export * from './workbench-contracts'
 import type { MessageFeedbackCommand, MessageFeedbackValue } from './message-actions'
 import type { ProjectCatalog, ProjectCatalogCommand, ProjectNavigateCommand } from './project-catalog'
+import type { SessionSearchCommand, ProjectSearchCommand, SessionSearchResult, ProjectSearchResult } from './session-search'
 import type { SessionEditCommand, SessionEditResult } from './session-edit'
 import type {
   AttachmentCommand,
@@ -366,6 +367,7 @@ export type SessionNewCommand =
   { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
 
 export type HostCommand =
+  | ((SessionSearchCommand | ProjectSearchCommand) & { recentPaths?: string[] })
   | import('./skills').SkillsCommand
   | import('./mcp').McpCommand
   | MessageFeedbackCommand
@@ -410,6 +412,7 @@ export type AckHostCommand = Exclude<
   | SessionEditCommand
   | ProjectCatalogCommand
   | Extract<HostCommand, { type: 'account:quota' }>
+  | SessionSearchCommand | ProjectSearchCommand
   | import('./mcp').McpCommand
   | import('./skills').SkillsCommand
 >
@@ -428,6 +431,8 @@ export type HostEndpointListResult = {
 }
 export type HostEndpointSaveResult = { kind: 'endpoint-save'; result: CustomEndpointSaveResult }
 export type HostResult =
+  | { kind: 'session-search'; result: SessionSearchResult }
+  | { kind: 'project-search'; result: ProjectSearchResult }
   | { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
   | { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
   | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
@@ -440,7 +445,11 @@ export type HostResult =
   | HostEndpointListResult
   | HostEndpointSaveResult
   | { kind: 'attachment'; receipt: AttachmentReceipt }
-export type HostResultFor<Command extends HostCommand> = Command extends { type: 'skills:list' }
+export type HostResultFor<Command extends HostCommand> = Command extends SessionSearchCommand
+  ? { kind: 'session-search'; result: SessionSearchResult }
+  : Command extends ProjectSearchCommand
+  ? { kind: 'project-search'; result: ProjectSearchResult }
+  : Command extends { type: 'skills:list' }
   ? { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
   : Command extends { type: 'skills:detail' }
   ? { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
@@ -487,6 +496,7 @@ export type HostMessage = HostResponse | HostEvent
 
 export type DesktopEvent =
   | HostEvent
+  | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
   | {
       type: 'event'
       event: 'disconnected'
@@ -494,6 +504,7 @@ export type DesktopEvent =
     }
 
 export type PiDesktopAPI = {
+  nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
   exportMarkdownTable: (
     request: import('./markdown-table-export').MarkdownTableRequest

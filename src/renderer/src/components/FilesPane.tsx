@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, File, Folder, Link2 } from 'lucide-react'
 import type { WorkspaceFileEntry, WorkspaceFilesResult } from '../../../shared/workspace-files'
 import { stageTextFile, useTextAttachments } from '../store/text-attachments'
 import { HighlightedCode } from './HighlightedCode'
+import { useOverlayState } from '../store/overlay-state'
 
 type Listing = Extract<WorkspaceFilesResult, { type: 'list' | 'search' }>
 type ReadResult = Extract<WorkspaceFilesResult, { type: 'read' }>
@@ -157,6 +158,17 @@ export default function FilesPane({
   const [revision, setRevision] = useState(0)
   const [search, setSearch] = useState<Load<Listing>>({})
   const [selected, setSelected] = useState<string | null>(null)
+  const fileSearchRequest = useOverlayState(state => state.fileSearch)
+  const searchInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!fileSearchRequest || fileSearchRequest.cwd !== projectPath) return
+    setSelected(null)
+    const frame = requestAnimationFrame(() => {
+      searchInput.current?.focus()
+      useOverlayState.getState().consumeFileSearch(fileSearchRequest.revision)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [fileSearchRequest, projectPath])
   const [preview, setPreview] = useState<Load<ReadResult>>({})
   const [wrap, setWrap] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -267,6 +279,7 @@ export default function FilesPane({
               <label className="files-search">
                 搜索文件名
                 <input
+                  ref={searchInput}
                   value={query}
                   maxLength={100}
                   placeholder="按文件名搜索，不搜索内容"
