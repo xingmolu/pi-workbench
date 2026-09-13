@@ -2180,35 +2180,8 @@ button.send:disabled {
   padding-bottom: 12px;
   user-select: text;
 }
-.git-patch {
-  --diff-background-color: var(--raised);
-  --diff-text-color: var(--text-soft);
-  --diff-gutter-insert-background-color: #254434;
-  --diff-code-insert-background-color: #20392e;
-  --diff-gutter-delete-background-color: #4d2c30;
-  --diff-code-delete-background-color: #3d272c;
-}
-.git-patch .diff {
-  width: max-content;
-  min-width: 100%;
-  table-layout: auto;
-  font-size: 11px;
-}
-.git-patch .diff-code {
-  white-space: pre;
-  word-break: normal;
-  overflow-wrap: normal;
-}
-.git-patch .diff-gutter {
-  cursor: default;
-  color: #a7aaa8;
-}
-.git-line-marker {
-  display: inline-block;
-  width: 1ch;
-  margin-left: 0.5ch;
-  font-weight: 600;
-}
+.git-diff-scroll diffs-container { display: block; min-width: 0; }
+.highlighted-code { background: transparent; padding: 0; font: inherit; color: inherit; }
 
 .files-pane {
   display: flex;

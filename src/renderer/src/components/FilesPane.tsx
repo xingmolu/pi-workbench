@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, File, Folder, Link2 } from 'lucide-react'
 import type { WorkspaceFileEntry, WorkspaceFilesResult } from '../../../shared/workspace-files'
 import { stageTextFile, useTextAttachments } from '../store/text-attachments'
+import { HighlightedCode } from './HighlightedCode'
 
 type Listing = Extract<WorkspaceFilesResult, { type: 'list' | 'search' }>
 type ReadResult = Extract<WorkspaceFilesResult, { type: 'read' }>
@@ -369,7 +370,7 @@ export default function FilesPane({
                     UTF-8 · {preview.value.size.toLocaleString()} 字节 · 只读预览
                   </small>
                   <pre tabIndex={0} className={wrap ? 'is-wrapped' : ''}>
-                    {preview.value.text}
+                    <HighlightedCode text={preview.value.text} filename={selected} />
                   </pre>
                 </>
               ) : (

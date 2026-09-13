@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Diff, Hunk, parseDiff } from 'react-diff-view'
-import 'react-diff-view/style/index.css'
+import { parsePatchFiles } from '@pierre/diffs'
+import { PierrePatchDiff, preparePatchLanguage } from './PierrePatchDiff'
 import type { GitReviewResult } from '../../../shared/git-review'
 
 type Patch = Extract<GitReviewResult, { type: 'patch' }>
@@ -16,6 +16,7 @@ const kindLabels = {
 
 export default function GitPatchView({ patch }: { patch: Patch }): React.JSX.Element {
   const [viewType, setViewType] = useState<'unified' | 'split'>('unified')
+  const [raw, setRaw] = useState(false)
   const parsed = useMemo(() => {
     const text = patch.text
     if (!text) return { reason: '', files: null }
@@ -24,9 +25,11 @@ export default function GitPatchView({ patch }: { patch: Patch }): React.JSX.Ele
       return { reason: '差异较大，以完整原始文本显示', files: null }
     if (patch.kind !== 'text') return { reason: kindLabels[patch.kind], files: null }
     try {
-      const files = parseDiff(text)
-      if (files.length !== 1 || !files[0]?.hunks.length)
+      const patches = parsePatchFiles(text, undefined, true)
+      const files = patches[0]?.files
+      if (patches.length !== 1 || files?.length !== 1 || !files[0]?.hunks.length)
         return { reason: '无法解析为文本差异，保留完整内容', files: null }
+      preparePatchLanguage(files[0])
       return { reason: '', files }
     } catch {
       return { reason: '无法解析为文本差异，保留完整内容', files: null }
@@ -45,45 +48,37 @@ export default function GitPatchView({ patch }: { patch: Patch }): React.JSX.Ele
           <div className="git-diff-controls" aria-label="差异布局">
             <button
               type="button"
-              aria-pressed={viewType === 'unified'}
-              onClick={() => setViewType('unified')}
+              aria-pressed={!raw && viewType === 'unified'}
+              onClick={() => {
+                setViewType('unified')
+                setRaw(false)
+              }}
             >
               统一
             </button>
             <button
               type="button"
-              aria-pressed={viewType === 'split'}
-              onClick={() => setViewType('split')}
+              aria-pressed={!raw && viewType === 'split'}
+              onClick={() => {
+                setViewType('split')
+                setRaw(false)
+              }}
             >
               分栏
             </button>
+            <button type="button" aria-pressed={raw} onClick={() => setRaw(!raw)}>
+              原始差异
+            </button>
           </div>
-          <div className="git-diff-scroll" tabIndex={0} aria-label="文件差异">
-            {parsed.files.map((file, index) => (
-              <Diff
-                key={index}
-                viewType={viewType}
-                diffType={file.type}
-                hunks={file.hunks}
-                renderGutter={({ change, side, renderDefault }) => (
-                  <>
-                    {renderDefault()}
-                    {change.type === 'insert' && side === 'new' ? (
-                      <span className="git-line-marker" role="img" aria-label="新增行">
-                        +
-                      </span>
-                    ) : change.type === 'delete' && side === 'old' ? (
-                      <span className="git-line-marker" role="img" aria-label="删除行">
-                        −
-                      </span>
-                    ) : null}
-                  </>
-                )}
-              >
-                {(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-              </Diff>
-            ))}
-          </div>
+          {raw ? (
+            <pre tabIndex={0} aria-label="原始差异">
+              {patch.text}
+            </pre>
+          ) : (
+            <div className="git-diff-scroll" tabIndex={0} aria-label="文件差异">
+              <PierrePatchDiff patch={patch.text!} layout={viewType} />
+            </div>
+          )}
         </>
       ) : patch.text ? (
         <>

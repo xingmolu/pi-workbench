@@ -138,6 +138,18 @@ test('real workspace files: tree, safe preview, search, refresh and project isol
   await expect(pane.getByLabel('显示隐藏文件')).not.toBeChecked()
 })
 
+test('filename-inferred TypeScript preview preserves CRLF and trailing blank lines', async () => {
+  const source = '\tconst count: number = 42  \r\n\r\n'
+  await writeFile(join(projectA, 'example.ts'), source)
+  const pane = page.getByRole('region', { name: '项目文件' })
+  await pane.getByRole('button', { name: '刷新文件' }).click()
+  await pane.getByRole('button', { name: 'example.ts', exact: true }).click()
+  const code = pane.locator('.highlighted-code')
+  await expect(code).toHaveAttribute('data-highlighted', 'true')
+  expect(await code.textContent()).toBe(source)
+  expect(await code.locator('span[style]').count()).toBeGreaterThan(3)
+})
+
 test('isolated IPC fixture: stale reads and searches cannot cross selections or project A→B→A', async () => {
   // Only this test replaces the filesystem boundary, to release old responses deterministically.
   await app.evaluate(({ ipcMain }) => {

@@ -11,6 +11,32 @@ import { join, resolve } from 'node:path'
 import type { AgentSnapshot } from '../../src/shared/contracts'
 import { build as bundleFixture } from 'esbuild'
 let app: ElectronApplication, page: Page, root: string, state: AgentSnapshot
+test('code highlighting finishes after streaming and preserves exact copied source', async () => {
+  const code = '\tconst count: number = 42  \n\n'
+  await publish('```ts\n' + code + '\n```', true)
+  const block = page.locator('.highlighted-code')
+  await expect(block).toHaveAttribute('data-highlighted', 'false')
+  await publish('```ts\n' + code + '\n```')
+  await expect(block).toHaveAttribute('data-highlighted', 'true')
+  expect(await block.textContent()).toBe(code)
+  expect(await block.locator('span[style]').count()).toBeGreaterThan(3)
+  await page.getByRole('button', { name: '复制代码', exact: true }).click()
+  expect(await page.evaluate(() => (window as unknown as { markdownClipboard: { values: string[] } }).markdownClipboard.values.at(-1))).toBe(code)
+  await page.screenshot({ path: 'artifacts/e2e/code-highlight.png' })
+  await publish('```unknown\n<script>window.inert = false</script>\n```')
+  await expect(block).toHaveAttribute('data-highlighted', 'false')
+  await expect(block).toHaveText('<script>window.inert = false</script>')
+  await expect(block.locator('script')).toHaveCount(0)
+  await publish('```ts\n' + 'x'.repeat(4001) + '\n```')
+  await expect(block).toHaveAttribute('data-highlighted', 'false')
+  expect(await block.textContent()).toBe('x'.repeat(4001))
+  // Replace a highlighted language/source quickly; an old worker response may
+  // never recolor or restore the stale block.
+  await publish('```python\nprint("old")\n```')
+  await publish('```unknown\nCURRENT\n```')
+  await expect(block).toHaveText('CURRENT')
+  await expect(block).toHaveAttribute('data-highlighted', 'false')
+})
 async function publish(markdown: string, streaming = false): Promise<void> {
   state.revision++
   // Match Host projection: only finished actionable replies have canonical identity.

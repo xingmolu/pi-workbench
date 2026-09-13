@@ -17,6 +17,7 @@ it('renders table actions through the real Markdown pipeline', () => {
 describe('actual ReactMarkdown code payload', () => {
   it.each([
     ['```ts\n\tvalue  \n\n\n```', '\tvalue  \n\n'],
+    ['```ts\r\n\tvalue  \r\n\r\n\r\n```', '\tvalue  \r\n\r\n'],
     ['```\n```', ''],
     ['```\n\n\n```', '\n'],
     ['```ts\n  partial\t', '  partial\t'],

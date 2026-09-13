@@ -7,6 +7,7 @@ import { useMarkdownCopy } from './markdown-copy-action'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { ActionIcon } from './MessageActions'
+import { HighlightedCode } from './HighlightedCode'
 
 type PreProps = ComponentProps<Exclude<Components['pre'], string | undefined>>
 type PreNode = PreProps['node']
@@ -19,7 +20,7 @@ export function codeBlockText(node: PreNode): string {
   return value.endsWith('\n') ? value.slice(0, -1) : value
 }
 
-function CodeBlock({ node, children }: PreProps): React.JSX.Element {
+function CodeBlock({ node }: PreProps): React.JSX.Element {
   const value = codeBlockText(node)
   const code = node?.children.find((child) => child.type === 'element' && child.tagName === 'code')
   const classes = code?.type === 'element' ? code.properties.className : undefined
@@ -44,7 +45,7 @@ function CodeBlock({ node, children }: PreProps): React.JSX.Element {
         <ActionIcon label="复制代码" hint={status==='success'?'已复制':status==='pending'?'正在复制…':'复制代码'} onClick={() => void copy(value)} disabled={status === 'pending'}>{status==='success'?<Check size={16}/>:<Copy size={16}/>}</ActionIcon>
       </div>
       <pre tabIndex={0} aria-label={wrap ? '代码，自动换行' : '代码，可横向滚动'}>
-        {children}
+        <HighlightedCode text={value} language={language} streaming={context.streaming} />
       </pre>
       <span className="code-block-feedback" role="status">
         {status === 'error'

@@ -127,9 +127,10 @@ export default defineConfig({
       strictPort: true
     },
     resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer/src')
-      }
+      alias: [
+        { find: '@renderer', replacement: resolve('src/renderer/src') },
+        { find: /^shiki$/, replacement: resolve('src/renderer/src/lib/shiki-bundle.ts') }
+      ]
     },
     plugins: [react()]
   }
