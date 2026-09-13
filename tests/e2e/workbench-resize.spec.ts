@@ -456,3 +456,22 @@ test('empty launcher, tabs, close and reopen preserve workbench state at 960px',
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 900))
   await page.screenshot({ path: 'artifacts/e2e/workbench-tabs-960.png' })
 })
+
+test('delayed menu focus restoration does not override newer tool tab focus', async () => {
+  await openWorkbenchTool(page, '文件')
+  await page.getByRole('button', { name: '打开工具', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '打开工具', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: '打开工具', exact: true }).click()
+  // Exercise the real Radix unmount event with a newer focus choice immediately
+  // before its delayed restoration callback, rather than relying on timer luck.
+  await page.getByRole('menu').evaluate((menu) => {
+    menu.addEventListener('focusScope.autoFocusOnUnmount', () => {
+      document.getElementById('workbench-tab-works.pi.desktop.files')?.focus()
+      queueMicrotask(() => { document.documentElement.dataset.menuFocusSettled = 'true' })
+    }, { once: true })
+  })
+  await page.getByRole('menuitem', { name: '终端', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-menu-focus-settled', 'true')
+  await expect(page.getByRole('tab', { name: '文件', exact: true })).toBeFocused()
+})

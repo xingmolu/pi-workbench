@@ -159,7 +159,18 @@ export default function WorkbenchTabs({
           <Plus size={16} />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="workbench-add-menu" sideOffset={6} align="end">
+          <DropdownMenu.Content
+            className="workbench-add-menu"
+            sideOffset={6}
+            align="end"
+            onCloseAutoFocus={(event) => {
+              // Radix restores focus on a later timer. Respect a newer focus
+              // choice made after the menu disappeared (e.g. tab arrow keys).
+              const active = document.activeElement
+              if (active && active !== document.body && active.isConnected)
+                event.preventDefault()
+            }}
+          >
             {contributions.map((contribution) => (
               <DropdownMenu.Item
                 key={contribution.viewId}
