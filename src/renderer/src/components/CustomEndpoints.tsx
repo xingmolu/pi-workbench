@@ -310,6 +310,7 @@ export default function CustomEndpoints({
             void save()
           }}
         >
+          <h3 className="endpoint-form-title">{form.id ? '编辑端点' : '新增端点'}</h3>
           <label htmlFor="endpoint-label">显示名称</label>
           <input
             id="endpoint-label"

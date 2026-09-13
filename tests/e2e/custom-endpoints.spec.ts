@@ -79,10 +79,84 @@ async function launchFixture(): Promise<void> {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
 }
 test.afterEach(async () => {
   await app?.close()
   if (root) await rm(root, { recursive: true, force: true })
+})
+
+test('settings modal traps focus and preserves sidebar, workbench and conversation draft', async () => {
+  await page.getByRole('button', { name: '关闭设置' }).click()
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), join(root, 'project'))
+  await page.evaluate(() =>
+    window.pi.send({ type: 'model:set', providerId: 'endpoint-faux', modelId: 'fixture' })
+  )
+  const draft = page.getByPlaceholder('给 Pi 下达任务…')
+  await draft.fill('保留这份未发送草稿')
+  const sidebarWidth = await page
+    .locator('.sidebar')
+    .evaluate((el) => el.getBoundingClientRect().width)
+  const opener = page.getByRole('button', { name: '设置', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: '设置', exact: true })
+  await expect(dialog).toBeVisible()
+  for (let i = 0; i < 18; i++) {
+    await page.keyboard.press('Tab')
+    expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+  }
+  await page.keyboard.press('Meta+b')
+  expect(await page.locator('.sidebar').evaluate((el) => el.getBoundingClientRect().width)).toBe(
+    sidebarWidth
+  )
+  expect(
+    await page
+      .locator('.conversation')
+      .evaluate((el) => el.closest('[aria-hidden="true"]') !== null)
+  ).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await expect(draft).toHaveValue('保留这份未发送草稿')
+  await expect(page.locator('.workbench.is-collapsed')).toBeVisible()
+  await page.getByTitle('浏览器', { exact: true }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)
+    )
+    .toBe(true)
+  const browserBefore = await page.evaluate(
+    async () => (await window.pi.browser({ type: 'state:get' })).state
+  )
+  await opener.click()
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)
+    )
+    .toBe(false)
+  await page.keyboard.press('Escape')
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.pi.browser({ type: 'state:get' })).state.visible)
+    )
+    .toBe(true)
+  const browserAfter = await page.evaluate(
+    async () => (await window.pi.browser({ type: 'state:get' })).state
+  )
+  expect(browserAfter.activePageId).toBe(browserBefore.activePageId)
+  expect(browserAfter.pages.map(({ id }) => id)).toEqual(browserBefore.pages.map(({ id }) => id))
+  await expect(draft).toHaveValue('保留这份未发送草稿')
+  await opener.click()
+  await page.getByRole('button', { name: 'MCP 服务器', exact: true }).click()
+  await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
+  await expect(page.getByRole('button', { name: '重新加载', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '账号与模型', exact: true }).click()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+  await page.screenshot({ path: resolve('artifacts/e2e/settings-modal-1440.png') })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 720))
+  await page.screenshot({ path: resolve('artifacts/e2e/settings-modal-960.png') })
+  await page.getByRole('button', { name: '关闭设置' }).click()
+  await expect(opener).toBeFocused()
 })
 
 test('creates all three protocols through canonical Pi files without selecting a provider', async () => {
@@ -123,6 +197,7 @@ test('creates all three protocols through canonical Pi files without selecting a
   ).not.toContain('isolated-test-key')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
   await expect(section).toContainText('Chat Completions')
   await section.getByRole('button', { name: '编辑 Chat Completions', exact: true }).click()
   for (const width of [1440, 960]) {
@@ -290,6 +365,7 @@ test('UI-only delayed list disables edits and a closed form ignores its late sav
   )
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
   await section.getByRole('button', { name: '编辑 未登录端点', exact: true }).click()
   await section.getByLabel('显示名称', { exact: true }).fill('新表单')
   await section.getByLabel('API Key', { exact: true }).fill('new-ephemeral-key')
@@ -303,6 +379,36 @@ test('UI-only delayed list disables edits and a closed form ignores its late sav
   await expect(section.getByLabel('显示名称', { exact: true })).toHaveValue('新表单')
   await expect(section.getByLabel('API Key', { exact: true })).toHaveValue('new-ephemeral-key')
   await expect(section.getByRole('status')).toHaveCount(0)
+})
+
+test('reopening settings during an outstanding OAuth prompt restores the opener focus', async () => {
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), join(root, 'project'))
+  await page.evaluate(() =>
+    window.pi.send({ type: 'account:login', providerId: 'endpoint-oauth', method: 'browser' })
+  )
+  const prompt = page.getByLabel('Fixture OAuth gate', { exact: true })
+  await expect(prompt).toBeVisible()
+  // Remount the renderer while the Host retains its outstanding OAuth request.
+  // This prevents a focus target captured by an earlier prompt-free open masking the bug.
+  await page.reload()
+  const opener = page.getByRole('button', { name: '设置', exact: true })
+  await opener.click()
+  await expect(prompt).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(opener).toBeFocused()
+  await opener.click()
+  for (const closeWithEscape of [true, false]) {
+    await page.getByRole('button', { name: '关闭设置', exact: true }).click()
+    await opener.click()
+    await expect(prompt).toBeFocused()
+    if (closeWithEscape) await page.keyboard.press('Escape')
+    else await page.getByRole('button', { name: '关闭设置', exact: true }).click()
+    await expect(opener).toBeFocused()
+    expect((await page.evaluate(() => window.pi.getState())).loginPrompt?.message).toBe(
+      'Fixture OAuth gate'
+    )
+    await opener.click()
+  }
 })
 
 test('active OAuth rejects save and alias writes, leaves responders live, and busy stream disables editor', async () => {
@@ -543,8 +649,10 @@ test('edits metadata without credentials, validates input and cancels without wr
   await section.getByRole('button', { name: '保存端点', exact: true }).click()
   await expect(section.getByRole('status')).toContainText('端点已保存')
   await expect(section).toContainText('改名后的端点')
-  await expect(page.getByRole('button', { name: '浏览器登录', exact: true }).first()).toBeAttached()
-  await expect(page.getByText(/它不占 Claude Code 套餐限额/)).toBeAttached()
+  await page.getByRole('button', { name: 'OpenAI Codex 编程套餐 / 订阅' }).click()
+  await expect(page.getByRole('button', { name: '浏览器登录', exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Anthropic 连接方式说明' }).click()
+  await expect(page.getByText(/它不占 Claude Code 套餐限额/)).toBeVisible()
 })
 
 test('canonical metadata survives runtime refresh failure and list refresh truthfully only rereads it', async () => {

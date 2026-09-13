@@ -656,19 +656,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await resizeWindow(960, 720)
     await page.getByRole('button', { name: '设置', exact: true }).click()
     await expect(page.locator('.settings-panel')).toBeVisible()
-    await expect(page.locator('aside.sidebar.is-collapsed')).toBeVisible()
-    await expect
-      .poll(() =>
-        page.locator('.sidebar').evaluate((element) => element.getBoundingClientRect().width)
-      )
-      .toBeLessThanOrEqual(58)
-    await expect
-      .poll(() =>
-        page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
-      )
-      .toBeLessThanOrEqual(342)
+    await expect(page.getByRole('dialog', { name: '设置', exact: true })).toBeVisible()
+    await expect(page.locator('aside.sidebar:not(.is-collapsed)')).toBeVisible()
     const settingsLayout = await page.evaluate(() => {
-      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      const stage = document.querySelector('.settings-dialog')?.getBoundingClientRect()
       const panel = document.querySelector('.settings-panel')?.getBoundingClientRect()
       const scroll = document.querySelector('.settings-scroll')
       if (!stage || !panel || !(scroll instanceof HTMLElement)) return null
@@ -684,13 +675,14 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(settingsLayout!.panel.right).toBeLessThanOrEqual(settingsLayout!.stage.right + 1)
     expect(settingsLayout!.panel.width).toBeLessThanOrEqual(settingsLayout!.stage.width + 1)
     expect(settingsLayout!.scrollWidth).toBeLessThanOrEqual(settingsLayout!.scrollClientWidth)
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const pluginReload = page.getByRole('button', { name: '重新加载' })
     await pluginReload.scrollIntoViewIfNeeded()
     await expect(pluginReload).toBeVisible()
     await expect(pluginReload).toBeEnabled()
     const reloadBounds = await pluginReload.evaluate((element) => {
       const control = element.getBoundingClientRect()
-      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      const stage = document.querySelector('.settings-dialog')?.getBoundingClientRect()
       return stage
         ? {
             left: control.left,
@@ -1222,6 +1214,18 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     })
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: '设置', exact: true })).toBeVisible()
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(false)
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => (await pluginViewInfo())?.id).toBe(restoredAView.id)
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(true)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-a',
+      count: 11
+    })
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const pluginRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
     const desktopSwitch = pluginRow.getByRole('switch', {
       name: 'E2E Sandbox Plugin Desktop 面板'
@@ -1290,6 +1294,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         ?.hasExecutablePiResources
     ).toBe(false)
 
+    await page.getByRole('button', { name: '关闭设置', exact: true }).click()
     const enabledView = await revealSamplePlugin(page)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
       bucket: 'project-a',
@@ -1337,6 +1342,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     )
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const crashedRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
     await expect(crashedRow.locator('code')).toContainText('plugin-crash-disabled')
     await expect.poll(() => page.locator('.workbench-error').allTextContents()).toEqual([])

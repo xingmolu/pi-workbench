@@ -8,6 +8,7 @@ import type {
 import Sidebar from './components/Sidebar'
 import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
+import SettingsDialog from './components/SettingsDialog'
 import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
 import type { ProjectNavigationFailures } from '../../shared/project-catalog'
@@ -40,6 +41,9 @@ export default function App(): React.JSX.Element {
       ? '请先完成或取消编辑'
       : null
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
+  const settingsOpenRef = useRef(layout.settingsOpen)
+  const settingsOpenerRef = useRef<HTMLElement | null>(null)
+  settingsOpenRef.current = layout.settingsOpen
   const [workbenchStatus, dispatchWorkbenchStatus] = useReducer(
     workbenchStatusReducer,
     INITIAL_WORKBENCH_STATUS
@@ -100,8 +104,9 @@ export default function App(): React.JSX.Element {
         getState: () => window.pi.workbench({ type: 'state:get' }),
         onSnapshot: acceptWorkbenchSnapshot,
         onReveal: (viewId) => {
+          // A background extension must not dismiss settings or replace the user's panel.
+          if (settingsOpenRef.current) return
           dispatchWorkbenchSelection({ type: 'reveal', viewId })
-          dispatchLayout({ type: 'settings:close' })
           setWorkbenchOpen(true)
         },
         onError: reportWorkbenchError
@@ -241,7 +246,10 @@ export default function App(): React.JSX.Element {
   )
 
   const openSettings = useCallback((): void => {
-    setWorkbenchOpen(false)
+    if (!settingsOpenRef.current) {
+      settingsOpenerRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
     dispatchLayout({ type: 'settings:open' })
   }, [])
 
@@ -306,7 +314,7 @@ export default function App(): React.JSX.Element {
       />
 
       <Workbench
-        collapsed={!layout.settingsOpen && !workbenchOpen}
+        collapsed={!workbenchOpen}
         selectedViewId={workbenchSelection.selectedViewId}
         settingsOpen={layout.settingsOpen}
         agentSnapshot={snapshot}
@@ -323,6 +331,14 @@ export default function App(): React.JSX.Element {
         }}
         onWorkbenchCommand={sendWorkbench}
         onWorkbenchError={reportWorkbenchError}
+      />
+      <SettingsDialog
+        open={layout.settingsOpen}
+        returnFocusRef={settingsOpenerRef}
+        onOpenChange={(open) => (open ? openSettings() : closeSettings())}
+        agentSnapshot={snapshot}
+        workbenchSnapshot={workbenchStatus.snapshot}
+        onWorkbenchCommand={sendWorkbench}
         onLogin={login}
         onAddAlias={(slug) => void send({ type: 'account:alias:add', slug })}
         onLoginPrompt={(promptId, value) => {
