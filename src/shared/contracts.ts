@@ -341,6 +341,7 @@ export type AgentSnapshot = {
   permissionMode: PermissionMode
   metrics: UsageMetrics
   login: LoginStatus
+  authGeneration?: number
   loginPrompt: LoginPrompt | null
   error?: string
 }
@@ -365,6 +366,7 @@ export type SessionNewCommand =
   { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
 
 export type HostCommand =
+  | import('./mcp').McpCommand
   | MessageFeedbackCommand
   | ProjectCatalogCommand
   | ProjectNavigateCommand
@@ -383,6 +385,7 @@ export type HostCommand =
   | { type: 'permission:set'; mode: PermissionMode }
   | { type: 'permission:respond'; approvalId: string; allow: boolean }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
+  | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'model:set'; providerId: string; modelId: string }
@@ -405,6 +408,8 @@ export type AckHostCommand = Exclude<
   | AttachmentHostCommand
   | SessionEditCommand
   | ProjectCatalogCommand
+  | Extract<HostCommand, { type: 'account:quota' }>
+  | import('./mcp').McpCommand
 >
 
 export type HostSnapshotResult = { kind: 'snapshot'; snapshot: AgentSnapshot }
@@ -421,6 +426,8 @@ export type HostEndpointListResult = {
 }
 export type HostEndpointSaveResult = { kind: 'endpoint-save'; result: CustomEndpointSaveResult }
 export type HostResult =
+  | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
+  | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
   | { kind: 'project-catalog'; catalog: ProjectCatalog }
   | { kind: 'session-edit'; result: SessionEditResult }
   | { kind: 'session-fork'; cancelled: boolean; snapshot: AgentSnapshot }
@@ -429,7 +436,11 @@ export type HostResult =
   | HostEndpointListResult
   | HostEndpointSaveResult
   | { kind: 'attachment'; receipt: AttachmentReceipt }
-export type HostResultFor<Command extends HostCommand> = Command extends ProjectCatalogCommand
+export type HostResultFor<Command extends HostCommand> = Command extends import('./mcp').McpCommand
+  ? { kind: 'mcp'; result: import('./mcp').McpSnapshot }
+  : Command extends { type: 'account:quota' }
+  ? { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
+  : Command extends ProjectCatalogCommand
   ? { kind: 'project-catalog'; catalog: ProjectCatalog }
   : Command extends SessionEditCommand
   ? { kind: 'session-edit'; result: SessionEditResult }

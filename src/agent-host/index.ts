@@ -101,6 +101,10 @@ import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
 import { SessionEditService, latestUserId, type EditHostState } from './session-edit'
 import { selectProjectedProviders } from './auth-projection'
+import { AccountQuotaReader } from './account-quota'
+import { McpConfigStore } from './mcp-config'
+import { McpRuntime } from './mcp-runtime'
+import type { McpCommand, McpSnapshot } from '../shared/mcp'
 import { CustomEndpointConfig } from './custom-endpoint-config'
 import { CustomEndpointService, type EndpointSafety } from './custom-endpoints'
 import { EndpointSessionSafety, assertEndpointContext } from './endpoint-session-safety'
@@ -332,6 +336,9 @@ class PiDesktopHost {
     this.emitPatch()
   })
   private loginAbort: AbortController | null = null
+  private accountQuota = new AccountQuotaReader()
+  private mcpConfig = new McpConfigStore(join(AGENT_DIR, 'mcp.json'))
+  private mcpRuntimes = new WeakMap<AgentSession, McpRuntime>()
   private approvalMetadata: ApprovalMetadata | null = null
   private timing: RunTiming | null = null
   private lastTiming: RunTiming | null = null
@@ -486,6 +493,15 @@ class PiDesktopHost {
       this.lastError = undefined
 
     switch (request.type) {
+      case 'mcp:list':
+      case 'mcp:shutdown':
+      case 'mcp:save':
+      case 'mcp:toggle':
+      case 'mcp:reload':
+        return { kind: 'mcp', result: await this.manageMcp(request) }
+      case 'account:quota':
+        if (!this.modelRuntime) throw new Error('Pi 引擎尚未连接')
+        return { kind: 'account-quota', quota: await this.accountQuota.read(this.modelRuntime, request.providerId) }
       case 'message:feedback': {
         const state = this.forkState()
         const manager = this.runtime?.session.sessionManager
@@ -626,6 +642,40 @@ class PiDesktopHost {
       generation: snapshot.generation,
       revision: snapshot.revision
     }
+  }
+
+  private async manageMcp(request: McpCommand): Promise<McpSnapshot> {
+    const session = this.runtime?.session
+    const runtime = session ? this.mcpRuntimes.get(session) : undefined
+    if (request.type === 'mcp:shutdown') {
+      this.accountQuota.invalidate()
+      await runtime?.close()
+      return this.mcpConfig.read()
+    }
+    let saved: boolean | undefined, applied: boolean | undefined, message: string | undefined
+    if (request.type !== 'mcp:list') {
+      if (request.sessionId !== (session?.sessionManager.getSessionId() ?? null) || request.generation !== this.sessionGeneration)
+        throw new Error('会话已改变，请刷新设置后重试。')
+      const safety = this.readEndpointSafety()
+      if (safety.busy || safety.promptPending || safety.loginActive || this.sessionEdits.pending || this.followUp.length || this.approvalRegistry.requests(this.sessionGeneration).length)
+        throw new Error('请先结束当前运行、审批、编辑或登录，再修改 MCP。')
+      if (request.type !== 'mcp:reload') {
+        try { await this.mcpConfig.save(request); saved = true }
+        catch { throw new Error('MCP 配置未保存：文件已变化、只读或无效，请刷新核对。') }
+      }
+      try {
+        const servers = await this.mcpConfig.enabled()
+        applied = runtime ? await runtime.reload(servers) : false
+        if (!runtime) message = '配置已保存；选择项目后点击重新连接，或由 agent 按需连接已启用服务器。'
+        else if (!applied) message = '配置已保存，但部分服务器连接失败；请检查列表后显式重连。'
+      } catch {
+        applied = false
+        message = '运行时应用失败，请刷新核对；不会自动重试。'
+      }
+    }
+    const result = await this.mcpConfig.read()
+    return { ...result, ...(saved !== undefined ? { saved } : {}), ...(applied !== undefined ? { applied } : {}),
+      ...(message ? { message } : {}), servers: result.servers.map(server => server.enabled && runtime ? { ...server, ...runtime.status(server.id) } : server) }
   }
 
   private permissionExtension(): InlineExtension {
@@ -842,6 +892,16 @@ class PiDesktopHost {
       sessionStartEvent?: SessionStartEvent
     }): Promise<CreateAgentSessionRuntimeResult> => {
       assertProjectSession(nextManager, projectPath, cwd)
+      const mcp = new McpRuntime(await this.mcpConfig.enabled().catch(() => ({})), cwd,
+        (toolCallId, title, detail, signal) => {
+          if (signal?.aborted) return Promise.resolve(false)
+          if (this.permissionMode === 'open') return Promise.resolve(true)
+          return this.approvalRegistry.request({ id: randomUUID(), generation: this.sessionGeneration,
+            toolCallId, toolName: 'mcp', intent: 'generic', title: `MCP · ${title}`, detail }, signal)
+        }, async (id, config) => {
+          const enabled = await this.mcpConfig.enabled().catch(() => ({} as Record<string, unknown>))
+          return Object.hasOwn(enabled, id) && JSON.stringify(enabled[id]) === JSON.stringify(config)
+        })
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir: AGENT_DIR,
@@ -851,7 +911,8 @@ class PiDesktopHost {
           extensionFactories: [
             this.permissionExtension(),
             this.browserExtension(),
-            this.historyExtension()
+            this.historyExtension(),
+            mcp.extension()
           ]
         }
       })
@@ -890,8 +951,9 @@ class PiDesktopHost {
         sessionManager: nextManager,
         sessionStartEvent,
         model: selected,
-        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser']
+        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'mcp']
       })
+      this.mcpRuntimes.set(result.session, mcp)
       return { ...result, services, diagnostics: services.diagnostics }
     }
 
@@ -1768,6 +1830,7 @@ class PiDesktopHost {
     }
 
     this.loginAbort?.abort()
+    this.accountQuota.invalidate()
     this.rejectLoginPrompts()
     const controller = new AbortController()
     this.loginAbort = controller
@@ -1810,6 +1873,7 @@ class PiDesktopHost {
     void this.modelRuntime
       .login(providerId, 'oauth', interaction)
       .then(async () => {
+        this.accountQuota.invalidate()
         this.rejectLoginPrompts()
         this.modelRejections.clear(providerId)
         await completeLoginSuccess(providerId, {
@@ -2042,6 +2106,7 @@ class PiDesktopHost {
       permissionMode: this.permissionMode,
       metrics: this.metrics(session),
       login: this.login,
+      authGeneration: this.accountQuota.generation,
       loginPrompt: this.loginPrompt,
       ...(this.lastError ? { error: this.lastError } : {})
     }

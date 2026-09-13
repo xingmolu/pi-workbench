@@ -9,6 +9,8 @@ import Sidebar from './components/Sidebar'
 import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
 import SettingsDialog from './components/SettingsDialog'
+import McpSettings from './components/McpSettings'
+import AccountQuota from './components/AccountQuota'
 import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
 import type { ProjectNavigationFailures } from '../../shared/project-catalog'
@@ -333,6 +335,14 @@ export default function App(): React.JSX.Element {
         onWorkbenchError={reportWorkbenchError}
       />
       <SettingsDialog
+        mcpContent={<McpSettings snapshot={snapshot} />}
+        renderAccountQuota={(account) => (
+          <AccountQuota
+            account={account}
+            authGeneration={snapshot.authGeneration ?? 0}
+            loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(snapshot.login.phase)}
+          />
+        )}
         open={layout.settingsOpen}
         returnFocusRef={settingsOpenerRef}
         onOpenChange={(open) => (open ? openSettings() : closeSettings())}

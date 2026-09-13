@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpSnapshotSchema } from './mcp'
+import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
 import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
 import {
   editPrepareSchema,
@@ -429,6 +431,7 @@ const agentSnapshotMetaShape = {
   permissionMode: permissionModeSchema,
   metrics: usageMetricsSchema,
   login: loginStatusSchema,
+  authGeneration: nonNegativeInteger.optional(),
   loginPrompt: loginPromptSchema.nullable(),
   error: z.string().optional()
 }
@@ -567,6 +570,8 @@ const endpointSaveCommandSchema = z
   })
   .strict()
 const commandSchemas = [
+  mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema,
+  accountQuotaCommandSchema,
   messageFeedbackCommandSchema,
   projectCatalogCommandSchema,
   projectNavigateCommandSchema,
@@ -601,6 +606,12 @@ export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
 
 const requestIdShape = { requestId: z.string().min(1) }
 export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
+  mcpListSchema.extend(requestIdShape),
+  mcpShutdownSchema.extend(requestIdShape),
+  mcpSaveSchema.extend(requestIdShape),
+  mcpToggleSchema.extend(requestIdShape),
+  mcpReloadSchema.extend(requestIdShape),
+  accountQuotaCommandSchema.extend(requestIdShape),
   messageFeedbackCommandSchema.extend(requestIdShape),
   projectCatalogCommandSchema.extend(requestIdShape),
   projectNavigateCommandSchema.extend(requestIdShape),
@@ -633,6 +644,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
 ])
 
 export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('mcp'), result: mcpSnapshotSchema }).strict(),
+  z.object({ kind: z.literal('account-quota'), quota: accountQuotaSchema }).strict(),
   z.object({kind:z.literal('project-catalog'),catalog:z.object({
     projects:z.array(z.object({
       path:z.string().min(1),name:z.string().min(1),sessions:z.array(sessionSummarySchema).max(50),

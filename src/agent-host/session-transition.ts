@@ -19,6 +19,9 @@ export type SessionTransitionCommand = Extract<
       | 'account:login'
       | 'account:alias:add'
       | 'endpoint:save'
+      | 'mcp:save'
+      | 'mcp:toggle'
+      | 'mcp:reload'
   }
 >
 
@@ -38,7 +41,8 @@ export function usesSessionTransition(command: HostCommand): command is SessionT
     'attachment:prompt',
     'account:login',
     'account:alias:add',
-    'endpoint:save'
+    'endpoint:save',
+    'mcp:save', 'mcp:toggle', 'mcp:reload'
   ].includes(command.type)
 }
 

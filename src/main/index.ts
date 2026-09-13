@@ -699,6 +699,7 @@ function registerIpc(): void {
     assertTrustedRenderer(event)
     const parsed = hostCommandSchema.safeParse(command)
     if (!parsed.success) throw new Error('无效的 Pi Desktop IPC 请求')
+    if (parsed.data.type === 'mcp:shutdown') throw new Error('该命令仅供宿主退出清理使用')
     if (parsed.data.type === 'attachment:prompt' || parsed.data.type === 'attachment:query')
       throw new Error('文本附件必须通过文件选择入口发送')
     if (parsed.data.type === 'project:open') {
@@ -945,10 +946,19 @@ app.on('window-all-closed', () => {
 })
 
 let terminalQuitComplete = false
+let quitInProgress = false
 app.on('before-quit', (event) => {
   if (!terminalQuitComplete) {
     event.preventDefault()
-    void terminalManager.shutdown().finally(() => {
+    if (quitInProgress) return
+    quitInProgress = true
+    const shutdownMcp = async () => {
+      if (!agentHost) return
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try { await Promise.race([callHost({ type: 'mcp:shutdown' }), new Promise<void>(resolve => { timer = setTimeout(resolve, 5000) })]) }
+      finally { if (timer) clearTimeout(timer) }
+    }
+    void Promise.allSettled([terminalManager.shutdown(), shutdownMcp()]).finally(() => {
       terminalQuitComplete = true
       app.quit()
     })

@@ -2,6 +2,14 @@ import type { HostCommand, HostResult } from './contracts'
 
 export function expectedHostResultKind(command: HostCommand): HostResult['kind'] {
   switch (command.type) {
+    case 'mcp:list':
+    case 'mcp:shutdown':
+    case 'mcp:save':
+    case 'mcp:toggle':
+    case 'mcp:reload':
+      return 'mcp'
+    case 'account:quota':
+      return 'account-quota'
     case 'project:catalog':
       return 'project-catalog'
     case 'session:edit:prepare':
