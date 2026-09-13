@@ -164,8 +164,12 @@ test('project switching keeps input ownership, Ctrl-C interrupts, exit allows ex
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
   await expect(screen()).toContainText(`A_${original}`)
   await expect(screen()).not.toContainText(/B_\d+/)
-  await command('sleep 30')
+  // Wait for the foreground process, not merely the echoed command. Otherwise
+  // Ctrl-C can precede job startup and the next command is sent into sleep.
+  await command(`sh -c 'printf "%s%s\\n" SLEEP_ READY; exec sleep 30'`)
+  await expect(screen()).toContainText('SLEEP_READY')
   await input().press('Control+c')
+  await expect(screen()).toContainText(/SLEEP_READY.*%/s)
   await command("printf '%s%s\\n' 'INTERRUPT_' 'OK'")
   await expect(screen()).toContainText('INTERRUPT_OK')
   await command('exit 7')
