@@ -490,7 +490,19 @@ test('an exited terminal retains selectable, copyable and scrollable output', as
         )
     )
     .toBe(true)
-  await screen().getByText('COPY_READY', { exact: true }).dblclick({ force: true })
+  const copyLine = screen().getByText('COPY_READY', { exact: true })
+  await expect(copyLine).toBeVisible()
+  // xterm receives pointer input on its screen, not the rendered text spans.
+  // Use that real target so Playwright waits for layout instead of forcing a stale span.
+  const terminalScreen = page.locator('.terminal-session:not([hidden]) .xterm-screen')
+  const lineBounds = (await copyLine.boundingBox())!
+  const screenBounds = (await terminalScreen.boundingBox())!
+  await terminalScreen.dblclick({
+    position: {
+      x: lineBounds.x - screenBounds.x + lineBounds.width / 2,
+      y: lineBounds.y - screenBounds.y + lineBounds.height / 2
+    }
+  })
   await page.keyboard.press('Meta+c')
   await expect(page.locator('body')).toHaveAttribute('data-copied-terminal', 'COPY_READY')
   const viewport = page.locator('.terminal-session:not([hidden]) .xterm-screen')

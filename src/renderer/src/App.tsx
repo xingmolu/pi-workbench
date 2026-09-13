@@ -10,6 +10,7 @@ import type {
 import Sidebar from './components/Sidebar'
 import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
+import WorkspacePanels from './components/WorkspacePanels'
 import SettingsDialog from './components/SettingsDialog'
 import McpSettings from './components/McpSettings'
 import SkillsSettings from './components/SkillsSettings'
@@ -304,48 +305,56 @@ export default function App(): React.JSX.Element {
         onOpenSettings={openSettings}
       />
 
-      <Conversation
-        snapshot={snapshot}
-        approvals={snapshot.approvals}
-        loading={loading}
-        error={clientError ?? snapshot.error}
-        onChooseProject={() => void chooseProject()}
-        onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
-        onOpenSession={(path) => void send({ type: 'session:open', path })}
-        onReconnect={() => void reconnect()}
-        reconnecting={reconnecting}
-        onAbort={() => void send({ type: 'prompt:abort' })}
-        onClearQueue={() => void send({ type: 'queue:clear' })}
-        onPermissionChange={(permission) => void send({ type: 'permission:set', mode: permission })}
-        onChooseModel={(providerId, modelId) =>
-          void send(modelSelectionCommand(providerId, modelId))
-        }
-        onLogin={() => {
-          openSettings()
-          login('openai-codex', 'browser')
-        }}
-        onOpenSettings={openSettings}
-        onApproval={respondToApproval}
-      />
-
-      <Workbench
+      <WorkspacePanels
         collapsed={!workbenchOpen}
-        selectedViewId={workbenchSelection.selectedViewId}
-        settingsOpen={layout.settingsOpen}
-        agentSnapshot={snapshot}
-        workbenchSnapshot={workbenchStatus.snapshot}
-        workbenchError={workbenchStatus.error}
-        onSelectView={(viewId) => {
-          closeSettings()
-          dispatchWorkbenchSelection({ type: 'select', viewId })
-          setWorkbenchOpen(true)
-        }}
-        onToggle={() => {
-          if (layout.settingsOpen) closeSettings()
-          else setWorkbenchOpen(false)
-        }}
-        onWorkbenchCommand={sendWorkbench}
-        onWorkbenchError={reportWorkbenchError}
+        conversation={
+          <Conversation
+            snapshot={snapshot}
+            approvals={snapshot.approvals}
+            loading={loading}
+            error={clientError ?? snapshot.error}
+            onChooseProject={() => void chooseProject()}
+            onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
+            onOpenSession={(path) => void send({ type: 'session:open', path })}
+            onReconnect={() => void reconnect()}
+            reconnecting={reconnecting}
+            onAbort={() => void send({ type: 'prompt:abort' })}
+            onClearQueue={() => void send({ type: 'queue:clear' })}
+            onPermissionChange={(permission) =>
+              void send({ type: 'permission:set', mode: permission })
+            }
+            onChooseModel={(providerId, modelId) =>
+              void send(modelSelectionCommand(providerId, modelId))
+            }
+            onLogin={() => {
+              openSettings()
+              login('openai-codex', 'browser')
+            }}
+            onOpenSettings={openSettings}
+            onApproval={respondToApproval}
+          />
+        }
+        workbench={
+          <Workbench
+            collapsed={!workbenchOpen}
+            selectedViewId={workbenchSelection.selectedViewId}
+            settingsOpen={layout.settingsOpen}
+            agentSnapshot={snapshot}
+            workbenchSnapshot={workbenchStatus.snapshot}
+            workbenchError={workbenchStatus.error}
+            onSelectView={(viewId) => {
+              closeSettings()
+              dispatchWorkbenchSelection({ type: 'select', viewId })
+              setWorkbenchOpen(true)
+            }}
+            onToggle={() => {
+              if (layout.settingsOpen) closeSettings()
+              else setWorkbenchOpen(false)
+            }}
+            onWorkbenchCommand={sendWorkbench}
+            onWorkbenchError={reportWorkbenchError}
+          />
+        }
       />
       <SettingsDialog
         skillsContent={<SkillsSettings snapshot={snapshot}

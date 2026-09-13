@@ -3238,11 +3238,6 @@ button.send:disabled {
   .permission-chip {
     max-width: 116px;
   }
-
-  .account-chip,
-  .model-chip {
-    max-width: 104px;
-  }
 }
 
 @media (max-width: 1000px) {

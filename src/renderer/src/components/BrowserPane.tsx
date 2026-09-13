@@ -40,11 +40,13 @@ function isExpectedHideCancellation(message: string): boolean {
 export default function BrowserPane({
   viewId,
   projectReady,
+  visible = true,
   onWorkbenchCommand,
   onWorkbenchError
 }: {
   viewId: string
   projectReady: boolean
+  visible?: boolean
   onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
   onWorkbenchError: (message: string) => void
 }): React.JSX.Element {
@@ -96,7 +98,7 @@ export default function BrowserPane({
   useLayoutEffect(() => {
     const viewport = viewportRef.current
     let cancelled = false
-    if (!viewport || !projectReady) {
+    if (!viewport || !projectReady || !visible) {
       void onWorkbenchCommand({ type: 'view:set', viewId, visible: false }).catch(
         (error: unknown) => {
           if (cancelled) return
@@ -132,6 +134,10 @@ export default function BrowserPane({
     }
     const observer = new ResizeObserver(publishBounds)
     observer.observe(viewport)
+    // A pixel-sized workbench may move without changing viewport width when
+    // the sidebar animates or the window resizes.
+    const workspace = viewport.closest('.workspace-panels')
+    if (workspace) observer.observe(workspace)
     window.addEventListener('resize', publishBounds)
     publishBounds()
     return () => {
@@ -146,7 +152,7 @@ export default function BrowserPane({
         }
       )
     }
-  }, [onWorkbenchCommand, onWorkbenchError, projectReady, viewId])
+  }, [onWorkbenchCommand, onWorkbenchError, projectReady, viewId, visible])
 
   return (
     <div className="browser-pane">

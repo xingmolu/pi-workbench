@@ -23,6 +23,7 @@ import FilesPane from './FilesPane'
 import GitReviewPane from './GitReviewPane'
 import SandboxedPluginPane from './SandboxedPluginPane'
 import TerminalPane from './TerminalPane'
+import { useWorkspaceResizing } from './WorkspacePanels'
 
 const WORKBENCH_ICONS: Record<WorkbenchIcon, LucideIcon> = {
   files: Files,
@@ -71,6 +72,7 @@ function ContributionSurface({
   projectReady,
   gitReady,
   projectPath,
+  visible,
   onCommand,
   onError
 }: {
@@ -78,6 +80,7 @@ function ContributionSurface({
   projectReady: boolean
   gitReady: boolean
   projectPath: string | null
+  visible: boolean
   onCommand: (command: WorkbenchCommand) => Promise<void>
   onError: (message: string) => void
 }): React.JSX.Element {
@@ -101,6 +104,7 @@ function ContributionSurface({
       <BrowserPane
         viewId={contribution.viewId}
         projectReady={projectReady}
+        visible={visible}
         onWorkbenchCommand={onCommand}
         onWorkbenchError={onError}
       />
@@ -110,7 +114,7 @@ function ContributionSurface({
     return (
       <SandboxedPluginPane
         viewId={contribution.viewId}
-        visible
+        visible={visible}
         onWorkbenchCommand={onCommand}
         onWorkbenchError={onError}
       />
@@ -131,6 +135,7 @@ export default function Workbench({
   onWorkbenchCommand,
   onWorkbenchError
 }: WorkbenchProps): React.JSX.Element {
+  const resizing = useWorkspaceResizing()
   const selectedContribution = workbenchSnapshot.contributions.find(
     ({ viewId }) => viewId === selectedViewId
   )
@@ -208,17 +213,14 @@ export default function Workbench({
               selectedContribution.surface.adapter === 'terminal'
             }
           />
-          {collapsed ||
-          (settingsOpen &&
-            (selectedContribution?.surface.kind === 'native-view' ||
-              selectedContribution?.surface.kind === 'sandboxed-web')) ? null : selectedContribution
-              ?.surface.kind === 'first-party' &&
-            selectedContribution.surface.adapter === 'terminal' ? null : selectedContribution ? (
+          {selectedContribution?.surface.kind === 'first-party' &&
+          selectedContribution.surface.adapter === 'terminal' ? null : selectedContribution ? (
             <ContributionSurface
               contribution={selectedContribution}
               projectReady={Boolean(agentSnapshot.project)}
               gitReady={agentSnapshot.ready}
               projectPath={agentSnapshot.project?.path ?? null}
+              visible={!collapsed && !settingsOpen && !resizing}
               onCommand={onWorkbenchCommand}
               onError={onWorkbenchError}
             />
