@@ -6,7 +6,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b、3 和 3b：
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
-- 代码块复制/换行，表格保护复制、系统 CSV 保存和冻结内容的分页只读预览；
+- 代码块与文件预览的 Shiki 语法高亮、原文复制/换行，表格保护复制、系统 CSV 保存和冻结内容的分页只读预览；
 - composer：Open / Ask、账号 → 模型、ContextMeter、Send / Stop / Queue；
 - 文本上下文：加号选择文件或 Files「添加到对话」，快照附件、失败保留和 canonical 历史展开；
 - 会话标题、运行/待确认/错误状态、同会话模型切换，以及完整 follow-up 队列；
@@ -19,7 +19,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - 已保存会话当前历史分叉为新会话、来源导航与原会话草稿保留；
 - 左下角独立设置弹窗：常规、外观、账号与模型、Codex 订阅额度、Skills、MCP 服务器与 Desktop 插件；
 - Skills 已加载技能库：设置中搜索与只读详情，输入框键入 `/` 搜索并插入原生技能命令；
-- Main 发布的 typed Workbench registry、默认 52px mode rail；展开后可拖动分隔线或聚焦后用方向键调整右栏宽度，折叠再展开保留本窗口的调整；
+- Main 发布的 typed Workbench registry：顶部开关、空态纵向工具列表、已打开工具标签与 `+` 菜单；默认折叠为零宽，展开后可拖动或用方向键调整，折叠再展开保留本窗口的宽度；
 - Files 已支持当前项目的只读目录浏览、文件名搜索、隐藏文件开关、刷新、UTF-8 文本预览与复制；
   Review 已支持只读 Git 未暂存、已暂存和明确选择基准的分支差异；Terminal 提供独立的真实用户 PTY、多标签页和显式创建/结束。Browser 是 Main 持有的原生
   `WebContentsView`，支持多标签页、按 project 隔离的持久 profile 和用户/agent 共享控制；
@@ -29,7 +29,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 
 Files 不支持编辑、重命名、删除或自动附加到对话；仅预览不超过 1 MiB 的 UTF-8 文本，二进制/非 UTF-8 内容会在检测后拒绝预览，符号链接和 Git 内部路径禁止访问。搜索仅匹配文件名，并跳过依赖与构建目录；达到扫描上限会提示结果不完整。这是应用级只读路径边界，不是针对恶意本机进程的 OS sandbox。
 
-表格默认文本保护模式会在每格前添加单引号（包括表头），这是明确的数据变更，不保证所有表格软件的公式安全；原始值模式需显式选择。CSV 保存由系统对话框指定路径，取消不报成功；复制和保存各自反馈结果。最多 10,000 单元格、200 列、1 MiB，超额拒绝而不截断；预览每次加载 200 行。超过 200 KiB 的单块 Markdown 显示完整纯文本，高亮和可执行 artifact 未实现。实现、截图和验证边界见 [Markdown 结果操作验收](./docs/MARKDOWN_ACTIONS_ACCEPTANCE_2026-09-11.md)。
+表格默认文本保护模式会在每格前添加单引号（包括表头），这是明确的数据变更，不保证所有表格软件的公式安全；原始值模式需显式选择。CSV 保存由系统对话框指定路径，取消不报成功；复制和保存各自反馈结果。最多 10,000 单元格、200 列、1 MiB，超额拒绝而不截断；预览每次加载 200 行。超过 200 KiB 的单块 Markdown 显示完整纯文本，可执行 artifact 未实现。表格验证见 [Markdown 结果操作验收](./docs/MARKDOWN_ACTIONS_ACCEPTANCE_2026-09-11.md)；新增代码高亮与工作台边界见 [工作台与渲染验收](./docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
 
 文本文件需明确点击加号或 Files「添加到对话」，最多 4 个，单文件 1 MiB、合计 2 MiB；只支持普通 UTF-8 文本，含无扩展名文本和配置文件。发送的是选取时的内容快照，不是只有文件名；原文件之后修改或删除不改变该快照。未发送附件在切换会话后清除，30 分钟过期在下次操作时校验。附件暂只支持空闲时发送，忙碌时保留文件且仍可 Stop；图片、拖放、粘贴和 PDF/Office 解析尚未实现。
 
@@ -74,7 +74,7 @@ Agent 通过 `mcp` 工具依次 list / describe / call。Ask 对每次实际调�
 
 设置按「基础设置 / Agent 能力」分组。常规支持 Enter 或 ⌘/Ctrl+Enter 发送、工作过程默认紧凑/展开、底部用量显示；外观支持对话正文与代码字号、代码默认换行和减少动效。偏好只存 Desktop 的 `pi-desktop-preferences`，保存确认后生效，恢复默认不改 Pi 会话、账号、权限或配置。读取偏好前不使用默认快捷键擅自发送，显式发送按钮仍可用。
 
-单个代码块或工作组的手动开合选择优先，审批和错误保持可见；隐藏用量不停止统计，也不隐藏 ContextMeter。字号不是窗口缩放，不影响终端和网页；暂不提供浅色或代码高亮主题。此次源码功能与验证边界见 [Skills 与偏好验收](./docs/SKILLS_PREFERENCES_ACCEPTANCE_2026-09-12.md)。
+单个代码块或工作组的手动开合选择优先，审批和错误保持可见；隐藏用量不停止统计，也不隐藏 ContextMeter。字号不是窗口缩放，不影响终端和网页；代码已有固定深色高亮，暂不提供浅色或高亮主题选择器。偏好功能边界见 [Skills 与偏好验收](./docs/SKILLS_PREFERENCES_ACCEPTANCE_2026-09-12.md)。
 
 设置中的「Skills 技能」显示当前 Pi session 实际已加载的资源，可按名称/简介和来源范围筛选，查看最多 64 KiB 的普通 UTF-8 技能文件。预览只接受 Host 当前目录的 opaque ID，不提供任意路径读取。仅手动调用不是禁用：这类技能不会出现在模型可发现列表中，但仍可明确调用。
 
@@ -181,9 +181,9 @@ MCP 包内依赖可另外用 `npx electron scripts/mcp-bundle-smoke.cjs "/absolu
 
 文件逐项加载，默认统一视图，可切为分栏。未跟踪文件单列，复用 Files 的有界只读预览；冒号/反斜杠等 Files 不支持的路径仍列出，但不可预览。二进制、冲突、子模块、类型变化和空差异有独立说明。解析失败、非 UTF-8 字节转义内容，或超过 2,000 行 / 200,000 字符的 patch 显示完整“原始差异”，不静默截断；Main 输出预算超限则明确报错。
 
-维护提示：大量 diff 行组件的渲染开销较高，阈值不能只按 Git 输出字节预算决定；调整回退策略时同时做交互性能回归。参见 [react-diff-view 官方性能说明](https://github.com/otakustay/react-diff-view#full-features)。
+维护提示：Diff 使用 @pierre/diffs 1.4.2 的语法与词级高亮，保持完整原始差异切换；当前采用有界主线程 JS 高亮，没有启用 worker pool 或虚拟化，调整回退阈值时必须同时做交互性能回归。参见 [渲染验收与大小限制](./docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
 
-切模式、文件、项目或关闭面板会丢弃迟到的 Renderer 响应；Main 仅在项目切换/引擎退出时撤销能力并终止相应 Git 进程。引擎断开后清空差异，重连刷新。没有暂存、丢弃、提交、checkout、fetch 或 push 控件；首版不做 rename detection、Last turn、冲突编辑和语法高亮。检测到有效 clean/process 过滤器配置时，扫描会明确拒绝；该边界不是抵御恶意本机进程或动态配置竞态的 OS sandbox。
+切模式、文件、项目或关闭工具标签会丢弃迟到的 Renderer 响应；Main 仅在项目切换/引擎退出时撤销能力并终止相应 Git 进程。引擎断开后清空差异，重连刷新。没有暂存、丢弃、提交、checkout、fetch 或 push 控件；仍不做 rename detection、Last turn 和冲突编辑。检测到有效 clean/process 过滤器配置时，扫描会明确拒绝；该边界不是抵御恶意本机进程或动态配置竞态的 OS sandbox。
 
 `tests/e2e/git-review.spec.ts` 在独立 HOME、agentDir、userData 和临时仓库中运行真实 Git/Electron；迟到响应和异常回退另用明确标注的模拟 IPC。截图为 `artifacts/e2e/git-review.png` 与 `git-review-960.png`；原生安装包验收单独记录。
 

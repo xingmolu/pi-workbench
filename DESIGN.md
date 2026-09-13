@@ -62,7 +62,7 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 会话身份以 canonical session cwd 为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径经 `resolve` 相等；不做 symlink 别名合并，不回退进程 cwd。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)。
 
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
-- **Workbench**：学 Codex。默认只显示 **52px mode rail**；rail 由 Main 发布的 contribution registry 驱动，Browser 和本地 sandboxed plugin 由用户显式触发展开，禁止 hover 打开。设置由左下角独立弹窗承载。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 已是真实 surface；Trace 尚未注册。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽与键盘调整、同窗口折叠恢复宽度；不重挂对话或用户终端，拖拽时暂时隐藏原生 view，结束后恢复并同步位置/尺寸。跨重启、按工作区记宽度和 tab 恢复后做。
+- **Workbench**：按用户提供的 Codex 截图采用顶部显示/隐藏开关，默认零宽折叠，无常驻 mode rail。展开且没有已打开工具时居中显示纵向 registry 列表；打开后只显示已打开 contribution 的标签及 `+` 纵向菜单。每个 contribution 一个标签，保留浏览器/终端内部多标签；关闭最后一个工具返回空态。隐藏工作台或关闭外层终端标签不结束 PTY，结束仍需显式操作。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 都是真实 surface；不注册占位 Trace/侧边聊天。长列表滚动、长标签省略并保留完整名称。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽、键盘调整及同窗口宽度记忆；拖拽、设置弹窗和 `+` 菜单覆盖时隐藏原生 Browser/plugin view，结束后恢复并同步位置/尺寸，不销毁服务状态。设置打开时忽略后台 reveal。macOS 原生隐藏标题栏，保留红绿灯，三栏顶部 48px；窄对话区图标化既有操作，保留状态并将重复模型/权限信息留给 composer。跨重启、按工作区记宽度和 tab 恢复后做。见 [验收记录](docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
 
 过程 assistant 文本和 streaming 块没有完整回复操作栏。Host 完成标识 canonicalEntryId 存在时，仅同一回复的最后文本块显示一次；历史已完成回复不因后续 busy 消失。用户问题、代码和表格自身复制不变。
 
@@ -105,7 +105,9 @@ Terminal 采用持久挂载的 stage 和独立 controller，沿用中文、深�
 
 关闭期间切换项目时，已确认退出的 owned entry 与 emulator 保留至返回原项目同步关闭，仍计入同一 8 个保留额度；管理态待同步记录也占额度。没有额外待删除 tombstone 缓存，达到额度时先要求完成已有关闭。迟到关闭只能移除原终端；用户后来选择的另一个 tab 不会被改选。已退出屏幕允许选择、复制和滚动，但不再向 PTY 发送输入。
 
-Git Review 提供“未暂存 / 已暂存 / 分支”三种只读范围，分别为 index→working tree、HEAD→index（支持 unborn）、用户明确选定引用与 HEAD 的 merge-base→HEAD。基准下拉区分本地与远端引用，不猜 main/master，也不 fetch。未跟踪文件与 tracked diff 分组，复用 Files 有界预览；逐文件加载并保留键盘焦点。采用 react-diff-view 3.3.3 的统一/分栏显示，默认统一；长行在差异区横向滚动。解析失败、rawOnly 字节转义、大于 2,000 行或 200,000 字符显示完整原始文本；二进制/冲突/子模块/类型变化有明示，类型 patch 保留原文。切模式/文件通过 epoch 抑制迟到响应，不宣称取消 Main 进程；项目切换与引擎退出撤销 Main 能力，断线不展示旧差异，重连重新加载。未实现 Git 写入、Last turn、rename detection、语法高亮、冲突编辑。过滤器仓库明确拒绝扫描，安全边界不包含恶意本机进程或动态配置竞态。
+Git Review 提供“未暂存 / 已暂存 / 分支”三种只读范围，分别为 index→working tree、HEAD→index（支持 unborn）、用户明确选定引用与 HEAD 的 merge-base→HEAD。基准下拉区分本地与远端引用，不猜 main/master，也不 fetch。未跟踪文件与 tracked diff 分组，复用 Files 有界预览；逐文件加载并保留键盘焦点。采用 @pierre/diffs 1.4.2 的统一/分栏、语法和词级差异高亮，默认统一；始终可切换原始差异，长行横向滚动并显示非纯颜色的增删标记。只解析 patch，不额外获取完整旧/新文件，因此不承诺缺失上下文的多行词法准确度。当前有界主线程 JS 高亮，无 worker pool/虚拟化；解析失败、rawOnly 字节转义、大于 2,000 行或 200,000 字符显示完整原始文本；二进制/冲突/子模块/类型变化有明示，类型 patch 保留原文。切模式/文件通过 epoch 抑制迟到响应，不宣称取消 Main 进程；项目切换与引擎退出撤销 Main 能力，断线不展示旧差异，重连重新加载。未实现 Git 写入、Last turn、rename detection、冲突编辑。过滤器仓库明确拒绝扫描，安全边界不包含恶意本机进程或动态配置竞态。
+
+代码块和 Files 文本预览共用 Shiki 4.4.3：受控语言集合、固定深色主题、一个本地 JS regex worker。先提取原文再渲染 React tokens，复制不经过高亮 DOM；流式阶段纯文本，完成后异步着色，迟到结果不覆盖新内容。超过 100,000 字符或单行 4,000 字符保持完整原文；缓存至多 24 项/500,000 原文字符，同时最多 16 个请求，超量回退纯文本。未知语言回退纯文本，不注入消息 HTML、不开放 Node 或放宽 CSP。主题选择器仍未实现；详细验证与构建成本见 [验收记录](docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
 
 Files 使用原生 disclosure 按钮懒加载目录，文件名搜索与隐藏文件开关都受 Main 项目边界约束；搜索跳过依赖和构建目录，截断明确提示。预览限 1 MiB UTF-8 普通文件，以转义纯文本呈现并容纳长行横向滚动，可换行、复制内容/相对路径、刷新或返回原目录。二进制、超限、权限错误有独立反馈，符号链接不可用；切换项目清空目录、搜索与预览，在途旧响应不能回填。无编辑、删除、重命名或自动对话附件。
 
