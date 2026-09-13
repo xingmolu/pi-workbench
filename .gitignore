@@ -13,3 +13,4 @@ artifacts/reference-parity-fixture/
 test-results/
 test-results-quota/
 playwright-report/
+.playwright-mcp/

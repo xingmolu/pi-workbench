@@ -62,7 +62,9 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 会话身份以 canonical session cwd 为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径经 `resolve` 相等；不做 symlink 别名合并，不回退进程 cwd。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)。
 
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
-- **Workbench**：学 Codex。默认只显示 **52px mode rail**；rail 由 Main 发布的 contribution registry 驱动，设置、Browser 和本地 sandboxed plugin 由用户显式触发展开，禁止 hover 打开。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 已是真实 surface；Trace 尚未注册。按工作区记宽度和 tab 恢复后做。
+- **Workbench**：学 Codex。默认只显示 **52px mode rail**；rail 由 Main 发布的 contribution registry 驱动，Browser 和本地 sandboxed plugin 由用户显式触发展开，禁止 hover 打开。设置由左下角独立弹窗承载。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 已是真实 surface；Trace 尚未注册。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽与键盘调整、同窗口折叠恢复宽度；不重挂对话或用户终端，拖拽时暂时隐藏原生 view，结束后恢复并同步位置/尺寸。跨重启、按工作区记宽度和 tab 恢复后做。
+
+过程 assistant 文本和 streaming 块没有完整回复操作栏。Host 完成标识 canonicalEntryId 存在时，仅同一回复的最后文本块显示一次；历史已完成回复不因后续 busy 消失。用户问题、代码和表格自身复制不变。
 
 这是基于 2026-09-01 竞品调研的阶段性覆盖：当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
 
@@ -113,7 +115,19 @@ Browser 已实现为 Main 持有的 native `WebContentsView`：按 project 隔�
 
 manifest 的 `permissions` 当前只用于清单展示，并不授予文件、shell、browser 或 network capability；第三方 command、native surface/backend 和 MCP Apps 尚未开放。Pi extension 仍是 Agent Host 中的可信本机用户代码，不是 sandbox。完整作者与安全边界见 [docs/WORKBENCH_PLUGIN_ARCHITECTURE.md](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
 
+### Skills
+
+设置弹窗按基础设置（常规、外观、账号与模型）和 Agent 能力（技能、MCP、Desktop 插件）分组。桌面偏好用独立 typed Main IPC 严格白名单写入既有 electron-store 的 desktopSettings 键，不写 Pi CLI settings。提供正文/代码字号、代码默认换行、减少动效、发送快捷键、工作过程默认开合与用量显示；无完整浅色主题或高亮主题承诺。保存确认后应用，失败保留旧值并显式只读重查；恢复默认只处理该键。初始读取未确认时键盘不发送，按钮仍可用；单块代码/工作过程手动覆盖优先，审批错误强制可见，系统减少动效仍生效。
+
+技能目录归当前 Pi session.resourceLoader 所有。Desktop 只展示已加载 metadata，按范围/名称/简介筛选；Host 用 opaque ID allowlist 提供有界普通 UTF-8 预览（64 KiB），检查文件指纹与会话代际，不接受 Renderer 路径。手动调用与模型可发现明确区分，不把 disableModelInvocation 当作关闭技能。
+
+输入 `/` 唤起键盘可用的技能菜单，不占用常驻 toolbar 位置；选择替换查询前缀为原生 `/skill:name `，Enter 只插入，Esc 关闭，Shift+Enter/IME 不误发。设置插入保留完整当前草稿。插入意图绑定 project/session/generation，一次消费，不覆盖异步期间的新编辑。命令展开继续由 Pi 执行；原附件路径禁用展开，因此首版显式阻止组合发送。刷新仅读取现有 catalog，新技能通过原有项目生命周期加载，不调用全资源 reload。安装/编辑/删除/通用启停和技能市场未实现。
+
 ## 5. 账号
+
+设置改为 App 级 Radix Dialog，左下角打开，分为账号与模型、MCP 服务器、Desktop 插件；不再占据右侧工作台。打开时保持布局/草稿，暂停原生面板可见性，关闭恢复原面板与入口焦点。Codex 按主账号/别名独立显式刷新订阅额度；Host 从公开 ModelRuntime 解析所选 OAuth 身份，固定 Codex 账号服务地址，只返回白名单额度。登录代际更新清空旧结果；接口未知/失败不能呈现为零额度。
+
+MCP 是 Pi inline extension + 官方稳定 MCP SDK 的窄工具桥，不是自造协议，也不宣称 Pi 内置支持。单一 `mcp` 代理提供 list/describe/call；配置热应用只重连桥内 clients，保持 canonical AgentSession。用户全局 `mcp.json` 保存标准 `mcpServers` 和 Desktop 精确配置确认摘要，不扫描项目。stdio/Streamable HTTP 文本工具先行，Ask 所有调用确认，Open 直通；启用确认解释启动代码风险。远程 OAuth、resources/prompts、Apps、JSON 导入延期。取消、session_shutdown 和应用退出关闭 clients，不保证回收恶意 detached daemon。配置写入具 revision 复核与原子替换，但不提供针对其他本机进程的跨进程事务锁或 OS sandbox。
 
 凭证只在 `~/.pi/agent/auth.json`。一 provider 一槽；多号用别名（`anthropic-work`、`openai-codex-home`），兼容 `@hank-warren/pi-multi-login`。
 

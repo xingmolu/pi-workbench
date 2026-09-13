@@ -17,8 +17,9 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - 按 canonical session cwd 隔离的 Pi JSONL 会话列表、新建与恢复（保留 CLI 目录编码）；
 - 已保存会话重命名、当前工作区标题搜索和当前对话的问题导航；
 - 已保存会话当前历史分叉为新会话、来源导航与原会话草稿保留；
-- Main 发布的 typed Workbench registry、默认 52px mode rail，以及按需展开的账号、模型与
-  Desktop 插件设置；
+- 左下角独立设置弹窗：常规、外观、账号与模型、Codex 订阅额度、Skills、MCP 服务器与 Desktop 插件；
+- Skills 已加载技能库：设置中搜索与只读详情，输入框键入 `/` 搜索并插入原生技能命令；
+- Main 发布的 typed Workbench registry、默认 52px mode rail；展开后可拖动分隔线或聚焦后用方向键调整右栏宽度，折叠再展开保留本窗口的调整；
 - Files 已支持当前项目的只读目录浏览、文件名搜索、隐藏文件开关、刷新、UTF-8 文本预览与复制；
   Review 已支持只读 Git 未暂存、已暂存和明确选择基准的分支差异；Terminal 提供独立的真实用户 PTY、多标签页和显式创建/结束。Browser 是 Main 持有的原生
   `WebContentsView`，支持多标签页、按 project 隔离的持久 profile 和用户/agent 共享控制；
@@ -46,6 +47,13 @@ marketplace、签名、自动更新、远端 UI 入口、第三方 native/module
 
 设置中的「自定义端点」无需先选项目，直接管理 Pi CLI 共用的 `~/.pi/agent/models.json` 与 `auth.json`，影响所有工作区。明确选择协议、填写显示名称、服务地址、API Key 和每行一个模型 ID；新端点不会自动切换当前账号。地址只允许 HTTPS 或显式本机 HTTP，后者会提示明文传输风险。模型移除须确认；高级配置只读，损坏文件不能用空配置覆盖。密码不进入 Renderer 全局 store，表单值在提交/关闭时清空；编辑留空保留原凭证，不回显旧 key。已出现在 `models.json` 且 Pi 运行时认为可用的 CLI provider（即使设置里标记为只读）可在 composer 中选择账号和模型；缺少可用认证的端点仍不能发送。
 
+
+MCP 使用 Pi 官方扩展机制和官方 `@modelcontextprotocol/sdk`，不是 Pi 原生内置 MCP。设置里可新增/编辑/启停 stdio 与 Streamable HTTP 服务器；配置存于 `~/.pi/agent/mcp.json` 的 `mcpServers`，0600 原子替换。`piDesktop.trustedServers` 记录用户确认的精确配置摘要；已有或外部修改的配置必须重新确认，不自动发现项目/其他应用服务器。环境变量与请求头只展示字段名，编辑留空保留已有值。配置是本机秘密文件，不是钥匙串；不要把 token 放在命令参数或 URL。
+
+本轮验证结果、修复项及实账号/打包边界见 [设置与 MCP 验收](./docs/SETTINGS_MCP_ACCEPTANCE_2026-09-11.md)。
+
+Agent 通过 `mcp` 工具依次 list / describe / call。Ask 对每次实际调用确认，Open 直接执行；启用服务器本身允许其启动代码以本机用户权限运行，Ask 不是进程沙箱。停止调用关闭连接，需显式重新连接。保存仅允许空闲态，不替换会话或另存 transcript。当前仅支持文本工具结果，不支持旧 SSE、远程 OAuth、资源/提示模板、MCP Apps、JSON 批量导入；最多 16 个服务器、每服 128 个工具。高级或损坏配置保守只读。研究与接入选择见 [Pi MCP 调研](./docs/PI_MCP_CAPABILITIES_2026-09-11.md)。
+
 端点保存分别显示配置、凭据和运行时结果，不假装两个文件是一个事务。部分保存或结果不确定时先核对列表与登录状态，不自动重试；“刷新列表”只读配置，不修复运行时。当前模型被移除、配置发生漂移或运行时同步失败时，Host 和 composer 都阻止发送；历史保留，要求明确恢复或重选，不自动 failover。保存与登录启动/别名重载串行，进行中的 OAuth 不会被表单取消。隔离验证与边界见 [端点验收记录](./docs/CUSTOM_ENDPOINT_ACCEPTANCE_2026-09-11.md)。
 
 用户终端无需 Pi 登录：点击工作台「终端」后显式新建，以所选项目为初始 cwd 启动本机用户 shell。它具有当前 OS 用户权限，不是项目沙箱，不受 Agent Ask/Open 审批；输入、输出与剪贴板内容不会进入模型或 Pi transcript。隐藏面板、切换标签或项目保留同一 xterm/parser/PTY；隐藏终端继续解析输出并在 write 完成后 ACK。每项目最多 4 个、全局最多 8 个运行终端，Renderer 最多保留 8 个屏幕（含已退出屏幕），达到上限须先显式关闭一个；每屏幕 scrollback 2,000 行。
@@ -59,6 +67,19 @@ marketplace、签名、自动更新、远端 UI 入口、第三方 native/module
 专项调研与实施结果见 [docs/WORKBENCH_AGENT_RESEARCH.md](./docs/WORKBENCH_AGENT_RESEARCH.md)。
 已落地的插件边界、manifest 和 panel API 见
 [docs/WORKBENCH_PLUGIN_ARCHITECTURE.md](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
+
+## 设置与 Skills 技能
+
+过程说明和流式文本不显示完整回复操作栏；已完成的 canonical 回复只在最后一个文本块显示一次复制/分叉/赞踩，用户问题与代码/表格内复制不受影响。工作台分栏复用 shadcn Resizable 同源的 `react-resizable-panels`，不是自研拖拽器；调整时保留对话、终端和原生浏览器/插件状态。实现与模块提交验证见 [界面反馈验收](./docs/UI_FEEDBACK_ACCEPTANCE_2026-09-13.md)。
+
+设置按「基础设置 / Agent 能力」分组。常规支持 Enter 或 ⌘/Ctrl+Enter 发送、工作过程默认紧凑/展开、底部用量显示；外观支持对话正文与代码字号、代码默认换行和减少动效。偏好只存 Desktop 的 `pi-desktop-preferences`，保存确认后生效，恢复默认不改 Pi 会话、账号、权限或配置。读取偏好前不使用默认快捷键擅自发送，显式发送按钮仍可用。
+
+单个代码块或工作组的手动开合选择优先，审批和错误保持可见；隐藏用量不停止统计，也不隐藏 ContextMeter。字号不是窗口缩放，不影响终端和网页；暂不提供浅色或代码高亮主题。此次源码功能与验证边界见 [Skills 与偏好验收](./docs/SKILLS_PREFERENCES_ACCEPTANCE_2026-09-12.md)。
+
+设置中的「Skills 技能」显示当前 Pi session 实际已加载的资源，可按名称/简介和来源范围筛选，查看最多 64 KiB 的普通 UTF-8 技能文件。预览只接受 Host 当前目录的 opaque ID，不提供任意路径读取。仅手动调用不是禁用：这类技能不会出现在模型可发现列表中，但仍可明确调用。
+
+在输入框键入 `/` 即可唤起技能列表，无额外常驻按钮。上下键选择、Enter 插入 `/skill:name `、Esc 关闭；选中技能不会发送，原有请求参数会保留。设置中的插入动作则将命令放在完整现有草稿之前。Shift+Enter 换行，中文输入法选词不触发发送。技能由 Pi 自己在发送时展开，不另造展开器或 transcript。
+
 
 ## 本地运行
 
@@ -115,6 +136,8 @@ npm run smoke:pty -- "--bundle-resources=$PWD/dist/local-debug/mac-arm64/Pi Desk
 
 这是 ad-hoc 签名的本地调试包，不修改 macOS 系统安全设置，不代表正式分发配置。
 最后一条命令由开发 Electron 在隔离夹具中加载包内 native/helper，仅验证资源兼容，不启动产品包正常入口。
+
+MCP 包内依赖可另外用 `npx electron scripts/mcp-bundle-smoke.cjs "/absolute/path/Pi Desktop.app/Contents/Resources"` 验证。它通过开发 Electron 的 utilityProcess 加载包内 Agent Host、官方 SDK 并执行隔离 `mcp:list`；不启动生产应用入口、不读取真实 Pi 配置，也不代替真实服务商验收。
 正式发布需要有效签名身份、兼容的 hardened runtime entitlements 和公证。
 打包仅包含 `out/`、`resources/`、`package.json` 与生产依赖，排除旧 `dist/`、测试截图和报告。
 
@@ -236,5 +259,8 @@ Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot�
 - `src/preload/plugin.ts`：sandboxed panel 的最小 `window.piPlugin` bridge
 - `src/renderer/src/components/Conversation.tsx`：对话、状态、Context、Queue 与 composer
 - `src/renderer/src/components/BrowserPane.tsx`：Browser chrome 与共享控制状态
-- `src/renderer/src/components/Workbench.tsx`：registry rail、设置、first-party/native/plugin surface 路由
+- `src/renderer/src/components/Workbench.tsx`：registry rail、first-party/native/plugin surface 路由
+- `src/renderer/src/components/SettingsDialog.tsx`：独立设置弹窗、账号与模型/MCP/Desktop 插件分类
+- `src/agent-host/mcp-runtime.ts`：官方 MCP SDK 与 Pi 工具、审批、取消桥
+- `src/agent-host/account-quota.ts`：所选 Codex 身份的真实额度白名单投影
 - `src/renderer/src/components/SandboxedPluginPane.tsx`：plugin view 可见性与 bounds 协调
