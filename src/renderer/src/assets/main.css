@@ -3337,6 +3337,7 @@ button.send:disabled {
   .send {
     grid-area: 2 / 6;
   }
+
 }
 
 @media (pointer: coarse) {
@@ -3814,10 +3815,31 @@ button.send:disabled {
   margin: 0 4px 6px;
 }
 .catalog-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
   padding: 4px 8px 10px;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.6;
+}
+.catalog-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catalog-status {
+  flex: 0 0 6em;
+  min-height: 1.6em;
+  white-space: nowrap;
+  text-align: right;
+}
+.sidebar button[data-navigation-pending='true']:disabled {
+  opacity: 1;
+  cursor: wait;
 }
 .project-groups {
   overflow: auto;

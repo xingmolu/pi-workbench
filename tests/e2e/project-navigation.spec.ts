@@ -143,6 +143,17 @@ test.beforeEach(async () => {
     join(root, 'user-data', 'pi-desktop-preferences.json'),
     JSON.stringify({ lastProjectPath: a, recentProjects: [a, b, empty] })
   )
+  // Hold actual runtime preparation so pending UI assertions are deterministic.
+  await writeFile(
+    join(agentDir, 'extensions', 'navigation-delay.ts'),
+    `
+    import { existsSync } from 'node:fs';
+    export default async function () {
+      while (existsSync(${JSON.stringify(join(root, 'navigation-delay'))}))
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  `
+  )
   app = await electron.launch({
     args: [resolve('.')],
     cwd: a,
@@ -172,6 +183,82 @@ const group = (cwd: string) =>
   page
     .locator('.project-group')
     .filter({ has: page.locator(`button.project-group-toggle[title=${JSON.stringify(cwd)}]`) })
+
+test('pending navigation keeps loaded rows stable but unavailable, including the collapsed rail', async () => {
+  await page.locator('.composer-input').fill('保留 A 草稿')
+  for (const width of [960, 1440]) {
+    await app.evaluate(
+      ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900),
+      width
+    )
+    await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(width)
+    const source = group(a).locator('.project-session-row').first()
+    const target = group(b).locator('.project-session-row').first()
+    const targetTitle = await target.locator('.session-title').innerText()
+    await expect(source).toBeEnabled()
+    await expect(target).toBeEnabled()
+    await target.scrollIntoViewIfNeeded()
+    const before = await source.boundingBox()
+    const scopeBefore = await page.locator('.catalog-scope').boundingBox()
+    const unavailable = group(join(root, 'removed')).locator('.project-new')
+    const unavailableOpacity = await unavailable.evaluate((button) => getComputedStyle(button).opacity)
+    await writeFile(join(root, 'navigation-delay'), '')
+    try {
+      await target.click()
+      await expect(page.locator('.project-session-list')).toHaveAttribute('aria-busy', 'true')
+      await expect(source).toBeDisabled()
+      await expect(target).toBeDisabled()
+      await expect(source).toHaveCSS('opacity', '1')
+      await expect(unavailable).toBeDisabled()
+      await expect(unavailable).not.toHaveAttribute('data-navigation-pending', 'true')
+      await expect(unavailable).toHaveCSS('opacity', unavailableOpacity)
+      await expect(page.locator('.catalog-disabled-reason')).toHaveCount(0)
+      expect((await source.boundingBox())?.y).toBe(before?.y)
+      expect((await page.locator('.catalog-scope').boundingBox())?.height).toBe(scopeBefore?.height)
+      await expect(page.locator('.sidebar-project-actions button')).toHaveCount(2)
+      for (const button of await page.locator('.sidebar-project-actions button').all()) {
+        await expect(button).toBeDisabled()
+        await expect(button).toHaveCSS('opacity', '1')
+      }
+      // Native disabled buttons cannot dispatch another navigation, even by DOM click.
+      await source.evaluate((button: HTMLButtonElement) => button.click())
+      const shot = await app.evaluate(async ({ BrowserWindow }) =>
+        (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64')
+      )
+      await writeFile(join(artifacts, `navigation-pending-${width}.png`), Buffer.from(shot, 'base64'))
+      await page.keyboard.press('Meta+b')
+      for (const name of ['新会话', '添加项目']) {
+        const button = page.locator('.sidebar').getByRole('button', { name, exact: true })
+        await expect(button).toBeDisabled()
+        await expect(button).toHaveCSS('opacity', '1')
+      }
+      await page.keyboard.press('Meta+b')
+    } finally {
+      await rm(join(root, 'navigation-delay'), { force: true })
+    }
+    await expect
+      .poll(() => page.evaluate(async () => (await window.pi.getState()).project?.path))
+      .toBe(b)
+    await expect(page.locator('.project-session-list')).not.toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('.node-flow')).toContainText(`${targetTitle} 的回答`)
+    await group(a)
+      .getByRole('button', { name: /导航体验与布局/ })
+      .click()
+    await expect(page.locator('.composer-input')).toHaveValue('保留 A 草稿')
+  }
+  // Supported maximum counts must not wrap the status row at the narrow breakpoint.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 900))
+  const heights = await page.locator('.catalog-scope').evaluate((scope) => {
+    const count = scope.querySelector('.catalog-count')!
+    const status = scope.querySelector('.catalog-status')!
+    count.textContent = '已加载 100 个项目 · 5000 个会话'
+    status.textContent = ''
+    const before = scope.getBoundingClientRect().height
+    status.textContent = '正在切换会话'
+    return [before, scope.getBoundingClientRect().height]
+  })
+  expect(heights[0]).toBe(heights[1])
+})
 
 test('actual catalog preserves active state, paginates, opens exact cross-project targets and retains both drafts', async () => {
   const before = await page.evaluate(() => window.pi.getState())

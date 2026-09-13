@@ -32,7 +32,9 @@ export default function Sidebar({
   disabledReason,
   onOpenSettings
 }: SidebarProps): React.JSX.Element {
-  const reason = disabledReason ?? (pending ? '正在切换会话' : projectNavigationReason(snapshot))
+  const blockReason = disabledReason ?? projectNavigationReason(snapshot)
+  const reason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
+  const pendingOnly = (pending && !blockReason) || undefined
   const newSessionEnabled = snapshot.ready && canCreateSession(snapshot.project) && !reason
   if (collapsed) {
     return (
@@ -51,7 +53,9 @@ export default function Sidebar({
             className="icon-btn"
             type="button"
             onClick={onNewSession}
-            title="新会话"
+            title={reason ?? '新会话'}
+            aria-label="新会话"
+            data-navigation-pending={snapshot.project ? pendingOnly : undefined}
             disabled={!newSessionEnabled}
           >
             <MessageSquarePlus size={17} />
@@ -61,7 +65,9 @@ export default function Sidebar({
               className="icon-btn"
               type="button"
               onClick={onChooseProject}
-              title="添加项目"
+              title={reason ?? '添加项目'}
+              aria-label="添加项目"
+              data-navigation-pending={pendingOnly}
               disabled={Boolean(reason)}
             >
               <FolderOpen size={17} />
@@ -98,6 +104,7 @@ export default function Sidebar({
           type="button"
           onClick={onChooseProject}
           disabled={Boolean(reason)}
+          data-navigation-pending={pendingOnly}
           title={reason ?? '添加项目'}
         >
           <FolderOpen size={14} />
@@ -107,6 +114,7 @@ export default function Sidebar({
           type="button"
           onClick={onNewSession}
           disabled={!newSessionEnabled}
+          data-navigation-pending={snapshot.project ? pendingOnly : undefined}
           title={reason ?? '在当前项目中新建会话'}
         >
           <MessageSquarePlus size={14} />

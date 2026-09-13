@@ -136,12 +136,18 @@ export default function ProjectSessionList({
       return next
     })
   }
-  const reason = disabledReason ?? (pending ? '正在切换会话' : projectNavigationReason(snapshot))
+  // Keep native interaction guards; only transient pending gets stable visual styling.
+  const blockReason = disabledReason ?? projectNavigationReason(snapshot)
+  const navigationReason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
   const term = query.trim().toLocaleLowerCase()
   const projects = catalog?.projects.map((project) => withLiveProject(project, snapshot)) ?? []
   const loaded = projects.reduce((total, project) => total + project.sessions.length, 0)
   return (
-    <section className="project-session-list" aria-label="项目会话目录">
+    <section
+      className="project-session-list"
+      aria-label="项目会话目录"
+      aria-busy={pending || undefined}
+    >
       <div className="session-search">
         <Search size={13} aria-hidden="true" />
         <input
@@ -165,11 +171,19 @@ export default function ProjectSessionList({
         )}
       </div>
       <div className="catalog-scope">
-        已加载 {projects.length} 个项目 · {loaded} 个会话{loading && catalog ? ' · 更新中' : ''}
+        <span
+          className="catalog-count"
+          title={`已加载 ${projects.length} 个项目 · ${loaded} 个会话`}
+        >
+          已加载 {projects.length} 个项目 · {loaded} 个会话
+        </span>
+        <span className="catalog-status" role="status">
+          {pending ? '正在切换会话' : loading && catalog ? '更新中' : ''}
+        </span>
       </div>
-      {reason && (
+      {blockReason && (
         <p className="catalog-disabled-reason" role="status">
-          {reason}
+          {blockReason}
         </p>
       )}
       {loading && !catalog && (
@@ -208,7 +222,8 @@ export default function ProjectSessionList({
             )
             const expanded = term.length > 0 || !collapsed.includes(project.path)
             const groupLoading = loadingGroups.includes(project.path)
-            const blocked = project.error ? '项目目录不可用，请重试' : reason
+            const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
+            const pendingOnly = pending && !blockReason && !project.error
             return (
               <section
                 className="project-group"
@@ -233,6 +248,7 @@ export default function ProjectSessionList({
                     title={blocked ?? `在 ${project.name} 中新建会话`}
                     aria-label={`在 ${project.name} 中新建会话`}
                     disabled={Boolean(blocked)}
+                    data-navigation-pending={pendingOnly || undefined}
                     onClick={() => onNavigate(project.path)}
                   >
                     <Plus size={14} />
@@ -243,8 +259,9 @@ export default function ProjectSessionList({
                     {navigationFailures[project.path].message}{' '}
                     <button
                       type="button"
-                      disabled={Boolean(reason)}
-                      title={reason ?? undefined}
+                      disabled={Boolean(navigationReason)}
+                      data-navigation-pending={(pending && !blockReason) || undefined}
+                      title={navigationReason ?? undefined}
                       onClick={() =>
                         onNavigate(project.path, navigationFailures[project.path].sessionPath)
                       }
@@ -280,6 +297,7 @@ export default function ProjectSessionList({
                           aria-current={session.active ? 'page' : undefined}
                           title={blocked ?? session.title}
                           disabled={Boolean(blocked)}
+                          data-navigation-pending={pendingOnly || undefined}
                           onClick={() => onNavigate(project.path, session.path)}
                         >
                           <span className="session-title">{session.title}</span>
