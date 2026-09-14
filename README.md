@@ -10,6 +10,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - composer：Open / Ask、账号 → 模型、ContextMeter、Send / Stop / Queue；
 - 文本上下文：加号选择文件或 Files「添加到对话」，快照附件、失败保留和 canonical 历史展开；
 - 会话标题、运行/待确认/错误状态、同会话模型切换，以及完整 follow-up 队列；
+- 同项目多会话后台执行、独立 Stop/审批/队列、运行时侧栏状态与自由切换（最多 8 个常驻会话）；
 - 真实 Pi usage、context 和本次运行期时序指标，不估算费用；
 - Codex（ChatGPT Plus / Pro）浏览器登录与 device code；
 - Pi 多账号 provider 别名 `openai-codex-<slug>`；
@@ -38,11 +39,13 @@ Files 不支持编辑、重命名、删除或自动附加到对话；仅预览�
 会话目录编码可能碰撞（例如 `a-b` 与 `a/b`）。Host 按 SDK 公共会话信息的绝对 cwd 过滤列表及自动恢复，显式打开还校验路径归属；创建项目服务前再次检查实际 manager cwd。详见 [会话 cwd 隔离验收](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)。
 
 
+多会话运行边界：最多 8 个常驻会话，只有空闲、已保存且结果已确认的会话可以回收。新会话继承来源账号/模型，历史会话保持自身选择；不做自动账号切换。Browser 只接受当前前台会话的 agent 操作，切换会取消旧浏览器操作。全局账号/端点/MCP 修改要求所有会话空闲。同项目内置写入、bash 和 MCP 调用按锁串行，读取与生成可并行；未知 MCP 结果保持锁到所属进程退出。它不能保证远程 MCP 或外部/脱离的进程停止，不是 OS 沙箱。验证和源码/安装包边界见 [多会话验收](./docs/MULTI_SESSION_ACCEPTANCE_2026-09-14.md)。
+
 全局搜索的验证、原生键盘焦点测试限制和后续范围见 [全局导航验收](./docs/GLOBAL_NAVIGATION_ACCEPTANCE_2026-09-14.md)。
 
 
 当前源码提供最近问题的「编辑问题」入口（已通过独立规格与质量审查）：独立编辑框只改文字，保留原文本快照和图片，不覆盖普通输入框草稿。取消不发送；明确发送后在同一会话从原问题之前继续，旧记录仍保留，但暂不提供旧分支切换器。文件和终端操作不会撤销，工具可能再次执行。发送结果未知时只查询，不直接重发；引擎断开后使用编辑区重连入口核对历史。附件增删、任意历史编辑和助手重试不在当前实现内。验收及包版本边界见 [编辑验收记录](./docs/SESSION_EDIT_ACCEPTANCE_2026-09-11.md)。
-Git 写入、Trace、手机网关和 worktree / 并行 agent 仍是后续边界。插件
+Git 写入、Trace、手机网关和自动 worktree / agent 编排仍是后续边界。插件
 marketplace、签名、自动更新、远端 UI 入口、第三方 native/module、通用 agent command
 绑定和 MCP Apps 也明确延期。`@` 文件/会话引用、
 图片粘贴附件、用户可拖内容轴及 `~/.codex/auth.json` 便利导入也明确延期。

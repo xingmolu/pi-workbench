@@ -155,6 +155,12 @@ Composer 两级：账号 → 模型。浏览账号不创建会话；已有 trans
 
 ## 7. 进程与数据
 
+多会话：Main 管理最多 8 个独立会话 utilityProcess，另有不持有会话 writer 的启动/设置 Host。切换只改变前台投影，后台 Pi 继续执行；同一 canonical JSONL 最多一个常驻 writer。桌面 `workerId + selectionEpoch` 与 Pi 原生 `sessionId + generation + revision` 分开，旧视图响应不能覆盖新视图。侧栏接收有界运行元数据，不保存第二份历史。
+
+Stop、队列和审批绑定发起会话。运行中允许切换；编辑和登录仍有保护。空闲、已保存、无未确认结果的 worker 才能回收。Browser 本轮只允许前台 agent 控制，切换取消原会话的浏览器操作，不中止其他工作。全局账号/端点/MCP 修改要求所有会话空闲且结果已确认，并在下次 prompt 前刷新配置。
+
+同项目内置 write/edit/bash 与 MCP 调用使用 Main 的互斥操作锁，Ask 先审批再排队，Open 也需排队；读文件和模型生成不排队。MCP 发送后超时/取消不等于执行结束，未知结果保持锁到该 worker 退出。这不是 OS 沙箱，不能约束外部进程、任意 Pi 扩展或退出后仍工作的远程 MCP/后台子进程。
+
 Renderer (React) — 零 Node、零 Electron、零 Pi import。typed IPC。Main：窗口、最近项目偏好、WorkbenchHost、BrowserManager 和 `utilityProcess` 生命周期；Agent Host：`utilityProcess` 中的 Pi runtime、browser capability client 与已加载 Pi package root 发布。对话是按 `cwd` 分桶的 Pi JSONL 投影，Electron 不保存 transcript 副本或 token。`electron-store` 保存最近项目路径、Desktop 插件启用状态和每项不超过 32 KiB 的 panel JSON state；Browser profile 由 Electron partition 按 project 隔离。这些本地数据不含 Pi token/transcript，但路径、插件自存内容和网站登录态仍应按本地隐私数据对待。
 
 流式同步先发送带 `sessionId + generation + revision` 的完整 snapshot，之后发送带 `baseRevision + revision` 的节点 upsert / removal / order patch 和轻量元数据。token 更新按短窗口合并，completed / settled 强制刷新；Renderer 对旧 patch 幂等忽略，对会话代际不匹配、乱序或 revision 缺口重新拉 snapshot。完整 snapshot 用于 bootstrap、项目/会话切换与恢复同步，不在每个 token 上重复传整份 transcript。
