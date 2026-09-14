@@ -230,7 +230,7 @@ test('IME and conflicting dialogs ignore CmdK; Escape restores focus and obsolet
   await expect(page.getByRole('dialog', { name: '搜索与快捷操作' })).toHaveCount(0)
 })
 
-test('busy search remains read-only and navigation/new-chat are disabled with a reason', async () => {
+test('busy search remains read-only and can navigate while the source keeps running', async () => {
   const source = await page.evaluate(() => window.pi.getState())
   await page.evaluate(
     async (source) =>
@@ -247,27 +247,38 @@ test('busy search remains read-only and navigation/new-chat are disabled with a 
   await page.getByRole('button', { name: '搜索所有会话' }).click()
   await expect(page.getByRole('option', { name: /新建会话/ })).toHaveAttribute(
     'aria-disabled',
-    'true'
+    'false'
   )
   const input = page.getByRole('combobox', { name: '搜索所有会话标题' })
   await input.fill('中文')
   await expect(page.getByRole('option', { name: /离页中文/ })).toHaveAttribute(
     'aria-disabled',
-    'true'
+    'false'
   )
-  await expect(page.getByText('请先停止当前会话；仍可搜索与查看结果。')).toBeVisible()
+  expect(await readFile(offpage, 'utf8')).toBe(before)
   await input.press('Enter')
-  expect((await page.evaluate(() => window.pi.getState())).sessionId).toBe(source.sessionId)
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).activeSessionPath))
+    .toBe(offpage)
   const rejected = await page.evaluate(
     async ({ source, cwd, path }) => {
       try {
-        await window.pi.send({
-          type: 'project:navigate',
-          cwd,
-          sessionPath: path,
-          sessionId: source.sessionId,
-          generation: source.generation
-        })
+        await window.pi.send(
+          {
+            type: 'project:navigate',
+            cwd,
+            sessionPath: path,
+            sessionId: source.sessionId,
+            generation: source.generation
+          },
+          source.desktopScope
+            ? {
+                scope: source.desktopScope,
+                sessionId: source.sessionId,
+                generation: source.generation
+              }
+            : undefined
+        )
         return false
       } catch {
         return true
@@ -276,8 +287,11 @@ test('busy search remains read-only and navigation/new-chat are disabled with a 
     { source, cwd: project, path: offpage }
   )
   expect(rejected).toBe(true)
-  expect(await readFile(offpage, 'utf8')).toBe(before)
-  await input.press('Escape')
+  await page.evaluate(
+    (workerId) => window.pi.selectSession(workerId),
+    source.desktopScope!.workerId
+  )
+  expect((await page.evaluate(() => window.pi.getState())).busy).toBe(true)
   await page.evaluate(() => window.pi.send({ type: 'prompt:abort' }))
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
 })

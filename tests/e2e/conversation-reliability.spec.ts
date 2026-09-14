@@ -401,7 +401,11 @@ test('table layout, header metadata and interrupted usage stay readable in a nar
   const meta = page.locator('.conversation-head-meta small')
   await expect(meta).toBeHidden()
   await expect(page.locator('.conversation-status')).toBeInViewport()
-  expect(await page.locator('.conversation-head').evaluate(element => element.getBoundingClientRect().height)).toBe(48)
+  expect(
+    await page
+      .locator('.conversation-head')
+      .evaluate((element) => element.getBoundingClientRect().height)
+  ).toBe(48)
   await page.locator('.work-summary-trigger').click()
   await expect(page.getByRole('button', { name: '思考了一会儿', exact: true })).toBeVisible()
   await expect(page.locator('.composer-stats')).toContainText('中断用量未知')
@@ -413,7 +417,11 @@ test('narrow composer keeps account and model readable with the workbench and qu
   const project = join(root, 'project')
   await mkdir(project)
   await writeFile(join(project, 'README.md'), '# Layout fixture\n')
-  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
+  const opened = await page.evaluate(
+    (cwd) => window.pi.send({ type: 'project:open', cwd }),
+    project
+  )
+  state.desktopScope = opened.snapshot.desktopScope
   state.project = { path: project, name: '界面验收' }
   state.accounts[0].name = '工作 Codex'
   state.models[0].name = 'GPT-5.6 Sol'
@@ -558,11 +566,14 @@ test('host exit revokes readiness and allows explicit recovery', async () => {
   const opened = await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), root)
   state.sessionId = opened.snapshot.sessionId
   state.activeSessionPath = opened.snapshot.activeSessionPath
+  state.desktopScope = opened.snapshot.desktopScope
   state.generation++
   await publish()
   await page.getByRole('textbox', { name: '给 Pi 的任务' }).fill('重连后仍能取回的草稿')
   const pid = await app.evaluate(
-    ({ app }) => app.getAppMetrics().find((m) => m.name === 'Pi Agent Host')?.pid
+    ({ app }, workerId) =>
+      app.getAppMetrics().find((m) => m.name === `Pi Session Host ${workerId}`)?.pid,
+    opened.snapshot.desktopScope!.workerId
   )
   expect(pid).toBeDefined()
   await app.evaluate(({}, pid) => process.kill(pid!, 'SIGKILL'), pid)
@@ -627,8 +638,11 @@ test('reconnection restores the selected persisted session, not the most recent 
   }
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), root)
   await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), olderPath)
+  const selected = await page.evaluate(() => window.pi.getState())
   const pid = await app.evaluate(
-    ({ app }) => app.getAppMetrics().find((m) => m.name === 'Pi Agent Host')?.pid
+    ({ app }, workerId) =>
+      app.getAppMetrics().find((m) => m.name === `Pi Session Host ${workerId}`)?.pid,
+    selected.desktopScope!.workerId
   )
   expect(pid).toBeDefined()
   await app.evaluate(({}, pid) => process.kill(pid!, 'SIGKILL'), pid)
