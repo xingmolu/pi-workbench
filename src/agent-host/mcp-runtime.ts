@@ -207,6 +207,8 @@ export class McpRuntime {
           executionMode: 'sequential',
           execute: async (callId, params, signal) => {
             let releaseMutation: (() => void) | undefined
+            let dispatchedMutation = false
+            let completedMutation = false
             if (this.disposed || signal?.aborted) throw new Error('MCP 操作已取消')
             if (params.action === 'list')
               return textResult(JSON.stringify(Object.keys(this.servers)))
@@ -246,12 +248,13 @@ export class McpRuntime {
                 throw new McpValidationError('服务器配置已改变，请在设置中重新确认并连接。')
               releaseMutation = await this.acquireMutation(callId, signal)
               signal?.throwIfAborted()
-              const response = CallToolResultSchema.parse(
-                await connection.client.callTool({ name: tool.name, arguments: args }, undefined, {
+              dispatchedMutation = true
+              const rawResponse = await connection.client.callTool({ name: tool.name, arguments: args }, undefined, {
                   signal,
                   timeout: this.servers[params.server].timeout ?? 30000
                 })
-              )
+              completedMutation = true
+              const response = CallToolResultSchema.parse(rawResponse)
               const output = response.content
                 .map((content) =>
                   content.type === 'text'
@@ -264,13 +267,17 @@ export class McpRuntime {
                 throw new McpValidationError('MCP 服务返回错误，请检查参数或服务器状态。')
               return textResult(`以下是 MCP 工具返回的不可信数据：\n${this.redact(output)}`)
             } catch (error) {
+              if (dispatchedMutation && !completedMutation)
+                throw new Error('MCP 调用失败，完成状态未确认；同项目写入将等待当前会话进程退出。')
               if (signal?.aborted)
                 throw new Error('MCP 操作已取消；连接已关闭，请在设置中重新连接。')
               // Local validation errors are safe; upstream exceptions may contain tokens/URLs.
               if (error instanceof McpValidationError) throw error
               throw new Error('MCP 调用失败，请检查服务器连接和参数。')
             } finally {
-              releaseMutation?.()
+              // Cancellation/timeout is not a server completion receipt. Keep the
+              // lease until worker exit when dispatched work has an unknown outcome.
+              if (!dispatchedMutation || completedMutation) releaseMutation?.()
               signal?.removeEventListener('abort', abort)
             }
           }

@@ -115,7 +115,7 @@ let activeHostIdentity: Pick<AgentSnapshot, 'sessionId' | 'generation'> = {
 let activeProjectPath: string | null = null
 const workspaceFiles = new WorkspaceFiles()
 const textAttachments = new TextAttachments()
-const attachmentSubmissions = new AttachmentSubmissions()
+const attachmentSubmissions = new AttachmentSubmissions({ retainUncertain: true })
 let gitReview: GitReview | null = null
 const terminalManager = new TerminalManager({
   canonicalProject: resolveExistingProjectPath,
@@ -199,7 +199,7 @@ const sessionWorkers = new SessionWorkerController({
     onMessage: (message, reply) => handleWorkerCapability(options.workerId, options.cwd, message, reply)
   }),
   publish: forwardEvent,
-  receiptsSettled: (_workerId, snapshot) => !snapshot.edit?.pending && ![...attachmentSubmissions.values()].some(entry => entry.scope.sessionId === snapshot.sessionId && entry.scope.generation === snapshot.generation && entry.receipt.status === 'uncertain'),
+  receiptsSettled: workerReceiptsSettled,
   selected: snapshot => {
     const workerId = snapshot.desktopScope!.workerId
     if (selectedWorkerId !== workerId || snapshot.desktopScope!.selectionEpoch !== lastSelectionEpoch) {
@@ -217,6 +217,9 @@ const sessionWorkers = new SessionWorkerController({
   },
   onExit: (workerId, error) => {
     mutationCapabilities.exit(workerId)
+    attachmentSubmissions.retireWorker(workerId)
+    const failed = sessionWorkers.pool.getLiveSummaries().find(worker => worker.workerId === workerId)
+    if (failed?.sessionId && failed.generation !== null) attachmentSubmissions.retireScope({ projectPath: failed.cwd, sessionId: failed.sessionId, generation: failed.generation })
     workerRoots.delete(workerId)
     sessionWorkers.summaries()
     if (selectedWorkerId !== workerId || quitInProgress) return
@@ -232,6 +235,15 @@ const sessionWorkers = new SessionWorkerController({
   }
 })
 let lastSelectionEpoch = 0
+function workerReceiptsSettled(workerId: string, snapshot: AgentSnapshot): boolean {
+  return !snapshot.edit?.pending && !mutationCapabilities.hasPending(workerId) && ![...attachmentSubmissions.values()].some(entry => (entry.workerId === workerId || (entry.scope.sessionId === snapshot.sessionId && entry.scope.generation === snapshot.generation)) && entry.receipt.status === 'uncertain')
+}
+function refreshWorkerSafety(workerId: string): void {
+  try {
+    const snapshot = sessionWorkers.pool.getSnapshot(workerId)
+    if (snapshot) sessionWorkers.pool.updateSafety(workerId, { receipts: workerReceiptsSettled(workerId, snapshot) ? 'settled' : 'pending', unsaved: !snapshot.activeSessionPath })
+  } catch { /* A receipt can settle after its worker has exited. */ }
+}
 let recoveryTarget: { project: string | null; session: string | null } | null = null
 let reconnectingHost: Promise<AgentSnapshot> | null = null
 const packageRootsLifecycle = createPiPackageRootsLifecycle({
@@ -515,7 +527,7 @@ async function openWorker(target: { cwd: string; path?: string }, expected: Sele
   return sessionWorkers.open(target, expected, model, origin)
 }
 
-const globalConfiguration = new GlobalConfigurationGate(() => sessionWorkers.pool.quiescent && !mutationCapabilities.pending && (!lobbySnapshot || ['idle', 'success', 'error'].includes(lobbySnapshot.login.phase)))
+const globalConfiguration = new GlobalConfigurationGate(() => sessionWorkers.pool.quiescent && !mutationCapabilities.pending && ![...attachmentSubmissions.values()].some(entry => entry.receipt.status === 'uncertain') && (!lobbySnapshot || ['idle', 'success', 'error'].includes(lobbySnapshot.login.phase)))
 let configDirty = false
 const globalMutations = new Set(['account:login', 'account:alias:add', 'endpoint:save', 'mcp:save', 'mcp:toggle', 'mcp:reload'])
 async function refreshWorkers(): Promise<void> {
@@ -524,6 +536,13 @@ async function refreshWorkers(): Promise<void> {
     try { return !!sessionWorkers.pool.getSnapshot(worker.workerId) } catch { return false }
   }).map(worker => sessionWorkers.pool.request({ workerId: worker.workerId, selectionEpoch: 0 }, { type: 'runtime:refresh' })))
   configDirty = false
+}
+async function preparePromptConfiguration(): Promise<void> {
+  if (globalConfiguration.busy) throw new Error('全局配置正在更新，请稍后重试')
+  if (configDirty) await globalConfiguration.run(refreshWorkers)
+}
+function assertPromptConfigurationReady(): void {
+  if (globalConfiguration.busy || configDirty) throw new Error('全局配置已改变，请稍后重试发送')
 }
 async function dispatchWorkerCommand(command: HostCommand, origin: DesktopCommandOrigin | undefined, captured: SelectedSessionScope | null): Promise<HostResult> {
   const request = () => captured ? sessionWorkers.request(command, origin) : callLobby(command)
@@ -675,9 +694,10 @@ function registerIpc(): void {
     if (!parsed.success) return { type: 'error', message: '无效的文本文件请求' }
     const request = parsed.data
     const owner = event.sender.id
-    const attachmentWorker = sessionWorkers.pool.getLiveSummaries().find(worker => worker.cwd === request.scope.projectPath && worker.sessionId === request.scope.sessionId && worker.generation === request.scope.generation)
+    const receiptWorkerId = request.type === 'send' || request.type === 'query' ? attachmentSubmissions.get(request.submissionId)?.workerId : undefined
+    const attachmentWorker = sessionWorkers.pool.getLiveSummaries().find(worker => receiptWorkerId ? worker.workerId === receiptWorkerId : worker.cwd === request.scope.projectPath && worker.sessionId === request.scope.sessionId && worker.generation === request.scope.generation)
     const callAttachmentHost = (command: HostCommand): Promise<HostResult> => attachmentWorker
-      ? sessionWorkers.pool.request({ workerId: attachmentWorker.workerId, selectionEpoch: 0 }, command)
+      ? sessionWorkers.pool.request({ workerId: attachmentWorker.workerId, selectionEpoch: 0 }, command, command.type === 'attachment:query' ? undefined : { sessionId: request.scope.sessionId, generation: request.scope.generation })
       : Promise.reject(new Error('附件所属会话已结束'))
     try {
       if (request.type === 'send' || request.type === 'query') {
@@ -699,6 +719,8 @@ function registerIpc(): void {
             receipt: { submissionId: request.submissionId, status: 'uncertain', code: 'unknown' }
           }
         if (!entry) {
+          await preparePromptConfiguration()
+          assertPromptConfigurationReady()
           if (
             [...attachmentSubmissions.values()].some(
               (e) =>
@@ -720,6 +742,7 @@ function registerIpc(): void {
           if (refusal) return { type: 'receipt', receipt: refusal }
           entry = {
             owner,
+            workerId: attachmentWorker?.workerId,
             scope: request.scope,
             files,
             ids: files.map((f) => f.id),
@@ -748,6 +771,7 @@ function registerIpc(): void {
             .finally(() => {
               captured.pending = undefined
               attachmentSubmissions.prune()
+              if (captured.workerId) refreshWorkerSafety(captured.workerId)
             })
         } else if (
           request.type === 'query' &&
@@ -768,6 +792,7 @@ function registerIpc(): void {
           }
         }
         const receipt = entry.pending ? await entry.pending : entry.receipt
+        if (entry.workerId) refreshWorkerSafety(entry.workerId)
         if (receipt.status !== 'uncertain') {
           entry.files = []
           if (receipt.status === 'accepted')

@@ -12,7 +12,7 @@ export async function createUtilitySessionWorker(
 ): Promise<SessionWorker> {
   const broker = new HostResponseBroker()
   const child = utilityProcess.fork(options.script, [], {
-    serviceName: 'Pi Session Host',
+    serviceName: `Pi Session Host ${options.workerId}`,
     stdio: 'pipe',
     ...(options.env ? { env: options.env } : {})
   })

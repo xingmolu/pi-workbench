@@ -73,4 +73,7 @@ export class WorkerMutationCapabilities {
   get pending(): boolean {
     return this.owners.size > 0
   }
+  hasPending(workerId: string): boolean {
+    return (this.owners.get(workerId)?.size ?? 0) > 0
+  }
 }

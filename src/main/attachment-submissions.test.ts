@@ -15,6 +15,21 @@ const entry = (generation: number): AttachmentSubmission => ({
   at: Date.now()
 })
 
+it('retains bounded uncertain ownership across live-session navigation until worker exit', () => {
+  const cache = new AttachmentSubmissions({ retainUncertain: true })
+  for (let generation = 0; generation < 32; generation++) {
+    const captured = entry(generation)
+    cache.set(captured.receipt.submissionId, captured)
+  }
+  cache.setContext(scope(33))
+  expect(cache.size).toBe(32)
+  expect(cache.get('submission-0')?.files).toEqual([])
+  expect(cache.reserve('next')?.status).toBe('rejected')
+  cache.retireScope(scope(0))
+  expect(cache.reserve('next')).toBeNull()
+  expect(cache.size).toBe(31)
+})
+
 it('releases obsolete unknowns through more than 32 scope transitions', () => {
   const cache = new AttachmentSubmissions()
   for (let generation = 0; generation < 40; generation++) {

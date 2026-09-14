@@ -1270,7 +1270,7 @@ class PiDesktopHost {
         break
       }
       case 'tool_execution_end': {
-        this.mutations.release(event.toolCallId)
+        if (event.toolName !== 'mcp') this.mutations.release(event.toolCallId)
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
         this.updateToolNode(
           event.toolCallId,

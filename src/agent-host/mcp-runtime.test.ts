@@ -49,6 +49,36 @@ beforeEach(() => {
   sdk.listTools.mockResolvedValue({ tools: [{ name: 'echo', inputSchema: { type: 'object' } }] })
   sdk.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
 })
+it('retains the mutation lease when a dispatched call times out without a completion receipt', async () => {
+  const release = vi.fn()
+  sdk.callTool.mockRejectedValueOnce(new Error('timed out'))
+  const runtime = new McpRuntime(
+    { fixture: { command: 'not-executed' } },
+    '/fixture',
+    async () => true,
+    async () => true,
+    async () => release
+  )
+  await expect(
+    executable(runtime)('call', { action: 'call', server: 'fixture', tool: 'echo' })
+  ).rejects.toThrow('MCP 调用失败')
+  expect(release).not.toHaveBeenCalled()
+  await runtime.close()
+  expect(release).not.toHaveBeenCalled()
+})
+it('releases the mutation lease after a server completion receipt', async () => {
+  const release = vi.fn()
+  const runtime = new McpRuntime(
+    { fixture: { command: 'not-executed' } },
+    '/fixture',
+    async () => true,
+    async () => true,
+    async () => release
+  )
+  await executable(runtime)('call', { action: 'call', server: 'fixture', tool: 'echo' })
+  expect(release).toHaveBeenCalledOnce()
+  await runtime.close()
+})
 it.each(['close', 'reload'] as const)(
   'never starts a stale connection after %s during trust validation',
   async (operation) => {
@@ -107,7 +137,7 @@ it('does not trust remote exceptions impersonating local validation errors', asy
   )
   await expect(
     executable(runtime)('call', { action: 'call', server: 'fixture', tool: 'echo' })
-  ).rejects.toThrow(/^MCP 调用失败，请检查服务器连接和参数。$/)
+  ).rejects.toThrow(/^MCP 调用失败，完成状态未确认；同项目写入将等待当前会话进程退出。$/)
   await runtime.close()
 })
 it('rejects denied approval and a config changed while approval was pending without calling server', async () => {
