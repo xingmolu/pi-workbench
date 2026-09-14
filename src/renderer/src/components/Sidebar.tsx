@@ -12,7 +12,7 @@ type SidebarProps = {
   onToggle: () => void
   onChooseProject: () => void
   onNewSession: () => void
-  onNavigate: (cwd: string, sessionPath?: string) => void
+  onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
   disabledReason?: string | null

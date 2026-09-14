@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Folder, GitFork, Plus } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import type {
-  CatalogProject,
   ProjectCatalog,
   ProjectNavigationFailures
 } from '../../../shared/project-catalog'
-import { projectNavigationReason, withLiveProject } from '../../../shared/project-catalog'
+import { projectNavigationReason } from '../../../shared/project-catalog'
+import { liveProjects, type LiveProject } from '../store/live-projects'
+import { usePiStore } from '../store/pi-store'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
 
 const COLLAPSED_KEY = 'pi.project-groups.collapsed.v1'
@@ -37,11 +38,12 @@ export default function ProjectSessionList({
   disabledReason
 }: {
   snapshot: AgentSnapshot
-  onNavigate: (cwd: string, sessionPath?: string) => void
+  onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
   disabledReason?: string | null
 }): React.JSX.Element {
+  const residents = usePiStore(state => state.liveSessions)
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +77,7 @@ export default function ProjectSessionList({
     }
   }, [snapshot.ready, snapshot.project?.path, historyKey, retry])
 
-  const loadGroup = async (project: CatalogProject, more: boolean): Promise<void> => {
+  const loadGroup = async (project: LiveProject, more: boolean): Promise<void> => {
     if (loadingGroups.includes(project.path)) return
     const request = epoch.current
     setLoadingGroups((groups) => [...groups, project.path])
@@ -137,7 +139,7 @@ export default function ProjectSessionList({
   // Keep native interaction guards; only transient pending gets stable visual styling.
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
   const navigationReason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
-  const projects = catalog?.projects.map((project) => withLiveProject(project, snapshot)) ?? []
+  const projects = liveProjects(catalog, snapshot, residents)
   const loaded = projects.reduce((total, project) => total + project.sessions.length, 0)
   return (
     <section
@@ -250,6 +252,9 @@ export default function ProjectSessionList({
                       </p>
                     )}
                     {matching.map((session) => {
+                      const rowBlocked = session.workerId
+                        ? disabledReason ?? (pending ? '正在切换会话，请稍候' : projectNavigationReason(snapshot, true))
+                        : blocked
                       const status = sessionStatusDisplay(session.status)
                       const emphasize = ['running', 'awaiting-approval', 'error'].includes(
                         session.status
@@ -257,13 +262,13 @@ export default function ProjectSessionList({
                       return (
                         <button
                           type="button"
-                          key={session.path}
+                          key={session.workerId ?? session.path ?? session.id}
                           className={`session-row project-session-row${session.active ? ' is-active' : ''}`}
                           aria-current={session.active ? 'page' : undefined}
-                          title={blocked ?? session.title}
-                          disabled={Boolean(blocked)}
+                          title={rowBlocked ?? session.title}
+                          disabled={Boolean(rowBlocked)}
                           data-navigation-pending={pendingOnly || undefined}
-                          onClick={() => onNavigate(project.path, session.path)}
+                          onClick={() => onNavigate(project.path, session.path ?? undefined, session.workerId)}
                         >
                           <span className="session-title">{session.title}</span>
                           {(session.parentSessionPath || session.parentUnavailable) && (
@@ -281,7 +286,7 @@ export default function ProjectSessionList({
                               {status.label}
                             </span>
                           )}
-                          <time dateTime={session.modified}>{relativeTime(session.modified)}</time>
+                          {session.modified && <time dateTime={session.modified}>{relativeTime(session.modified)}</time>}
                         </button>
                       )
                     })}

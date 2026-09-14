@@ -24,7 +24,8 @@ import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
 import type { ProjectNavigationFailures } from '../../shared/project-catalog'
 import { useSessionEdit } from './store/session-edit'
-import { usePiStore } from './store/pi-store'
+import { commandOrigin, usePiStore } from './store/pi-store'
+import { sameSelectedScope } from '../../shared/session-runtime'
 import { startWorkbenchEventCoordinator } from './store/workbench-event-coordinator'
 import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/workbench-selection'
 import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbench-status'
@@ -108,6 +109,7 @@ export default function App(): React.JSX.Element {
         else void window.pi.nativePaletteFocus({ type: 'finish', token: event.data.token, restore: false }).catch(() => {})
       }
       if (event.event === 'disconnected') disconnect(event.data.message)
+      if (event.event === 'sessions') usePiStore.getState().setLiveSessions(event.data)
       if (event.event === 'snapshot') setSnapshot(event.data)
       if (event.event === 'patch' && applyPatch(event.data) === 'needsSnapshot') {
         void window.pi
@@ -183,15 +185,17 @@ export default function App(): React.JSX.Element {
 
   const send = useCallback(
     async (command: HostCommand): Promise<boolean> => {
+      const origin = commandOrigin(snapshot)
       if (usePiStore.getState().disconnected) {
         setClientError('Pi 引擎未连接，请先重新连接引擎。')
         return false
       }
       try {
-        const result = await window.pi.send(command)
+        const result = await window.pi.send(command, origin)
         if (result.kind === 'snapshot') setSnapshot(result.snapshot)
         return true
       } catch (error) {
+        if (!sameSelectedScope(origin?.scope ?? null, usePiStore.getState().snapshot.desktopScope ?? null)) return false
         const message = error instanceof Error ? error.message : String(error)
         setClientError(
           message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
@@ -199,7 +203,7 @@ export default function App(): React.JSX.Element {
         return false
       }
     },
-    [setClientError, setSnapshot]
+    [setClientError, setSnapshot, snapshot]
   )
 
   const reconnect = async (): Promise<void> => {
@@ -229,7 +233,7 @@ export default function App(): React.JSX.Element {
     navigationLock.current = true
     setNavigating(true)
     try {
-      const state = await window.pi.selectProject()
+      const state = await window.pi.selectProject(commandOrigin(usePiStore.getState().snapshot))
       if (state) setSnapshot(state)
     } catch (error) {
       setClientError(error instanceof Error ? error.message : String(error))
@@ -240,13 +244,13 @@ export default function App(): React.JSX.Element {
   }, [setClientError, setSnapshot])
 
   const navigateProject = useCallback(
-    async (cwd: string, sessionPath?: string): Promise<void> => {
+    async (cwd: string, sessionPath?: string, workerId?: string): Promise<void> => {
       const current = usePiStore.getState().snapshot
       if (
         navigationLock.current ||
         usePiStore.getState().forkPending ||
         useSessionEdit.getState().phase !== 'closed' ||
-        projectNavigationReason(current)
+        projectNavigationReason(current, Boolean(workerId))
       )
         return
       setNavigationFailures((previous) => {
@@ -254,20 +258,22 @@ export default function App(): React.JSX.Element {
         delete next[cwd]
         return next
       })
-      if (cwd === current.project?.path && sessionPath && sessionPath === current.activeSessionPath)
+      if (current.ready && cwd === current.project?.path && sessionPath && sessionPath === current.activeSessionPath)
         return
       navigationLock.current = true
       const attempt = ++navigationAttempt.current
       setNavigating(true)
       try {
-        const result = await window.pi.send({
+        const next = workerId
+          ? await window.pi.selectSession(workerId, commandOrigin(current))
+          : (await window.pi.send({
           type: 'project:navigate',
           cwd,
           ...(sessionPath ? { sessionPath } : {}),
           sessionId: current.sessionId,
           generation: current.generation
-        })
-        if (attempt === navigationAttempt.current) setSnapshot(result.snapshot)
+        }, commandOrigin(current))).snapshot
+        if (attempt === navigationAttempt.current) setSnapshot(next)
       } catch (error) {
         // A failed transition may already have published a new identity; read the actual state.
         try {
@@ -349,7 +355,7 @@ export default function App(): React.JSX.Element {
         onNewSession={() => {
           if (snapshot.project) void navigateProject(snapshot.project.path)
         }}
-        onNavigate={(cwd, path) => void navigateProject(cwd, path)}
+        onNavigate={(cwd, path, workerId) => void navigateProject(cwd, path, workerId)}
         navigationFailures={navigationFailures}
         pending={navigating}
         disabledReason={navigationDisabledReason}
