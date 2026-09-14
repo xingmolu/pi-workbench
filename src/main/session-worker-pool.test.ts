@@ -41,7 +41,11 @@ function snapshot(path: string | null, overrides: Partial<AgentSnapshot> = {}): 
 
 function fixture(
   capacity = 8,
-  behavior: { failPath?: string; dispose?: () => Promise<void> } = {}
+  behavior: {
+    failPath?: string
+    dispose?: () => Promise<void>
+    canonicalize?: (path: string) => Promise<string>
+  } = {}
 ) {
   const workers: Array<{
     options: SessionWorkerFactoryOptions
@@ -50,7 +54,7 @@ function fixture(
   }> = []
   const pool = new SessionWorkerPool({
     capacity,
-    canonicalize: async (path) => path.replace('/alias/', '/real/'),
+    canonicalize: behavior.canonicalize ?? (async (path) => path.replace('/alias/', '/real/')),
     createWorker: async (options) => {
       const worker = { options, commands: [] as HostCommand[], disposed: false }
       workers.push(worker)
@@ -78,6 +82,56 @@ function fixture(
 }
 
 describe('session worker ownership', () => {
+  it('retries canonical lookup when a resident forks during path resolution', async () => {
+    let pause = false
+    let resolving!: () => void
+    const started = new Promise<void>((resolve) => {
+      resolving = resolve
+    })
+    let finish!: (path: string) => void
+    const { pool, workers } = fixture(8, {
+      canonicalize: async (path) => {
+        if (pause && path === '/a') {
+          pause = false
+          resolving()
+          return new Promise<string>((resolve) => {
+            finish = resolve
+          })
+        }
+        return path
+      }
+    })
+    const a = await pool.open({ cwd: '/project', path: '/a' })
+    pause = true
+    const opening = pool.open({ cwd: '/project', path: '/fork' })
+    await started
+    workers[0].options.onEvent({
+      type: 'event',
+      event: 'snapshot',
+      data: snapshot('/fork', { generation: 4, revision: 1 })
+    })
+    finish('/a')
+    const fork = await opening
+    expect(fork.scope.workerId).toBe(a.scope.workerId)
+    expect(workers).toHaveLength(1)
+    expect(fork.snapshot.activeSessionPath).toBe('/fork')
+  })
+
+  it('returns the latest accepted opening snapshot instead of a delayed older response', async () => {
+    const current = snapshot('/a', { revision: 8, busy: true, status: 'running' })
+    const pool = new SessionWorkerPool({
+      canonicalize: async (path) => path,
+      createWorker: async (options) => ({
+        request: async () => {
+          options.onEvent({ type: 'event', event: 'snapshot', data: current })
+          return { kind: 'snapshot', snapshot: snapshot('/a') }
+        },
+        dispose: async () => {}
+      })
+    })
+    const opened = await pool.open({ cwd: '/project', path: '/a' })
+    expect(opened.snapshot).toEqual(current)
+  })
   it('keeps the newest transient snapshot when an older event arrives', async () => {
     const { pool, workers } = fixture()
     const a = await pool.open({ cwd: '/project', path: '/a' })

@@ -31,6 +31,7 @@ type Resident = {
   workerId: string
   cwd: string
   path: string | null
+  pathVersion: number
   worker: SessionWorker
   snapshot: AgentSnapshot | null
   safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
@@ -91,9 +92,27 @@ export class SessionWorkerPool {
     const canonicalize = this.options.canonicalize ?? realpath
     const cwd = await canonicalize(target.cwd)
     const path = target.path ? await canonicalize(target.path) : null
-    // Persistence and fork events may have changed a resident's file since admission.
-    for (const owner of this.residents.values()) {
-      if (owner.path) owner.path = await canonicalize(owner.path)
+    // Resolve a consistent set: any owner can fork while another path is resolving.
+    while (true) {
+      const captured = [...this.residents.values()].map((owner) => ({
+        owner,
+        path: owner.path,
+        version: owner.pathVersion
+      }))
+      const paths = await Promise.all(
+        captured.map(({ path }) => (path ? canonicalize(path) : null))
+      )
+      if (
+        captured.some(
+          ({ owner, version }) =>
+            owner.pathVersion !== version || this.residents.get(owner.workerId) !== owner
+        )
+      )
+        continue
+      captured.forEach(({ owner }, index) => {
+        owner.path = paths[index]
+      })
+      break
     }
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
@@ -156,6 +175,7 @@ export class SessionWorkerPool {
       workerId,
       cwd,
       path,
+      pathVersion: 0,
       worker,
       snapshot: null,
       safety: { receipts: 'unknown', unsaved: true },
@@ -176,7 +196,10 @@ export class SessionWorkerPool {
         }
       )
       if (result.kind !== 'snapshot') throw new Error('Opening a session requires a snapshot')
-      return { scope: this.select(workerId, expected), snapshot: result.snapshot }
+      return {
+        scope: this.select(workerId, expected),
+        snapshot: this.resolveOwner(workerId).snapshot!
+      }
     } catch (error) {
       const owner = this.residents.get(workerId)
       if (owner) await this.disposeResident(owner)
@@ -209,6 +232,7 @@ export class SessionWorkerPool {
     )
       return false
     owner.snapshot = snapshot
+    if (owner.path !== snapshot.activeSessionPath) owner.pathVersion++
     owner.path = snapshot.activeSessionPath
     return true
   }
