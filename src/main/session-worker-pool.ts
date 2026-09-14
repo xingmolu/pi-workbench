@@ -92,28 +92,7 @@ export class SessionWorkerPool {
     const canonicalize = this.options.canonicalize ?? realpath
     const cwd = await canonicalize(target.cwd)
     const path = target.path ? await canonicalize(target.path) : null
-    // Resolve a consistent set: any owner can fork while another path is resolving.
-    while (true) {
-      const captured = [...this.residents.values()].map((owner) => ({
-        owner,
-        path: owner.path,
-        version: owner.pathVersion
-      }))
-      const paths = await Promise.all(
-        captured.map(({ path }) => (path ? canonicalize(path) : null))
-      )
-      if (
-        captured.some(
-          ({ owner, version }) =>
-            owner.pathVersion !== version || this.residents.get(owner.workerId) !== owner
-        )
-      )
-        continue
-      captured.forEach(({ owner }, index) => {
-        owner.path = paths[index]
-      })
-      break
-    }
+    await this.refreshResidentPaths(canonicalize)
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
     const existing = path
@@ -171,6 +150,21 @@ export class SessionWorkerPool {
       await worker.dispose()
       throw exited ?? new Error('Session worker pool is shut down')
     }
+    let claimed = false
+    try {
+      await this.refreshResidentPaths(canonicalize)
+      if (exited || this.closed) throw exited ?? new Error('Session worker pool is shut down')
+      if (expected !== undefined) this.validateSelected(expected)
+      claimed = path !== null && [...this.residents.values()].some((owner) => owner.path === path)
+    } catch (error) {
+      await worker.dispose()
+      throw error
+    }
+    if (claimed) {
+      await worker.dispose()
+      // Re-resolve after disposal as well, before selecting an existing owner.
+      return this.openResident(target, expected)
+    }
     this.residents.set(workerId, {
       workerId,
       cwd,
@@ -185,16 +179,13 @@ export class SessionWorkerPool {
       end
     })
     try {
-      const result = await this.request(
-        { workerId, selectionEpoch: 0 },
-        {
-          type: 'project:navigate',
-          cwd,
-          sessionId: null,
-          generation: 0,
-          ...(path ? { sessionPath: path } : {})
-        }
-      )
+      const result = await this.requestOwner(this.resolveOwner(workerId), {
+        type: 'project:navigate',
+        cwd,
+        sessionId: null,
+        generation: 0,
+        ...(path ? { sessionPath: path } : {})
+      })
       if (result.kind !== 'snapshot') throw new Error('Opening a session requires a snapshot')
       return {
         scope: this.select(workerId, expected),
@@ -208,7 +199,13 @@ export class SessionWorkerPool {
   }
 
   async request(scope: SelectedSessionScope, command: HostCommand): Promise<HostResult> {
-    const owner = this.resolveOwner(scope.workerId)
+    if (['session:open', 'project:open', 'project:navigate'].includes(command.type)) {
+      throw new Error('Session navigation must use pool.open')
+    }
+    return this.requestOwner(this.resolveOwner(scope.workerId), command)
+  }
+
+  private async requestOwner(owner: Resident, command: HostCommand): Promise<HostResult> {
     owner.pending++
     try {
       const result = await Promise.race([owner.worker.request(command), owner.ended])
@@ -220,6 +217,33 @@ export class SessionWorkerPool {
       throw error
     } finally {
       owner.pending--
+    }
+  }
+
+  private async refreshResidentPaths(
+    canonicalize: (path: string) => Promise<string>
+  ): Promise<void> {
+    // Resolve a consistent set: any owner can fork while another path is resolving.
+    while (true) {
+      const captured = [...this.residents.values()].map((owner) => ({
+        owner,
+        path: owner.path,
+        version: owner.pathVersion
+      }))
+      const paths = await Promise.all(
+        captured.map(({ path }) => (path ? canonicalize(path) : null))
+      )
+      if (
+        captured.some(
+          ({ owner, version }) =>
+            owner.pathVersion !== version || this.residents.get(owner.workerId) !== owner
+        )
+      )
+        continue
+      captured.forEach(({ owner }, index) => {
+        owner.path = paths[index]
+      })
+      return
     }
   }
 

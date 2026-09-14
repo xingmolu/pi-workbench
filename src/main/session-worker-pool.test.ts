@@ -82,6 +82,69 @@ function fixture(
 }
 
 describe('session worker ownership', () => {
+  it('disposes an unused candidate when a resident claims its file during factory startup', async () => {
+    let finishFactory!: () => void
+    let starting!: () => void
+    const started = new Promise<void>((resolve) => {
+      starting = resolve
+    })
+    const workers: SessionWorkerFactoryOptions[] = []
+    const commands: HostCommand[][] = []
+    const disposed: number[] = []
+    const pool = new SessionWorkerPool({
+      canonicalize: async (path) => path,
+      createWorker: async (options) => {
+        const index = workers.length
+        workers.push(options)
+        commands.push([])
+        if (index === 1) {
+          starting()
+          await new Promise<void>((resolve) => {
+            finishFactory = resolve
+          })
+        }
+        return {
+          request: async (command) => {
+            commands[index].push(command)
+            return {
+              kind: 'snapshot',
+              snapshot: snapshot(
+                command.type === 'project:navigate' ? (command.sessionPath ?? null) : null
+              )
+            }
+          },
+          dispose: async () => {
+            disposed.push(index)
+          }
+        }
+      }
+    })
+    const a = await pool.open({ cwd: '/project', path: '/a' })
+    const opening = pool.open({ cwd: '/project', path: '/fork' })
+    await started
+    workers[0].onEvent({
+      type: 'event',
+      event: 'snapshot',
+      data: snapshot('/fork', { generation: 4, revision: 1 })
+    })
+    finishFactory()
+    const fork = await opening
+    expect(fork.scope.workerId).toBe(a.scope.workerId)
+    expect(commands[1]).toEqual([])
+    expect(disposed).toEqual([1])
+    expect(pool.getLiveSummaries()).toHaveLength(1)
+  })
+
+  it.each<HostCommand>([
+    { type: 'session:open', path: '/b' },
+    { type: 'project:open', cwd: '/other' },
+    { type: 'project:navigate', cwd: '/other', sessionId: '/a', generation: 3 }
+  ])('rejects public identity-switching commands: %j', async (command) => {
+    const { pool, workers } = fixture()
+    const a = await pool.open({ cwd: '/project', path: '/a' })
+    await expect(pool.request(a.scope, command)).rejects.toThrow('pool.open')
+    expect(workers[0].commands).toHaveLength(1)
+  })
   it('retries canonical lookup when a resident forks during path resolution', async () => {
     let pause = false
     let resolving!: () => void
