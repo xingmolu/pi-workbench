@@ -384,7 +384,7 @@ describe('session worker ownership', () => {
       pool.updateSafety(a.scope.workerId, { receipts: 'settled', unsaved: false })
       workers[0].options.onEvent({ type: 'event', event: 'snapshot', data: snapshot('/a', unsafe) })
       await pool.open({ cwd: '/project', path: '/b' })
-      await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('capacity')
+      await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('常驻会话已达上限')
       expect(workers).toHaveLength(2)
     }
   )
@@ -394,9 +394,9 @@ describe('session worker ownership', () => {
     const a = await pool.open({ cwd: '/project', path: '/a' })
     const b = await pool.open({ cwd: '/project', path: '/b' })
     pool.updateSafety(b.scope.workerId, { receipts: 'settled', unsaved: false })
-    await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('capacity')
+    await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('常驻会话已达上限')
     pool.updateSafety(a.scope.workerId, { receipts: 'settled', unsaved: true })
-    await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('capacity')
+    await expect(pool.open({ cwd: '/project', path: '/c' })).rejects.toThrow('常驻会话已达上限')
     expect(pool.selectedScope).toEqual(b.scope)
   })
   it('preserves the selected source and cleans up a failed replacement', async () => {

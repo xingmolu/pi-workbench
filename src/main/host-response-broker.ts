@@ -16,6 +16,9 @@ type HostResponseBrokerOptions = {
   onInvalid?: (message: string) => void
 }
 
+/** A validated failure response is a completion receipt, unlike a lost response. */
+export class HostRejectedError extends Error {}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -75,7 +78,7 @@ export class HostResponseBroker {
     if (!pending) return null
 
     if (!value.ok) {
-      pending.reject(new Error(value.error))
+      pending.reject(new HostRejectedError(value.error))
     } else if (!hostResultMatchesCommand(pending.command, value.data)) {
       pending.reject(new Error(`Agent Host 响应类型不匹配：${pending.command.type}`))
     } else {

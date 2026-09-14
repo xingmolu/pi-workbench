@@ -463,10 +463,13 @@ async function callLobby(command: HostCommand): Promise<HostResult> {
     await hostReady
   }
   if (!agentHost) throw new Error('Agent Host 尚未就绪')
+  const child = agentHost
 
   const result = await responseBroker.request(command, (request) => {
-    if (!agentHost) throw new Error('Agent Host 尚未就绪')
-    agentHost.postMessage(request)
+    child.postMessage(request)
+  }).catch(error => {
+    if (agentHost === child && hostSpawned && (globalMutations.has(command.type) || command.type === 'runtime:refresh')) globalConfiguration.recordFailure('lobby', error)
+    throw error
   })
   if (result.kind === 'snapshot') lobbySnapshot = result.snapshot
   return result
@@ -625,6 +628,7 @@ function startAgentHost(): void {
   })
   agentHost.on('message', handleHostMessage)
   agentHost.on('exit', (code) => {
+    globalConfiguration.ownerExited('lobby')
     if (sessionWorkers.pool.selectedScope) {
       hostSpawned = false
       agentHost = null

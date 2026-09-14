@@ -7,6 +7,7 @@ import {
   type SelectedSessionScope
 } from '../shared/session-runtime'
 import { applyStatePatch } from '../shared/state-patch'
+import { HostRejectedError } from './host-response-broker'
 
 export type SessionWorker = {
   request(command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult>
@@ -36,6 +37,7 @@ type Resident = {
   worker: SessionWorker
   snapshot: AgentSnapshot | null
   safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
+  unreconciledRequest: boolean
   pending: number
   disposing: boolean
   ended: Promise<never>
@@ -114,7 +116,7 @@ export class SessionWorkerPool {
     if (this.residents.size >= this.capacity) {
       const victim = [...this.residents.values()].find((owner) => this.canEvict(owner))
       if (!victim)
-        throw new Error('Session worker capacity reached; no safe resident can be evicted')
+        throw new Error('常驻会话已达上限，请先结束执行并保存会话后重试；结果未确认的会话需要先结束进程')
       await this.disposeResident(victim)
     }
     const workerId = randomUUID()
@@ -190,6 +192,7 @@ export class SessionWorkerPool {
       worker,
       snapshot: null,
       safety: { receipts: 'unknown', unsaved: true },
+      unreconciledRequest: false,
       pending: 0,
       disposing: false,
       ended,
@@ -235,7 +238,10 @@ export class SessionWorkerPool {
         this.acceptSnapshot(owner, result.snapshot)
       return result
     } catch (error) {
-      owner.safety.receipts = 'unknown'
+      if (!(error instanceof HostRejectedError)) {
+        owner.unreconciledRequest = true
+        owner.safety.receipts = 'unknown'
+      }
       throw error
     } finally {
       owner.pending--
@@ -310,7 +316,11 @@ export class SessionWorkerPool {
   }
 
   updateSafety(workerId: string, safety: Resident['safety']): void {
-    this.resolveOwner(workerId).safety = { ...safety }
+    const owner = this.resolveOwner(workerId)
+    // An idle projection is not a completion receipt for a timed-out command.
+    // Keep uncertain ownership until this process exits; ordinary snapshots and
+    // attachment reconciliation cannot certify a different outstanding request.
+    owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
   }
 
   private canEvict(owner: Resident): boolean {

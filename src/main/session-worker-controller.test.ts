@@ -8,6 +8,7 @@ import {
 } from '../shared/contracts'
 import { SessionWorkerController } from './session-worker-controller'
 import type { SessionWorkerFactoryOptions } from './session-worker-pool'
+import { HostResponseBroker } from './host-response-broker'
 
 function state(sessionId: string, generation = 1): AgentSnapshot {
   return {
@@ -38,7 +39,7 @@ function state(sessionId: string, generation = 1): AgentSnapshot {
     loginPrompt: null
   }
 }
-function fixture() {
+function fixture(capacity = 8) {
   const events: DesktopEvent[] = []
   const children: {
     options: SessionWorkerFactoryOptions
@@ -47,9 +48,11 @@ function fixture() {
     pending?: Promise<HostResult>
   }[] = []
   const controller = new SessionWorkerController({
+    capacity,
     canonicalize: async (path) => path,
     publish: (event) => events.push(event),
     selected: () => {},
+    receiptsSettled: () => true,
     createWorker: async (options) => {
       const child: (typeof children)[number] = {
         options,
@@ -68,6 +71,58 @@ function fixture() {
   })
   return { controller, events, children }
 }
+it('keeps a timed-out fork uncertain after an ordinary idle snapshot', async () => {
+  const { controller, children } = fixture(2)
+  const a = await controller.open({ cwd: '/project' }, null)
+  const b = await controller.open({ cwd: '/project' }, a.desktopScope!)
+  for (const [index, opened] of [a, b].entries()) {
+    children[index].state = { ...opened, activeSessionPath: `/session-${index}`, revision: 2 }
+    children[index].options.onEvent({
+      type: 'event',
+      event: 'snapshot',
+      data: children[index].state
+    })
+  }
+  expect(controller.pool.quiescent).toBe(true)
+  const broker = new HostResponseBroker({ timeoutMs: 1 })
+  const fork: HostCommand = {
+    type: 'session:fork',
+    sessionId: a.sessionId!,
+    generation: a.generation,
+    entryId: 'leaf'
+  }
+  children[0].pending = broker.request(fork, () => {})
+  await expect(controller.pool.request(a.desktopScope!, fork)).rejects.toThrow('请求超时')
+  children[0].pending = undefined
+  children[0].options.onEvent({
+    type: 'event',
+    event: 'snapshot',
+    data: { ...children[0].state, revision: 3 }
+  })
+  expect(controller.pool.quiescent).toBe(false)
+  await expect(controller.open({ cwd: '/project' }, b.desktopScope!)).rejects.toThrow(
+    '常驻会话已达上限'
+  )
+  expect(controller.pool.getSnapshot(a.desktopScope!.workerId)?.sessionId).toBe(a.sessionId)
+})
+it('keeps the worker quiescent after an explicit completed model rejection', async () => {
+  const { controller, children } = fixture()
+  const a = await controller.open({ cwd: '/project' }, null)
+  children[0].options.onEvent({ type: 'event', event: 'snapshot', data: { ...a, revision: 2 } })
+  expect(controller.pool.quiescent).toBe(true)
+  const command: HostCommand = { type: 'model:set', providerId: 'missing', modelId: 'unavailable' }
+  const broker = new HostResponseBroker()
+  children[0].pending = broker.request(command, (request) => {
+    broker.accept({
+      type: 'response',
+      requestId: request.requestId,
+      ok: false,
+      error: '模型不可用'
+    })
+  })
+  await expect(controller.request(command)).rejects.toThrow('模型不可用')
+  expect(controller.pool.quiescent).toBe(true)
+})
 it('keeps a captured A response on A after B selection and hides background A events', async () => {
   const { controller, children, events } = fixture()
   const a = await controller.open({ cwd: '/project' }, null)
