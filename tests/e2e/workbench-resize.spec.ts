@@ -88,6 +88,27 @@ test.afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 
+test('top-right toggle never overlaps a native window drag rectangle', async () => {
+  // CDP clicks can bypass macOS non-client hit testing. Check the actual drag
+  // geometry as well, so a passing DOM click cannot hide an unclickable titlebar.
+  for (const width of [960, 1440]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900), width)
+    for (const open of [false, true]) {
+      const toggle = page.locator('.workbench-toggle')
+      if ((await toggle.getAttribute('aria-expanded')) !== String(open)) await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', String(open))
+      await expect.poll(() => page.evaluate(() => {
+        const button = document.querySelector('.workbench-toggle')!.getBoundingClientRect()
+        return [...document.querySelectorAll<HTMLElement>('*')].filter(element => {
+          if (getComputedStyle(element).getPropertyValue('-webkit-app-region') !== 'drag') return false
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0 && rect.left < button.right && rect.right > button.left && rect.top < button.bottom && rect.bottom > button.top
+        }).map(element => element.className)
+      })).toEqual([])
+    }
+  }
+})
+
 for (const pointer of ['fine', 'coarse'] as const) {
   test(`${pointer} pointer edge starts suspend native views across the full library hit target`, async () => {
     if (pointer === 'coarse') {

@@ -4,7 +4,10 @@
   height: 48px;
   flex: 0 0 48px;
   min-width: 0;
-  padding: 0 42px 0 8px;
+  /* Keep the floating window action outside the native drag rectangle.
+     Padding/z-index alone leave this rectangle overlapping the action. */
+  margin-right: 48px;
+  padding: 0 0 0 8px;
   border-bottom: 1px solid var(--line-soft);
   -webkit-app-region: drag;
 }
@@ -124,7 +127,9 @@
   -webkit-app-region: no-drag;
 }
 .shell .conversation-head {
-  padding-right: 48px;
+  /* This header reaches the window edge when the workbench is collapsed. */
+  margin-right: 48px;
+  padding-right: 0;
   height: 48px;
   min-height: 48px;
   flex: 0 0 48px;
