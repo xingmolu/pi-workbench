@@ -9,10 +9,18 @@ export class SessionOriginTracker {
     const scope = snapshot.desktopScope
     if (!scope) return
     const prior = this.current
-    if (prior && (scope.selectionEpoch < prior.scope.selectionEpoch ||
-      (scope.selectionEpoch === prior.scope.selectionEpoch &&
-        (scope.workerId !== prior.scope.workerId || snapshot.generation < prior.generation)))) return
-    this.current = { scope: { ...scope }, sessionId: snapshot.sessionId, generation: snapshot.generation }
+    if (
+      prior &&
+      (scope.selectionEpoch < prior.scope.selectionEpoch ||
+        (scope.selectionEpoch === prior.scope.selectionEpoch &&
+          (scope.workerId !== prior.scope.workerId || snapshot.generation < prior.generation)))
+    )
+      return
+    this.current = {
+      scope: { ...scope },
+      sessionId: snapshot.sessionId,
+      generation: snapshot.generation
+    }
   }
 
   capture(): DesktopCommandOrigin | undefined {

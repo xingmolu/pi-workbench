@@ -3,7 +3,11 @@ import { EMPTY_SNAPSHOT, usePiStore } from './pi-store'
 import { diffState } from '../../../shared/state-patch'
 
 const snapshot = (workerId: string, selectionEpoch: number, generation: number, revision = 1) => ({
-  ...EMPTY_SNAPSHOT, ready: true, sessionId: workerId, generation, revision,
+  ...EMPTY_SNAPSHOT,
+  ready: true,
+  sessionId: workerId,
+  generation,
+  revision,
   desktopScope: { workerId, selectionEpoch }
 })
 

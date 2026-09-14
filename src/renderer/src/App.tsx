@@ -47,7 +47,9 @@ export default function App(): React.JSX.Element {
   const [navigating, setNavigating] = useState(false)
   const forkPending = usePiStore((state) => state.forkPending)
   const editPhase = useSessionEdit((state) => state.phase)
-  const skillAttachmentsBlocked = useTextAttachments((state) => Boolean(state.files.length || state.staging || state.sending || state.submission))
+  const skillAttachmentsBlocked = useTextAttachments((state) =>
+    Boolean(state.files.length || state.staging || state.sending || state.submission)
+  )
   const navigationDisabledReason = forkPending
     ? '正在分叉会话'
     : editPhase !== 'closed'
@@ -58,17 +60,26 @@ export default function App(): React.JSX.Element {
   const settingsOpenerRef = useRef<HTMLElement | null>(null)
   const paletteOpenerRef = useRef<HTMLElement | null>(null)
   const nativePaletteTokenRef = useRef<string | undefined>(undefined)
-  const activeOverlay = useOverlayState(state => state.active)
+  const activeOverlay = useOverlayState((state) => state.active)
   const openPalette = useCallback((nativeToken?: string): void => {
-    if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"]') || !useOverlayState.getState().open('command')) {
-      if (nativeToken) void window.pi.nativePaletteFocus({ type: 'finish', token: nativeToken, restore: false }).catch(() => {})
+    if (
+      document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"]') ||
+      !useOverlayState.getState().open('command')
+    ) {
+      if (nativeToken)
+        void window.pi
+          .nativePaletteFocus({ type: 'finish', token: nativeToken, restore: false })
+          .catch(() => {})
       return
     }
     if (!nativeToken) void window.pi.nativePaletteFocus({ type: 'invalidate' }).catch(() => {})
     nativePaletteTokenRef.current = nativeToken
-    paletteOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    paletteOpenerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
   }, [])
-  const closePalette = useCallback((): void => { useOverlayState.getState().close('command') }, [])
+  const closePalette = useCallback((): void => {
+    useOverlayState.getState().close('command')
+  }, [])
   settingsOpenRef.current = layout.settingsOpen
   const [workbenchStatus, dispatchWorkbenchStatus] = useReducer(
     workbenchStatusReducer,
@@ -81,11 +92,19 @@ export default function App(): React.JSX.Element {
   const workbenchRevision = useRef(-1)
   const availableWorkbenchViews = useRef<readonly string[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
-  const desktopSettings = useDesktopSettings(state => state.settings)
-  useEffect(() => { void useDesktopSettings.getState().hydrate() }, [])
+  const desktopSettings = useDesktopSettings((state) => state.settings)
   useEffect(() => {
-    document.documentElement.style.setProperty('--message-font-size', `${desktopSettings.messageFontSize}px`)
-    document.documentElement.style.setProperty('--code-font-size', `${desktopSettings.codeFontSize}px`)
+    void useDesktopSettings.getState().hydrate()
+  }, [])
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--message-font-size',
+      `${desktopSettings.messageFontSize}px`
+    )
+    document.documentElement.style.setProperty(
+      '--code-font-size',
+      `${desktopSettings.codeFontSize}px`
+    )
     document.documentElement.dataset.reducedMotion = String(desktopSettings.reducedMotion)
   }, [desktopSettings])
 
@@ -105,8 +124,15 @@ export default function App(): React.JSX.Element {
     let cancelled = false
     const unsubscribe = window.pi.onEvent((event) => {
       if (event.event === 'command-palette') {
-        if (!useOverlayState.getState().active && !document.querySelector('[role="dialog"], [role="alertdialog"]')) openPalette(event.data.token)
-        else void window.pi.nativePaletteFocus({ type: 'finish', token: event.data.token, restore: false }).catch(() => {})
+        if (
+          !useOverlayState.getState().active &&
+          !document.querySelector('[role="dialog"], [role="alertdialog"]')
+        )
+          openPalette(event.data.token)
+        else
+          void window.pi
+            .nativePaletteFocus({ type: 'finish', token: event.data.token, restore: false })
+            .catch(() => {})
       }
       if (event.event === 'disconnected') disconnect(event.data.message)
       if (event.event === 'sessions') usePiStore.getState().setLiveSessions(event.data)
@@ -157,13 +183,30 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     let composing = false
-    const startComposition = (): void => { composing = true }
-    const endComposition = (): void => { composing = false }
+    const startComposition = (): void => {
+      composing = true
+    }
+    const endComposition = (): void => {
+      composing = false
+    }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing || event.keyCode === 229 || composing) return
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !event.altKey && !event.shiftKey) {
-        if (useOverlayState.getState().active === 'command') { event.preventDefault(); closePalette(); return }
-        if (useOverlayState.getState().active || document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'k' &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        if (useOverlayState.getState().active === 'command') {
+          event.preventDefault()
+          closePalette()
+          return
+        }
+        if (
+          useOverlayState.getState().active ||
+          document.querySelector('[role="dialog"], [role="alertdialog"]')
+        )
+          return
         event.preventDefault()
         openPalette()
         return
@@ -195,7 +238,13 @@ export default function App(): React.JSX.Element {
         if (result.kind === 'snapshot') setSnapshot(result.snapshot)
         return true
       } catch (error) {
-        if (!sameSelectedScope(origin?.scope ?? null, usePiStore.getState().snapshot.desktopScope ?? null)) return false
+        if (
+          !sameSelectedScope(
+            origin?.scope ?? null,
+            usePiStore.getState().snapshot.desktopScope ?? null
+          )
+        )
+          return false
         const message = error instanceof Error ? error.message : String(error)
         setClientError(
           message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
@@ -258,7 +307,12 @@ export default function App(): React.JSX.Element {
         delete next[cwd]
         return next
       })
-      if (current.ready && cwd === current.project?.path && sessionPath && sessionPath === current.activeSessionPath)
+      if (
+        current.ready &&
+        cwd === current.project?.path &&
+        sessionPath &&
+        sessionPath === current.activeSessionPath
+      )
         return
       navigationLock.current = true
       const attempt = ++navigationAttempt.current
@@ -266,13 +320,18 @@ export default function App(): React.JSX.Element {
       try {
         const next = workerId
           ? await window.pi.selectSession(workerId, commandOrigin(current))
-          : (await window.pi.send({
-          type: 'project:navigate',
-          cwd,
-          ...(sessionPath ? { sessionPath } : {}),
-          sessionId: current.sessionId,
-          generation: current.generation
-        }, commandOrigin(current))).snapshot
+          : (
+              await window.pi.send(
+                {
+                  type: 'project:navigate',
+                  cwd,
+                  ...(sessionPath ? { sessionPath } : {}),
+                  sessionId: current.sessionId,
+                  generation: current.generation
+                },
+                commandOrigin(current)
+              )
+            ).snapshot
         if (attempt === navigationAttempt.current) setSnapshot(next)
       } catch (error) {
         // A failed transition may already have published a new identity; read the actual state.
@@ -411,38 +470,62 @@ export default function App(): React.JSX.Element {
           />
         }
       />
-      {activeOverlay === 'command' && <GlobalCommandPalette
-        snapshot={snapshot}
-        returnFocusRef={paletteOpenerRef}
-        nativeFocusToken={nativePaletteTokenRef.current}
-        disabledReason={navigationDisabledReason ?? (navigating ? '正在切换会话，请稍候' : null)}
-        filesAvailable={Boolean(snapshot.ready && snapshot.project && workbenchStatus.snapshot.contributions.some(item => item.surface.kind === 'first-party' && item.surface.adapter === 'files'))}
-        onClose={closePalette}
-        onNavigate={navigateProject}
-        onChooseProject={chooseProject}
-        onSearchFiles={() => {
-          const files = workbenchStatus.snapshot.contributions.find(item => item.surface.kind === 'first-party' && item.surface.adapter === 'files')
-          if (!files || !snapshot.project) return
-          dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
-          setWorkbenchOpen(true)
-          useOverlayState.getState().requestFileSearch(snapshot.project.path)
-        }}
-      />}
-      <SettingsDialog
-        skillsContent={<SkillsSettings snapshot={snapshot}
-          insertDisabled={Boolean(forkPending) || editPhase !== 'closed' || skillAttachmentsBlocked || !snapshot.ready || snapshot.modelAvailability !== 'available' || snapshot.composeBlockReason !== null}
-          onInsert={(request) => {
-            settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="给 Pi 的任务"]')
-            useSkillInsertion.getState().request(request)
-            closeSettings()
+      {activeOverlay === 'command' && (
+        <GlobalCommandPalette
+          snapshot={snapshot}
+          returnFocusRef={paletteOpenerRef}
+          nativeFocusToken={nativePaletteTokenRef.current}
+          disabledReason={navigationDisabledReason ?? (navigating ? '正在切换会话，请稍候' : null)}
+          filesAvailable={Boolean(
+            snapshot.ready &&
+            snapshot.project &&
+            workbenchStatus.snapshot.contributions.some(
+              (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
+            )
+          )}
+          onClose={closePalette}
+          onNavigate={navigateProject}
+          onChooseProject={chooseProject}
+          onSearchFiles={() => {
+            const files = workbenchStatus.snapshot.contributions.find(
+              (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
+            )
+            if (!files || !snapshot.project) return
+            dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
+            setWorkbenchOpen(true)
+            useOverlayState.getState().requestFileSearch(snapshot.project.path)
           }}
-        />}
+        />
+      )}
+      <SettingsDialog
+        skillsContent={
+          <SkillsSettings
+            snapshot={snapshot}
+            insertDisabled={
+              Boolean(forkPending) ||
+              editPhase !== 'closed' ||
+              skillAttachmentsBlocked ||
+              !snapshot.ready ||
+              snapshot.modelAvailability !== 'available' ||
+              snapshot.composeBlockReason !== null
+            }
+            onInsert={(request) => {
+              settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>(
+                'textarea[aria-label="给 Pi 的任务"]'
+              )
+              useSkillInsertion.getState().request(request)
+              closeSettings()
+            }}
+          />
+        }
         mcpContent={<McpSettings snapshot={snapshot} />}
         renderAccountQuota={(account) => (
           <AccountQuota
             account={account}
             authGeneration={snapshot.authGeneration ?? 0}
-            loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(snapshot.login.phase)}
+            loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(
+              snapshot.login.phase
+            )}
           />
         )}
         open={layout.settingsOpen}

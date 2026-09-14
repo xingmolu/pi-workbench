@@ -9,15 +9,19 @@ export type DesktopCommandOrigin = {
   generation: number
 }
 
-export const selectedSessionScopeSchema: z.ZodType<SelectedSessionScope> = z.object({
-  workerId: z.string().min(1).max(128),
-  selectionEpoch: z.number().int().nonnegative()
-}).strict()
-export const desktopCommandOriginSchema: z.ZodType<DesktopCommandOrigin> = z.object({
-  scope: selectedSessionScopeSchema,
-  sessionId: z.string().nullable(),
-  generation: z.number().int().nonnegative()
-}).strict()
+export const selectedSessionScopeSchema: z.ZodType<SelectedSessionScope> = z
+  .object({
+    workerId: z.string().min(1).max(128),
+    selectionEpoch: z.number().int().nonnegative()
+  })
+  .strict()
+export const desktopCommandOriginSchema: z.ZodType<DesktopCommandOrigin> = z
+  .object({
+    scope: selectedSessionScopeSchema,
+    sessionId: z.string().nullable(),
+    generation: z.number().int().nonnegative()
+  })
+  .strict()
 
 export type LiveSessionSummary = {
   workerId: string
@@ -30,13 +34,18 @@ export type LiveSessionSummary = {
   title?: string
 }
 
-export const liveSessionSummarySchema: z.ZodType<LiveSessionSummary> = z.object({
-  workerId: z.string().min(1).max(128), cwd: z.string().min(1),
-  sessionPath: z.string().nullable(), sessionId: z.string().nullable(),
-  generation: z.number().int().nonnegative().nullable(),
-  status: z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped', 'opening']),
-  selected: z.boolean(), title: z.string().max(200).optional()
-}).strict()
+export const liveSessionSummarySchema: z.ZodType<LiveSessionSummary> = z
+  .object({
+    workerId: z.string().min(1).max(128),
+    cwd: z.string().min(1),
+    sessionPath: z.string().nullable(),
+    sessionId: z.string().nullable(),
+    generation: z.number().int().nonnegative().nullable(),
+    status: z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped', 'opening']),
+    selected: z.boolean(),
+    title: z.string().max(200).optional()
+  })
+  .strict()
 
 export function sameSelectedScope(
   left: SelectedSessionScope | null,

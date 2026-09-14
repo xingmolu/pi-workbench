@@ -38,10 +38,16 @@ export function withLiveProject(project: CatalogProject, snapshot: AgentSnapshot
   return { ...project, sessions }
 }
 
-export function projectNavigationReason(snapshot: AgentSnapshot, residentSelection = false): string | null {
+export function projectNavigationReason(
+  snapshot: AgentSnapshot,
+  residentSelection = false
+): string | null {
   if (!snapshot.ready && !(residentSelection && snapshot.desktopScope)) return 'Pi 引擎未连接'
   // Only the resident-worker controller grants navigation during execution.
-  if (!snapshot.desktopScope && (snapshot.busy || snapshot.queuedCount > 0 || snapshot.approvals.length))
+  if (
+    !snapshot.desktopScope &&
+    (snapshot.busy || snapshot.queuedCount > 0 || snapshot.approvals.length)
+  )
     return '请先停止当前会话'
   if (snapshot.edit?.pending) return '请先完成或取消编辑'
   if (['starting', 'browser', 'device_code', 'waiting'].includes(snapshot.login.phase))

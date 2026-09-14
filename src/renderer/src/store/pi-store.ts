@@ -2,12 +2,20 @@ import { create } from 'zustand'
 import { AGENT_ENGINE, type AgentSnapshot, type AgentStatePatch } from '../../../shared/contracts'
 import { applyStatePatch, type ApplyStatePatchResult } from '../../../shared/state-patch'
 import type { CustomEndpointContext } from '../../../shared/custom-endpoints'
-import { sameSelectedScope, type DesktopCommandOrigin, type LiveSessionSummary } from '../../../shared/session-runtime'
+import {
+  sameSelectedScope,
+  type DesktopCommandOrigin,
+  type LiveSessionSummary
+} from '../../../shared/session-runtime'
 
 export function commandOrigin(snapshot: AgentSnapshot): DesktopCommandOrigin | undefined {
-  return snapshot.desktopScope ? {
-    scope: snapshot.desktopScope, sessionId: snapshot.sessionId, generation: snapshot.generation
-  } : undefined
+  return snapshot.desktopScope
+    ? {
+        scope: snapshot.desktopScope,
+        sessionId: snapshot.sessionId,
+        generation: snapshot.generation
+      }
+    : undefined
 }
 
 /** The form captures this identity; credentials never enter the shared store. */
@@ -93,10 +101,24 @@ export const usePiStore = create<PiStore>((set) => ({
       const current = state.snapshot
       const incoming = snapshot.desktopScope
       const selected = current.desktopScope
-      if (state.disconnected && !(snapshot.ready && incoming && selected &&
-        incoming.selectionEpoch > selected.selectionEpoch)) return state
-      if (selected && (!incoming || incoming.selectionEpoch < selected.selectionEpoch ||
-        (incoming.selectionEpoch === selected.selectionEpoch && incoming.workerId !== selected.workerId))) return state
+      if (
+        state.disconnected &&
+        !(
+          snapshot.ready &&
+          incoming &&
+          selected &&
+          incoming.selectionEpoch > selected.selectionEpoch
+        )
+      )
+        return state
+      if (
+        selected &&
+        (!incoming ||
+          incoming.selectionEpoch < selected.selectionEpoch ||
+          (incoming.selectionEpoch === selected.selectionEpoch &&
+            incoming.workerId !== selected.workerId))
+      )
+        return state
       if (incoming && (!selected || incoming.selectionEpoch > selected.selectionEpoch))
         return { snapshot, disconnected: false, loading: false, clientError: null }
       if (
@@ -116,7 +138,10 @@ export const usePiStore = create<PiStore>((set) => ({
       const selected = state.snapshot.desktopScope
       const incoming = patch.meta.desktopScope
       if (selected && !sameSelectedScope(selected, incoming ?? null)) {
-        status = incoming && incoming.selectionEpoch > selected.selectionEpoch ? 'needsSnapshot' : 'ignored'
+        status =
+          incoming && incoming.selectionEpoch > selected.selectionEpoch
+            ? 'needsSnapshot'
+            : 'ignored'
         return state
       }
       const result = applyStatePatch(state.snapshot, patch)

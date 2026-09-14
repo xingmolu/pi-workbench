@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Folder, GitFork, Plus } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
-import type {
-  ProjectCatalog,
-  ProjectNavigationFailures
-} from '../../../shared/project-catalog'
+import type { ProjectCatalog, ProjectNavigationFailures } from '../../../shared/project-catalog'
 import { projectNavigationReason } from '../../../shared/project-catalog'
 import { liveProjects, type LiveProject } from '../store/live-projects'
 import { usePiStore } from '../store/pi-store'
@@ -43,7 +40,7 @@ export default function ProjectSessionList({
   pending?: boolean
   disabledReason?: string | null
 }): React.JSX.Element {
-  const residents = usePiStore(state => state.liveSessions)
+  const residents = usePiStore((state) => state.liveSessions)
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -186,143 +183,138 @@ export default function ProjectSessionList({
           </p>
         ) : null}
         {projects.map((project) => {
-            const matching = project.sessions
-            const expanded = !collapsed.includes(project.path)
-            const groupLoading = loadingGroups.includes(project.path)
-            const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
-            const pendingOnly = pending && !blockReason && !project.error
-            return (
-              <section
-                className="project-group"
-                key={project.path}
-                data-project-path={project.path}
-              >
-                <div className="project-group-head">
+          const matching = project.sessions
+          const expanded = !collapsed.includes(project.path)
+          const groupLoading = loadingGroups.includes(project.path)
+          const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
+          const pendingOnly = pending && !blockReason && !project.error
+          return (
+            <section className="project-group" key={project.path} data-project-path={project.path}>
+              <div className="project-group-head">
+                <button
+                  type="button"
+                  className="project-group-toggle"
+                  title={project.path}
+                  aria-expanded={expanded}
+                  onClick={() => toggle(project.path)}
+                >
+                  {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <Folder size={14} />
+                  <span>{project.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="project-new icon-btn"
+                  title={blocked ?? `在 ${project.name} 中新建会话`}
+                  aria-label={`在 ${project.name} 中新建会话`}
+                  disabled={Boolean(blocked)}
+                  data-navigation-pending={pendingOnly || undefined}
+                  onClick={() => onNavigate(project.path)}
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              {navigationFailures[project.path] && (
+                <p className="catalog-error" role="alert">
+                  {navigationFailures[project.path].message}{' '}
                   <button
                     type="button"
-                    className="project-group-toggle"
-                    title={project.path}
-                    aria-expanded={expanded}
-                    onClick={() => toggle(project.path)}
+                    disabled={Boolean(navigationReason)}
+                    data-navigation-pending={(pending && !blockReason) || undefined}
+                    title={navigationReason ?? undefined}
+                    onClick={() =>
+                      onNavigate(project.path, navigationFailures[project.path].sessionPath)
+                    }
                   >
-                    {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                    <Folder size={14} />
-                    <span>{project.name}</span>
+                    重试打开会话
                   </button>
-                  <button
-                    type="button"
-                    className="project-new icon-btn"
-                    title={blocked ?? `在 ${project.name} 中新建会话`}
-                    aria-label={`在 ${project.name} 中新建会话`}
-                    disabled={Boolean(blocked)}
-                    data-navigation-pending={pendingOnly || undefined}
-                    onClick={() => onNavigate(project.path)}
-                  >
-                    <Plus size={14} />
-                  </button>
-                </div>
-                {navigationFailures[project.path] && (
-                  <p className="catalog-error" role="alert">
-                    {navigationFailures[project.path].message}{' '}
-                    <button
-                      type="button"
-                      disabled={Boolean(navigationReason)}
-                      data-navigation-pending={(pending && !blockReason) || undefined}
-                      title={navigationReason ?? undefined}
-                      onClick={() =>
-                        onNavigate(project.path, navigationFailures[project.path].sessionPath)
-                      }
-                    >
-                      重试打开会话
-                    </button>
-                  </p>
-                )}
-                {expanded && (
-                  <div className="project-group-sessions">
-                    {project.error && (
-                      <p className="catalog-error">
-                        项目目录不可用{' '}
-                        <button
-                          type="button"
-                          disabled={groupLoading}
-                          onClick={() => void loadGroup(project, false)}
-                        >
-                          重试
-                        </button>
-                      </p>
-                    )}
-                    {matching.map((session) => {
-                      const rowBlocked = session.workerId
-                        ? disabledReason ?? (pending ? '正在切换会话，请稍候' : projectNavigationReason(snapshot, true))
-                        : blocked
-                      const status = sessionStatusDisplay(session.status)
-                      const emphasize = ['running', 'awaiting-approval', 'error'].includes(
-                        session.status
-                      )
-                      return (
-                        <button
-                          type="button"
-                          key={session.workerId ?? session.path ?? session.id}
-                          className={`session-row project-session-row${session.active ? ' is-active' : ''}`}
-                          aria-current={session.active ? 'page' : undefined}
-                          title={rowBlocked ?? session.title}
-                          disabled={Boolean(rowBlocked)}
-                          data-navigation-pending={pendingOnly || undefined}
-                          onClick={() => onNavigate(project.path, session.path ?? undefined, session.workerId)}
-                        >
-                          <span className="session-title">{session.title}</span>
-                          {(session.parentSessionPath || session.parentUnavailable) && (
-                            <GitFork
-                              size={11}
-                              className="session-fork-label"
-                              aria-label="分叉会话"
-                            />
-                          )}
-                          {emphasize && (
-                            <span
-                              className={`session-status-label is-${status.tone}`}
-                              title={status.label}
-                            >
-                              {status.label}
-                            </span>
-                          )}
-                          {session.modified && <time dateTime={session.modified}>{relativeTime(session.modified)}</time>}
-                        </button>
-                      )
-                    })}
-                    {!matching.length && (
-                      <p className="project-group-empty">
-                        暂无会话
-                      </p>
-                    )}
-                    {project.nextOffset !== null && (
+                </p>
+              )}
+              {expanded && (
+                <div className="project-group-sessions">
+                  {project.error && (
+                    <p className="catalog-error">
+                      项目目录不可用{' '}
                       <button
                         type="button"
-                        className="catalog-more"
                         disabled={groupLoading}
-                        onClick={() => void loadGroup(project, true)}
+                        onClick={() => void loadGroup(project, false)}
                       >
-                        {groupLoading
-                          ? '正在加载…'
-                          : `显示更多 · 已加载 ${project.sessions.length} / ${project.totalSessions}`}
+                        重试
                       </button>
-                    )}
-                    {groupErrors[project.path] && (
-                      <p className="catalog-error" role="alert">
-                        {groupErrors[project.path]}{' '}
-                        <button
-                          type="button"
-                          onClick={() => void loadGroup(project, project.nextOffset !== null)}
-                        >
-                          重试
-                        </button>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </section>
-            )
-          })}
+                    </p>
+                  )}
+                  {matching.map((session) => {
+                    const rowBlocked = session.workerId
+                      ? (disabledReason ??
+                        (pending
+                          ? '正在切换会话，请稍候'
+                          : projectNavigationReason(snapshot, true)))
+                      : blocked
+                    const status = sessionStatusDisplay(session.status)
+                    const emphasize = ['running', 'awaiting-approval', 'error'].includes(
+                      session.status
+                    )
+                    return (
+                      <button
+                        type="button"
+                        key={session.workerId ?? session.path ?? session.id}
+                        className={`session-row project-session-row${session.active ? ' is-active' : ''}`}
+                        aria-current={session.active ? 'page' : undefined}
+                        title={rowBlocked ?? session.title}
+                        disabled={Boolean(rowBlocked)}
+                        data-navigation-pending={pendingOnly || undefined}
+                        onClick={() =>
+                          onNavigate(project.path, session.path ?? undefined, session.workerId)
+                        }
+                      >
+                        <span className="session-title">{session.title}</span>
+                        {(session.parentSessionPath || session.parentUnavailable) && (
+                          <GitFork size={11} className="session-fork-label" aria-label="分叉会话" />
+                        )}
+                        {emphasize && (
+                          <span
+                            className={`session-status-label is-${status.tone}`}
+                            title={status.label}
+                          >
+                            {status.label}
+                          </span>
+                        )}
+                        {session.modified && (
+                          <time dateTime={session.modified}>{relativeTime(session.modified)}</time>
+                        )}
+                      </button>
+                    )
+                  })}
+                  {!matching.length && <p className="project-group-empty">暂无会话</p>}
+                  {project.nextOffset !== null && (
+                    <button
+                      type="button"
+                      className="catalog-more"
+                      disabled={groupLoading}
+                      onClick={() => void loadGroup(project, true)}
+                    >
+                      {groupLoading
+                        ? '正在加载…'
+                        : `显示更多 · 已加载 ${project.sessions.length} / ${project.totalSessions}`}
+                    </button>
+                  )}
+                  {groupErrors[project.path] && (
+                    <p className="catalog-error" role="alert">
+                      {groupErrors[project.path]}{' '}
+                      <button
+                        type="button"
+                        onClick={() => void loadGroup(project, project.nextOffset !== null)}
+                      >
+                        重试
+                      </button>
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )
+        })}
         {!loading && catalog && !projects.length && (
           <p className="sidebar-empty">添加项目，开始第一段会话。</p>
         )}
