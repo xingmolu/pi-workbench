@@ -10,6 +10,14 @@ import {
 import { BUILTIN_BROWSER_VIEW_ID } from './workbench-contracts'
 import { workbenchEventSchema } from './workbench-schemas'
 
+it('accepts native identity only on the strict Main-to-Host envelope', () => {
+  const command = { type: 'prompt:abort' }
+  const expectedIdentity = { sessionId: 'source', generation: 2 }
+  expect(hostCommandSchema.safeParse({ ...command, expectedIdentity }).success).toBe(false)
+  expect(hostRequestSchema.safeParse({ ...command, expectedIdentity, requestId: 'request' }).success).toBe(true)
+  expect(hostRequestSchema.safeParse({ ...command, expectedIdentity: { ...expectedIdentity, generation: -1 }, requestId: 'request' }).success).toBe(false)
+})
+
 it('requires canonical scoped fork and prompt inputs and rejects extra path authority', () => {
   const fork = { type: 'session:fork', sessionId: 'source', generation: 1, entryId: 'leaf' }
   expect(hostCommandSchema.safeParse(fork).success).toBe(true)

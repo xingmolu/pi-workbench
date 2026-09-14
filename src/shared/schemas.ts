@@ -400,6 +400,7 @@ export const browserCapabilityResponseSchema: z.ZodType<BrowserCapabilityRespons
   ])
 
 const agentSnapshotMetaShape = {
+  desktopScope: z.object({ workerId: z.string().min(1).max(128), selectionEpoch: z.number().int().nonnegative() }).strict().optional(),
   edit: z
     .object({
       entryId: z.string().nullable(),
@@ -465,6 +466,8 @@ export const agentStatePatchSchema: z.ZodType<AgentStatePatch> = z
 
 const bootstrapCommandSchema = z.object({ type: z.literal('bootstrap') }).strict()
 const stateGetCommandSchema = z.object({ type: z.literal('state:get') }).strict()
+const runtimeRefreshCommandSchema = z.object({ type: z.literal('runtime:refresh') }).strict()
+const runtimeShutdownCommandSchema = z.object({ type: z.literal('runtime:shutdown') }).strict()
 const projectOpenCommandSchema = z
   .object({ type: z.literal('project:open'), cwd: z.string().min(1) })
   .strict()
@@ -589,6 +592,8 @@ const commandSchemas = [
   endpointSaveCommandSchema,
   bootstrapCommandSchema,
   stateGetCommandSchema,
+  runtimeRefreshCommandSchema,
+  runtimeShutdownCommandSchema,
   projectOpenCommandSchema,
   sessionNewCommandSchema,
   sessionOpenCommandSchema,
@@ -608,7 +613,7 @@ const commandSchemas = [
 
 export const hostCommandSchema: z.ZodType<HostCommand> = z.union(commandSchemas)
 
-const requestIdShape = { requestId: z.string().min(1) }
+const requestIdShape = { requestId: z.string().min(1), expectedIdentity: z.object({ sessionId: z.string().nullable(), generation: nonNegativeInteger }).strict().optional() }
 export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   sessionSearchCommandSchema.extend({ ...requestIdShape, recentPaths: z.array(z.string().min(1).max(4096)).max(100).optional() }),
   projectSearchCommandSchema.extend({ ...requestIdShape, recentPaths: z.array(z.string().min(1).max(4096)).max(100).optional() }),
@@ -633,6 +638,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   endpointSaveCommandSchema.extend(requestIdShape),
   bootstrapCommandSchema.extend(requestIdShape),
   stateGetCommandSchema.extend(requestIdShape),
+  runtimeRefreshCommandSchema.extend(requestIdShape),
+  runtimeShutdownCommandSchema.extend(requestIdShape),
   projectOpenCommandSchema.extend(requestIdShape),
   sessionNewBareCommandSchema.extend(requestIdShape),
   sessionNewExactCommandSchema.extend(requestIdShape),

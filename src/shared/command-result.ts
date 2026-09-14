@@ -36,6 +36,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
       return 'endpoint-save'
     case 'bootstrap':
     case 'state:get':
+    case 'runtime:refresh':
+    case 'runtime:shutdown':
     case 'project:open':
     case 'project:navigate':
     case 'session:new':

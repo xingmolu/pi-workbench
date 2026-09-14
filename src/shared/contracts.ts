@@ -1,4 +1,5 @@
 export * from './workbench-contracts'
+import type { DesktopCommandOrigin, LiveSessionSummary, SelectedSessionScope } from './session-runtime'
 import type { MessageFeedbackCommand, MessageFeedbackValue } from './message-actions'
 import type { ProjectCatalog, ProjectCatalogCommand, ProjectNavigateCommand } from './project-catalog'
 import type { SessionSearchCommand, ProjectSearchCommand, SessionSearchResult, ProjectSearchResult } from './session-search'
@@ -316,6 +317,8 @@ export type BrowserCapabilityResponse =
     }
 
 export type AgentSnapshot = {
+  /** Main-only foreground epoch; never persisted in Pi history. */
+  desktopScope?: SelectedSessionScope
   sessionId: string | null
   generation: number
   revision: number
@@ -376,6 +379,8 @@ export type HostCommand =
   | SessionEditCommand
   | AttachmentHostCommand
   | { type: 'bootstrap' }
+  | { type: 'runtime:refresh' }
+  | { type: 'runtime:shutdown' }
   | { type: 'state:get' }
   | { type: 'project:open'; cwd: string }
   | SessionNewCommand
@@ -396,11 +401,11 @@ export type HostCommand =
   | { type: 'endpoint:save'; context: CustomEndpointContext; request: CustomEndpointSaveRequest }
   | { type: 'browser:e2e'; operation: BrowserOperation }
 
-export type HostRequest = HostCommand & { requestId: string }
+export type HostRequest = HostCommand & { requestId: string; expectedIdentity?: { sessionId: string | null; generation: number } }
 
 export type SnapshotHostCommand = Extract<
   HostCommand,
-  { type: 'bootstrap' | 'state:get' | 'project:open' | 'project:navigate' | 'session:new' | 'session:open' }
+  { type: 'bootstrap' | 'state:get' | 'runtime:refresh' | 'runtime:shutdown' | 'project:open' | 'project:navigate' | 'session:new' | 'session:open' }
 >
 export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' }>
 export type AckHostCommand = Exclude<
@@ -496,6 +501,7 @@ export type HostMessage = HostResponse | HostEvent
 
 export type DesktopEvent =
   | HostEvent
+  | { type: 'event'; event: 'sessions'; data: LiveSessionSummary[] }
   | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
   | {
       type: 'event'
@@ -516,8 +522,9 @@ export type PiDesktopAPI = {
   workspaceFiles: (command: WorkspaceFilesCommand) => Promise<WorkspaceFilesResult>
   getState: () => Promise<AgentSnapshot>
   reconnect: () => Promise<AgentSnapshot>
-  selectProject: () => Promise<AgentSnapshot | null>
-  send: <Command extends HostCommand>(command: Command) => Promise<HostResultFor<Command>>
+  selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>
+  selectSession: (workerId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
+  send: <Command extends HostCommand>(command: Command, origin?: DesktopCommandOrigin) => Promise<HostResultFor<Command>>
   onEvent: (listener: (event: DesktopEvent) => void) => () => void
   browser: (command: BrowserCommand) => Promise<BrowserCommandResult>
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => () => void
