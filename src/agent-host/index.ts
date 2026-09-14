@@ -1,4 +1,6 @@
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import { ProjectMutationClient } from './project-mutation-client'
+import { mutationResponseSchema } from '../shared/runtime-capabilities'
 import { observeAttachmentPrompt } from './attachment-acceptance'
 import { SkillsCatalog } from './skills'
 import type { AttachmentHostCommand, AttachmentReceipt } from '../shared/text-attachments'
@@ -350,6 +352,7 @@ class PiDesktopHost {
   private mcpConfig = new McpConfigStore(join(AGENT_DIR, 'mcp.json'))
   private mcpRuntimes = new WeakMap<AgentSession, McpRuntime>()
   private approvalMetadata: ApprovalMetadata | null = null
+  readonly mutations = new ProjectMutationClient(message => process.parentPort.postMessage(message))
   private timing: RunTiming | null = null
   private lastTiming: RunTiming | null = null
   private followUp: string[] = []
@@ -499,6 +502,8 @@ class PiDesktopHost {
 
   private async handleHealthy(request: HostRequest): Promise<HostResult> {
     displayQuarantine.assertHealthy()
+    if (request.expectedIdentity && (request.expectedIdentity.sessionId !== (this.runtime?.session.sessionManager.getSessionId() ?? null) || request.expectedIdentity.generation !== this.sessionGeneration))
+      throw new Error('会话已改变，旧操作已取消')
     if (
       usesSessionTransition(request) &&
       !request.type.startsWith('session:edit:') &&
@@ -565,6 +570,25 @@ class PiDesktopHost {
       }
       case 'bootstrap':
       case 'state:get':
+        break
+      case 'runtime:refresh': {
+        if (this.runtime?.session.isStreaming || this.pendingPromptsBySession.size || this.loginAbort || this.approvalRegistry.requests(this.sessionGeneration).length || this.sessionEdits.pending)
+          throw new Error('请先结束所有运行再刷新配置')
+        await this.modelRuntime?.refresh()
+        const session = this.runtime?.session
+        if (session) {
+          // Reload extension configuration against the same SessionManager: aliases
+          // are registered by their extension, not by ModelRuntime.refresh alone.
+          await session.reload()
+          await this.mcpRuntimes.get(session)?.reload(await this.mcpConfig.enabled())
+        }
+        await this.refreshAuthProjection()
+        break
+      }
+      case 'runtime:shutdown':
+        await this.abortPrompt()
+        if (this.runtime) await this.mcpRuntimes.get(this.runtime.session)?.close()
+        await this.disposeRuntime()
         break
       case 'project:open':
         await this.openProject(request.cwd)
@@ -649,6 +673,8 @@ class PiDesktopHost {
     if (
       request.type === 'bootstrap' ||
       request.type === 'state:get' ||
+      request.type === 'runtime:refresh' ||
+      request.type === 'runtime:shutdown' ||
       request.type === 'project:open' ||
       request.type === 'project:navigate' ||
       request.type === 'session:new' ||
@@ -707,7 +733,6 @@ class PiDesktopHost {
       name: 'pi-desktop-permissions',
       factory: (pi) => {
         pi.on('tool_call', async (event, ctx) => {
-          if (this.permissionMode === 'open') return undefined
           if (!['bash', 'powershell', 'write', 'edit', 'browser'].includes(event.toolName)) {
             return undefined
           }
@@ -730,8 +755,14 @@ class PiDesktopHost {
             detail: presentation.detail
           }
           try {
-            const allowed = await ctx.ui.confirm('允许 Pi 执行此操作？', presentation.detail)
+            const allowed = this.permissionMode === 'open' || await ctx.ui.confirm('允许 Pi 执行此操作？', presentation.detail)
             if (!allowed) return { block: true, reason: '用户拒绝了这次工具调用' }
+            if (event.toolName !== 'browser') {
+              const sessionId = this.runtime?.session.sessionManager.getSessionId()
+              if (!sessionId) return { block: true, reason: '会话已结束' }
+              try { await this.mutations.acquire(event.toolCallId, { sessionId, generation: this.sessionGeneration }) }
+              catch { return { block: true, reason: '项目操作已取消' } }
+            }
             return undefined
           } finally {
             this.approvalMetadata = null
@@ -925,6 +956,11 @@ class PiDesktopHost {
         }, async (id, config) => {
           const enabled = await this.mcpConfig.enabled().catch(() => ({} as Record<string, unknown>))
           return Object.hasOwn(enabled, id) && JSON.stringify(enabled[id]) === JSON.stringify(config)
+        }, async (callId, signal) => {
+          const sessionId = this.runtime?.session.sessionManager.getSessionId()
+          if (!sessionId) throw new Error('会话已结束')
+          await this.mutations.acquire(callId, { sessionId, generation: this.sessionGeneration }, signal)
+          return () => this.mutations.release(callId)
         })
       const services = await sdk.createAgentSessionServices({
         cwd,
@@ -1234,6 +1270,7 @@ class PiDesktopHost {
         break
       }
       case 'tool_execution_end': {
+        this.mutations.release(event.toolCallId)
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
         this.updateToolNode(
           event.toolCallId,
@@ -1749,6 +1786,7 @@ class PiDesktopHost {
   }
 
   private async abortPrompt(): Promise<void> {
+    this.mutations.cancelQueued()
     this.sessionEdits.abort()
     if (this.runtime?.session.isStreaming) this.stopped = true
     this.rejectApprovals(false, 'abort')
@@ -2289,6 +2327,8 @@ class PiDesktopHost {
 const host = new PiDesktopHost()
 
 process.parentPort.on('message', (event) => {
+  const mutationResponse = mutationResponseSchema.safeParse(event.data)
+  if (mutationResponse.success) { host.mutations.accept(mutationResponse.data); return }
   const capabilityResponse = browserCapabilityResponseSchema.safeParse(event.data)
   if (capabilityResponse.success) {
     host.acceptBrowserCapabilityResponse(capabilityResponse.data)

@@ -28,7 +28,8 @@ export class McpRuntime {
     private readonly cwd: string,
     private readonly approve: Approval,
     private readonly isCurrent: (id: string, config: McpServer) => Promise<boolean> = async () =>
-      true
+      true,
+    private readonly acquireMutation: (callId: string, signal?: AbortSignal) => Promise<() => void> = async () => () => {}
   ) {}
   status(id: string) {
     return this.statuses.get(id) ?? { status: 'disconnected' as const, toolCount: 0 }
@@ -205,6 +206,7 @@ export class McpRuntime {
           }),
           executionMode: 'sequential',
           execute: async (callId, params, signal) => {
+            let releaseMutation: (() => void) | undefined
             if (this.disposed || signal?.aborted) throw new Error('MCP 操作已取消')
             if (params.action === 'list')
               return textResult(JSON.stringify(Object.keys(this.servers)))
@@ -242,6 +244,8 @@ export class McpRuntime {
               signal?.throwIfAborted()
               if (!(await this.isCurrent(params.server, this.servers[params.server])))
                 throw new McpValidationError('服务器配置已改变，请在设置中重新确认并连接。')
+              releaseMutation = await this.acquireMutation(callId, signal)
+              signal?.throwIfAborted()
               const response = CallToolResultSchema.parse(
                 await connection.client.callTool({ name: tool.name, arguments: args }, undefined, {
                   signal,
@@ -266,6 +270,7 @@ export class McpRuntime {
               if (error instanceof McpValidationError) throw error
               throw new Error('MCP 调用失败，请检查服务器连接和参数。')
             } finally {
+              releaseMutation?.()
               signal?.removeEventListener('abort', abort)
             }
           }

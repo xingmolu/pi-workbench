@@ -82,6 +82,31 @@ function fixture(
 }
 
 describe('session worker ownership', () => {
+  it('ignores final runtime snapshots emitted during disposal', async () => {
+    let options!: SessionWorkerFactoryOptions
+    let delivered = 0
+    const pool = new SessionWorkerPool({ canonicalize: async path => path,
+      onEvent: () => { delivered++; pool.getSnapshot(options.workerId) },
+      createWorker: async next => {
+        options = next
+        return { request: async () => ({ kind: 'snapshot', snapshot: snapshot('/a') }),
+          dispose: async () => { options.onEvent({ type: 'event', event: 'snapshot', data: snapshot(null) }) } }
+      }
+    })
+    await pool.open({ cwd: '/project', path: '/a' })
+    await expect(pool.shutdown()).resolves.toBeUndefined()
+    expect(delivered).toBe(0)
+  })
+  it('keeps the source selected when target preparation fails', async () => {
+    const { pool, workers } = fixture()
+    const source = await pool.open({ cwd: '/project', path: '/a' })
+    await expect(pool.open({ cwd: '/project' }, source.scope, async () => {
+      throw new Error('Model unavailable')
+    })).rejects.toThrow('Model unavailable')
+    expect(pool.selectedScope).toEqual(source.scope)
+    expect(workers[0].disposed).toBe(false)
+    expect(workers[1].disposed).toBe(true)
+  })
   it('disposes an unused candidate when a resident claims its file during factory startup', async () => {
     let finishFactory!: () => void
     let starting!: () => void
@@ -299,7 +324,8 @@ describe('session worker ownership', () => {
     expect(pool.getSnapshot(a.scope.workerId)).toEqual(after)
     const reopened = await pool.open({ cwd: '/project', path: '/alias/new' })
     expect(reopened.scope.workerId).toBe(a.scope.workerId)
-    expect(JSON.stringify(pool.getLiveSummaries())).not.toContain('private transcript')
+    expect(pool.getLiveSummaries()[0].title).toBe('private transcript')
+    expect(pool.getLiveSummaries()[0]).not.toHaveProperty('nodes')
   })
 
   it('isolates a worker crash and rejects commands captured for its dead owner', async () => {

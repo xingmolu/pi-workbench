@@ -36,9 +36,9 @@ export class HostResponseBroker {
     return this.pending.size
   }
 
-  request(command: HostCommand, dispatch: (request: HostRequest) => void): Promise<HostResult> {
+  request(command: HostCommand, dispatch: (request: HostRequest) => void, expectedIdentity?: HostRequest['expectedIdentity']): Promise<HostResult> {
     const requestId = this.createRequestId()
-    const request: HostRequest = { ...command, requestId }
+    const request: HostRequest = { ...command, requestId, ...(expectedIdentity ? { expectedIdentity } : {}) }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId)

@@ -9,10 +9,11 @@ import {
 import { applyStatePatch } from '../shared/state-patch'
 
 export type SessionWorker = {
-  request(command: HostCommand): Promise<HostResult>
+  request(command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult>
   /** Resolves only after the worker has stopped and cannot execute further work. */
   dispose(): Promise<void>
 }
+export type PrepareSessionWorker = (worker: SessionWorker, snapshot: AgentSnapshot) => Promise<AgentSnapshot | void>
 export type SessionWorkerFactoryOptions = {
   workerId: string
   cwd: string
@@ -44,9 +45,11 @@ type Resident = {
 
 export class SessionWorkerPool {
   private readonly residents = new Map<string, Resident>()
+  private readonly failures = new Map<string, LiveSessionSummary>()
   private selection: SelectedSessionScope | null = null
   private epoch = 0
   private admission: Promise<unknown> = Promise.resolve()
+  private admissions = 0
   private closed = false
   private shutdownPromise?: Promise<void>
   private readonly capacity: number
@@ -77,15 +80,17 @@ export class SessionWorkerPool {
     return owner
   }
 
-  open(target: { cwd: string; path?: string }, expected?: SelectedSessionScope | null) {
-    const operation = this.admission.then(() => this.openResident(target, expected))
+  open(target: { cwd: string; path?: string }, expected?: SelectedSessionScope | null, prepare?: PrepareSessionWorker) {
+    this.admissions++
+    const operation = this.admission.then(() => this.openResident(target, expected, prepare)).finally(() => { this.admissions-- })
     this.admission = operation.catch(() => {})
     return operation
   }
 
   private async openResident(
     target: { cwd: string; path?: string },
-    expected?: SelectedSessionScope | null
+    expected?: SelectedSessionScope | null,
+    prepare?: PrepareSessionWorker
   ) {
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
@@ -99,8 +104,13 @@ export class SessionWorkerPool {
       ? [...this.residents.values()].find((owner) => owner.path === path)
       : undefined
     if (existing && existing.cwd !== cwd) throw new Error('Session file belongs to another project')
-    if (existing?.snapshot)
+    if (existing?.snapshot) {
+      if (prepare) {
+        const prepared = await prepare({ request: command => this.requestOwner(existing, command), dispose: () => existing.worker.dispose() }, existing.snapshot)
+        if (prepared) this.acceptSnapshot(existing, prepared)
+      }
       return { scope: this.select(existing.workerId, expected), snapshot: existing.snapshot }
+    }
     if (this.residents.size >= this.capacity) {
       const victim = [...this.residents.values()].find((owner) => this.canEvict(owner))
       if (!victim)
@@ -119,7 +129,7 @@ export class SessionWorkerPool {
       cwd,
       onEvent: (event) => {
         const owner = this.residents.get(workerId)
-        if (!owner) return
+        if (!owner || owner.disposing) return
         if (event.event === 'snapshot' && !this.acceptSnapshot(owner, event.data)) return
         if (event.event === 'patch') {
           if (!owner.snapshot) {
@@ -141,6 +151,13 @@ export class SessionWorkerPool {
         if (exited) return
         exited = error ?? new Error('Session worker exited')
         end(exited)
+        const failedOwner = this.residents.get(workerId)
+        if (failedOwner && !failedOwner.disposing && error) {
+          this.failures.set(workerId, { workerId, cwd: failedOwner.cwd, sessionPath: failedOwner.path,
+            sessionId: failedOwner.snapshot?.sessionId ?? null, generation: failedOwner.snapshot?.generation ?? null,
+            status: 'error', selected: false })
+          while (this.failures.size > this.capacity) this.failures.delete(this.failures.keys().next().value!)
+        }
         if (!this.residents.get(workerId)?.disposing) this.residents.delete(workerId)
         if (this.selection?.workerId === workerId) this.selection = null
         this.options.onExit?.(workerId, error)
@@ -163,7 +180,7 @@ export class SessionWorkerPool {
     if (claimed) {
       await worker.dispose()
       // Re-resolve after disposal as well, before selecting an existing owner.
-      return this.openResident(target, expected)
+      return this.openResident(target, expected, prepare)
     }
     this.residents.set(workerId, {
       workerId,
@@ -187,6 +204,11 @@ export class SessionWorkerPool {
         ...(path ? { sessionPath: path } : {})
       })
       if (result.kind !== 'snapshot') throw new Error('Opening a session requires a snapshot')
+      if (prepare) {
+        const prepared = await prepare({ request: command => this.requestOwner(this.resolveOwner(workerId), command), dispose: () => worker.dispose() }, result.snapshot)
+        if (prepared) this.acceptSnapshot(this.resolveOwner(workerId), prepared)
+      }
+      if (path) for (const [failedId, failed] of this.failures) if (failed.sessionPath === path) this.failures.delete(failedId)
       return {
         scope: this.select(workerId, expected),
         snapshot: this.resolveOwner(workerId).snapshot!
@@ -198,17 +220,17 @@ export class SessionWorkerPool {
     }
   }
 
-  async request(scope: SelectedSessionScope, command: HostCommand): Promise<HostResult> {
-    if (['session:open', 'project:open', 'project:navigate'].includes(command.type)) {
+  async request(scope: SelectedSessionScope, command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult> {
+    if (['session:new', 'session:open', 'project:open', 'project:navigate'].includes(command.type)) {
       throw new Error('Session navigation must use pool.open')
     }
-    return this.requestOwner(this.resolveOwner(scope.workerId), command)
+    return this.requestOwner(this.resolveOwner(scope.workerId), command, expectedIdentity)
   }
 
-  private async requestOwner(owner: Resident, command: HostCommand): Promise<HostResult> {
+  private async requestOwner(owner: Resident, command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult> {
     owner.pending++
     try {
-      const result = await Promise.race([owner.worker.request(command), owner.ended])
+      const result = await Promise.race([owner.worker.request(command, expectedIdentity), owner.ended])
       if (result.kind === 'snapshot' || result.kind === 'session-fork')
         this.acceptSnapshot(owner, result.snapshot)
       return result
@@ -269,6 +291,7 @@ export class SessionWorkerPool {
       )
       await this.admission
       this.selection = null
+      this.failures.clear()
       const failure = outcomes.find((outcome) => outcome.status === 'rejected')
       if (failure?.status === 'rejected') throw failure.reason
     })())
@@ -316,14 +339,23 @@ export class SessionWorkerPool {
   }
 
   getLiveSummaries(): LiveSessionSummary[] {
-    return [...this.residents.values()].map((owner) => ({
+    const live: LiveSessionSummary[] = [...this.residents.values()].map((owner) => ({
       workerId: owner.workerId,
       cwd: owner.cwd,
       sessionPath: owner.path,
       sessionId: owner.snapshot?.sessionId ?? null,
       generation: owner.snapshot?.generation ?? null,
       status: owner.snapshot?.status ?? 'opening',
-      selected: this.selection?.workerId === owner.workerId
+      selected: this.selection?.workerId === owner.workerId,
+      title: (owner.snapshot?.sessions.find(session => session.path === owner.path)?.title || owner.snapshot?.nodes.find(node => node.type === 'user')?.text || '新会话').slice(0, 200)
     }))
+    return [...live, ...[...this.failures.values()].reverse().slice(0, this.capacity - live.length)]
+  }
+
+  get quiescent(): boolean {
+    return this.admissions === 0 && [...this.residents.values()].every(owner => {
+      const s = owner.snapshot
+      return owner.pending === 0 && owner.safety.receipts === 'settled' && !owner.disposing && !!s?.ready && !s.busy && !s.queuedCount && !s.followUp.length && !s.approvals.length && !s.edit?.pending && !s.loginPrompt && ['idle', 'success', 'error'].includes(s.login.phase)
+    })
   }
 }

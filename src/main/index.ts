@@ -1,4 +1,11 @@
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
+import { SessionWorkerController } from './session-worker-controller'
+import { createUtilitySessionWorker } from './utility-session-worker'
+import { WorkerMutationCapabilities } from './worker-mutation-capabilities'
+import { desktopCommandOriginSchema, type DesktopCommandOrigin, type SelectedSessionScope } from '../shared/session-runtime'
+import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
+import { applyStatePatch } from '../shared/state-patch'
+import { GlobalConfigurationGate } from './global-configuration-gate'
 import { handleDesktopSettings } from './desktop-settings'
 import { NativePaletteFocus } from './native-palette-focus'
 import { NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema } from '../shared/native-palette-focus'
@@ -91,6 +98,7 @@ if (E2E_MODE) app.setPath('userData', requiredE2ETempPath('PI_DESKTOP_E2E_USER_D
 
 let agentHost: UtilityProcess | null = null
 let hostSpawned = false
+let lobbySnapshot: AgentSnapshot | null = null
 let hostReady: Promise<void> | null = null
 let resolveHostReady: (() => void) | null = null
 let rejectHostReady: ((error: Error) => void) | null = null
@@ -179,6 +187,51 @@ const terminalManager = new TerminalManager({
   }
 })
 let activeSessionPath: string | null = null
+let workbenchContextGeneration = 0
+let workbenchContextKey = ''
+let selectedWorkerId: string | null = null
+const mutationCapabilities = new WorkerMutationCapabilities()
+const workerRoots = new Map<string, unknown>()
+const sessionWorkers = new SessionWorkerController({
+  createWorker: options => createUtilitySessionWorker({
+    ...options, script: join(__dirname, 'agent-host.js'),
+    ...(e2eAgentDir ? { env: { ...process.env, PI_DESKTOP_E2E: '1', PI_DESKTOP_E2E_AGENT_DIR: e2eAgentDir } } : {}),
+    onMessage: (message, reply) => handleWorkerCapability(options.workerId, options.cwd, message, reply)
+  }),
+  publish: forwardEvent,
+  receiptsSettled: (_workerId, snapshot) => !snapshot.edit?.pending && ![...attachmentSubmissions.values()].some(entry => entry.scope.sessionId === snapshot.sessionId && entry.scope.generation === snapshot.generation && entry.receipt.status === 'uncertain'),
+  selected: snapshot => {
+    const workerId = snapshot.desktopScope!.workerId
+    if (selectedWorkerId !== workerId || snapshot.desktopScope!.selectionEpoch !== lastSelectionEpoch) {
+      browserManager?.abortAgent()
+      nativePaletteFocus.invalidate()
+      packageRootsLifecycle.hostExited()
+      packageRootsLifecycle.hostStarted()
+      selectedWorkerId = workerId
+      lastSelectionEpoch = snapshot.desktopScope!.selectionEpoch
+    }
+  },
+  onNeedsSnapshot: workerId => {
+    const scope = sessionWorkers.pool.selectedScope
+    void sessionWorkers.pool.request({ workerId, selectionEpoch: scope?.selectionEpoch ?? 0 }, { type: 'state:get' }).catch(() => {})
+  },
+  onExit: (workerId, error) => {
+    mutationCapabilities.exit(workerId)
+    workerRoots.delete(workerId)
+    sessionWorkers.summaries()
+    if (selectedWorkerId !== workerId || quitInProgress) return
+    selectedWorkerId = null
+    recoveryTarget = { project: activeProjectPath, session: activeSessionPath }
+    browserManager?.abortAgent()
+    packageRootsLifecycle.hostExited()
+    workspaceFiles.setProject(null)
+    textAttachments.setContext(null)
+    attachmentSubmissions.setContext(null)
+    gitReview?.setProject(null)
+    forwardEvent({ type: 'event', event: 'disconnected', data: { message: error?.message ?? '当前会话已断开；其他会话仍可继续。重新连接不会自动重发任务。' } })
+  }
+})
+let lastSelectionEpoch = 0
 let recoveryTarget: { project: string | null; session: string | null } | null = null
 let reconnectingHost: Promise<AgentSnapshot> | null = null
 const packageRootsLifecycle = createPiPackageRootsLifecycle({
@@ -231,10 +284,12 @@ function updateWorkbenchContext(): void {
   const host = workbenchHost
   if (!host) return
   try {
+    const key = JSON.stringify([selectedWorkerId, activeProjectPath, activeHostIdentity])
+    if (key !== workbenchContextKey) { workbenchContextKey = key; workbenchContextGeneration++ }
     host.setContext({
       projectPath: activeProjectPath,
       sessionId: activeHostIdentity.sessionId,
-      generation: activeHostIdentity.generation
+      generation: workbenchContextGeneration
     })
   } catch (error) {
     console.warn('忽略过期的 Workbench 上下文', errorMessage(error))
@@ -263,6 +318,10 @@ function forwardEvent(event: DesktopEvent): void {
       }
       updateWorkbenchContext()
     })
+    if (selectedWorkerId) {
+      const roots = workerRoots.get(selectedWorkerId)
+      if (roots) packageRootsLifecycle.handleMessage(roots)
+    }
   }
   if (event.event === 'open-external') {
     try {
@@ -341,20 +400,64 @@ function handleHostMessage(message: unknown): void {
     return
   }
   const event = responseBroker.accept(message)
-  if (event) forwardEvent(event)
+  if (event?.event === 'snapshot') lobbySnapshot = event.data
+  if (event?.event === 'patch' && lobbySnapshot) {
+    const applied = applyStatePatch(lobbySnapshot, event.data)
+    if (applied.status === 'applied') lobbySnapshot = applied.snapshot
+  }
+  if (event && !sessionWorkers.pool.selectedScope) forwardEvent(event)
+}
+
+function handleWorkerCapability(workerId: string, cwd: string, message: unknown, reply: (message: unknown) => void): boolean {
+  let snapshot: AgentSnapshot | null = null
+  try { snapshot = sessionWorkers.pool.getSnapshot(workerId) } catch { /* Child may still be bootstrapping. */ }
+  if (mutationCapabilities.handle(workerId, cwd, snapshot, message, reply)) return true
+  const roots = piPackageRootsMessageSchema.safeParse(message)
+  if (roots.success) {
+    workerRoots.set(workerId, roots.data)
+    if (sessionWorkers.pool.selectedScope?.workerId === workerId) packageRootsLifecycle.handleMessage(roots.data)
+    return true
+  }
+  const cancel = browserCapabilityCancelSchema.safeParse(message)
+  if (cancel.success) {
+    if (sessionWorkers.pool.selectedScope?.workerId === workerId) browserManager?.abortAgent(cancel.data.requestId)
+    return true
+  }
+  const parsed = browserCapabilityRequestSchema.safeParse(message)
+  if (!parsed.success) return false
+  const request = parsed.data
+  const respond = (ok: boolean, data?: unknown, error?: string) => reply({ type: 'capability-response', capability: 'browser', requestId: request.requestId, ok, ...(ok ? { data } : { error }) })
+  const scope = sessionWorkers.pool.selectedScope
+  if (scope?.workerId !== workerId || request.sessionId !== snapshot?.sessionId || request.generation !== snapshot?.generation || !browserManager) {
+    respond(false, undefined, '当前会话未选中，浏览器操作已取消')
+    return true
+  }
+  browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
+  void browserManager.executeAgent(request.operation, request.requestId).then(data => {
+    if (sessionWorkers.pool.selectedScope?.selectionEpoch !== scope.selectionEpoch) respond(false, undefined, '会话已切换，浏览器操作已取消')
+    else respond(true, data)
+  }).catch(error => respond(false, undefined, errorMessage(error)))
+  return true
 }
 
 async function callHost(command: HostCommand): Promise<HostResult> {
+  if (sessionWorkers.pool.selectedScope) return sessionWorkers.request(command)
+  return callLobby(command)
+}
+
+async function callLobby(command: HostCommand): Promise<HostResult> {
   if (!hostSpawned) {
     if (!hostReady) throw new Error('Agent Host 尚未启动')
     await hostReady
   }
   if (!agentHost) throw new Error('Agent Host 尚未就绪')
 
-  return responseBroker.request(command, (request) => {
+  const result = await responseBroker.request(command, (request) => {
     if (!agentHost) throw new Error('Agent Host 尚未就绪')
     agentHost.postMessage(request)
   })
+  if (result.kind === 'snapshot') lobbySnapshot = result.snapshot
+  return result
 }
 
 async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnapshot> {
@@ -362,6 +465,10 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   if (result.kind !== 'snapshot') {
     throw new Error(`Agent Host 未返回状态快照：${command.type}`)
   }
+  const selected = sessionWorkers.pool.selectedScope
+  if (result.snapshot.desktopScope
+    ? selected?.workerId !== result.snapshot.desktopScope.workerId || selected.selectionEpoch !== result.snapshot.desktopScope.selectionEpoch
+    : selected !== null) return result.snapshot
   const nextIdentity = {
     sessionId: result.snapshot.sessionId,
     generation: result.snapshot.generation
@@ -381,8 +488,12 @@ function preferenceStore(): ElectronStore<Preferences> {
   return preferences
 }
 
-async function openCanonicalProject(canonicalPath: string): Promise<AgentSnapshot> {
-  const snapshot = await callHostSnapshot({ type: 'project:open', cwd: canonicalPath })
+async function openCanonicalProject(canonicalPath: string, expected = sessionWorkers.pool.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
+  const catalog = await callLobby({ type: 'project:catalog', cwd: canonicalPath })
+  sessionWorkers.pool.validateSelected(expected)
+  if (catalog.kind !== 'project-catalog') throw new Error('项目会话目录不可读取')
+  const path = catalog.catalog.projects.find(project => project.path === canonicalPath)?.sessions[0]?.path
+  const snapshot = await openWorker({ cwd: canonicalPath, ...(path ? { path } : {}) }, expected, undefined, origin)
   const persistedPath = pathToPersistAfterOpen(canonicalPath, snapshot)
   if (!persistedPath) throw new Error('Agent Host 未确认所选工作区')
   preferenceStore().set('lastProjectPath', persistedPath)
@@ -390,10 +501,48 @@ async function openCanonicalProject(canonicalPath: string): Promise<AgentSnapsho
   return snapshot
 }
 
-async function openUserProject(candidatePath: unknown): Promise<AgentSnapshot> {
+async function openUserProject(candidatePath: unknown, expected = sessionWorkers.pool.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
   const canonicalPath = await resolveExistingProjectPath(candidatePath)
   if (!canonicalPath) throw new Error('所选工作区不存在或不是文件夹')
-  return projectOpenCoordinator.runUserOpen(() => openCanonicalProject(canonicalPath))
+  return projectOpenCoordinator.runUserOpen(() => openCanonicalProject(canonicalPath, expected, origin))
+}
+
+async function openWorker(target: { cwd: string; path?: string }, expected: SelectedSessionScope | null, explicitModel?: { providerId: string; modelId: string }, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
+  if (globalConfiguration.busy) throw new Error('配置正在更新，请稍后切换会话')
+  sessionWorkers.pool.validateSelected(expected)
+  const source = expected ? sessionWorkers.pool.getSnapshot(expected.workerId) : null
+  const model = explicitModel ?? (source?.activeProvider && source.activeModel ? { providerId: source.activeProvider, modelId: source.activeModel } : undefined)
+  return sessionWorkers.open(target, expected, model, origin)
+}
+
+const globalConfiguration = new GlobalConfigurationGate(() => sessionWorkers.pool.quiescent && !mutationCapabilities.pending && (!lobbySnapshot || ['idle', 'success', 'error'].includes(lobbySnapshot.login.phase)))
+let configDirty = false
+const globalMutations = new Set(['account:login', 'account:alias:add', 'endpoint:save', 'mcp:save', 'mcp:toggle', 'mcp:reload'])
+async function refreshWorkers(): Promise<void> {
+  await callLobby({ type: 'runtime:refresh' })
+  await Promise.all(sessionWorkers.pool.getLiveSummaries().filter(worker => {
+    try { return !!sessionWorkers.pool.getSnapshot(worker.workerId) } catch { return false }
+  }).map(worker => sessionWorkers.pool.request({ workerId: worker.workerId, selectionEpoch: 0 }, { type: 'runtime:refresh' })))
+  configDirty = false
+}
+async function dispatchWorkerCommand(command: HostCommand, origin: DesktopCommandOrigin | undefined, captured: SelectedSessionScope | null): Promise<HostResult> {
+  const request = () => captured ? sessionWorkers.request(command, origin) : callLobby(command)
+  if (command.type === 'account:login:respond') return request()
+  if (globalConfiguration.busy) throw new Error('全局配置正在更新，请稍后重试')
+  if (globalMutations.has(command.type)) {
+    return globalConfiguration.run(async () => {
+      configDirty = true
+      const result = await request()
+      if (command.type !== 'account:login') await refreshWorkers()
+      return result
+    })
+  }
+  if (configDirty && ['prompt:send', 'session:edit:send', 'model:set'].includes(command.type)) {
+    if (!sessionWorkers.pool.quiescent) throw new Error('请先完成登录和所有运行，再使用更新后的配置')
+    await globalConfiguration.run(refreshWorkers)
+    sessionWorkers.capture(origin)
+  }
+  return request()
 }
 
 async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
@@ -457,6 +606,13 @@ function startAgentHost(): void {
   })
   agentHost.on('message', handleHostMessage)
   agentHost.on('exit', (code) => {
+    if (sessionWorkers.pool.selectedScope) {
+      hostSpawned = false
+      agentHost = null
+      hostReady = null
+      responseBroker.rejectAll(new Error('项目目录服务已退出'))
+      return
+    }
     recoveryTarget ??= { project: activeProjectPath, session: activeSessionPath }
     activeProjectPath = null
     terminalManager.setProject(recoveryTarget?.project ?? null)
@@ -519,6 +675,10 @@ function registerIpc(): void {
     if (!parsed.success) return { type: 'error', message: '无效的文本文件请求' }
     const request = parsed.data
     const owner = event.sender.id
+    const attachmentWorker = sessionWorkers.pool.getLiveSummaries().find(worker => worker.cwd === request.scope.projectPath && worker.sessionId === request.scope.sessionId && worker.generation === request.scope.generation)
+    const callAttachmentHost = (command: HostCommand): Promise<HostResult> => attachmentWorker
+      ? sessionWorkers.pool.request({ workerId: attachmentWorker.workerId, selectionEpoch: 0 }, command)
+      : Promise.reject(new Error('附件所属会话已结束'))
     try {
       if (request.type === 'send' || request.type === 'query') {
         for (const [id, entry] of attachmentSubmissions)
@@ -568,7 +728,7 @@ function registerIpc(): void {
           }
           attachmentSubmissions.set(request.submissionId, entry)
           const captured = entry
-          entry.pending = callHost({
+          entry.pending = callAttachmentHost({
             type: 'attachment:prompt',
             scope: request.scope,
             submissionId: request.submissionId,
@@ -594,7 +754,7 @@ function registerIpc(): void {
           !entry.pending &&
           entry.receipt.status === 'uncertain'
         ) {
-          const result = await callHost({
+          const result = await callAttachmentHost({
             type: 'attachment:query',
             scope: request.scope,
             submissionId: request.submissionId
@@ -690,9 +850,9 @@ function registerIpc(): void {
       reconnectingHost = (async () => {
         if (!agentHost) startAgentHost()
         const target = recoveryTarget
-        if (target?.project) await callHostSnapshot({ type: 'project:open', cwd: target.project })
-        if (target?.session) await callHostSnapshot({ type: 'session:open', path: target.session })
-        const snapshot = await callHostSnapshot({ type: 'state:get' })
+        const snapshot = target?.project
+          ? await openWorker({ cwd: target.project, ...(target.session ? { path: target.session } : {}) }, sessionWorkers.pool.selectedScope)
+          : await callHostSnapshot({ type: 'state:get' })
         recoveryTarget = null
         return snapshot
       })().finally(() => {
@@ -707,26 +867,42 @@ function registerIpc(): void {
       callHostSnapshot({ type: 'state:get' })
     )
   })
-  ipcMain.handle('pi:command', async (event, command: HostCommand) => {
+  ipcMain.handle('pi:session-select', (event, workerId: unknown, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)
+    if (typeof workerId !== 'string' || !workerId) throw new Error('无效的会话标识')
+    const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
+    const captured = sessionWorkers.captureNavigation(origin)
+    let resident = false
+    try { resident = !!sessionWorkers.pool.getSnapshot(workerId) } catch { /* A crashed saved session can be explicitly reopened. */ }
+    if (!resident) {
+      const failed = sessionWorkers.pool.getLiveSummaries().find(worker => worker.workerId === workerId)
+      if (failed?.sessionPath) return openWorker({ cwd: failed.cwd, path: failed.sessionPath }, captured, undefined, origin)
+    }
+    return sessionWorkers.select(workerId, origin)
+  })
+  ipcMain.handle('pi:command', async (event, command: HostCommand, rawOrigin?: unknown) => {
+    assertTrustedRenderer(event)
+    const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
     const parsed = hostCommandSchema.safeParse(command)
     if (!parsed.success) throw new Error('无效的 Pi Desktop IPC 请求')
-    if (parsed.data.type === 'mcp:shutdown') throw new Error('该命令仅供宿主退出清理使用')
+    const captured = ['project:open', 'project:navigate', 'session:new', 'session:open', 'project:catalog', 'session:search', 'project:search'].includes(parsed.data.type)
+      ? sessionWorkers.captureNavigation(origin) : sessionWorkers.capture(origin)
+    if (['mcp:shutdown', 'runtime:shutdown', 'runtime:refresh', 'bootstrap'].includes(parsed.data.type)) throw new Error('该命令仅供宿主内部使用')
     if (parsed.data.type === 'attachment:prompt' || parsed.data.type === 'attachment:query')
       throw new Error('文本附件必须通过文件选择入口发送')
     if (parsed.data.type === 'project:open') {
-      const snapshot = await openUserProject(parsed.data.cwd)
+      const snapshot = await openUserProject(parsed.data.cwd, captured, origin)
       return { kind: 'snapshot', snapshot } satisfies HostResult
     }
     if (parsed.data.type === 'project:catalog' || parsed.data.type === 'session:search' || parsed.data.type === 'project:search') {
-      return callHost({...parsed.data,recentPaths:mergeRecentProjects(preferenceStore().get('recentProjects'),preferenceStore().get('lastProjectPath'))})
+      return callLobby({...parsed.data,recentPaths:mergeRecentProjects(preferenceStore().get('recentProjects'),preferenceStore().get('lastProjectPath'))})
     }
     if (parsed.data.type === 'project:navigate') {
       const command = parsed.data
       return projectOpenCoordinator.runUserOpen(async () => {
         const cwd = await resolveExistingProjectPath(command.cwd)
         if (!cwd) throw new Error('所选项目目录不可用，请重试')
-        const snapshot = await callHostSnapshot({...command,cwd})
+        const snapshot = await openWorker({ cwd, ...(command.sessionPath ? { path: command.sessionPath } : {}) }, captured, undefined, origin)
         if (snapshot.project?.path === cwd) {
           preferenceStore().set('lastProjectPath',cwd)
           preferenceStore().set('recentProjects',mergeRecentProjects(preferenceStore().get('recentProjects'),cwd))
@@ -734,13 +910,23 @@ function registerIpc(): void {
         return snapshot
       }).then(snapshot => ({kind:'snapshot',snapshot} satisfies HostResult))
     }
+    if (parsed.data.type === 'session:new' || parsed.data.type === 'session:open') {
+      const cwd = captured ? sessionWorkers.pool.getSnapshot(captured.workerId)?.project?.path : null
+      if (!cwd) throw new Error('请先选择项目')
+      const request = parsed.data
+      const snapshot = await openWorker({ cwd, ...(request.type === 'session:open' ? { path: request.path } : {}) }, captured,
+        request.type === 'session:new' && 'providerId' in request ? { providerId: request.providerId, modelId: request.modelId } : undefined, origin)
+      return { kind: 'snapshot', snapshot } satisfies HostResult
+    }
     if (parsed.data.type === 'browser:e2e' && !E2E_MODE) {
       throw new Error('该 Agent Browser 测试命令只在 E2E 模式可用')
     }
-    return callHost(parsed.data)
+    return dispatchWorkerCommand(parsed.data, origin, captured)
   })
-  ipcMain.handle('pi:select-project', async (event) => {
+  ipcMain.handle('pi:select-project', async (event, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)
+    const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
+    const captured = sessionWorkers.captureNavigation(origin)
     const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const result = owner
       ? await dialog.showOpenDialog(owner, {
@@ -754,7 +940,7 @@ function registerIpc(): void {
 
     const cwd = result.filePaths[0]
     if (result.canceled || !cwd) return null
-    return openUserProject(cwd)
+    return openUserProject(cwd, captured, origin)
   })
   ipcMain.handle('pi:browser', async (event, command: BrowserCommand) => {
     assertTrustedRenderer(event)
@@ -1005,7 +1191,7 @@ app.on('before-quit', (event) => {
       try { await Promise.race([callHost({ type: 'mcp:shutdown' }), new Promise<void>(resolve => { timer = setTimeout(resolve, 5000) })]) }
       finally { if (timer) clearTimeout(timer) }
     }
-    void Promise.allSettled([terminalManager.shutdown(), shutdownMcp()]).finally(() => {
+    void Promise.allSettled([terminalManager.shutdown(), sessionWorkers.pool.shutdown(), shutdownMcp()]).finally(() => {
       terminalQuitComplete = true
       app.quit()
     })
