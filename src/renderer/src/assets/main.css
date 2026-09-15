@@ -716,6 +716,7 @@ button.send:disabled {
 
 .content-axis,
 .composer-axis {
+  position: relative;
   width: min(100% - 48px, 920px);
   min-width: min(680px, calc(100% - 48px));
   margin: 0 auto;
@@ -1451,6 +1452,26 @@ button.send:disabled {
   border-color: #414141;
 }
 
+.composer-input:focus-visible { outline: none; }
+.conversation-jump-bottom {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: -42px;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #414141;
+  border-radius: 50%;
+  background: #252525;
+  color: #dedede;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 24%);
+  cursor: pointer;
+}
+.conversation-jump-bottom:hover { background: #343434; color: #f0f0f0; }
+
 .composer.is-locked .composer-input {
   opacity: 0.42;
 }
@@ -2081,8 +2102,14 @@ button.send:disabled {
 }
 .git-toolbar {
   justify-content: space-between;
-  padding-bottom: 0;
+  padding: 8px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--raised);
+  border-bottom: 1px solid var(--line-soft);
 }
+.git-toolbar .git-readonly { margin-left: auto; }
 .git-readonly {
   color: var(--muted);
   font-size: 11px;
@@ -2110,9 +2137,6 @@ button.send:disabled {
 }
 .git-file-list {
   flex-shrink: 0;
-  max-height: 230px;
-  overflow: auto;
-  border-block: 1px solid var(--line-soft);
 }
 .git-file-list h3 {
   margin: 0;
@@ -2131,15 +2155,21 @@ button.send:disabled {
   gap: 8px;
   border: 1px solid transparent;
   border-radius: 0;
-  padding: 7px 12px;
+  padding: 7px 10px;
   text-align: left;
 }
+.git-file svg { flex-shrink: 0; color: #a5acba; }
+.git-file-name { color: #dedede; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: pre; max-width: 60%; }
+.git-review-pane .git-file[aria-pressed='true'] { border-color: transparent; background: #292929; }
+.git-file-section { min-width: 0; }
 .git-file-path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
+  color: #929292;
+  font-size: 11px;
 }
 .git-file-status {
   flex-shrink: 0;
@@ -2178,8 +2208,13 @@ button.send:disabled {
   user-select: text;
 }
 .git-diff-controls {
-  padding-top: 0;
+  justify-content: flex-end;
+  padding: 4px 10px;
 }
+.git-diff-controls select { padding: 3px 6px; font-size: 11px; border-color: transparent; }
+.git-change-counts { display: flex; gap: 5px; flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.git-change-counts span:first-child { color: #76bf8c; }
+.git-change-counts span:last-child { color: #dc8585; }
 .git-diff-scroll {
   max-width: 100%;
   overflow: auto;
@@ -2326,27 +2361,43 @@ button.send:disabled {
   color: #d1b179;
 }
 .files-preview-head {
-  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 6px 10px;
+  gap: 4px 8px;
 }
+.files-preview-title { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.files-preview-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dedede; font-size: 12px; font-weight: 500; }
+.files-preview-head button, .files-toolbar button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-color: transparent; }
 .files-path {
-  margin: 12px 0;
-  overflow-wrap: anywhere;
+  margin: 0;
+  min-width: 0;
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #a0a0a0;
+  font-size: 11px;
   user-select: text;
 }
 .files-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
+.files-wrap-toggle { position: relative; width: 28px; height: 28px; justify-content: center; border-radius: 5px; cursor: pointer; }
+.files-wrap-toggle input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; }
+.files-wrap-toggle:has(input:checked) { background: #343434; color: #e0e0e0; }
+.files-wrap-toggle:has(input:focus-visible) { outline: 2px solid #698bea; outline-offset: -2px; }
 .files-feedback {
-  min-height: 18px;
-  margin-top: 6px;
+  grid-column: 1 / -1;
   font-size: 11px;
   color: var(--muted);
 }
+.files-feedback:empty { display: none; }
 .files-size {
-  padding: 0 12px 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line-soft);
   font-size: 10px;
 }
 .files-preview pre {
@@ -2355,7 +2406,7 @@ button.send:disabled {
   min-height: 0;
   overflow: auto;
   margin: 0;
-  padding: 12px;
+  padding: 10px 0;
   border-top: 1px solid var(--line-soft);
   font-family: var(--font-mono, monospace);
   font-size: 12px;
@@ -2363,6 +2414,12 @@ button.send:disabled {
   user-select: text;
   white-space: pre;
 }
+.with-line-numbers { display: block; min-width: 100%; width: max-content; }
+.is-wrapped .with-line-numbers { width: 100%; }
+.source-line { display: flex; min-height: 1.7em; }
+.source-line-number { position: sticky; left: 0; flex: 0 0 48px; padding-right: 12px; text-align: right; color: #777; background: var(--raised); user-select: none; }
+.source-line-number::before { content: attr(data-line); }
+.source-line-text { min-width: 0; padding-right: 12px; }
 .files-preview pre.is-wrapped {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

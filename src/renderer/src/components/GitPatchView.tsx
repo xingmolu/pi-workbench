@@ -46,29 +46,19 @@ export default function GitPatchView({ patch }: { patch: Patch }): React.JSX.Ele
       {parsed.files ? (
         <>
           <div className="git-diff-controls" aria-label="差异布局">
-            <button
-              type="button"
-              aria-pressed={!raw && viewType === 'unified'}
-              onClick={() => {
-                setViewType('unified')
-                setRaw(false)
+            <select
+              aria-label="差异显示方式"
+              value={raw ? 'raw' : viewType}
+              onChange={(event) => {
+                const value = event.target.value
+                setRaw(value === 'raw')
+                if (value === 'unified' || value === 'split') setViewType(value)
               }}
             >
-              统一
-            </button>
-            <button
-              type="button"
-              aria-pressed={!raw && viewType === 'split'}
-              onClick={() => {
-                setViewType('split')
-                setRaw(false)
-              }}
-            >
-              分栏
-            </button>
-            <button type="button" aria-pressed={raw} onClick={() => setRaw(!raw)}>
-              原始差异
-            </button>
+              <option value="unified">统一</option>
+              <option value="split">分栏</option>
+              <option value="raw">原始差异</option>
+            </select>
           </div>
           {raw ? (
             <pre tabIndex={0} aria-label="原始差异">

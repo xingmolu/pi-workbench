@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, File, Folder, Link2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  File,
+  Folder,
+  Link2,
+  Paperclip,
+  RefreshCw,
+  WrapText
+} from 'lucide-react'
 import type { WorkspaceFileEntry, WorkspaceFilesResult } from '../../../shared/workspace-files'
 import { stageTextFile, useTextAttachments } from '../store/text-attachments'
 import { HighlightedCode } from './HighlightedCode'
@@ -158,7 +169,7 @@ export default function FilesPane({
   const [revision, setRevision] = useState(0)
   const [search, setSearch] = useState<Load<Listing>>({})
   const [selected, setSelected] = useState<string | null>(null)
-  const fileSearchRequest = useOverlayState(state => state.fileSearch)
+  const fileSearchRequest = useOverlayState((state) => state.fileSearch)
   const searchInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (!fileSearchRequest || fileSearchRequest.cwd !== projectPath) return
@@ -259,19 +270,21 @@ export default function FilesPane({
         <p className="files-message">打开项目后可浏览文件。</p>
       ) : (
         <>
-          <div className="files-toolbar">
+          <div className="files-toolbar" hidden={selected !== null}>
             <span className="files-project" title={projectPath}>
               {projectPath.split('/').filter(Boolean).at(-1)}
             </span>
             <small>只读</small>
             <button
               type="button"
+              aria-label="刷新文件"
+              title="刷新文件"
               onClick={() => {
                 setRevision((value) => value + 1)
                 if (selected) read(selected)
               }}
             >
-              刷新文件
+              <RefreshCw size={14} aria-hidden="true" />
             </button>
           </div>
           <div className="files-browser" hidden={selected !== null} ref={tree}>
@@ -322,22 +335,43 @@ export default function FilesPane({
           {selected !== null ? (
             <div className="files-preview">
               <div className="files-preview-head">
-                <button
-                  type="button"
-                  ref={backButton}
-                  onClick={() => {
-                    epoch.current++
-                    clearFeedback()
-                    setSelected(null)
-                    setPreview({})
-                  }}
-                >
-                  返回文件列表
-                </button>
-                <div className="files-path">{selected}</div>
+                <div className="files-preview-title">
+                  <button
+                    type="button"
+                    aria-label="返回文件列表"
+                    title="返回文件列表"
+                    ref={backButton}
+                    onClick={() => {
+                      epoch.current++
+                      clearFeedback()
+                      setSelected(null)
+                      setPreview({})
+                    }}
+                  >
+                    <ArrowLeft size={15} aria-hidden="true" />
+                  </button>
+                  <File size={14} aria-hidden="true" />
+                  <strong title={selected}>{selected.split('/').at(-1)}</strong>
+                  <button
+                    type="button"
+                    aria-label="刷新文件"
+                    title="刷新文件"
+                    onClick={() => {
+                      setRevision((value) => value + 1)
+                      read(selected)
+                    }}
+                  >
+                    <RefreshCw size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="files-path" title={selected}>
+                  {selected}
+                </div>
                 <div className="files-actions">
                   <button
                     type="button"
+                    aria-label="添加到对话"
+                    title="添加到对话"
                     disabled={
                       !preview.value ||
                       attachments.staging ||
@@ -346,27 +380,35 @@ export default function FilesPane({
                     }
                     onClick={() => void stageTextFile(selected)}
                   >
-                    添加到对话
-                  </button>
-                  <button type="button" onClick={() => void copy(selected, '相对路径')}>
-                    复制相对路径
+                    <Paperclip size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
+                    aria-label="复制相对路径"
+                    title="复制相对路径"
+                    onClick={() => void copy(selected, '相对路径')}
+                  >
+                    <Link2 size={14} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="复制内容"
+                    title="复制内容"
                     disabled={!preview.value}
                     onClick={() => {
                       if (preview.value) void copy(preview.value.text, '内容')
                     }}
                   >
-                    复制内容
+                    <Copy size={14} aria-hidden="true" />
                   </button>
-                  <label className="files-check">
+                  <label className="files-check files-wrap-toggle" title="自动换行">
                     <input
                       type="checkbox"
+                      aria-label="自动换行"
                       checked={wrap}
                       onChange={(event) => setWrap(event.target.checked)}
                     />
-                    自动换行
+                    <WrapText size={14} aria-hidden="true" />
                   </label>
                 </div>
                 <div role="status" className="files-feedback">
@@ -379,12 +421,12 @@ export default function FilesPane({
                 </p>
               ) : preview.value ? (
                 <>
+                  <pre tabIndex={0} className={wrap ? 'is-wrapped' : ''}>
+                    <HighlightedCode text={preview.value.text} filename={selected} lineNumbers />
+                  </pre>
                   <small className="files-size">
                     UTF-8 · {preview.value.size.toLocaleString()} 字节 · 只读预览
                   </small>
-                  <pre tabIndex={0} className={wrap ? 'is-wrapped' : ''}>
-                    <HighlightedCode text={preview.value.text} filename={selected} />
-                  </pre>
                 </>
               ) : (
                 <p role="status" className="files-message">

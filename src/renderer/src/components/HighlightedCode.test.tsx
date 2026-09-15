@@ -56,3 +56,22 @@ it('infers controlled languages and refuses unknown and costly input', () => {
   expect(canHighlight('a\n'.repeat(60000))).toBe(false)
   expect(canHighlight('\tconst x = 1\r\n\r\n')).toBe(true)
 })
+
+it('keeps line numbers out of source text and preserves CRLF and trailing lines', () => {
+  const html = renderToStaticMarkup(createElement(HighlightedCode, { text: 'first\r\n\r\n', lineNumbers: true }))
+  expect(html.match(/class="source-line"/g)).toHaveLength(3)
+  expect(html).toContain('aria-hidden="true" data-line="3"')
+  expect(html.replace(/<[^>]*>/g, '')).toBe('first\r\n\r\n')
+})
+
+it('bounds line wrappers for newline-heavy files without truncating content', () => {
+  const text = '\n'.repeat(10_000) + 'END'
+  const html = renderToStaticMarkup(createElement(HighlightedCode, { text, lineNumbers: true }))
+  expect(html).not.toContain('source-line-number')
+  expect(html.replace(/<[^>]*>/g, '')).toBe(text)
+})
+
+it('does not add line wrappers to conversation code blocks by default', () => {
+  const html = renderToStaticMarkup(createElement(HighlightedCode, { text: 'a\nb' }))
+  expect(html).not.toContain('source-line')
+})

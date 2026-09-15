@@ -153,6 +153,27 @@ async function run(command: string, prompt: string): Promise<void> {
   await draft.press('Enter')
 }
 
+test('composer focus stays neutral and bottom shortcut floats without layout shift', async () => {
+  await run('/work-fixture', '验证阅读导航\n'.repeat(70))
+  await expect(page.locator('.assistant-node').last()).toContainText('检查完成')
+  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  await draft.focus()
+  expect(await draft.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('none')
+  const before = await draft.boundingBox()
+  await page.locator('.conversation-scroll').evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+  const jump = page.getByRole('button', { name: '回到底部', exact: true })
+  await expect(jump).toBeVisible()
+  const bounds = await jump.boundingBox()
+  const after = await draft.boundingBox()
+  expect(after!.y).toBe(before!.y)
+  expect(bounds!.width).toBe(32)
+  expect(Math.abs(bounds!.x + bounds!.width / 2 - (after!.x + after!.width / 2))).toBeLessThan(3)
+  await page.screenshot({ path: 'artifacts/e2e/reading-composer-polish.png' })
+  await jump.click()
+  await expect(jump).toHaveCount(0)
+  expect(await page.locator('.conversation-scroll').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3)
+})
+
 test('user disclosure survives live canonical reconciliation and keyboard collapse', async () => {
   await run('/work-fixture', '验证流式展开状态')
   const trigger = page.locator('.work-summary-trigger').first()

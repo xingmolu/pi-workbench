@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parsePatchFiles } from '@pierre/diffs'
+import { ChevronDown, ChevronRight, FileDiff, RefreshCw } from 'lucide-react'
 import type { GitReviewEntry, GitReviewResult, GitReviewView } from '../../../shared/git-review'
 import GitPatchView from './GitPatchView'
 
@@ -42,6 +44,23 @@ export default function GitReviewPane({
   const [patchError, setPatchError] = useState('')
   const [patchLoading, setPatchLoading] = useState(false)
   const epoch = useRef(0)
+  const counts = useMemo(() => {
+    if (!patch?.text || patch.kind !== 'text' || patch.rawOnly || patch.text.length > 200_000)
+      return null
+    try {
+      const files = parsePatchFiles(patch.text, undefined, true).flatMap((item) => item.files)
+      if (files.length !== 1 || !files[0].hunks.length) return null
+      return files[0].hunks.reduce(
+        (sum, hunk) => ({
+          added: sum.added + hunk.additionLines,
+          removed: sum.removed + hunk.deletionLines
+        }),
+        { added: 0, removed: 0 }
+      )
+    } catch {
+      return null
+    }
+  }, [patch])
 
   const clearSelection = (): void => {
     epoch.current++
@@ -113,6 +132,10 @@ export default function GitReviewPane({
   }, [projectPath, ready, view, baseRef, refresh])
 
   const selectFile = async (entry: GitReviewEntry): Promise<void> => {
+    if (selected?.entryId === entry.entryId) {
+      clearSelection()
+      return
+    }
     const request = ++epoch.current
     setSelected(entry)
     setPatch(null)
@@ -153,6 +176,30 @@ export default function GitReviewPane({
     }
   }
 
+  const selection = selected ? (
+    <div className="git-selection" role="region" aria-label={`差异 ${selected.path}`}>
+      {patchLoading && (
+        <p className="git-message" role="status">
+          正在读取文件差异…
+        </p>
+      )}
+      {patchError && (
+        <p className="git-message" role="alert">
+          {patchError}
+        </p>
+      )}
+      {preview !== null && (
+        <div className="git-patch">
+          <p className="git-message">未跟踪文件 · 只读内容预览，不属于已跟踪差异</p>
+          <pre tabIndex={0} aria-label="未跟踪文件内容">
+            {preview}
+          </pre>
+        </div>
+      )}
+      {patch && <GitPatchView patch={patch} />}
+    </div>
+  ) : null
+
   return (
     <section className="git-review-pane" aria-label="Git 审阅">
       {!projectPath ? (
@@ -164,35 +211,34 @@ export default function GitReviewPane({
       ) : (
         <>
           <div className="git-toolbar">
+            <select
+              aria-label="差异范围"
+              value={view}
+              title={modes.find(([mode]) => mode === view)?.[2]}
+              onChange={(event) => {
+                invalidate()
+                setView(event.target.value as GitReviewView)
+              }}
+            >
+              {modes.map(([mode, label]) => (
+                <option key={mode} value={mode}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <span className="git-readonly">只读</span>
             <button
               type="button"
+              aria-label="刷新差异"
+              title="刷新差异"
               onClick={() => {
                 invalidate()
                 setRefresh((value) => value + 1)
               }}
             >
-              刷新差异
+              <RefreshCw size={14} aria-hidden="true" />
             </button>
           </div>
-          <div className="git-modes" aria-label="差异范围">
-            {modes.map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={view === mode}
-                onClick={() => {
-                  if (view !== mode) {
-                    invalidate()
-                    setView(mode)
-                  }
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="git-baseline">{modes.find(([mode]) => mode === view)?.[2]}</p>
           {view === 'branch' && (
             <div className="git-base-select">
               <label htmlFor="git-base-ref">比较基准</label>
@@ -253,62 +299,57 @@ export default function GitReviewPane({
                             <span>{entries.length}</span>
                           </h3>
                           {entries.map((entry) => (
-                            <button
-                              key={entry.entryId}
-                              type="button"
-                              className="git-file"
-                              aria-label={entry.path}
-                              aria-pressed={selected?.entryId === entry.entryId}
-                              onClick={() => void selectFile(entry)}
-                            >
-                              <span className="git-file-path" title={entry.path}>
-                                {entry.path}
-                              </span>
-                              <span
-                                className="git-file-status"
-                                title={`Git ${entry.status} · ${entry.kind}`}
+                            <div key={entry.entryId} className="git-file-section">
+                              <button
+                                type="button"
+                                className="git-file"
+                                aria-label={entry.path}
+                                aria-pressed={selected?.entryId === entry.entryId}
+                                aria-expanded={selected?.entryId === entry.entryId}
+                                onClick={() => void selectFile(entry)}
                               >
-                                {entry.kind === 'conflict'
-                                  ? '冲突'
-                                  : entry.kind === 'submodule'
-                                    ? '子模块'
-                                    : (statusLabels[entry.status] ?? entry.status)}
-                              </span>
-                            </button>
+                                <FileDiff size={14} aria-hidden="true" />
+                                <span className="git-file-name" title={entry.path}>
+                                  {entry.path.split('/').at(-1)}
+                                </span>
+                                <span className="git-file-path" title={entry.path}>
+                                  {entry.path.includes('/')
+                                    ? entry.path.slice(0, entry.path.lastIndexOf('/'))
+                                    : ''}
+                                </span>
+                                {selected?.entryId === entry.entryId && counts ? (
+                                  <span
+                                    className="git-change-counts"
+                                    aria-label={`新增 ${counts.added} 行，删除 ${counts.removed} 行`}
+                                  >
+                                    <span>+{counts.added}</span>
+                                    <span>−{counts.removed}</span>
+                                  </span>
+                                ) : null}
+                                <span
+                                  className="git-file-status"
+                                  title={`Git ${entry.status} · ${entry.kind}`}
+                                >
+                                  {entry.kind === 'conflict'
+                                    ? '冲突'
+                                    : entry.kind === 'submodule'
+                                      ? '子模块'
+                                      : (statusLabels[entry.status] ?? entry.status)}
+                                </span>
+                                {selected?.entryId === entry.entryId ? (
+                                  <ChevronDown size={12} aria-hidden="true" />
+                                ) : (
+                                  <ChevronRight size={12} aria-hidden="true" />
+                                )}
+                              </button>
+                              {selected?.entryId === entry.entryId && selection}
+                            </div>
                           ))}
                         </div>
                       )
                     )
                   })}
                 </div>
-              )}
-              {selected ? (
-                <div className="git-selection">
-                  <h3 className="git-selected-path" title={selected.path}>
-                    {selected.path}
-                  </h3>
-                  {patchLoading && (
-                    <p className="git-message" role="status">
-                      正在读取文件差异…
-                    </p>
-                  )}
-                  {patchError && (
-                    <p className="git-message" role="alert">
-                      {patchError}
-                    </p>
-                  )}
-                  {preview !== null && (
-                    <div className="git-patch">
-                      <p className="git-message">未跟踪文件 · 只读内容预览，不属于已跟踪差异</p>
-                      <pre tabIndex={0} aria-label="未跟踪文件内容">
-                        {preview}
-                      </pre>
-                    </div>
-                  )}
-                  {patch && <GitPatchView patch={patch} />}
-                </div>
-              ) : (
-                inventory.entries.length > 0 && <p className="git-message">选择文件查看差异</p>
               )}
             </>
           )}

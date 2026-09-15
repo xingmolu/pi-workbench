@@ -19,6 +19,7 @@ import {
 } from '../store/text-attachments'
 import {
   ArrowUp,
+  ArrowDown,
   ArrowLeft,
   Bot,
   Brain,
@@ -1190,7 +1191,9 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
         ) : null}
         {awayFromBottom ? (
           <button
-            className="tool-chip"
+            className="conversation-jump-bottom"
+            aria-label="回到底部"
+            title="回到底部"
             onClick={() => {
               following.current = true
               navigationScroll.current = false
@@ -1199,7 +1202,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               if (element) element.scrollTop = element.scrollHeight
             }}
           >
-            回到底部
+            <ArrowDown size={16} aria-hidden="true" />
           </button>
         ) : null}
         <Composer {...props} />
