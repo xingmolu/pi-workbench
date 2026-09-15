@@ -59,6 +59,8 @@ NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 
 
 - **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
 
+2026-09-15 侧栏可读性：项目／会话主文字 14px，日期和辅助文字 12px；使用侧栏语义颜色 `--sidebar-text` / `--sidebar-secondary`，选中底色 `--sidebar-selected`，不整体提亮对话画布。每项目默认显示最近 5 条；当前会话、运行／待审批／失败的常驻会话额外保留，明确“展开显示／收起历史”，展开后沿用原 50 条分页。运行状态与日期择一显示，避免挤压标题。同名项目显示最短可区分路径后缀，完整路径保留在 tooltip；失效目录保留提示与历史，不因样式调整删除项目或记录。
+
 会话身份以 SDK 的 session cwd 和经校验的项目归属为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径；当前归属检查优先比较 `realpath`，路径不可解析时回退 `resolve`，不回退进程 cwd。全局搜索保留 SDK 来源 cwd 与原 session path，打开时仍由 Main/Host 重新校验归属；项目目录列表对可用目录使用 canonical realpath。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。历史验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)；其早期 resolve-only 描述不代表当前实现。
 
 - **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。

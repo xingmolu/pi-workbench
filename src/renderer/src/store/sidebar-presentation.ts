@@ -1,0 +1,31 @@
+import type { LiveSessionRow } from './live-projects'
+
+export const RECENT_SESSION_LIMIT = 5
+
+/** Show the shortest useful suffix; the full authoritative path stays in the tooltip. */
+export function sidebarPathHint(path: string, peers: string[]): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  let depth = Math.min(2, parts.length)
+  while (
+    depth < parts.length &&
+    peers.some(
+      (other) =>
+        other !== path &&
+        other.split(/[\\/]/).filter(Boolean).slice(-depth).join('/') ===
+          parts.slice(-depth).join('/')
+    )
+  )
+    depth++
+  return parts.slice(-depth).join('/')
+}
+
+/** Keep active work reachable even when older history is folded. */
+export function sidebarSessions(sessions: LiveSessionRow[], expanded: boolean): LiveSessionRow[] {
+  if (expanded) return sessions
+  return sessions.filter(
+    (session, index) =>
+      index < RECENT_SESSION_LIMIT ||
+      session.active ||
+      (session.workerId && ['running', 'awaiting-approval', 'error'].includes(session.status))
+  )
+}

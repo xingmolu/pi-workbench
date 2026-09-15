@@ -153,6 +153,54 @@ test.beforeEach(async () => {
   await expect(page.locator('.conversation-session-title')).toHaveText('最近会话 54')
 })
 
+test('sidebar keeps recent history compact, distinguishes names and uses readable contrast', async () => {
+  const group = page
+    .locator('.project-group')
+    .filter({ has: page.locator('.project-group-toggle', { hasText: /^project$/ }) })
+    .first()
+  await expect(group.locator('.project-session-row')).toHaveCount(5)
+  await group.getByRole('button', { name: /展开显示/ }).click()
+  await expect(group.locator('.project-session-row')).toHaveCount(50)
+  await group.getByRole('button', { name: /显示更多/ }).click()
+  await expect(group.locator('.project-session-row')).toHaveCount(55)
+  await group.getByRole('button', { name: '收起历史' }).click()
+  await expect(group.locator('.project-session-row')).toHaveCount(5)
+  const sibling = join(root, 'another', 'project')
+  await mkdir(sibling, { recursive: true })
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), sibling)
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
+  await expect(page.locator('.project-path-hint')).toHaveCount(2)
+  await expect(
+    page.getByTitle(sibling, { exact: true }).filter({ hasText: 'another/project' })
+  ).toBeVisible()
+  for (const width of [960, 1440]) {
+    await app.evaluate(
+      ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900),
+      width
+    )
+    const contrast = await page.locator('.project-session-row.is-active').evaluate((el) => {
+      const luminance = (color: string) => {
+        const rgb = color
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number)
+          .map((v) => {
+            const c = v / 255
+            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+          })
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
+      }
+      const background = luminance(getComputedStyle(el).backgroundColor)
+      return [el.querySelector('.session-title')!, el.querySelector('time')!].map(
+        (node) => (luminance(getComputedStyle(node).color) + 0.05) / (background + 0.05)
+      )
+    })
+    expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: resolve(`artifacts/e2e/sidebar-contrast-${width}.png`) })
+  }
+})
+
 test('new chat picks exact empty recent cwd and Files action focuses the existing file search', async () => {
   await page.getByRole('button', { name: '搜索所有会话' }).click()
   await page.getByRole('option', { name: /新建会话/ }).click()

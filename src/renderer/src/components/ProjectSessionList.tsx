@@ -6,6 +6,7 @@ import { projectNavigationReason } from '../../../shared/project-catalog'
 import { liveProjects, type LiveProject } from '../store/live-projects'
 import { usePiStore } from '../store/pi-store'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
+import { sidebarPathHint, sidebarSessions } from '../store/sidebar-presentation'
 
 const COLLAPSED_KEY = 'pi.project-groups.collapsed.v1'
 function readCollapsed(): string[] {
@@ -46,6 +47,7 @@ export default function ProjectSessionList({
   const [loading, setLoading] = useState(true)
   const [retry, setRetry] = useState(0)
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  const [expandedHistory, setExpandedHistory] = useState<string[]>([])
   const [loadingGroups, setLoadingGroups] = useState<string[]>([])
   const [groupErrors, setGroupErrors] = useState<Record<string, string>>({})
   const epoch = useRef(0)
@@ -183,13 +185,22 @@ export default function ProjectSessionList({
           </p>
         ) : null}
         {projects.map((project) => {
-          const matching = project.sessions
+          const showHistory = expandedHistory.includes(project.path)
+          const matching = sidebarSessions(project.sessions, showHistory)
+          const hasHiddenHistory = matching.length < project.sessions.length
+          const duplicateName = projects.some(
+            (other) => other.path !== project.path && other.name === project.name
+          )
           const expanded = !collapsed.includes(project.path)
           const groupLoading = loadingGroups.includes(project.path)
           const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
           const pendingOnly = pending && !blockReason && !project.error
           return (
-            <section className="project-group" key={project.path} data-project-path={project.path}>
+            <section
+              className={`project-group${snapshot.project?.path === project.path ? ' is-current-project' : ''}`}
+              key={project.path}
+              data-project-path={project.path}
+            >
               <div className="project-group-head">
                 <button
                   type="button"
@@ -214,6 +225,16 @@ export default function ProjectSessionList({
                   <Plus size={14} />
                 </button>
               </div>
+              {(duplicateName || project.error) && (
+                <p className="project-path-hint" title={project.path}>
+                  {sidebarPathHint(
+                    project.path,
+                    projects
+                      .filter((other) => other.name === project.name)
+                      .map((other) => other.path)
+                  )}
+                </p>
+              )}
               {navigationFailures[project.path] && (
                 <p className="catalog-error" role="alert">
                   {navigationFailures[project.path].message}{' '}
@@ -280,14 +301,30 @@ export default function ProjectSessionList({
                             {status.label}
                           </span>
                         )}
-                        {session.modified && (
+                        {session.modified && !emphasize && (
                           <time dateTime={session.modified}>{relativeTime(session.modified)}</time>
                         )}
                       </button>
                     )
                   })}
                   {!matching.length && <p className="project-group-empty">暂无会话</p>}
-                  {project.nextOffset !== null && (
+                  {(hasHiddenHistory || showHistory) && (
+                    <button
+                      type="button"
+                      className="catalog-more catalog-history-toggle"
+                      aria-expanded={showHistory}
+                      onClick={() =>
+                        setExpandedHistory((paths) =>
+                          showHistory
+                            ? paths.filter((path) => path !== project.path)
+                            : [...paths, project.path]
+                        )
+                      }
+                    >
+                      {showHistory ? '收起历史' : '展开显示'}
+                    </button>
+                  )}
+                  {project.nextOffset !== null && !hasHiddenHistory && (
                     <button
                       type="button"
                       className="catalog-more"
