@@ -15,6 +15,7 @@ import {
   WebContentsView,
   dialog,
   ipcMain,
+  nativeTheme,
   shell,
   utilityProcess,
   type BrowserWindow as BrowserWindowType,
@@ -683,7 +684,10 @@ function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
 function registerIpc(): void {
   ipcMain.handle(DESKTOP_SETTINGS_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
-    return handleDesktopSettings(preferenceStore(), command)
+    const settings = handleDesktopSettings(preferenceStore(), command)
+    nativeTheme.themeSource = settings.theme
+    updateWindowBackgrounds()
+    return settings
   })
   const tableExporter = new MarkdownTableExporter((owner) => dialog.showSaveDialog(BrowserWindow.fromId(owner.id)!, { title: '保存表格 CSV', defaultPath: '表格.csv', filters: [{ name: 'CSV 表格', extensions: ['csv'] }], properties: ['showOverwriteConfirmation'] }))
   ipcMain.handle(MARKDOWN_TABLE_EXPORT_CHANNEL, (event, request: unknown) => {
@@ -1015,6 +1019,11 @@ function registerIpc(): void {
   )
 }
 
+function updateWindowBackgrounds(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#fafaf9')
+  }
+}
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1440,
@@ -1025,7 +1034,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     title: 'Pi Desktop',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
-    backgroundColor: '#0A0A0A',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#fafaf9',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -1194,6 +1203,8 @@ app.whenReady().then(async () => {
     }
   })
 
+  nativeTheme.themeSource = handleDesktopSettings(preferenceStore(), { type: 'get' }).theme
+  nativeTheme.on('updated', updateWindowBackgrounds)
   registerIpc()
   startAgentHost()
   createWindow()

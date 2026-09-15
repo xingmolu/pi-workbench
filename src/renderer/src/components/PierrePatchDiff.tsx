@@ -6,6 +6,7 @@ import {
   type FileDiffMetadata
 } from '@pierre/diffs'
 import { highlightLanguage } from '../lib/code-highlight'
+import { useResolvedTheme } from '../store/theme'
 
 const plainLanguages = new Set<string>()
 export function preparePatchLanguage(file: FileDiffMetadata): void {
@@ -44,7 +45,7 @@ class PatchBoundary extends Component<
 // Constant application CSS only. Never interpolate source, filenames or HTML.
 const css = `
   :host { --diffs-font-family: var(--font-mono, ui-monospace, monospace); --diffs-font-size: 12px; }
-  [data-diffs] { --diffs-bg: #141414; }
+  [data-diffs] { --diffs-bg: var(--raised); }
 `
 export function PierrePatchDiff({
   patch,
@@ -53,6 +54,7 @@ export function PierrePatchDiff({
   patch: string
   layout: 'unified' | 'split'
 }): React.JSX.Element {
+  const theme = useResolvedTheme()
   return (
     <PatchBoundary key={patch} source={patch}>
       <PatchDiff
@@ -62,7 +64,8 @@ export function PierrePatchDiff({
           diffStyle: layout,
           diffIndicators: 'classic',
           lineDiffType: 'word',
-          themeType: 'dark',
+          theme: { dark: 'github-dark', light: 'github-light' },
+          themeType: theme,
           preferredHighlighter: 'shiki-js',
           disableFileHeader: true,
           overflow: 'scroll',

@@ -1,6 +1,7 @@
 import { createHighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import theme from 'shiki/themes/github-dark.mjs'
+import lightTheme from 'shiki/themes/github-light.mjs'
 import typescript from 'shiki/langs/typescript.mjs'
 import tsx from 'shiki/langs/tsx.mjs'
 import javascript from 'shiki/langs/javascript.mjs'
@@ -16,7 +17,7 @@ import yaml from 'shiki/langs/yaml.mjs'
 import type { CodeToken } from './code-highlight'
 
 const highlighter = createHighlighterCore({
-  themes: [theme],
+  themes: [theme, lightTheme],
   langs: [
     typescript,
     tsx,
@@ -33,12 +34,14 @@ const highlighter = createHighlighterCore({
   ],
   engine: createJavaScriptRegexEngine()
 })
-self.onmessage = async (event: MessageEvent<{ id: number; text: string; language: string }>) => {
-  const { id, text, language } = event.data
+self.onmessage = async (
+  event: MessageEvent<{ id: number; text: string; language: string; theme: 'dark' | 'light' }>
+) => {
+  const { id, text, language, theme } = event.data
   try {
     const lines = (await highlighter).codeToTokens(text, {
       lang: language,
-      theme: 'github-dark'
+      theme: theme === 'light' ? 'github-light' : 'github-dark'
     }).tokens
     const endings = text.match(/\r\n|\r|\n/g) ?? []
     const tokens: CodeToken[] = []

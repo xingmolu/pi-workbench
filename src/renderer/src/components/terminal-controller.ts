@@ -1,5 +1,6 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { TERMINAL_THEMES } from './terminal-theme'
 import type { TerminalIdentity, TerminalMetadata, TerminalEvent } from '../../../shared/terminal'
 
 export const terminalIdentity = (t: TerminalIdentity): TerminalIdentity => ({
@@ -47,6 +48,11 @@ export type TerminalPrompt = {
 
 /** Owns the lifetime of the emulator DOM, independent of React visibility and project selection. */
 export class TerminalController {
+  private theme: 'dark' | 'light' = 'dark'
+  setTheme(theme: 'dark' | 'light'): void {
+    this.theme = theme
+    for (const instance of this.instances.values()) instance.terminal.options.theme = TERMINAL_THEMES[theme]
+  }
   entries: TerminalEntry[] = []
   prompt: TerminalPrompt | null = null
   private errorValue = ''
@@ -274,12 +280,7 @@ export class TerminalController {
       macOptionIsMeta: true,
       convertEol: false,
       screenReaderMode: true,
-      theme: {
-        background: '#121212',
-        foreground: '#d7d7db',
-        cursor: '#6685ee',
-        selectionBackground: '#354675'
-      },
+      theme: TERMINAL_THEMES[this.theme],
       linkHandler: { activate: () => {} }
     })
     const fit = new FitAddon()

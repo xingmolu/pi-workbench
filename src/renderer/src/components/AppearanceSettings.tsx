@@ -1,10 +1,23 @@
 import { useDesktopSettings } from '../store/desktop-settings'
 import { PreferenceRow, PreferencesFrame } from './GeneralSettings'
+import type { DesktopSettings } from '../../../shared/desktop-settings'
+import { HighlightedCode } from './HighlightedCode'
 
 export default function AppearanceSettings(): React.JSX.Element {
   const { settings, save } = useDesktopSettings()
   return (
     <PreferencesFrame title="外观">
+      <PreferenceRow label="主题" description="深色、浅色或实时跟随系统外观；不会修改系统设置。">
+        <select
+          aria-label="主题"
+          value={settings.theme}
+          onChange={(event) => void save({ theme: event.target.value as DesktopSettings['theme'] })}
+        >
+          <option value="dark">深色</option>
+          <option value="light">浅色</option>
+          <option value="system">跟随系统</option>
+        </select>
+      </PreferenceRow>
       <PreferenceRow label="消息字号" description="调整对话正文，不改变窗口或其他面板字号。">
         <select
           value={settings.messageFontSize}
@@ -54,7 +67,7 @@ export default function AppearanceSettings(): React.JSX.Element {
             whiteSpace: settings.codeWrap ? 'pre-wrap' : 'pre'
           }}
         >
-          const message = '你好，Pi Desktop';
+          <HighlightedCode text="const message = '你好，Pi Desktop';" language="typescript" />
         </pre>
       </div>
     </PreferencesFrame>

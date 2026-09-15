@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgb(8 9 11 / 58%);
+  background: var(--scrim);
 }
 .settings-dialog {
   position: fixed;
@@ -16,7 +16,7 @@
   color: var(--text, #ecebea);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 28px 100px #0008;
+  box-shadow: 0 28px 100px var(--popup-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;

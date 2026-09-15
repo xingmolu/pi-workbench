@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef } from 'react'
 import { Plus, X, ClipboardPaste, TerminalSquare } from 'lucide-react'
 import { TerminalController, pastePreview, terminalKey } from './terminal-controller'
+import { useResolvedTheme } from '../store/theme'
 import '@xterm/xterm/css/xterm.css'
 
 const states = {
@@ -18,6 +19,7 @@ export default function TerminalPane({
   projectPath: string | null
   visible: boolean
 }): React.JSX.Element {
+  const theme = useResolvedTheme()
   const stage = useRef<HTMLDivElement>(null)
   const pane = useRef<HTMLElement>(null)
   const newButton = useRef<HTMLButtonElement>(null)
@@ -41,6 +43,7 @@ export default function TerminalPane({
   useEffect(() => {
     void controller.current?.context(projectPath, visible)
   }, [projectPath, visible])
+  useEffect(() => { controller.current?.setTheme(theme) }, [theme])
   const c = controller.current
   const entries = c?.entries.filter((e) => e.metadata.projectPath === projectPath) ?? []
   const current = c?.current

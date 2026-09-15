@@ -83,10 +83,10 @@
   color: var(--muted);
 }
 .mcp-state.is-connected {
-  color: #76b892;
+  color: var(--success-text);
 }
 .mcp-state.is-error {
-  color: #de8a8a;
+  color: var(--danger-text);
 }
 .mcp-row-actions {
   display: flex;

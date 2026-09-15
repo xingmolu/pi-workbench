@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { applyDocumentTheme, useResolvedTheme } from './store/theme'
 import { PanelRight } from 'lucide-react'
 import { useDesktopSettings } from './store/desktop-settings'
 import './assets/desktop-settings.css'
@@ -32,6 +33,8 @@ import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbe
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
 
 export default function App(): React.JSX.Element {
+  const theme = useResolvedTheme()
+  useLayoutEffect(() => applyDocumentTheme(theme), [theme])
   const snapshot = usePiStore((state) => state.snapshot)
   const loading = usePiStore((state) => state.loading)
   const clientError = usePiStore((state) => state.clientError)
@@ -94,7 +97,7 @@ export default function App(): React.JSX.Element {
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
   const desktopSettings = useDesktopSettings((state) => state.settings)
   useEffect(() => {
-    void useDesktopSettings.getState().hydrate()
+    if (!useDesktopSettings.getState().hasLoaded) void useDesktopSettings.getState().hydrate()
   }, [])
   useEffect(() => {
     document.documentElement.style.setProperty(

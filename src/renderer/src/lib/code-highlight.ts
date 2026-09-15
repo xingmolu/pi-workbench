@@ -51,10 +51,14 @@ function stopWorker(): void {
   pending.clear()
 }
 /** One bounded worker shared by Markdown and file previews; no network or WASM. */
-export async function highlightCode(text: string, language: string): Promise<CodeToken[] | null> {
+export async function highlightCode(
+  text: string,
+  language: string,
+  theme: 'dark' | 'light' = 'dark'
+): Promise<CodeToken[] | null> {
   if (!canHighlight(text) || !highlightLanguage(language) || typeof Worker === 'undefined')
     return null
-  const key = language + '\0' + text
+  const key = theme + ':' + language + '\0' + text
   const cached = cache.get(key)
   if (cached) {
     cache.delete(key)
@@ -80,7 +84,7 @@ export async function highlightCode(text: string, language: string): Promise<Cod
     const tokens = await new Promise<CodeToken[] | null>((resolve) => {
       const id = ++sequence
       pending.set(id, { resolve, timer: setTimeout(stopWorker, 5000) })
-      worker!.postMessage({ id, text, language })
+      worker!.postMessage({ id, text, language, theme })
     })
     // Never let tokenization normalize, truncate or otherwise replace source text.
     if (!tokens || tokens.map((token) => token.content).join('') !== text) return null

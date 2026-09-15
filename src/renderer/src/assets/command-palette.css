@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgb(0 0 0 / 52%);
+  background: var(--scrim);
 }
 .command-dialog {
   position: fixed;
@@ -14,7 +14,7 @@
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 20px 80px #0009;
+  box-shadow: 0 20px 80px var(--popup-shadow);
   overflow: hidden;
   color: var(--text);
   font-family: var(--font);

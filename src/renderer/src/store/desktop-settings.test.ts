@@ -49,3 +49,11 @@ it('rejects malformed responses without accepting false saved state', async () =
   expect(store.getState().status).toBe('error')
   expect(store.getState().settings).toEqual(defaults)
 })
+it('does not apply a theme when its save fails', async () => {
+  const invoke = vi.fn().mockResolvedValueOnce(defaults).mockRejectedValueOnce(new Error('disk full'))
+  const store = createDesktopSettingsStore(invoke)
+  await store.getState().hydrate()
+  await store.getState().save({ theme: 'light' })
+  expect(store.getState().settings.theme).toBe('dark')
+  expect(store.getState().status).toBe('error')
+})

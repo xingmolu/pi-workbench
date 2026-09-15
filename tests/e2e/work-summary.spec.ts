@@ -153,6 +153,22 @@ async function run(command: string, prompt: string): Promise<void> {
   await draft.press('Enter')
 }
 
+test('light theme keeps the completed conversation and work details readable', async () => {
+  await run('/work-fixture', '浅色主题阅读检查：请读取测试文件并报告结果。')
+  await expect(page.locator('.assistant-node').last()).toContainText('检查完成')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '外观', exact: true }).click()
+  await page.getByLabel('主题', { exact: true }).selectOption('light')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
+  await page.locator('.work-summary-trigger').first().click()
+  await expect(page.locator('.work-summary-content').first()).toBeVisible()
+  await expect(page.locator('.assistant-node').last()).toContainText('检查完成')
+  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('继续检查文件内容')
+  expect(await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).evaluate(el => getComputedStyle(el).outlineStyle)).toBe('none')
+  await page.screenshot({ path: 'artifacts/e2e/theme-light-conversation.png' })
+})
+
 test('composer focus stays neutral and bottom shortcut floats without layout shift', async () => {
   await run('/work-fixture', '验证阅读导航\n'.repeat(70))
   await expect(page.locator('.assistant-node').last()).toContainText('检查完成')

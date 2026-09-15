@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { highlightCode, highlightLanguage, type CodeToken } from '../lib/code-highlight'
+import { useResolvedTheme } from '../store/theme'
 
 export function HighlightedCode({
   text,
@@ -15,20 +16,27 @@ export function HighlightedCode({
   streaming?: boolean
 }): React.JSX.Element {
   const lang = highlightLanguage(language, filename)
-  const [result, setResult] = useState<{ text: string; lang: string; tokens: CodeToken[] } | null>(
-    null
-  )
+  const theme = useResolvedTheme()
+  const [result, setResult] = useState<{
+    text: string
+    lang: string
+    theme: string
+    tokens: CodeToken[]
+  } | null>(null)
   useEffect(() => {
     let active = true
     if (!streaming && lang)
-      void highlightCode(text, lang).then((tokens) => {
-        if (active) setResult(tokens ? { text, lang, tokens } : null)
+      void highlightCode(text, lang, theme).then((tokens) => {
+        if (active) setResult(tokens ? { text, lang, theme, tokens } : null)
       })
     return () => {
       active = false
     }
-  }, [text, lang, streaming])
-  const tokens = !streaming && result?.text === text && result.lang === lang ? result.tokens : null
+  }, [text, lang, streaming, theme])
+  const tokens =
+    !streaming && result?.text === text && result.lang === lang && result.theme === theme
+      ? result.tokens
+      : null
   const lines = useMemo(() => {
     // Keep the existing full-text fallback bounded for newline-heavy files.
     if (!lineNumbers || text.split('\n').length > 10_000) return null
