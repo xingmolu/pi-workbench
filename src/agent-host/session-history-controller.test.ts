@@ -14,6 +14,26 @@ import {
 } from './session-history-controller'
 
 describe('live canonical history', () => {
+  it('reopened history does not resurrect an unfinished tool as a live queue', () => {
+    const manager = SessionManager.inMemory('/tmp/pi-history-incomplete')
+    manager.appendMessage(
+      fauxAssistantMessage(
+        fauxToolCall('write', { path: 'not-run.txt', content: 'x' }, { id: 'unfinished' }),
+        { stopReason: 'toolUse' }
+      )
+    )
+    const projection = new ConversationProjection()
+    const history = new SessionHistoryController(projection)
+    history.bind(manager, 1)
+    expect(projection.view().find((node) => node.type === 'tool')).toMatchObject({
+      status: 'incomplete'
+    })
+    history.start(fauxAssistantMessage('next turn'))
+    history.refresh()
+    expect(projection.view().find((node) => node.type === 'tool')).toMatchObject({
+      status: 'incomplete'
+    })
+  })
   it('keeps bounded presentation keys through commit and refresh, with unique repeated tools and branch/detach cleanup', () => {
     const manager = SessionManager.inMemory('/tmp/pi-history-presentation')
     const anchor = manager.appendMessage({ role: 'user', content: 'anchor', timestamp: 10 })

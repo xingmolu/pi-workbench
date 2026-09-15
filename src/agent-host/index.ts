@@ -338,7 +338,9 @@ class PiDesktopHost {
       change.status === 'pending'
         ? this.toolExecution.approvalPending(change.request.toolCallId)
         : change.status === 'allowed'
-          ? this.toolExecution.approvalAllowed(change.request.toolCallId, Date.now())
+          ? requiresToolApproval('ask', change.request.toolName)
+            ? this.toolExecution.waitingForResource(change.request.toolCallId)
+            : this.toolExecution.approvalAllowed(change.request.toolCallId, Date.now())
           : this.toolExecution.approvalBlocked(change.request.toolCallId)
     this.updateToolNode(change.request.toolCallId, state)
     this.emitPatch()
@@ -760,8 +762,11 @@ class PiDesktopHost {
             if (event.toolName !== 'browser') {
               const sessionId = this.runtime?.session.sessionManager.getSessionId()
               if (!sessionId) return { block: true, reason: '会话已结束' }
+              this.updateToolNode(event.toolCallId, this.toolExecution.waitingForResource(event.toolCallId))
+              this.emitPatch()
               try { await this.mutations.acquire(event.toolCallId, { sessionId, generation: this.sessionGeneration }) }
               catch { return { block: true, reason: '项目操作已取消' } }
+              this.updateToolNode(event.toolCallId, this.toolExecution.executionStarted(event.toolCallId, Date.now()))
             }
             return undefined
           } finally {
@@ -959,7 +964,10 @@ class PiDesktopHost {
         }, async (callId, signal) => {
           const sessionId = this.runtime?.session.sessionManager.getSessionId()
           if (!sessionId) throw new Error('会话已结束')
+          this.updateToolNode(callId, this.toolExecution.waitingForResource(callId))
+          this.emitPatch()
           await this.mutations.acquire(callId, { sessionId, generation: this.sessionGeneration }, signal)
+          this.updateToolNode(callId, this.toolExecution.executionStarted(callId, Date.now()))
           return () => this.mutations.release(callId)
         })
       const services = await sdk.createAgentSessionServices({
@@ -1013,6 +1021,10 @@ class PiDesktopHost {
         model: selected,
         tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'mcp']
       })
+      // Pi's parallel batch prepares every tool before executing any. Acquiring a
+      // project lease during preparation would otherwise deadlock the second tool.
+      // Serialize within this session; independent session workers still overlap.
+      result.session.agent.toolExecution = 'sequential'
       this.mcpRuntimes.set(result.session, mcp)
       return { ...result, services, diagnostics: services.diagnostics }
     }
@@ -1253,7 +1265,7 @@ class PiDesktopHost {
           event.toolCallId,
           this.toolExecution.start(
             event.toolCallId,
-            requiresToolApproval(this.permissionMode, event.toolName),
+            requiresToolApproval('ask', event.toolName),
             now
           )
         )

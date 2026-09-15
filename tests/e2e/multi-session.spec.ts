@@ -185,6 +185,11 @@ test('approvals belong to each conversation and same-project tools execute seria
   await select(b)
   await expect(page.getByRole('button', { name: '允许一次', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '允许一次', exact: true }).click()
+  await expect.poll(() => page.evaluate(async () =>
+    (await window.pi.getState()).nodes.some(node => node.type === 'tool' && node.status === 'waiting-resource' && node.durationMs === undefined)
+  )).toBe(true)
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('等待项目资源')
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('正在工作', { timeout: 6000 })
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 20000 })
     .toBe(false)

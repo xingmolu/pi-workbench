@@ -49,6 +49,8 @@ const toolIntentSchema = z.enum(['terminal', 'read', 'diff', 'search', 'web', 'g
 const toolStatusSchema = z.enum([
   'queued',
   'awaiting-approval',
+  'waiting-resource',
+  'incomplete',
   'running',
   'success',
   'error',

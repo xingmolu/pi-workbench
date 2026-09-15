@@ -32,7 +32,7 @@ export type PermissionMode = 'open' | 'ask'
 export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'generic'
 
 export type ToolStatus =
-  'queued' | 'awaiting-approval' | 'running' | 'success' | 'error' | 'blocked'
+  'queued' | 'awaiting-approval' | 'waiting-resource' | 'running' | 'success' | 'error' | 'blocked' | 'incomplete'
 
 export type SessionStatus = 'idle' | 'running' | 'awaiting-approval' | 'error' | 'stopped'
 

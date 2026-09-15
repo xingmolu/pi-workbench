@@ -31,10 +31,15 @@ export function workPresentation(
       node.type === 'tool' && ['awaiting-approval', 'error', 'blocked'].includes(node.status)
   )
   const active = nodes.findLast((node) => node.type === 'tool' && node.status === 'running')
+  const waiting = nodes.findLast(
+    (node) => node.type === 'tool' && node.status === 'waiting-resource'
+  )
   // Tool durations can overlap; run totals and transcript timestamps are not segment clocks.
   return {
     label: running
-      ? `正在工作…${active?.type === 'tool' ? ` · ${active.title}` : ''}`
+      ? !active && waiting?.type === 'tool'
+        ? `等待项目资源… · ${waiting.title}`
+        : `正在工作…${active?.type === 'tool' ? ` · ${active.title}` : ''}`
       : `工作过程 · ${nodes.length} 项`,
     requiresAttention
   }

@@ -61,6 +61,51 @@ test.beforeEach(async () => {
       pi.registerCommand('stop-fixture', { description:'Offline thinking stop', handler:async () => {
         faux.setResponses([fauxAssistantMessage(fauxThinking('持续检查中。'.repeat(200)))]);
       }});
+      pi.registerCommand('separate-fixture', { description:'Same commands in separate model responses', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage(fauxToolCall('bash', {command:'printf FIRST'}, {id:'separate-one'}), {stopReason:'toolUse'}),
+          fauxAssistantMessage(fauxToolCall('bash', {command:'printf SECOND'}, {id:'separate-two'}), {stopReason:'toolUse'}),
+          fauxAssistantMessage('PAIR_COMPLETE')
+        ]);
+      }});
+      pi.registerCommand('pair-fixture', { description:'Minimal same-response mutation pair', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([
+            fauxToolCall('bash', {command:'printf FIRST'}, {id:'pair-one'}),
+            fauxToolCall('bash', {command:'printf SECOND'}, {id:'pair-two'})
+          ], {stopReason:'toolUse'}),
+          fauxAssistantMessage('PAIR_COMPLETE')
+        ]);
+      }});
+      pi.registerCommand('mixed-fixture', { description:'Ordered write edit bash batch', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([
+            fauxToolCall('write', {path:'mixed.txt',content:'before'}, {id:'mixed-write'}),
+            fauxToolCall('edit', {path:'mixed.txt',oldText:'before',newText:'after'}, {id:'mixed-edit'}),
+            fauxToolCall('bash', {command:'cat mixed.txt'}, {id:'mixed-bash'})
+          ], {stopReason:'toolUse'}),
+          fauxAssistantMessage('MIXED_COMPLETE')
+        ]);
+      }});
+      pi.registerCommand('slow-batch-fixture', { description:'Abort before a queued write', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([
+            fauxToolCall('bash', {command:'sleep 10'}, {id:'slow-first'}),
+            fauxToolCall('write', {path:'must-not-exist.txt',content:'unexpected'}, {id:'never-write'})
+          ], {stopReason:'toolUse'}),
+          fauxAssistantMessage('SLOW_COMPLETE')
+        ]);
+      }});
+      pi.registerCommand('batch-fixture', { description:'Three mutations in one model response', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([
+            fauxToolCall('bash', {command:'printf FIRST'}, {id:'batch-one'}),
+            fauxToolCall('bash', {command:'printf EXPECTED_FAILURE; exit 7'}, {id:'batch-two'}),
+            fauxToolCall('bash', {command:'printf RECOVERED'}, {id:'batch-three'})
+          ], {stopReason:'toolUse'}),
+          fauxAssistantMessage('BATCH_COMPLETE')
+        ]);
+      }});
     }
   `
   )
@@ -141,6 +186,68 @@ test('rejection, tool errors and stopped notices remain visible', async () => {
   await expect(page.locator('.stopped-node')).toBeVisible()
 })
 
+test('error details and their work group can be collapsed after acknowledgement', async () => {
+  await run('/failure-fixture', '读取不存在文件后收起过程')
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  const tool = page.locator('.tool-node.is-error .tool-trigger')
+  await expect(tool).toHaveAttribute('aria-expanded', 'true')
+  await tool.click()
+  await expect(tool).toHaveAttribute('aria-expanded', 'false')
+  const group = page.locator('.work-summary-trigger').last()
+  await group.click()
+  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator('.assistant-node').last()).toBeVisible()
+})
+
+for (const mode of ['ask', 'open'] as const)
+  test(`mixed write edit bash batch completes in ${mode}`, async () => {
+    await page.evaluate((mode) => window.pi.send({ type: 'permission:set', mode }), mode)
+    await run('/mixed-fixture', '顺序写入编辑读取')
+    if (mode === 'ask')
+      for (let i = 0; i < 3; i++) {
+        await page.getByRole('button', { name: '允许一次', exact: true }).click()
+      }
+    await expect
+      .poll(() => page.evaluate(async () => (await window.pi.getState()).busy))
+      .toBe(false)
+    expect(await readFile(join(project, 'mixed.txt'), 'utf8')).toBe('after')
+    await expect(page.locator('.assistant-node').last()).toContainText('MIXED_COMPLETE')
+  })
+
+test('denying one command does not strand the next command in a batch', async () => {
+  await run('/pair-fixture', '拒绝第一条后继续第二条')
+  await page.getByRole('button', { name: '拒绝', exact: true }).click()
+  await page.getByRole('button', { name: '允许一次', exact: true }).click()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  await expect(page.locator('.assistant-node').last()).toContainText('PAIR_COMPLETE')
+  const blocked = page.locator('.tool-node.is-blocked .tool-trigger')
+  await blocked.click()
+  await expect(blocked).toHaveAttribute('aria-expanded', 'false')
+})
+
+test('stop cancels the remaining batch without executing its queued write', async () => {
+  await run('/slow-batch-fixture', '停止后不应写入')
+  await page.getByRole('button', { name: '允许一次', exact: true }).click()
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('正在工作', {
+    timeout: 2000
+  })
+  await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  await expect(readFile(join(project, 'must-not-exist.txt'), 'utf8')).rejects.toThrow()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.pi.getState()).nodes.filter(
+            (n) =>
+              n.type === 'tool' &&
+              ['queued', 'running', 'waiting-resource', 'awaiting-approval'].includes(n.status)
+          ).length
+      )
+    )
+    .toBe(0)
+})
+
 async function capture(name: string): Promise<void> {
   await page.evaluate(
     () =>
@@ -151,6 +258,102 @@ async function capture(name: string): Promise<void> {
   )
   await writeFile(resolve(`artifacts/e2e/${name}.png`), Buffer.from(png, 'base64'))
 }
+
+for (const width of [960, 1440])
+  test(`diagnostic: inner thinking repeatedly collapses during streaming and after stop at ${width}`, async () => {
+    await app.evaluate(
+      ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]!.setSize(width, 900),
+      width
+    )
+    await run('/stop-fixture', '反复展开收起思考')
+    await page.locator('.work-summary-trigger').last().click()
+    const think = page.locator('.think-trigger').last()
+    for (let i = 0; i < 8; i++) {
+      await think.click()
+      await expect(think).toHaveAttribute('aria-expanded', 'true')
+      await think.click()
+      await expect(think).toHaveAttribute('aria-expanded', 'false')
+      await expect(page.locator('.think-content')).toBeHidden()
+    }
+    await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
+    await expect
+      .poll(() => page.evaluate(async () => (await window.pi.getState()).busy))
+      .toBe(false)
+    await think.click()
+    await think.press('Space')
+    await expect(think).toHaveAttribute('aria-expanded', 'false')
+    await capture(`diagnostic-thinking-collapsed-${width}`)
+  })
+
+test('diagnostic: three approved bash calls in one response finish without a stuck queue', async () => {
+  await run('/batch-fixture', '批量命令失败后继续')
+  try {
+    for (let i = 0; i < 3; i++) {
+      await test.step(`approve command ${i + 1}`, async () => {
+        await page
+          .locator('.approval-card')
+          .getByRole('button', { name: '允许一次', exact: true })
+          .first()
+          .click({ timeout: 8000 })
+      })
+    }
+    await expect
+      .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 10000 })
+      .toBe(false)
+    await expect(page.locator('.assistant-node').last()).toContainText('BATCH_COMPLETE')
+  } finally {
+    const summary = page.locator('.work-summary-trigger').last()
+    if ((await summary.getAttribute('aria-expanded')) === 'false') await summary.click()
+    await capture('diagnostic-batch-tools')
+  }
+})
+
+for (const mode of ['pair', 'separate'])
+  test(`diagnostic: ${mode} two successful bash calls complete`, async () => {
+    await run(`/${mode}-fixture`, '两条成功命令')
+    for (let i = 0; i < 2; i++) {
+      await page
+        .locator('.approval-card')
+        .getByRole('button', { name: '允许一次', exact: true })
+        .first()
+        .click()
+    }
+    try {
+      await expect
+        .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 5000 })
+        .toBe(false)
+      await expect(page.locator('.assistant-node').last()).toContainText('PAIR_COMPLETE')
+    } finally {
+      await page.locator('.work-summary-trigger').last().click()
+      await capture(`diagnostic-minimal-${mode}`)
+    }
+  })
+
+test('diagnostic: stop interrupts a same-response mutation wait', async () => {
+  await run('/pair-fixture', '停止等待的命令')
+  for (let i = 0; i < 2; i++) {
+    await page
+      .locator('.approval-card')
+      .getByRole('button', { name: '允许一次', exact: true })
+      .first()
+      .click()
+  }
+  await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 5000 })
+    .toBe(false)
+  await run('/separate-fixture', '停止后重新执行')
+  for (let i = 0; i < 2; i++) {
+    await page
+      .locator('.approval-card')
+      .getByRole('button', { name: '允许一次', exact: true })
+      .first()
+      .click({ timeout: 8000 })
+  }
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 5000 })
+    .toBe(false)
+})
 
 for (const width of [960, 1440]) {
   test(`offline SDK work collapses and expands with answers visible at ${width}`, async () => {

@@ -103,6 +103,7 @@ export class SessionHistoryController {
   private currentTools = new Map<string, string>()
   private presentationAliases = new Map<string, string>()
   private unsubscribe: (() => void) | null = null
+  private running = false
 
   constructor(private readonly projection: ConversationProjection) {}
 
@@ -124,6 +125,11 @@ export class SessionHistoryController {
     const publicUnsubscribe = session.subscribe((event) => {
       if (!current()) return
       callbacks.quarantine.run(() => {
+        if (event.type === 'agent_start') this.running = true
+        if (event.type === 'agent_settled') {
+          this.running = false
+          this.refresh()
+        }
         if (event.type === 'message_start') this.start(event.message)
         else if (event.type === 'message_end') this.end(event.message)
         callbacks.onEvent(event)
@@ -153,6 +159,7 @@ export class SessionHistoryController {
     this.unsubscribe?.()
     this.unsubscribe = null
     this.manager = null
+    this.running = false
     this.objects = new WeakMap()
     this.temporary.clear()
     this.active = null
@@ -163,6 +170,7 @@ export class SessionHistoryController {
 
   start(message: Message): void {
     if (!this.manager || !supportsTemporaryHistory(message)) return
+    this.running = true
     const occurrence = {
       id: `${this.generation}-${++this.sequence}`,
       message,
@@ -248,6 +256,18 @@ export class SessionHistoryController {
       temporaryMessages: [...this.temporary.values()],
       toolOverlays: this.overlays
     })
+    // A missing receipt is not a live queue once the run has settled (or after
+    // reopening history). Do not invent success or claim the operation ran.
+    if (!this.running)
+      for (const node of nodes) {
+        if (
+          node.type === 'tool' &&
+          ['queued', 'running', 'waiting-resource', 'awaiting-approval'].includes(node.status)
+        ) {
+          node.status = 'incomplete'
+          this.overlays.set(node.id, { ...this.overlays.get(node.id), status: 'incomplete' })
+        }
+      }
     const activeIds = new Set(nodes.map((node) => node.id))
     for (const id of this.presentationAliases.keys())
       if (!activeIds.has(id)) this.presentationAliases.delete(id)

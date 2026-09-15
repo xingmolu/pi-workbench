@@ -78,6 +78,11 @@ it('keeps queued-only work generic and historical queued work inactive', () => {
   expect(workPresentation([queued]).label).toBe('工作过程 · 1 项')
 })
 
+it('explains resource waiting even when work details are collapsed', () => {
+  const waiting: WorkNode = { ...tool('waiting'), status: 'waiting-resource', title: '写入文件' }
+  expect(workPresentation([waiting], true).label).toBe('等待项目资源… · 写入文件')
+})
+
 it('preserves model, compaction, user, stop and error boundaries in order', () => {
   const boundaries: ConversationNode[] = [
     { id: 'u', type: 'user', text: 'question' },

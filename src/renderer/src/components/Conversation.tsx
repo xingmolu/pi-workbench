@@ -100,6 +100,8 @@ const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
 const STATUS_LABEL = {
   queued: '排队中',
   'awaiting-approval': '等待确认',
+  'waiting-resource': '等待项目资源',
+  incomplete: '未完成',
   running: '运行中',
   success: '完成',
   error: '失败',
@@ -135,13 +137,13 @@ const ToolNode = memo(function ToolNode({
   activeApproval: ApprovalRequest | null
   onApproval: (id: string, allow: boolean) => void
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<boolean | null>(null)
   const Icon = TOOL_ICON[node.intent]
   const meta = toolMetaDisplay(node)
   return (
     <Collapsible.Root
       className={`tool-node is-${node.status}`}
-      open={open || Boolean(activeApproval) || node.status === 'error' || node.status === 'blocked'}
+      open={Boolean(activeApproval) || (open ?? (node.status === 'error' || node.status === 'blocked'))}
       onOpenChange={setOpen}
     >
       <Collapsible.Trigger className="tool-trigger">
