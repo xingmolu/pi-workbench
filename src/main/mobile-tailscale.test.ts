@@ -97,7 +97,7 @@ describe('tailscale probe', () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
-  it('maps ENOENT from the resolved binary to the missing-CLI message', async () => {
+  it('keeps the spawn error when a resolved binary itself fails', async () => {
     const exec = vi.fn(async () => {
       throw Object.assign(new Error('spawn /opt/homebrew/bin/tailscale ENOENT'), { code: 'ENOENT' })
     })
@@ -106,7 +106,8 @@ describe('tailscale probe', () => {
       resolveBinary: async () => '/opt/homebrew/bin/tailscale'
     })
     expect(status.available).toBe(false)
-    expect(status.error).toBe(MISSING_TAILSCALE_CLI)
+    expect(status.binary).toBe('/opt/homebrew/bin/tailscale')
+    expect(status.error).toMatch(/ENOENT/)
   })
 })
 

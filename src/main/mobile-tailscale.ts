@@ -218,7 +218,7 @@ export async function probeTailscale(
       magicDns: null,
       serveUrl: null,
       binary,
-      error: missing ? MISSING_TAILSCALE_CLI : message
+      error: !binary && missing ? MISSING_TAILSCALE_CLI : message
     }
   }
 }

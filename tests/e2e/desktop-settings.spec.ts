@@ -6,12 +6,13 @@ import {
   type Page
 } from '@playwright/test'
 import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
 let app: ElectronApplication, page: Page, root: string
 async function launch(extraEnv: Record<string, string> = {}) {
+  const xauthority = process.env.XAUTHORITY || join(homedir(), '.Xauthority')
   app = await electron.launch({
     args: [resolve('.')],
     cwd: root,
@@ -26,6 +27,8 @@ async function launch(extraEnv: Record<string, string> = {}) {
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data'),
       PI_CODING_AGENT_DIR: join(root, 'agent'),
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
+      ...(xauthority ? { XAUTHORITY: xauthority } : {}),
       ...extraEnv
     }
   })
@@ -284,40 +287,35 @@ test('mobile Tailscale settings resolve a PATH CLI, enable Serve, and copy the U
   await page.getByRole('button', { name: '手机', exact: true }).click()
   await page.getByRole('button', { name: '检测', exact: true }).click()
   await expect(page.getByRole('button', { name: '开启 Tailscale Serve' })).toBeDisabled()
-  await expect(page.getByText(/未找到 Tailscale CLI/)).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('未找到 Tailscale CLI')
 
   const binDir = join(root, 'bin')
   await mkdir(binDir, { recursive: true })
   const serveState = join(root, 'tailscale-serve-state')
   await writeFile(
     join(binDir, 'tailscale'),
-    `#!/usr/bin/env node
-const fs = require('fs')
-const args = process.argv.slice(2)
-const state = ${JSON.stringify(serveState)}
-const on = () => {
-  try { return fs.readFileSync(state, 'utf8') === 'on' } catch { return false }
-}
-if (args[0] === 'status') {
-  process.stdout.write(JSON.stringify({
-    BackendState: 'Running',
-    Self: { DNSName: 'my-mac.tail123.ts.net.', Online: true }
-  }))
-  process.exit(0)
-}
-if (args[0] === 'serve' && args[1] === 'status') {
-  process.stdout.write(JSON.stringify(on() ? { URL: 'https://my-mac.tail123.ts.net' } : {}))
-  process.exit(0)
-}
-if (args[0] === 'serve' && args[1] === '--bg') {
-  fs.writeFileSync(state, 'on')
-  process.exit(0)
-}
-if (args[0] === 'serve' && args[1] === 'off') {
-  fs.writeFileSync(state, 'off')
-  process.exit(0)
-}
-process.exit(0)
+    `#!/bin/sh
+state=${JSON.stringify(serveState)}
+on() { [ -f "$state" ] && [ "$(cat "$state")" = "on" ]; }
+if [ "$1" = "status" ]; then
+  printf '%s' '{"BackendState":"Running","Self":{"DNSName":"my-mac.tail123.ts.net.","Online":true}}'
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "status" ]; then
+  if on; then printf '%s' '{"URL":"https://my-mac.tail123.ts.net"}'
+  else printf '%s' '{}'
+  fi
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "--bg" ]; then
+  printf 'on' > "$state"
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "off" ]; then
+  printf 'off' > "$state"
+  exit 0
+fi
+exit 0
 `
   )
   await chmod(join(binDir, 'tailscale'), 0o755)
@@ -337,4 +335,4 @@ process.exit(0)
   await expect(page.locator('.mobile-tailscale-status').getByRole('button', { name: '已复制' })).toBeVisible()
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
   await page.screenshot({ path: 'artifacts/e2e/mobile-tailscale-serve.png' })
-}))
+})
