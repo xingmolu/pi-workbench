@@ -16,6 +16,7 @@ nsis:
   shortcutName: ${productName}
 mac:
   identity: "-"
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
