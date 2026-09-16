@@ -16,6 +16,14 @@ describe('canCreateSession', () => {
 })
 
 describe('projectSessionTitle', () => {
+  it('uses a short first line for automatic titles', () => {
+    expect(
+      projectSessionTitle({ firstMessage: '打包验收：跨模型上下文\n不要调用工具，详细测试要求' })
+    ).toBe('打包验收：跨模型上下文')
+    expect(
+      [...projectSessionTitle({ firstMessage: '中文🙂'.repeat(60) })].length
+    ).toBeLessThanOrEqual(49)
+  })
   it('uses the first message when an old session still has the placeholder name', () => {
     expect(
       projectSessionTitle({ name: '新会话', firstMessage: 'Fix the project restore race' })

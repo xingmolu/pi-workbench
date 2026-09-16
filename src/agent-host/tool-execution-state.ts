@@ -30,6 +30,14 @@ export class ToolExecutionState {
     return this.set(toolCallId, { status: 'awaiting-approval' })
   }
 
+  waitingForResource(toolCallId: string): ToolExecutionProjection {
+    return this.set(toolCallId, { status: 'waiting-resource' })
+  }
+
+  executionStarted(toolCallId: string, now: number): ToolExecutionProjection {
+    return this.set(toolCallId, { status: 'running', startedAt: now })
+  }
+
   approvalAllowed(toolCallId: string, now: number): ToolExecutionProjection {
     return this.set(toolCallId, { status: 'running', startedAt: now })
   }

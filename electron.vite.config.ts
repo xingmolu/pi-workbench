@@ -99,6 +99,9 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           'agent-host': resolve(__dirname, 'src/agent-host/index.ts'),
+          'terminal-host': resolve(__dirname, 'src/terminal-host/index.ts'),
+          'browser-targets': resolve(__dirname, 'src/main/browser-targets.ts'),
+          'browser-manager': resolve(__dirname, 'src/main/browser-manager.ts'),
           'electron-store-interop': resolve(__dirname, 'src/main/electron-store-interop.ts')
         }
       }
@@ -124,9 +127,10 @@ export default defineConfig({
       strictPort: true
     },
     resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer/src')
-      }
+      alias: [
+        { find: '@renderer', replacement: resolve('src/renderer/src') },
+        { find: /^shiki$/, replacement: resolve('src/renderer/src/lib/shiki-bundle.ts') }
+      ]
     },
     plugins: [react()]
   }

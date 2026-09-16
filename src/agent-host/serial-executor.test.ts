@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HostCommand } from '../shared/contracts'
 import { SerialExecutor } from './serial-executor'
+import { assertPromptIdentity } from './session-fork'
 import {
   runPreparedSessionReplacement,
   runSessionReplacement,
@@ -16,6 +17,77 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('SerialExecutor', () => {
+  it('serializes edit preparation/send while query, cancel and Stop remain nonblocking', () => {
+    expect(
+      usesSessionTransition({
+        type: 'session:edit:prepare',
+        sessionId: 's',
+        generation: 1,
+        entryId: 'user',
+        leafId: null
+      })
+    ).toBe(true)
+    expect(
+      usesSessionTransition({
+        type: 'session:edit:send',
+        token: 't',
+        submissionId: 'id',
+        text: 'x'
+      })
+    ).toBe(true)
+    expect(usesSessionTransition({ type: 'session:edit:query', submissionId: 'id' })).toBe(false)
+    expect(usesSessionTransition({ type: 'session:edit:cancel', token: 't' })).toBe(false)
+  })
+  it('serializes endpoint save with login starts and aliases but leaves OAuth and permission responders nonblocking', async () => {
+    expect(
+      usesSessionTransition({
+        type: 'endpoint:save',
+        context: { projectPath: null, sessionId: null, generation: 0 },
+        request: {
+          expectedRevision: '0',
+          endpoint: {
+            label: 'test',
+            api: 'openai-completions',
+            baseUrl: 'https://example.invalid',
+            modelIds: ['a'],
+            key: 'fixture'
+          }
+        }
+      })
+    ).toBe(true)
+    expect(
+      usesSessionTransition({
+        type: 'account:login',
+        providerId: 'openai-codex',
+        method: 'browser'
+      })
+    ).toBe(true)
+    expect(usesSessionTransition({ type: 'account:alias:add', slug: 'work' })).toBe(true)
+    expect(usesSessionTransition({ type: 'account:login:respond', promptId: 'login' })).toBe(false)
+    expect(
+      usesSessionTransition({ type: 'permission:respond', approvalId: 'approve', allow: true })
+    ).toBe(false)
+    expect(usesSessionTransition({ type: 'prompt:abort' })).toBe(false)
+    const executor = new SerialExecutor()
+    const gate = deferred<void>()
+    const calls: string[] = []
+    const save = executor.run(async () => {
+      calls.push('save:start')
+      await gate.promise
+      calls.push('save:refresh')
+    })
+    const login = executor.run(async () => {
+      calls.push('login:start')
+    })
+    const alias = executor.run(async () => {
+      calls.push('alias:reload')
+    })
+    await Promise.resolve()
+    expect(calls).toEqual(['save:start'])
+    gate.resolve()
+    await Promise.all([save, login, alias])
+    expect(calls).toEqual(['save:start', 'save:refresh', 'login:start', 'alias:reload'])
+  })
   it('preserves request order when underlying work completes in reverse order', async () => {
     const executor = new SerialExecutor()
     const firstGate = deferred<string>()
@@ -55,10 +127,25 @@ describe('SerialExecutor', () => {
         modelId: 'gpt-5.6-sol'
       })
     ]).toEqual([true, true, true, true])
-    expect(usesSessionTransition({ type: 'prompt:send', text: 'hello' })).toBe(true)
+    expect(
+      usesSessionTransition({
+        type: 'prompt:send',
+        text: 'hello',
+        sessionId: 'source',
+        generation: 1
+      })
+    ).toBe(true)
+    expect(
+      usesSessionTransition({
+        type: 'session:rename',
+        sessionId: 'session-1',
+        generation: 4,
+        name: '新名字'
+      })
+    ).toBe(true)
   })
 
-  it('targets the rebound session when a prompt arrives during session:new', async () => {
+  it('rejects an old prompt queued during session:new and accepts an explicitly scoped child prompt', async () => {
     const executor = new SerialExecutor()
     const bindNewSession = deferred<void>()
     const outgoingSession = {
@@ -88,17 +175,34 @@ describe('SerialExecutor', () => {
         activeSession = incomingSession
       }
     )
-    const prompt = dispatch({ type: 'prompt:send', text: 'hello new session' }, async () => {
-      await activeSession.prompt('hello new session')
-    })
+    const expected = { sessionId: 'source', generation: 1 }
+    const prompt = dispatch(
+      { type: 'prompt:send', text: 'hello new session', ...expected },
+      async () => {
+        assertPromptIdentity(
+          expected,
+          activeSession === outgoingSession ? expected : { sessionId: 'child', generation: 2 }
+        )
+        await activeSession.prompt('hello new session')
+      }
+    )
 
     await Promise.resolve()
     expect(outgoingSession.prompt).not.toHaveBeenCalled()
     expect(incomingSession.prompt).not.toHaveBeenCalled()
 
     bindNewSession.resolve()
-    await Promise.all([replacement, prompt])
+    await replacement
+    await expect(prompt).rejects.toThrow('会话已切换')
     expect(outgoingSession.prompt).not.toHaveBeenCalled()
+    expect(incomingSession.prompt).not.toHaveBeenCalled()
+    await executor.run(async () => {
+      assertPromptIdentity(
+        { sessionId: 'child', generation: 2 },
+        { sessionId: 'child', generation: 2 }
+      )
+      await activeSession.prompt('hello new session')
+    })
     expect(incomingSession.prompt).toHaveBeenCalledWith('hello new session')
   })
 

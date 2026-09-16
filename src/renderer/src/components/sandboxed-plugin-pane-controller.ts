@@ -27,17 +27,17 @@ export function createSandboxedPluginPaneController(
   let queuedBounds: WorkbenchBounds | null = null
   let suspended = false
 
-  const sendHide = (reportError: boolean): void => {
+  const sendHide = (): void => {
     try {
       void Promise.resolve(
         options.send({ type: 'view:set', viewId: options.viewId, visible: false })
       ).catch((error: unknown) => {
-        if (reportError || !isExpectedHideCancellation(error)) {
+        if (!isExpectedHideCancellation(error)) {
           options.onError?.('无法隐藏插件面板。')
         }
       })
     } catch (error) {
-      if (reportError || !isExpectedHideCancellation(error)) {
+      if (!isExpectedHideCancellation(error)) {
         options.onError?.('无法隐藏插件面板。')
       }
     }
@@ -49,7 +49,7 @@ export function createSandboxedPluginPaneController(
     inFlight = false
     queuedBounds = null
     suspended = true
-    sendHide(true)
+    sendHide()
   }
 
   const sendVisible = (bounds: WorkbenchBounds): void => {
@@ -98,7 +98,7 @@ export function createSandboxedPluginPaneController(
         inFlight = false
         queuedBounds = null
         suspended = true
-        sendHide(false)
+        sendHide()
       }
       disposed = true
       generation += 1

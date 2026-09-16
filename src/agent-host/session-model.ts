@@ -66,7 +66,12 @@ function modelIsAvailable(
 ): boolean {
   return (
     accounts.some((account) => account.id === identity.providerId && account.connected) &&
-    models.some((model) => model.provider === identity.providerId && model.id === identity.modelId)
+    models.some(
+      (model) =>
+        model.provider === identity.providerId &&
+        model.id === identity.modelId &&
+        !model.unavailableReason
+    )
   )
 }
 
@@ -78,7 +83,11 @@ export function validateExactModelSelection(
 ): ExactModelSelection {
   const account = accounts.find((item) => item.id === providerId)
   if (!account?.connected) throw new Error(`账号 ${providerId} 未登录`)
-  if (!models.some((model) => model.provider === providerId && model.id === modelId)) {
+  if (
+    !models.some(
+      (model) => model.provider === providerId && model.id === modelId && !model.unavailableReason
+    )
+  ) {
     throw new Error(`模型 ${providerId}/${modelId} 当前不可用`)
   }
   return { providerId, modelId }

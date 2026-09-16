@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { ToolExecutionState } from './tool-execution-state'
 
 describe('ToolExecutionState', () => {
+  it('does not count project resource waiting as execution time', () => {
+    const tools = new ToolExecutionState()
+    tools.start('waiting', true, 1000)
+    expect(tools.waitingForResource('waiting')).toEqual({ status: 'waiting-resource' })
+    expect(tools.executionStarted('waiting', 9000)).toEqual({ status: 'running' })
+    expect(tools.end('waiting', false, 9020)).toEqual({ status: 'success', durationMs: 20 })
+  })
   it('starts approved execution timing after approval, not preflight', () => {
     const tools = new ToolExecutionState()
 

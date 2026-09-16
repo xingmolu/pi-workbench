@@ -1,3 +1,4 @@
+import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
   expect,
@@ -475,7 +476,7 @@ async function revealSamplePlugin(
       (await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)
     )
     .toBe(true)
-  await page.getByTitle(sampleViewTitle).click()
+  await openWorkbenchTool(page, sampleViewTitle)
   await expect.poll(() => pluginViewInfo()).not.toBeNull()
   await expect
     .poll(() => executeInPlugin<boolean>('window.__piPluginE2E?.ready === true'))
@@ -645,30 +646,21 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       .poll(() =>
         page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
       )
-      .toBeGreaterThanOrEqual(50)
+      .toBe(0)
     await expect
       .poll(() =>
         page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
       )
-      .toBeLessThanOrEqual(54)
+      .toBe(0)
     await page.screenshot({ path: join(artifactDir, '01-empty.png') })
 
     await resizeWindow(960, 720)
     await page.getByRole('button', { name: '设置', exact: true }).click()
     await expect(page.locator('.settings-panel')).toBeVisible()
-    await expect(page.locator('aside.sidebar.is-collapsed')).toBeVisible()
-    await expect
-      .poll(() =>
-        page.locator('.sidebar').evaluate((element) => element.getBoundingClientRect().width)
-      )
-      .toBeLessThanOrEqual(58)
-    await expect
-      .poll(() =>
-        page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
-      )
-      .toBeLessThanOrEqual(342)
+    await expect(page.getByRole('dialog', { name: '设置', exact: true })).toBeVisible()
+    await expect(page.locator('aside.sidebar:not(.is-collapsed)')).toBeVisible()
     const settingsLayout = await page.evaluate(() => {
-      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      const stage = document.querySelector('.settings-dialog')?.getBoundingClientRect()
       const panel = document.querySelector('.settings-panel')?.getBoundingClientRect()
       const scroll = document.querySelector('.settings-scroll')
       if (!stage || !panel || !(scroll instanceof HTMLElement)) return null
@@ -684,13 +676,14 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(settingsLayout!.panel.right).toBeLessThanOrEqual(settingsLayout!.stage.right + 1)
     expect(settingsLayout!.panel.width).toBeLessThanOrEqual(settingsLayout!.stage.width + 1)
     expect(settingsLayout!.scrollWidth).toBeLessThanOrEqual(settingsLayout!.scrollClientWidth)
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const pluginReload = page.getByRole('button', { name: '重新加载' })
     await pluginReload.scrollIntoViewIfNeeded()
     await expect(pluginReload).toBeVisible()
     await expect(pluginReload).toBeEnabled()
     const reloadBounds = await pluginReload.evaluate((element) => {
       const control = element.getBoundingClientRect()
-      const stage = document.querySelector('.workbench-stage')?.getBoundingClientRect()
+      const stage = document.querySelector('.settings-dialog')?.getBoundingClientRect()
       return stage
         ? {
             left: control.left,
@@ -737,13 +730,13 @@ test.describe.serial('Pi Desktop real Electron app', () => {
 
     await page.getByTitle('关闭设置').click()
     await expect(page.locator('aside.sidebar[aria-label="项目和会话"]')).toBeVisible()
-    await expect(page.locator('.workbench.is-collapsed')).toBeVisible()
+    await expect(page.locator('.workbench.is-collapsed')).toHaveCount(1)
     await resizeWindow(1440, 900)
     await expect
       .poll(() =>
         page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
       )
-      .toBeLessThanOrEqual(54)
+      .toBe(0)
 
     const opened = await page.evaluate(async (projectPath) => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
@@ -758,7 +751,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(opened.snapshot.project?.path).toBe(paths.project)
     expect(opened.snapshot.accounts.every((account) => !account.connected)).toBe(true)
 
-    await expect(page.locator('.project-row strong')).toHaveText(basename(paths.project))
+    await expect(
+      page.locator('.project-group-toggle').filter({ hasText: basename(paths.project) })
+    ).toHaveAttribute('title', paths.project)
     await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
     const beforeSessionId = opened.snapshot.sessionId
     const beforeGeneration = opened.snapshot.generation
@@ -815,8 +810,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(state.accounts.every((account) => !account.connected)).toBe(true)
     await expectBaitUntouched()
     await expect(page.locator('aside.sidebar[aria-label="项目和会话"]')).toBeVisible()
-    await expect(page.locator('.workbench.is-collapsed')).toBeVisible()
-    await expect(page.locator('.project-row strong')).toHaveText(basename(paths.project))
+    await expect(page.locator('.workbench.is-collapsed')).toHaveCount(1)
+    await expect(
+      page.locator('.project-group-toggle').filter({ hasText: basename(paths.project) })
+    ).toHaveAttribute('title', paths.project)
     await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
     await expectNoRealIdentityInRenderer(page)
     await page.screenshot({ path: join(artifactDir, '04-restored.png') })
@@ -913,7 +910,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       surface: { kind: 'sandboxed-web' }
     })
 
-    await page.getByTitle(sampleViewTitle).click()
+    await openWorkbenchTool(page, sampleViewTitle)
     await expect(page.locator('.sandboxed-plugin-pane')).toBeVisible()
     await expect.poll(() => pluginViewInfo()).not.toBeNull()
     await expect
@@ -1042,9 +1039,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
 
     await executeInPlugin("document.querySelector('#increment').click()")
     await expect.poll(() => executeInPlugin<number>('window.__piPluginE2E.state?.count')).toBe(1)
-    await page.getByTitle('浏览器').click()
+    await openWorkbenchTool(page, '浏览器')
     await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(false)
-    await page.getByTitle(sampleViewTitle).click()
+    await openWorkbenchTool(page, sampleViewTitle)
     await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(true)
     const revealedView = (await pluginViewInfo())!
     expect(revealedView.id).toBe(actualView!.id)
@@ -1218,6 +1215,18 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     })
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: '设置', exact: true })).toBeVisible()
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(false)
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => (await pluginViewInfo())?.id).toBe(restoredAView.id)
+    await expect.poll(async () => (await pluginViewInfo())?.visible).toBe(true)
+    expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
+      bucket: 'project-a',
+      count: 11
+    })
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const pluginRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
     const desktopSwitch = pluginRow.getByRole('switch', {
       name: 'E2E Sandbox Plugin Desktop 面板'
@@ -1235,7 +1244,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await desktopSwitch.click()
     await expect(desktopSwitch).toHaveAttribute('aria-checked', 'false')
     await expectWebContentsDestroyed(restoredAView.id)
-    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: sampleViewTitle, exact: true })).toHaveCount(0)
     let disabledSnapshot = await workbenchSnapshot(page)
     expect(
       disabledSnapshot.plugins.find(({ pluginId }) => pluginId === samplePluginId)?.desktopEnabled
@@ -1263,7 +1272,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     ).toBe(false)
     await desktopSwitch.click()
     await expect(desktopSwitch).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(1)
+    expect((await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)).toBe(true)
     const enabledBeforeReload = await workbenchSnapshot(page)
     await page.getByRole('button', { name: '重新加载' }).click()
     await expect
@@ -1286,6 +1295,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         ?.hasExecutablePiResources
     ).toBe(false)
 
+    await page.getByRole('button', { name: '关闭设置', exact: true }).click()
     const enabledView = await revealSamplePlugin(page)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
       bucket: 'project-a',
@@ -1308,7 +1318,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
           }
         })
         .toEqual({ desktopEnabled: true, diagnostic: 'plugin-crashed' })
-      await page.getByTitle('浏览器').click()
+      await openWorkbenchTool(page, '浏览器')
       currentView = await revealSamplePlugin(page)
       expect(currentView.id).not.toBe(crashedId)
       expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
@@ -1320,7 +1330,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     const thirdCrashId = await forceCrashPluginView()
     await expectWebContentsDestroyed(thirdCrashId)
     expect(await pluginViewInfo()).toBeNull()
-    await expect(page.getByTitle(sampleViewTitle)).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: sampleViewTitle, exact: true })).toHaveCount(0)
     const crashDisabled = await workbenchSnapshot(page)
     const crashedPlugin = crashDisabled.plugins.find(({ pluginId }) => pluginId === samplePluginId)
     expect(crashedPlugin?.desktopEnabled).toBe(false)
@@ -1333,10 +1343,12 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     )
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
     const crashedRow = page.locator('.plugin-row').filter({ hasText: 'E2E Sandbox Plugin' })
     await expect(crashedRow.locator('code')).toContainText('plugin-crash-disabled')
+    await expect.poll(() => page.locator('.workbench-error').allTextContents()).toEqual([])
     await expect(page.locator('.conversation')).toBeVisible()
-    await expect(page.getByTitle('浏览器')).toHaveCount(1)
+    expect((await workbenchSnapshot(page)).contributions.some(({ title }) => title === '浏览器')).toBe(true)
     expect(
       await page.evaluate(() =>
         (window as unknown as Window & { pi: PiDesktopAPI }).pi
@@ -1368,7 +1380,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       viewId: BUILTIN_BROWSER_VIEW_ID,
       surface: { kind: 'native-view', adapter: 'browser' }
     })
-    await page.getByTitle(browserContribution!.title).click()
+    await openWorkbenchTool(page, browserContribution!.title)
     await expect(page.locator('.browser-pane')).toBeVisible()
     await expect(page.locator('.workbench:not(.is-collapsed)')).toBeVisible()
     await expect
@@ -1461,8 +1473,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(firstSnapshot.result?.kind).toBe('snapshot')
     if (firstSnapshot.result?.kind !== 'snapshot') throw new Error('snapshot result missing')
     expect(firstSnapshot.result.text).toContain('UNTRUSTED PAGE TEXT')
-    const inputRef = firstSnapshot.result.text.match(/(@e\d+) textbox "任务名称"/)?.[1]
-    expect(inputRef).toBeTruthy()
+    const inputRef = firstSnapshot.result.text.match(
+      /"token":"([0-9a-f-]{36}:\d+)","role":"textbox","name":"输入任务名称"/
+    )?.[1]
+    expect(inputRef, firstSnapshot.result.text).toBeTruthy()
 
     const fillResult = await page.evaluate(async (ref) => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
@@ -1479,7 +1493,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
           operation: { action: 'click', ref }
         })
       }, inputRef!)
-    ).rejects.toThrow('失效')
+    ).rejects.toThrow('重新 snapshot')
 
     const secondSnapshot = await page.evaluate(async () => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({
@@ -1488,7 +1502,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       })
     })
     if (secondSnapshot.result?.kind !== 'snapshot') throw new Error('second snapshot missing')
-    const runRef = secondSnapshot.result.text.match(/(@e\d+) button "执行任务"/)?.[1]
+    const runRef = secondSnapshot.result.text.match(
+      /"token":"([0-9a-f-]{36}:\d+)","role":"button","name":"执行任务"/
+    )?.[1]
     expect(runRef).toBeTruthy()
     const clickResult = await page.evaluate(async (ref) => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
@@ -1557,7 +1573,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       })
     })
     if (popupSnapshot.result?.kind !== 'snapshot') throw new Error('popup snapshot missing')
-    const popupRef = popupSnapshot.result.text.match(/(@e\d+) button "打开验证页"/)?.[1]
+    const popupRef = popupSnapshot.result.text.match(
+      /"token":"([0-9a-f-]{36}:\d+)","role":"button","name":"打开验证页"/
+    )?.[1]
     expect(popupRef).toBeTruthy()
     await page.evaluate(async (ref) => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
@@ -1614,8 +1632,27 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       )
       .toBe('project-profile')
 
-    await page.getByTitle('折叠工作台').click()
-    await expect(page.locator('.workbench.is-collapsed')).toBeVisible()
+    await page.getByRole('button', { name: '折叠工作台', exact: true }).click()
+    await expect(page.locator('.workbench.is-collapsed')).toHaveCount(1)
+    // The current compatibility bridge reveals asynchronously. A hidden-page
+    // request fails closed; readiness-before-prepare belongs to the next bridge stage.
+    await expect(
+      page.evaluate(async () => {
+        return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({
+          type: 'browser:e2e',
+          operation: { action: 'wait', text: '隐藏期间不得派发', timeoutMs: 10000 }
+        })
+      })
+    ).rejects.toThrow('重新 snapshot')
+    await expect(page.locator('.browser-pane')).toBeVisible()
+    await expect
+      .poll(async () => {
+        const state = await page.evaluate(() =>
+          (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({ type: 'state:get' })
+        )
+        return state.state.visible
+      })
+      .toBe(true)
     const waiting = page
       .evaluate(async () => {
         return (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({

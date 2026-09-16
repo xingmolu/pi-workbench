@@ -1,0 +1,213 @@
+.workbench-tabs-head {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  flex: 0 0 48px;
+  min-width: 0;
+  /* Keep the floating window action outside the native drag rectangle.
+     Padding/z-index alone leave this rectangle overlapping the action. */
+  margin-right: 48px;
+  padding: 0 0 0 8px;
+  border-bottom: 1px solid var(--line-soft);
+  -webkit-app-region: drag;
+}
+.workbench-tabs {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  gap: 3px;
+}
+.workbench-tab {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.workbench-tab[data-active='true'] {
+  background: var(--chip);
+  color: var(--text);
+}
+.workbench-tab button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.workbench-tab .workbench-tab-close {
+  padding: 7px 4px;
+}
+.workbench-add {
+  flex-shrink: 0;
+}
+.workbench-add-menu {
+  z-index: 100;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(360px, var(--radix-dropdown-menu-content-available-height));
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--raised);
+  box-shadow: 0 8px 30px #0003;
+  -webkit-app-region: no-drag;
+}
+.workbench-add-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+}
+.workbench-add-menu [data-highlighted] {
+  background: var(--chip);
+}
+.workbench-launcher {
+  display: flex;
+  flex: 0 1 240px;
+  flex-direction: column;
+  align-self: center;
+  justify-content: flex-start;
+  width: min(240px, 90%);
+  max-width: 90%;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  margin: auto;
+  gap: 4px;
+}
+.workbench-launcher button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--chip) 55%, var(--raised));
+  border: 0;
+  color: var(--text);
+  border-radius: 7px;
+  padding: 12px 16px;
+  text-align: left;
+}
+.workbench-launcher button > span,
+.workbench-add-menu [role='menuitem'] > span,
+.workbench-tab [role='tab'] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-tab [role='tab'] > span {
+  max-width: 140px;
+}
+.workbench-launcher svg,
+.workbench-add-menu svg,
+.workbench-tab svg {
+  flex-shrink: 0;
+}
+.workbench-launcher button:hover {
+  background: var(--chip);
+}
+.workbench-launcher button:focus-visible,
+.workbench-tab button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.workbench-toggle {
+  position: fixed;
+  right: 10px;
+  top: 9px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+.shell .conversation-head {
+  /* This header reaches the window edge when the workbench is collapsed. */
+  margin-right: 48px;
+  padding-right: 0;
+  height: 48px;
+  min-height: 48px;
+  flex: 0 0 48px;
+  flex-wrap: nowrap;
+}
+.conversation {
+  container: conversation / inline-size;
+}
+.shell .conversation-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .conversation-head-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.session-parent-action > svg {
+  display: none;
+}
+@container conversation (max-width: 900px) {
+  .shell .conversation-head {
+    gap: 8px;
+    padding-left: 16px;
+  }
+  .conversation-actions {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+  .conversation-actions .session-action > span {
+    display: none;
+  }
+  .conversation-actions .session-action {
+    padding: 6px;
+  }
+  .session-parent-action > svg {
+    display: block;
+  }
+  .conversation-head-meta > small,
+  .conversation-head-meta > .runtime-permission {
+    display: none;
+  }
+  .session-parent-unavailable {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+.workbench-stage {
+  position: relative;
+}
+.workspace-panels .workbench:not(.is-collapsed) .workbench-stage {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  box-shadow: none;
+}
+.workspace-panels .workbench.is-collapsed {
+  overflow: hidden;
+}
+.native-mac .sidebar-head {
+  padding-left: 82px;
+  min-height: 48px;
+}
+.native-mac .sidebar.is-collapsed {
+  padding-top: 48px;
+}
+.native-mac:has(.sidebar.is-collapsed) .conversation-head {
+  padding-left: 38px;
+}
+button,
+input,
+select,
+textarea,
+a,
+[role='tab'],
+[role='menuitem'] {
+  -webkit-app-region: no-drag;
+}

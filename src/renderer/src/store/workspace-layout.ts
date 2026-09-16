@@ -24,9 +24,9 @@ export function workspaceLayoutReducer(
       return state.settingsOpen
         ? state
         : {
-            sidebarCollapsed: true,
+            ...state,
             settingsOpen: true,
-            sidebarCollapsedBeforeSettings: state.sidebarCollapsed
+            sidebarCollapsedBeforeSettings: null
           }
     case 'settings:close':
       return state.settingsOpen

@@ -1,0 +1,61 @@
+.workspace-panels {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.conversation-panel,
+.workbench-panel {
+  display: flex;
+  min-width: 0;
+}
+.conversation-panel > .conversation {
+  width: 100%;
+  min-width: 0;
+}
+.workbench-panel > .workbench,
+.workbench-panel > .workbench.is-collapsed {
+  width: 100%;
+  flex: 1;
+  border-left: 0;
+}
+.workspace-resize-handle {
+  position: relative;
+  z-index: 4;
+  width: 8px;
+  flex: 0 0 8px;
+  background: var(--raised);
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+.workspace-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: var(--line-soft);
+}
+/* Match react-resizable-panels' expanded 10px / 20px pointer target so
+   pointerdown always reaches native-view suspension, including edge starts. */
+.workspace-resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -1px;
+}
+@media (pointer: coarse) {
+  .workspace-resize-handle::before {
+    inset-inline: -6px;
+  }
+}
+.workspace-resize-handle:hover::after,
+.workspace-resize-handle:focus-visible::after,
+.workspace-resize-handle[data-separator='active']::after {
+  background: var(--accent);
+}
+.workspace-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.is-workbench-collapsed > .workspace-resize-handle {
+  width: 0;
+  flex-basis: 0;
+  visibility: hidden;
+}

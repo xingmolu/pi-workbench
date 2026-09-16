@@ -1,0 +1,150 @@
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--scrim);
+}
+.settings-dialog {
+  position: fixed;
+  z-index: 101;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1060px, calc(100vw - 64px));
+  height: min(780px, calc(100vh - 64px));
+  background: var(--raised);
+  color: var(--text, #ecebea);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 28px 100px var(--popup-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-dialog-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.settings-dialog-body {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.settings-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px 10px;
+  border-right: 1px solid var(--line);
+}
+.settings-navigation button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.settings-navigation button:hover,
+.settings-navigation button[aria-current] {
+  background: rgb(150 150 150 / 14%);
+}
+.settings-navigation small {
+  margin: auto 12px 0;
+  opacity: 0.5;
+  font-size: 11px;
+}
+.settings-content {
+  min-width: 0;
+  overflow: auto;
+  padding: 26px 30px;
+}
+.settings-content .settings-panel,
+.settings-content .settings-scroll {
+  height: auto;
+  overflow: visible;
+  padding: 0;
+}
+.settings-content .settings-section {
+  margin-bottom: 28px;
+}
+.settings-content .account-card {
+  background: transparent;
+}
+.settings-content .section-kicker {
+  margin-bottom: 14px;
+}
+.endpoint-form-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.account-provider-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 26px;
+  flex-wrap: wrap;
+}
+.account-provider-nav button {
+  flex: 1;
+  min-width: 130px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: left;
+  padding: 12px;
+  cursor: pointer;
+}
+.account-provider-nav button[aria-pressed='true'] {
+  background: rgb(150 150 150 / 12%);
+  border-color: #85838c;
+}
+.account-provider-nav small {
+  display: block;
+  margin-top: 6px;
+  opacity: 0.65;
+}
+.settings-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.settings-dialog :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .settings-dialog {
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+  }
+  .settings-dialog-body {
+    grid-template-columns: 145px minmax(0, 1fr);
+  }
+  .settings-content {
+    padding: 18px;
+  }
+  .settings-navigation button {
+    font-size: 12px;
+    padding: 10px 7px;
+  }
+}

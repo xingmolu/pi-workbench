@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { UsageMetrics } from '../../../shared/contracts'
+import type { ApprovalRequest, ConversationNode, UsageMetrics } from '../../../shared/contracts'
 import {
   composerStatsDisplay,
   contextDisplay,
   runtimeMetricsDisplay,
-  toolMetaDisplay
+  toolMetaDisplay,
+  currentToolApproval
 } from './conversation-presentation'
 
 const metrics = (overrides: Partial<UsageMetrics> = {}): UsageMetrics => ({
@@ -15,6 +16,29 @@ const metrics = (overrides: Partial<UsageMetrics> = {}): UsageMetrics => ({
   cacheRead: 0,
   cacheWrite: 0,
   ...overrides
+})
+
+it('assigns a reused tool ID approval only to the current awaiting occurrence', () => {
+  const request: ApprovalRequest = {
+    id: 'approval',
+    toolCallId: 'reused',
+    toolName: 'bash',
+    intent: 'terminal',
+    title: 'Run',
+    detail: 'pwd',
+    generation: 1
+  }
+  const tool: Extract<ConversationNode, { type: 'tool' }> = {
+    id: 'current',
+    type: 'tool',
+    toolCallId: 'reused',
+    name: 'bash',
+    intent: 'terminal',
+    title: 'Run',
+    status: 'awaiting-approval'
+  }
+  const nodes = [{ ...tool, id: 'historical', status: 'success' as const }, tool]
+  expect(nodes.map((node) => currentToolApproval(node, [request]))).toEqual([null, request])
 })
 
 describe('contextDisplay', () => {

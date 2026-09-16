@@ -2,13 +2,48 @@ import type { HostCommand } from '../shared/contracts'
 
 export type SessionTransitionCommand = Extract<
   HostCommand,
-  { type: 'project:open' | 'session:new' | 'session:open' | 'model:set' | 'prompt:send' }
+  {
+    type:
+      | 'project:open'
+      | 'project:navigate'
+      | 'session:new'
+      | 'session:open'
+      | 'session:fork'
+      | 'message:feedback'
+      | 'session:edit:prepare'
+      | 'session:edit:send'
+      | 'session:rename'
+      | 'model:set'
+      | 'prompt:send'
+      | 'attachment:prompt'
+      | 'account:login'
+      | 'account:alias:add'
+      | 'endpoint:save'
+      | 'mcp:save'
+      | 'mcp:toggle'
+      | 'mcp:reload'
+  }
 >
 
 export function usesSessionTransition(command: HostCommand): command is SessionTransitionCommand {
-  return ['project:open', 'session:new', 'session:open', 'model:set', 'prompt:send'].includes(
-    command.type
-  )
+  return [
+    'project:open',
+    'project:navigate',
+    'session:new',
+    'session:open',
+    'session:fork',
+    'message:feedback',
+    'session:edit:prepare',
+    'session:edit:send',
+    'session:rename',
+    'model:set',
+    'prompt:send',
+    'attachment:prompt',
+    'account:login',
+    'account:alias:add',
+    'endpoint:save',
+    'mcp:save', 'mcp:toggle', 'mcp:reload'
+  ].includes(command.type)
 }
 
 export async function runSessionReplacement(operations: {
@@ -21,11 +56,12 @@ export async function runSessionReplacement(operations: {
   recoverInvalidatedSession: () => Promise<void>
   clearSessionAfterRecoveryFailure: () => Promise<void>
   publishSnapshot: () => void
-}): Promise<void> {
+}): Promise<{ cancelled: boolean }> {
   try {
     const result = await operations.replaceSession()
-    if (result.cancelled) return
+    if (result.cancelled) return { cancelled: true }
     await operations.refreshSessions()
+    return { cancelled: false }
   } catch (error) {
     const rebound = operations.readGeneration() !== operations.generationBeforeReplacement
     const invalidated = operations.readInvalidation() !== operations.invalidationBeforeReplacement

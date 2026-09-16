@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './workspace-layout'
 
 describe('workspaceLayoutReducer', () => {
-  it('temporarily collapses an expanded sidebar while settings are open', () => {
+  it('preserves an expanded sidebar while settings are open', () => {
     const open = workspaceLayoutReducer(INITIAL_WORKSPACE_LAYOUT, { type: 'settings:open' })
     expect(open).toMatchObject({
-      sidebarCollapsed: true,
+      sidebarCollapsed: false,
       settingsOpen: true,
-      sidebarCollapsedBeforeSettings: false
+      sidebarCollapsedBeforeSettings: null
     })
 
     expect(workspaceLayoutReducer(open, { type: 'settings:close' })).toEqual(

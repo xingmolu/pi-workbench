@@ -35,6 +35,17 @@ export class ConversationProjection {
     return this.nodes
   }
 
+  /** Reconcile one ordered transaction without discarding unpublished changes. */
+  reconcile(nodes: ConversationNode[]): void {
+    const nextIds = new Set(nodes.map((node) => node.id))
+    for (const node of [...this.nodes]) if (!nextIds.has(node.id)) this.remove(node.id)
+    for (const node of nodes) this.upsert(node)
+    if (this.nodes.some((node, index) => node.id !== nodes[index]?.id)) this.orderDirty = true
+    this.nodes = [...nodes]
+    this.rebuildIndexes(0)
+    this.groups.clear()
+  }
+
   trackGroup(groupId: string, nodeIds: Iterable<string>): void {
     this.groups.set(groupId, new Set(nodeIds))
   }

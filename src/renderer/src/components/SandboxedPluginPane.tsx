@@ -55,6 +55,8 @@ export default function SandboxedPluginPane({
 
     const observer = new ResizeObserver(publishBounds)
     observer.observe(viewport)
+    const workspace = viewport.closest('.workspace-panels')
+    if (workspace) observer.observe(workspace)
     window.addEventListener('resize', publishBounds)
     publishBounds()
     return () => {

@@ -9,5 +9,8 @@ desktop.ini
 *.log*
 .eslintcache
 artifacts/e2e/
+artifacts/reference-parity-fixture/
 test-results/
+test-results-quota/
 playwright-report/
+.playwright-mcp/

@@ -1,4 +1,24 @@
 export * from './workbench-contracts'
+import type { DesktopCommandOrigin, LiveSessionSummary, SelectedSessionScope } from './session-runtime'
+import type { MessageFeedbackCommand, MessageFeedbackValue } from './message-actions'
+import type { ProjectCatalog, ProjectCatalogCommand, ProjectNavigateCommand } from './project-catalog'
+import type { SessionSearchCommand, ProjectSearchCommand, SessionSearchResult, ProjectSearchResult } from './session-search'
+import type { SessionEditCommand, SessionEditResult } from './session-edit'
+import type {
+  AttachmentCommand,
+  AttachmentResult,
+  AttachmentHostCommand,
+  AttachmentReceipt
+} from './text-attachments'
+import type {
+  CustomEndpointConfigSnapshot,
+  CustomEndpointContext,
+  CustomEndpointSaveRequest,
+  CustomEndpointSaveResult
+} from './custom-endpoints'
+import type { WorkspaceFilesCommand, WorkspaceFilesResult } from './workspace-files'
+import type { TerminalCommand, TerminalEvent, TerminalResult } from './terminal'
+import type { GitReviewCommand, GitReviewResult } from './git-review'
 import type {
   WorkbenchCommand,
   WorkbenchCommandResult,
@@ -12,21 +32,37 @@ export type PermissionMode = 'open' | 'ask'
 export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'generic'
 
 export type ToolStatus =
-  'queued' | 'awaiting-approval' | 'running' | 'success' | 'error' | 'blocked'
+  'queued' | 'awaiting-approval' | 'waiting-resource' | 'running' | 'success' | 'error' | 'blocked' | 'incomplete'
 
-export type SessionStatus = 'idle' | 'running' | 'awaiting-approval' | 'error'
+export type SessionStatus = 'idle' | 'running' | 'awaiting-approval' | 'error' | 'stopped'
 
-export type ConversationNode =
+export type ConversationNode = {
+  /** Host-only display continuity within one runtime generation; never a command target. */
+  presentationIdentity?: string
+} & (
+  | {
+      id: string
+      type: 'model'
+      provider: string
+      modelId: string
+      name?: string
+      initial: boolean
+    }
+  | { id: string; type: 'compaction'; tokensBefore: number }
   | {
       id: string
       type: 'user'
       text: string
+      canonicalEntryId?: string
+      imageCount?: number
     }
   | {
       id: string
       type: 'assistant'
       markdown: string
       streaming?: boolean
+      canonicalEntryId?: string
+      feedback?: MessageFeedbackValue
     }
   | {
       id: string
@@ -53,6 +89,8 @@ export type ConversationNode =
       type: 'error'
       message: string
     }
+  | { id: string; type: 'stopped'; message: string }
+)
 
 export type ProjectInfo = {
   path: string
@@ -67,6 +105,8 @@ export type SessionSummary = {
   messageCount: number
   active: boolean
   status: SessionStatus
+  parentSessionPath?: string
+  parentUnavailable?: boolean
 }
 
 export type AccountSummary = {
@@ -84,6 +124,7 @@ export type ModelSummary = {
   name: string
   contextWindow: number
   reasoning: boolean
+  unavailableReason?: string
 }
 
 export type ModelAvailability = 'available' | 'unavailable' | 'unselected'
@@ -94,6 +135,8 @@ export type ComposeBlockReason =
   | 'model-required'
   | 'model-unavailable'
   | 'pinned-model-unavailable'
+  | 'endpoint-runtime-unsynchronized'
+  | 'endpoint-selection-invalidated'
   | null
 
 export type UsageMetrics = {
@@ -109,6 +152,7 @@ export type UsageMetrics = {
   llmDurationMs?: number
   firstTokenMs?: number
   tokensPerSecond?: number
+  usageIncomplete?: boolean
 }
 
 export type ApprovalRequest = {
@@ -273,6 +317,8 @@ export type BrowserCapabilityResponse =
     }
 
 export type AgentSnapshot = {
+  /** Main-only foreground epoch; never persisted in Pi history. */
+  desktopScope?: SelectedSessionScope
   sessionId: string | null
   generation: number
   revision: number
@@ -282,6 +328,8 @@ export type AgentSnapshot = {
   project: ProjectInfo | null
   sessions: SessionSummary[]
   activeSessionPath: string | null
+  fork?: { entryId: string | null; reason: string | null }
+  edit?: { entryId: string | null; leafId: string | null; reason: string | null; pending: boolean }
   nodes: ConversationNode[]
   accounts: AccountSummary[]
   models: ModelSummary[]
@@ -297,6 +345,7 @@ export type AgentSnapshot = {
   permissionMode: PermissionMode
   metrics: UsageMetrics
   login: LoginStatus
+  authGeneration?: number
   loginPrompt: LoginPrompt | null
   error?: string
 }
@@ -321,29 +370,57 @@ export type SessionNewCommand =
   { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
 
 export type HostCommand =
+  | ((SessionSearchCommand | ProjectSearchCommand) & { recentPaths?: string[] })
+  | import('./skills').SkillsCommand
+  | import('./mcp').McpCommand
+  | MessageFeedbackCommand
+  | ProjectCatalogCommand
+  | ProjectNavigateCommand
+  | SessionEditCommand
+  | AttachmentHostCommand
   | { type: 'bootstrap' }
+  | { type: 'runtime:refresh' }
+  | { type: 'runtime:shutdown' }
   | { type: 'state:get' }
   | { type: 'project:open'; cwd: string }
   | SessionNewCommand
   | { type: 'session:open'; path: string }
-  | { type: 'prompt:send'; text: string }
+  | { type: 'session:fork'; sessionId: string; generation: number; entryId: string }
+  | { type: 'session:rename'; sessionId: string; generation: number; name: string }
+  | { type: 'prompt:send'; text: string; sessionId: string; generation: number }
   | { type: 'prompt:abort' }
   | { type: 'queue:clear' }
   | { type: 'permission:set'; mode: PermissionMode }
   | { type: 'permission:respond'; approvalId: string; allow: boolean }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
+  | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'model:set'; providerId: string; modelId: string }
+  | { type: 'endpoint:list' }
+  | { type: 'endpoint:save'; context: CustomEndpointContext; request: CustomEndpointSaveRequest }
   | { type: 'browser:e2e'; operation: BrowserOperation }
 
-export type HostRequest = HostCommand & { requestId: string }
+export type HostRequest = HostCommand & { requestId: string; expectedIdentity?: { sessionId: string | null; generation: number } }
 
 export type SnapshotHostCommand = Extract<
   HostCommand,
-  { type: 'bootstrap' | 'state:get' | 'project:open' | 'session:new' | 'session:open' }
+  { type: 'bootstrap' | 'state:get' | 'runtime:refresh' | 'runtime:shutdown' | 'project:open' | 'project:navigate' | 'session:new' | 'session:open' }
 >
-export type AckHostCommand = Exclude<HostCommand, SnapshotHostCommand>
+export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' }>
+export type AckHostCommand = Exclude<
+  HostCommand,
+  | SnapshotHostCommand
+  | EndpointHostCommand
+  | Extract<HostCommand, { type: 'session:fork' }>
+  | AttachmentHostCommand
+  | SessionEditCommand
+  | ProjectCatalogCommand
+  | Extract<HostCommand, { type: 'account:quota' }>
+  | SessionSearchCommand | ProjectSearchCommand
+  | import('./mcp').McpCommand
+  | import('./skills').SkillsCommand
+>
 
 export type HostSnapshotResult = { kind: 'snapshot'; snapshot: AgentSnapshot }
 export type HostAckResult = {
@@ -352,10 +429,54 @@ export type HostAckResult = {
   generation: number
   revision: number
 }
-export type HostResult = HostSnapshotResult | HostAckResult
-export type HostResultFor<Command extends HostCommand> = Command extends SnapshotHostCommand
-  ? HostSnapshotResult
-  : HostAckResult
+export type HostEndpointListResult = {
+  kind: 'endpoint-list'
+  snapshot: CustomEndpointConfigSnapshot
+  configPath: string
+}
+export type HostEndpointSaveResult = { kind: 'endpoint-save'; result: CustomEndpointSaveResult }
+export type HostResult =
+  | { kind: 'session-search'; result: SessionSearchResult }
+  | { kind: 'project-search'; result: ProjectSearchResult }
+  | { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
+  | { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
+  | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
+  | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
+  | { kind: 'project-catalog'; catalog: ProjectCatalog }
+  | { kind: 'session-edit'; result: SessionEditResult }
+  | { kind: 'session-fork'; cancelled: boolean; snapshot: AgentSnapshot }
+  | HostSnapshotResult
+  | HostAckResult
+  | HostEndpointListResult
+  | HostEndpointSaveResult
+  | { kind: 'attachment'; receipt: AttachmentReceipt }
+export type HostResultFor<Command extends HostCommand> = Command extends SessionSearchCommand
+  ? { kind: 'session-search'; result: SessionSearchResult }
+  : Command extends ProjectSearchCommand
+  ? { kind: 'project-search'; result: ProjectSearchResult }
+  : Command extends { type: 'skills:list' }
+  ? { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
+  : Command extends { type: 'skills:detail' }
+  ? { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
+  : Command extends import('./mcp').McpCommand
+  ? { kind: 'mcp'; result: import('./mcp').McpSnapshot }
+  : Command extends { type: 'account:quota' }
+  ? { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
+  : Command extends ProjectCatalogCommand
+  ? { kind: 'project-catalog'; catalog: ProjectCatalog }
+  : Command extends SessionEditCommand
+  ? { kind: 'session-edit'; result: SessionEditResult }
+  : Command extends { type: 'session:fork' }
+    ? { kind: 'session-fork'; cancelled: boolean; snapshot: AgentSnapshot }
+    : Command extends SnapshotHostCommand
+      ? HostSnapshotResult
+      : Command extends AttachmentHostCommand
+        ? { kind: 'attachment'; receipt: AttachmentReceipt }
+        : Command extends { type: 'endpoint:list' }
+          ? HostEndpointListResult
+          : Command extends { type: 'endpoint:save' }
+            ? HostEndpointSaveResult
+            : HostAckResult
 
 export type HostResponse =
   | {
@@ -378,11 +499,33 @@ export type HostEvent =
 
 export type HostMessage = HostResponse | HostEvent
 
+export type DesktopEvent =
+  | HostEvent
+  | { type: 'event'; event: 'sessions'; data: LiveSessionSummary[] }
+  | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
+  | {
+      type: 'event'
+      event: 'disconnected'
+      data: { message: string }
+    }
+
 export type PiDesktopAPI = {
+  nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
+  desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
+  exportMarkdownTable: (
+    request: import('./markdown-table-export').MarkdownTableRequest
+  ) => Promise<import('./markdown-table-export').MarkdownTableResult>
+  textAttachments: (command: AttachmentCommand) => Promise<AttachmentResult>
+  terminal: (command: TerminalCommand) => Promise<TerminalResult>
+  onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void
+  gitReview: (command: GitReviewCommand) => Promise<GitReviewResult>
+  workspaceFiles: (command: WorkspaceFilesCommand) => Promise<WorkspaceFilesResult>
   getState: () => Promise<AgentSnapshot>
-  selectProject: () => Promise<AgentSnapshot | null>
-  send: <Command extends HostCommand>(command: Command) => Promise<HostResultFor<Command>>
-  onEvent: (listener: (event: HostEvent) => void) => () => void
+  reconnect: () => Promise<AgentSnapshot>
+  selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>
+  selectSession: (workerId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
+  send: <Command extends HostCommand>(command: Command, origin?: DesktopCommandOrigin) => Promise<HostResultFor<Command>>
+  onEvent: (listener: (event: DesktopEvent) => void) => () => void
   browser: (command: BrowserCommand) => Promise<BrowserCommandResult>
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => () => void
   workbench: (command: WorkbenchCommand) => Promise<WorkbenchCommandResult>

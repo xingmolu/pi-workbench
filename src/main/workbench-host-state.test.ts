@@ -210,6 +210,28 @@ function createControlledViewHarness(
 }
 
 describe('Workbench host state', () => {
+  it('treats hiding a removed or disabled panel as idempotent without changing the active browser', async () => {
+    const { state, browserCalls } = createHarness([
+      { plugins: [externalPlugin()], diagnostics: [] }
+    ])
+    await state.reload()
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.notes',
+      desktopEnabled: false
+    })
+    await state.dispatch({ type: 'view:set', viewId: 'works.pi.desktop.browser', visible: true })
+    const count = browserCalls.length
+    for (const viewId of ['acme.notes.panel', 'removed.plugin.panel']) {
+      await expect(
+        state.dispatch({ type: 'view:set', viewId, visible: false })
+      ).resolves.toBeDefined()
+      await expect(state.dispatch({ type: 'view:set', viewId, visible: true })).rejects.toThrow(
+        'unavailable'
+      )
+    }
+    expect(browserCalls).toHaveLength(count)
+  })
   it('merges one locked built-in registry with discovered onApp contributions', async () => {
     const { state } = createHarness([{ plugins: [externalPlugin()], diagnostics: [] }])
 
