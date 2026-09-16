@@ -198,4 +198,25 @@ describe('mobile gateway http', () => {
     })
     expect(status).toBe(421)
   })
+
+  it('encodes a Tailscale Serve URL in the pairing QR instead of LAN-only', () => {
+    const pairing = new MobilePairingStore({
+      load: () => [],
+      save: () => undefined
+    })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      lanAddress: () => '192.168.1.20'
+    })
+    const offer = pairing.createOffer()
+    const payload = gateway.pairingPayload(
+      offer.token,
+      offer.expiresAt,
+      `https://macbook.tail123.ts.net/?pair=${offer.token}`
+    )
+    expect(payload.url).toBe(`https://macbook.tail123.ts.net/?pair=${offer.token}`)
+    expect(payload.qrSvg).toContain('<svg')
+    expect(payload.url).not.toMatch(/192\.168/)
+  })
 })

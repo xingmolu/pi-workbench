@@ -84,6 +84,18 @@ function listenOn(server: Server, port: number, host: string): Promise<void> {
   })
 }
 
+function withPairToken(origin: string | null | undefined, token: string): string | null {
+  if (!origin) return null
+  try {
+    const url = new URL(origin)
+    if (!url.protocol.startsWith('http')) return null
+    url.searchParams.set('pair', token)
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 export class MobileGatewayServer {
   private loopback: Server | null = null
   private lan: Server | null = null
@@ -114,13 +126,18 @@ export class MobileGatewayServer {
     return this.port && this.lanAddress ? pairingUrl(this.lanAddress, this.port, token) : null
   }
 
-  pairingPayload(token: string, expiresAt: number): {
+  pairingPayload(
+    token: string,
+    expiresAt: number,
+    remoteUrl?: string | null
+  ): {
     token: string
     expiresAt: number
     url: string
     qrSvg: string
   } {
-    const url = this.lanUrl(token) ?? this.loopbackUrl(token)
+    const url =
+      withPairToken(remoteUrl, token) ?? this.lanUrl(token) ?? this.loopbackUrl(token)
     if (!url) throw new Error('网关未启动')
     return {
       token,

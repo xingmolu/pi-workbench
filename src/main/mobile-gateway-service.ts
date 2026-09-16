@@ -11,7 +11,8 @@ import type { MobileSessionBridge } from './mobile-session-bridge'
 import {
   disableTailscaleServe,
   enableTailscaleServe,
-  probeTailscale
+  probeTailscale,
+  remotePairingUrl
 } from './mobile-tailscale'
 
 type DevicePersistence = {
@@ -30,6 +31,7 @@ export type MobileGatewayServiceOptions = {
   probeTailscale?: typeof probeTailscale
   enableTailscaleServe?: typeof enableTailscaleServe
   disableTailscaleServe?: typeof disableTailscaleServe
+  writeClipboard?: (text: string) => void
 }
 
 export class MobileGatewayService {
@@ -54,6 +56,13 @@ export class MobileGatewayService {
 
   snapshot(): MobileGatewayState {
     const offer = this.pairing.currentOffer()
+    const remoteUrl = offer
+      ? remotePairingUrl({
+          serveUrl: this.tailscale.serveUrl,
+          magicDns: this.tailscale.magicDns,
+          token: offer.token
+        })
+      : null
     return {
       running: this.gateway.isRunning,
       port: this.gateway.listenPort,
@@ -61,7 +70,7 @@ export class MobileGatewayService {
       lanUrl: this.gateway.lanUrl(),
       lanAddress: this.gateway.getLanAddress(),
       pairing: offer && this.gateway.isRunning
-        ? this.gateway.pairingPayload(offer.token, offer.expiresAt)
+        ? this.gateway.pairingPayload(offer.token, offer.expiresAt, remoteUrl)
         : null,
       devices: this.pairing.list(),
       powerSave: this.blocker !== 0,
@@ -89,8 +98,13 @@ export class MobileGatewayService {
   }
 
   private async run(command: MobileGatewayCommand): Promise<void> {
-    if (command.type === 'state' || command.type === 'tailscale:probe') {
+    if (command.type === 'state') {
       this.tailscale = await (this.options.probeTailscale ?? probeTailscale)()
+      return
+    }
+    if (command.type === 'tailscale:probe') {
+      this.tailscale = await (this.options.probeTailscale ?? probeTailscale)()
+      if (this.tailscale.error) this.error = this.tailscale.error
       return
     }
     if (command.type === 'start') {
@@ -107,11 +121,18 @@ export class MobileGatewayService {
     if (command.type === 'pairing:create') {
       if (!this.gateway.isRunning) await this.gateway.start()
       this.startPowerSave()
+      this.tailscale = await (this.options.probeTailscale ?? probeTailscale)()
       this.pairing.createOffer()
       return
     }
     if (command.type === 'device:revoke') {
       this.pairing.revoke(command.deviceId)
+      return
+    }
+    if (command.type === 'clipboard:copy') {
+      const write = this.options.writeClipboard
+      if (!write) throw new Error('无法复制到剪贴板')
+      write(command.text)
       return
     }
     if (command.type === 'tailscale:serve') {
@@ -120,10 +141,16 @@ export class MobileGatewayService {
       const port = this.gateway.listenPort
       if (!port) throw new Error('网关未启动')
       this.tailscale = await (this.options.enableTailscaleServe ?? enableTailscaleServe)(port)
+      if (!this.tailscale.serveUrl) {
+        const message = this.tailscale.error ?? '未能开启 Tailscale Serve'
+        this.tailscale = { ...this.tailscale, error: message }
+        throw new Error(message)
+      }
       return
     }
     if (command.type === 'tailscale:unserve') {
       this.tailscale = await (this.options.disableTailscaleServe ?? disableTailscaleServe)()
+      if (this.tailscale.error) throw new Error(this.tailscale.error)
     }
   }
 

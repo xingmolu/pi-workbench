@@ -17,6 +17,7 @@ import {
   ipcMain,
   nativeTheme,
   powerSaveBlocker,
+  clipboard,
   shell,
   utilityProcess,
   type BrowserWindow as BrowserWindowType,
@@ -1350,7 +1351,8 @@ app.whenReady().then(async () => {
       stop: (id) => {
         if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id)
       }
-    }
+    },
+    writeClipboard: (text) => clipboard.writeText(text)
   })
   registerIpc()
   startAgentHost()

@@ -45,6 +45,7 @@ export type TailscaleGatewayStatus = {
   online: boolean
   magicDns: string | null
   serveUrl: string | null
+  binary: string | null
   error: string | null
 }
 
@@ -72,7 +73,11 @@ export const mobileGatewayCommandSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('tailscale:probe') }),
   z.strictObject({ type: z.literal('tailscale:serve') }),
-  z.strictObject({ type: z.literal('tailscale:unserve') })
+  z.strictObject({ type: z.literal('tailscale:unserve') }),
+  z.strictObject({
+    type: z.literal('clipboard:copy'),
+    text: z.string().min(1).max(2048)
+  })
 ])
 export type MobileGatewayCommand = z.infer<typeof mobileGatewayCommandSchema>
 
@@ -100,6 +105,7 @@ export const tailscaleGatewayStatusSchema = z
     online: z.boolean(),
     magicDns: z.string().min(1).max(256).nullable(),
     serveUrl: z.string().min(1).max(512).nullable(),
+    binary: z.string().min(1).max(512).nullable(),
     error: z.string().max(500).nullable()
   })
   .strict()
@@ -133,6 +139,7 @@ export const EMPTY_MOBILE_GATEWAY_STATE: MobileGatewayState = {
     online: false,
     magicDns: null,
     serveUrl: null,
+    binary: null,
     error: null
   },
   error: null

@@ -7,15 +7,32 @@ import {
 } from '../../../shared/mobile-gateway'
 import '../assets/desktop-settings.css'
 
+function isTsNetUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname
+    return host.endsWith('.ts.net')
+  } catch {
+    return false
+  }
+}
+
 export default function MobileGatewaySettings(): React.JSX.Element {
   const [state, setState] = useState<MobileGatewayState>(EMPTY_MOBILE_GATEWAY_STATE)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     let ignore = false
-    void window.pi.mobileGateway({ type: 'state' }).then((next) => {
-      if (!ignore) setState(next)
-    })
+    void window.pi
+      .mobileGateway({ type: 'state' })
+      .then((next) => {
+        if (!ignore) setState(next)
+      })
+      .catch((error: unknown) => {
+        if (ignore) return
+        const message = error instanceof Error ? error.message : String(error)
+        setState((prev) => ({ ...prev, error: message }))
+      })
     const stop = window.pi.onEvent((event) => {
       if (event.event === 'mobile-gateway') setState(event.data)
     })
@@ -29,10 +46,31 @@ export default function MobileGatewaySettings(): React.JSX.Element {
     setBusy(true)
     try {
       setState(await window.pi.mobileGateway(command))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setState((prev) => ({ ...prev, error: message }))
     } finally {
       setBusy(false)
     }
   }
+
+  const copy = async (text: string): Promise<void> => {
+    try {
+      setState(await window.pi.mobileGateway({ type: 'clipboard:copy', text }))
+      setCopied(text)
+      window.setTimeout(() => {
+        setCopied((current) => (current === text ? null : current))
+      }, 2000)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setState((prev) => ({ ...prev, error: message }))
+    }
+  }
+
+  const port = state.port ?? 43124
+  const serveCommand = `${state.tailscale.binary ?? 'tailscale'} serve --bg http://127.0.0.1:${port}`
+  const cliMissing = !state.tailscale.available
+  const copyLabel = (text: string): string => (copied === text ? '已复制' : '复制')
 
   return (
     <section className="desktop-preferences mobile-gateway-settings">
@@ -66,7 +104,10 @@ export default function MobileGatewaySettings(): React.JSX.Element {
         <label className="desktop-preference-row">
           <span>
             <strong>局域网配对二维码</strong>
-            <small>一次性配对码，约 5 分钟有效。用自己的手机扫描。</small>
+            <small>
+              一次性配对码，约 5 分钟有效。用自己的手机扫描。Tailscale Serve 开启后二维码会改用
+              https://*.ts.net，尾网上的手机不必连同一 Wi‑Fi。
+            </small>
           </span>
           <button type="button" onClick={() => void run({ type: 'pairing:create' })}>
             显示配对码
@@ -81,13 +122,23 @@ export default function MobileGatewaySettings(): React.JSX.Element {
             <p>
               <strong>配对码 {state.pairing.token}</strong>
               <small>{state.pairing.url}</small>
+              {state.lanUrl && state.pairing.url !== state.lanUrl ? (
+                <small>局域网 {state.lanUrl}</small>
+              ) : null}
             </p>
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(state.pairing!.url)}
-            >
-              复制链接
-            </button>
+            <div className="mobile-copy-row">
+              <button type="button" onClick={() => void copy(state.pairing!.url)}>
+                复制链接
+              </button>
+              <span className="mobile-copy-confirm" aria-live="polite">
+                {copied === state.pairing.url ? '已复制' : ''}
+              </span>
+            </div>
+            {isTsNetUrl(state.pairing.url) && !state.tailscale.serveUrl ? (
+              <p className="inline-hint">
+                二维码已写入尾网地址，但 Serve 尚未开启；请先点「开启 Tailscale Serve」。
+              </p>
+            ) : null}
           </div>
         ) : null}
         <div className="desktop-preference-row">
@@ -127,21 +178,56 @@ export default function MobileGatewaySettings(): React.JSX.Element {
             检测
           </button>
         </div>
-        <p className="inline-hint">
-          {state.tailscale.available
-            ? `MagicDNS：${state.tailscale.magicDns ?? '未知'} · ${
-                state.tailscale.serveUrl ?? '尚未开启 Serve'
-              }`
-            : state.tailscale.error ?? '未检测到 Tailscale CLI'}
-        </p>
-        <p className="inline-hint">
-          命令：<code>tailscale serve --bg http://127.0.0.1:{state.port ?? 43124}</code>
-        </p>
+        {cliMissing ? (
+          <p className="inline-hint" role="status">
+            {state.tailscale.error ?? '未检测到 Tailscale CLI'}
+          </p>
+        ) : (
+          <div className="mobile-tailscale-status">
+            <p>
+              <strong>MagicDNS</strong>
+              <span>{state.tailscale.magicDns ?? '未知'}</span>
+            </p>
+            <p>
+              <strong>Serve</strong>
+              <span>{state.tailscale.serveUrl ?? '尚未开启 Serve'}</span>
+              {state.tailscale.serveUrl ? (
+                <button type="button" onClick={() => void copy(state.tailscale.serveUrl!)}>
+                  {copyLabel(state.tailscale.serveUrl)}
+                </button>
+              ) : null}
+            </p>
+            {state.tailscale.binary ? (
+              <p>
+                <strong>CLI</strong>
+                <small>{state.tailscale.binary}</small>
+              </p>
+            ) : null}
+          </div>
+        )}
+        <div className="mobile-copy-row">
+          <p className="inline-hint">
+            命令：<code>{serveCommand}</code>
+          </p>
+          <button type="button" onClick={() => void copy(serveCommand)}>
+            {copyLabel(serveCommand)}
+          </button>
+        </div>
         <div className="mobile-tailscale-actions">
-          <button type="button" onClick={() => void run({ type: 'tailscale:serve' })}>
+          <button
+            type="button"
+            disabled={cliMissing}
+            title={cliMissing ? (state.tailscale.error ?? '未找到 Tailscale CLI') : undefined}
+            onClick={() => void run({ type: 'tailscale:serve' })}
+          >
             开启 Tailscale Serve
           </button>
-          <button type="button" onClick={() => void run({ type: 'tailscale:unserve' })}>
+          <button
+            type="button"
+            disabled={cliMissing}
+            title={cliMissing ? (state.tailscale.error ?? '未找到 Tailscale CLI') : undefined}
+            onClick={() => void run({ type: 'tailscale:unserve' })}
+          >
             关闭 Serve
           </button>
         </div>
@@ -150,7 +236,7 @@ export default function MobileGatewaySettings(): React.JSX.Element {
         ) : null}
         <p className="inline-hint">
           Cloudflare Quick Tunnel 是可选备用路径：
-          <code> cloudflared tunnel --url http://127.0.0.1:{state.port ?? 43124}</code>
+          <code> cloudflared tunnel --url http://127.0.0.1:{port}</code>
           。URL 每次会变，本产品不把它当作主路。
         </p>
       </fieldset>
