@@ -10,7 +10,7 @@ import {
 } from './mobile-gateway-net'
 import type { MobilePairingStore } from './mobile-pairing'
 import type { MobileSessionBridge } from './mobile-session-bridge'
-import { mobileManifest, mobilePageHtml } from './mobile-web-page'
+import { mobileClientScript, mobileManifest, mobilePageCss, mobilePageHtml } from './mobile-web-page'
 
 const BODY_LIMIT = 64 * 1024
 const COOKIE = 'pi_device'
@@ -239,11 +239,27 @@ export class MobileGatewayServer {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
           'content-security-policy':
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'",
           'referrer-policy': 'no-referrer',
           'x-content-type-options': 'nosniff'
         })
         response.end(mobilePageHtml())
+        return
+      }
+      if (request.method === 'GET' && url.pathname === '/mobile.css') {
+        response.writeHead(200, {
+          'content-type': 'text/css; charset=utf-8',
+          'cache-control': 'no-store'
+        })
+        response.end(mobilePageCss())
+        return
+      }
+      if (request.method === 'GET' && url.pathname === '/mobile.js') {
+        response.writeHead(200, {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-store'
+        })
+        response.end(mobileClientScript())
         return
       }
       if (request.method === 'GET' && url.pathname === '/manifest.webmanifest') {

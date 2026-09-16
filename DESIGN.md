@@ -151,7 +151,7 @@ Composer 两级：账号 → 模型。浏览账号不创建会话；已有 trans
 
 ## 6. 手机端与外网
 
-桌面 = runtime，手机 = 同一 session 的 PWA 对话面。MVP：会话列表、接着聊、Stop/Queue/Steer（运行中发送进入 follow-up 队列）、Ask 批准、跑完 SSE `run-finished`（作为后续推送钩子）。Files/Git/终端/浏览器不上手机。
+桌面 = runtime，手机 = 同一 session 的 PWA 对话面。MVP：会话列表、接着聊、Stop/Queue/Steer（运行中发送进入 follow-up 队列）、Ask 批准、跑完 SSE `run-finished`（作为后续推送钩子）。Files/Git/终端/浏览器不上手机。手机 PWA 用同一套页面适配窄屏（列表 → 会话栈）与宽屏（左侧项目/会话 + 主对话），不把 Files/Git/终端/浏览器或 Review 工作台放到远程对话面上。
 
 可达性：1) 网关始终绑定 **127.0.0.1**；显示局域网二维码时额外绑定当前 RFC1918 Wi‑Fi 地址（不是 0.0.0.0，也不做端口转发）2) **主路远程：Tailscale Serve**（`tailscale serve --bg http://127.0.0.1:<port>` → `https://*.ts.net`，仅尾网，不是 Funnel）3) Cloudflare Quick Tunnel 为可选备用（无账号、URL 每次变）。一次性配对 + 按设备 grant，桌面可撤。开网关时请求防休眠，并提示保持 Mac 唤醒。文案：「手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。」
 

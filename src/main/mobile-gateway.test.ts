@@ -199,6 +199,31 @@ describe('mobile gateway http', () => {
     expect(status).toBe(421)
   })
 
+  it('serves the responsive PWA shell assets without pairing', async () => {
+    const devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: () => undefined
+    })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      port: 18767,
+      lanAddress: () => null
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const css = await fetch('http://127.0.0.1:18767/mobile.css')
+    const js = await fetch('http://127.0.0.1:18767/mobile.js')
+    const page = await fetch('http://127.0.0.1:18767/')
+    expect(css.status).toBe(200)
+    expect(js.status).toBe(200)
+    expect(page.status).toBe(200)
+    expect(await css.text()).toContain('.pane-chat')
+    expect(await js.text()).toContain('已连接到')
+    expect(await page.text()).toContain('/mobile.js')
+  })
+
   it('encodes a Tailscale Serve URL in the pairing QR instead of LAN-only', () => {
     const pairing = new MobilePairingStore({
       load: () => [],

@@ -77,8 +77,22 @@ export function formatMobileTime(value: string, now: Date = new Date(), timeZone
   if (target.year === yesterday.year && target.month === yesterday.month && target.day === yesterday.day) {
     return `昨天 ${clock}`
   }
-  if (target.year === today.year) return `${target.month}-${target.day} ${clock}`
+  const start = Date.UTC(Number(target.year), Number(target.month) - 1, Number(target.day))
+  const todayStart = Date.UTC(Number(today.year), Number(today.month) - 1, Number(today.day))
+  const diffDays = Math.round((todayStart - start) / 86_400_000)
+  if (diffDays >= 2 && diffDays < 60) return `${diffDays}天`
+  if (target.year === today.year) return `${target.month}-${target.day}`
   return `${target.year}-${target.month}-${target.day}`
+}
+
+export type MobileStatusKind = 'ok' | 'run' | 'ask' | 'err' | 'idle'
+
+export function mobileStatusBadge(status: string): { label: string; kind: MobileStatusKind } {
+  if (status === 'running' || status === 'opening') return { label: '运行中', kind: 'run' }
+  if (status === 'awaiting-approval') return { label: '等待批准', kind: 'ask' }
+  if (status === 'error') return { label: '出错', kind: 'err' }
+  if (status === 'idle') return { label: '已完成', kind: 'ok' }
+  return { label: '空闲', kind: 'idle' }
 }
 
 export function projectBasename(path: string): string {

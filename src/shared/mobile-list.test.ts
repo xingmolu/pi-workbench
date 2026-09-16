@@ -3,6 +3,7 @@ import {
   buildMobileHomeGroups,
   filterMobileHomeGroups,
   formatMobileTime,
+  mobileStatusBadge,
   stripIsoTimestamp
 } from './mobile-list'
 
@@ -12,7 +13,7 @@ describe('mobile list presentation', () => {
   it('formats short local times and never dumps ISO-Z', () => {
     expect(formatMobileTime('2026-09-16T02:40:19.201Z', now, 'UTC')).toBe('02:40')
     expect(formatMobileTime('2026-09-15T14:40:19.201Z', now, 'UTC')).toBe('昨天 14:40')
-    expect(formatMobileTime('2026-09-11T09:46:03.573Z', now, 'UTC')).toBe('09-11 09:46')
+    expect(formatMobileTime('2026-09-11T09:46:03.573Z', now, 'UTC')).toBe('5天')
     expect(formatMobileTime('2025-12-30T08:00:00.000Z', now, 'UTC')).toBe('2025-12-30')
     for (const value of ['2026-09-15T14:40:19.201Z', 'today', 'not-a-date', '']) {
       const label = formatMobileTime(value, now, 'UTC')
@@ -66,5 +67,12 @@ describe('mobile list presentation', () => {
     expect(groups[0]?.sessions[0]?.timeLabel).not.toMatch(/T|Z/)
     expect(filterMobileHomeGroups(groups, 'ego')[0]?.sessions).toHaveLength(1)
     expect(filterMobileHomeGroups(groups, 'nope')).toEqual([])
+  })
+
+  it('maps session status to compact badge copy', () => {
+    expect(mobileStatusBadge('idle')).toEqual({ label: '已完成', kind: 'ok' })
+    expect(mobileStatusBadge('running')).toEqual({ label: '运行中', kind: 'run' })
+    expect(mobileStatusBadge('awaiting-approval')).toEqual({ label: '等待批准', kind: 'ask' })
+    expect(mobileStatusBadge('error')).toEqual({ label: '出错', kind: 'err' })
   })
 })
