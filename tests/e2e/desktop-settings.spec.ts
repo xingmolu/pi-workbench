@@ -74,7 +74,7 @@ test('appearance theme persists, follows system changes, and updates highlighted
   expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe('light')
   theme = page.getByLabel('主题', { exact: true })
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  for (const section of ['账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件']) {
+  for (const section of ['账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件', '桌面控制']) {
     await page.getByRole('button', { name: section, exact: true }).click()
     expect(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   }
@@ -276,4 +276,28 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await expect.poll(() => harness.evaluate(() => (window as any).sent)).toBe(3)
   await expect(harness.locator('.composer-stats')).toHaveCount(0)
   await expect(harness.locator('.context-meter')).toBeVisible()
+})
+
+test('desktop control settings exposes permission without requiring a TCC grant', async () => {
+  await mkdir(resolve('artifacts/e2e'), { recursive: true })
+  const permission = await page.evaluate(() => window.pi.desktopControl({ type: 'permission' }))
+  expect(permission.type).toBe('permission')
+  expect(['granted', 'denied', 'restricted', 'unsupported']).toContain(permission.permission.access)
+  const sources = await page.evaluate(() => window.pi.desktopControl({ type: 'sources' }))
+  expect(sources.type).toBe('sources')
+  if (sources.type === 'sources' && !sources.permission.canCapture) expect(sources.probed).toBe(false)
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '桌面控制', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '桌面控制' })).toBeVisible()
+  await expect(page.getByTestId('screen-recording-status')).toHaveText(
+    new RegExp(`^(${['已授权', '未授权', '受限', '不支持'].join('|')})$`)
+  )
+  await expect(page.getByText(/Spike 1/)).toBeVisible()
+  await expect(page.getByText(/adhoc/)).toBeVisible()
+  const openSettings = page.getByRole('button', { name: '打开系统设置（屏幕录制）' })
+  if (permission.permission.canOpenSettings) await expect(openSettings).toBeEnabled()
+  else await expect(openSettings).toBeDisabled()
+  await page.getByRole('button', { name: '刷新 / 试截取' }).click()
+  await expect(page.getByRole('button', { name: '刷新 / 试截取' })).toBeEnabled()
+  await page.screenshot({ path: 'artifacts/e2e/desktop-control-settings.png' })
 })

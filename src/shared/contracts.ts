@@ -520,6 +520,9 @@ export type PiDesktopAPI = {
   onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void
   gitReview: (command: GitReviewCommand) => Promise<GitReviewResult>
   workspaceFiles: (command: WorkspaceFilesCommand) => Promise<WorkspaceFilesResult>
+  desktopControl: (
+    command: import('./desktop-control').DesktopControlCommand
+  ) => Promise<import('./desktop-control').DesktopControlResult>
   getState: () => Promise<AgentSnapshot>
   reconnect: () => Promise<AgentSnapshot>
   selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>
