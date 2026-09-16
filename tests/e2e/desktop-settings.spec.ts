@@ -350,7 +350,9 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
   const permission = await page.evaluate(() => window.pi.desktopControl({ type: 'permission' }))
   expect(permission.type).toBe('permission')
-  expect(['granted', 'denied', 'restricted', 'unsupported']).toContain(permission.permission.access)
+  expect(['granted', 'denied', 'restricted', 'pending', 'unsupported']).toContain(
+    permission.permission.access
+  )
   const sources = await page.evaluate(() => window.pi.desktopControl({ type: 'sources' }))
   expect(sources.type).toBe('sources')
   if (sources.type === 'sources' && !sources.permission.canCapture) expect(sources.probed).toBe(false)
@@ -358,7 +360,7 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await page.getByRole('button', { name: '桌面控制', exact: true }).click()
   await expect(page.getByRole('heading', { name: '桌面控制' })).toBeVisible()
   await expect(page.getByTestId('screen-recording-status')).toHaveText(
-    new RegExp(`^(${['已授权', '未授权', '受限', '不支持'].join('|')})$`)
+    new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
   )
   await expect(page.getByText('Computer Use 屏幕捕获（Spike 1）', { exact: true })).toBeVisible()
   await expect(page.getByText(/adhoc/)).toBeVisible()

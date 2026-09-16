@@ -1,4 +1,5 @@
 import {
+  accessAfterCaptureProbe,
   captureSourceSchema,
   captureSourceTypeFromId,
   desktopControlCommandSchema,
@@ -119,7 +120,7 @@ export class DesktopCapture {
       platformSupported,
       mediaAccessStatus,
       access,
-      canCapture: access === 'granted' || mediaAccessStatus === 'not-determined',
+      canCapture: platformSupported && access !== 'restricted',
       canOpenSettings: platformSupported
     })
   }
@@ -134,9 +135,7 @@ export class DesktopCapture {
         truncated: false,
         probed: false,
         message: permission.platformSupported
-          ? permission.access === 'restricted'
-            ? '屏幕录制受系统策略限制，无法列出屏幕或窗口。'
-            : '尚未授权屏幕录制，无法列出屏幕或窗口。'
+          ? '屏幕录制受系统策略限制，无法列出屏幕或窗口。'
           : '桌面截取探测仅在 macOS 上可用。'
       })
     }
@@ -158,15 +157,18 @@ export class DesktopCapture {
       })
       const sources = mapped.slice(0, DESKTOP_CONTROL_LIMITS.maxSources)
       const truncated = mapped.length > sources.length
+      const nextPermission = accessAfterCaptureProbe(this.readPermission(), sources)
       return desktopControlSourcesResultSchema.parse({
         type: 'sources',
-        permission: this.readPermission(),
+        permission: nextPermission,
         sources,
         truncated,
         probed: true,
         message:
           sources.length === 0
-            ? '未发现可截取的屏幕或窗口。'
+            ? nextPermission.access === 'denied'
+              ? '尚未授权屏幕录制，无法列出屏幕或窗口。'
+              : '未发现可截取的屏幕或窗口。'
             : truncated
               ? `仅显示前 ${DESKTOP_CONTROL_LIMITS.maxSources} 个来源。`
               : undefined

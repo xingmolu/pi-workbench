@@ -15,10 +15,12 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
 mac:
+  identity: "-"
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    - NSScreenCaptureUsageDescription: Pi Desktop 需要屏幕录制权限，用于截取屏幕与窗口（Computer Use）。Screen Recording is required to capture displays and windows.
   notarize: false
 linux:
   target:

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accessAfterCaptureProbe,
   captureSourceSchema,
   captureSourceTypeFromId,
   desktopControlCommandSchema,
@@ -22,27 +23,63 @@ describe('desktop control DTOs', () => {
   it.each([
     ['darwin', 'granted', 'granted'],
     ['darwin', 'denied', 'denied'],
-    ['darwin', 'not-determined', 'denied'],
+    ['darwin', 'not-determined', 'pending'],
     ['darwin', 'restricted', 'restricted'],
-    ['darwin', 'unknown', 'unsupported'],
-    ['darwin', 'unavailable', 'unsupported'],
+    ['darwin', 'unknown', 'pending'],
+    ['darwin', 'unavailable', 'pending'],
     ['linux', 'granted', 'unsupported'],
     ['win32', 'denied', 'unsupported']
   ] as const)('maps %s / %s to %s', (platform, status, access) => {
     expect(mapScreenRecordingAccess(platform, status)).toBe(access)
   })
 
-  it('exposes the four settings chips', () => {
+  it('exposes the settings chips including pending', () => {
     expect(screenRecordingChipLabel('granted')).toBe('已授权')
     expect(screenRecordingChipLabel('denied')).toBe('未授权')
     expect(screenRecordingChipLabel('restricted')).toBe('受限')
+    expect(screenRecordingChipLabel('pending')).toBe('待确认')
     expect(screenRecordingChipLabel('unsupported')).toBe('不支持')
     expect(Object.values(SCREEN_RECORDING_CHIP_LABELS)).toEqual([
       '已授权',
       '未授权',
       '受限',
+      '待确认',
       '不支持'
     ])
+  })
+
+  it('upgrades denied Electron status to granted when capture sources exist', () => {
+    expect(
+      accessAfterCaptureProbe(
+        {
+          platformSupported: true,
+          mediaAccessStatus: 'denied',
+          access: 'denied',
+          canCapture: true,
+          canOpenSettings: true
+        },
+        [
+          {
+            id: 'screen:0:0',
+            name: 'Built-in Retina Display',
+            type: 'screen',
+            thumbnailDataUrl: 'data:image/png;base64,AAAA'
+          }
+        ]
+      )
+    ).toMatchObject({ access: 'granted', canCapture: true, mediaAccessStatus: 'denied' })
+    expect(
+      accessAfterCaptureProbe(
+        {
+          platformSupported: true,
+          mediaAccessStatus: 'denied',
+          access: 'denied',
+          canCapture: true,
+          canOpenSettings: true
+        },
+        []
+      )
+    ).toMatchObject({ access: 'denied' })
   })
 
   it('accepts the three renderer commands and rejects extras', () => {

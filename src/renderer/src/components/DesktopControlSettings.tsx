@@ -32,7 +32,8 @@ export function DesktopControlPanel({
 }): React.JSX.Element {
   const access = permission?.access ?? 'unsupported'
   const chip = screenRecordingChipLabel(access)
-  const loadingPermission = pending === 'permission' && !permission
+  const loadingStatus =
+    permission === null && (pending === 'permission' || pending === 'sources')
   return (
     <section className="desktop-control-settings" aria-label="桌面控制">
       <header className="desktop-control-heading">
@@ -46,18 +47,18 @@ export function DesktopControlPanel({
       </header>
       <p className="desktop-control-guide">
         完整 Computer Use 后续还需要「屏幕录制」和「辅助功能」授权。当前 Spike 1
-        只做屏幕与窗口截取探测，不会点击或注入输入。adhoc / 未签名构建可能在每次重建后无法记住 TCC
-        授权。
+        只做屏幕与窗口截取探测，不会点击或注入输入。在系统设置中打开屏幕录制后，请完全退出（Cmd+Q）再重新打开。adhoc
+        重建可能显示为 Electron，或出现新的 Pi Desktop 行，需要重新授权。
       </p>
       <article className="desktop-control-card">
         <div className="desktop-control-status">
           <span>
             <strong>屏幕录制</strong>
             <small>
-              {loadingPermission
+              {loadingStatus
                 ? '正在读取本机授权状态…'
                 : permission?.platformSupported
-                  ? '由 macOS TCC 决定；授权后可试截取屏幕与窗口缩略图。'
+                  ? '由截取探测与 macOS TCC 共同确认；授权后可试截取屏幕与窗口缩略图。'
                   : '当前仅在 macOS 上探测屏幕录制授权。'}
             </small>
           </span>
@@ -66,7 +67,7 @@ export function DesktopControlPanel({
             data-testid="screen-recording-status"
             data-access={access}
           >
-            {loadingPermission ? '读取中' : chip}
+            {loadingStatus ? '读取中' : chip}
           </span>
         </div>
         <div className="desktop-control-actions">
@@ -125,7 +126,7 @@ export default function DesktopControlSettings(): React.JSX.Element {
   const [truncated, setTruncated] = useState(false)
   const [probed, setProbed] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [pending, setPending] = useState<'permission' | 'sources' | 'settings' | null>('permission')
+  const [pending, setPending] = useState<'permission' | 'sources' | 'settings' | null>('sources')
   const [error, setError] = useState<string | null>(null)
   const epoch = useRef(0)
 
@@ -160,7 +161,7 @@ export default function DesktopControlSettings(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void run('permission')
+    void run('sources')
     const requests = epoch
     return () => {
       requests.current++

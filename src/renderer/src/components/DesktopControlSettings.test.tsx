@@ -29,17 +29,20 @@ function render(patch: Partial<ComponentProps<typeof DesktopControlPanel>> = {})
   )
 }
 
-it('shows the four permission chips and macOS-only copy', () => {
+it('shows the permission chips and macOS-only copy', () => {
   expect(render()).toContain('不支持')
   expect(render()).toContain('打开系统设置（屏幕录制）')
   expect(render()).toContain('刷新 / 试截取')
   expect(render()).toContain('辅助功能')
   expect(render()).toContain('adhoc')
+  expect(render()).toContain('Cmd+Q')
+  expect(render()).toContain('Electron')
   expect(
     render({ permission: { ...unsupported, access: 'granted', canOpenSettings: true } })
   ).toContain('已授权')
   expect(render({ permission: { ...unsupported, access: 'denied' } })).toContain('未授权')
   expect(render({ permission: { ...unsupported, access: 'restricted' } })).toContain('受限')
+  expect(render({ permission: { ...unsupported, access: 'pending' } })).toContain('待确认')
   expect(render()).toContain('disabled=""')
 })
 

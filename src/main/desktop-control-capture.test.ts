@@ -86,17 +86,31 @@ describe('DesktopCapture', () => {
     expect(openExternal).not.toHaveBeenCalled()
   })
 
-  it('maps denied and restricted without listing sources', async () => {
-    const denied = capture({ status: 'denied' })
-    expect(await denied.api.dispatch({ type: 'sources' })).toMatchObject({
-      permission: { access: 'denied', canCapture: false },
-      probed: false,
+  it('probes denied status and treats real sources as granted', async () => {
+    const deniedEmpty = capture({ status: 'denied' })
+    expect(await deniedEmpty.api.dispatch({ type: 'sources' })).toMatchObject({
+      permission: { access: 'denied', canCapture: true, mediaAccessStatus: 'denied' },
+      probed: true,
+      sources: [],
       message: '尚未授权屏幕录制，无法列出屏幕或窗口。'
     })
-    expect(denied.getSources).not.toHaveBeenCalled()
+    expect(deniedEmpty.getSources).toHaveBeenCalledOnce()
+    const deniedSuccess = capture({
+      status: 'denied',
+      sources: [source('screen:0:0', 'Built-in Retina Display')]
+    })
+    expect(await deniedSuccess.api.dispatch({ type: 'sources' })).toMatchObject({
+      permission: { access: 'granted', canCapture: true, mediaAccessStatus: 'denied' },
+      probed: true,
+      sources: [{ id: 'screen:0:0' }]
+    })
+    expect(deniedSuccess.getSources).toHaveBeenCalledOnce()
+  })
+
+  it('does not probe restricted macOS policy or non-darwin platforms', async () => {
     const restricted = capture({ status: 'restricted' })
     expect(await restricted.api.dispatch({ type: 'sources' })).toMatchObject({
-      permission: { access: 'restricted' },
+      permission: { access: 'restricted', canCapture: false },
       probed: false,
       message: '屏幕录制受系统策略限制，无法列出屏幕或窗口。'
     })
@@ -151,11 +165,37 @@ describe('DesktopCapture', () => {
       type: 'sources',
       probed: true,
       truncated: true,
-      permission: { access: 'denied', canCapture: true, mediaAccessStatus: 'not-determined' },
+      permission: { access: 'granted', canCapture: true, mediaAccessStatus: 'not-determined' },
       message: `仅显示前 ${DESKTOP_CONTROL_LIMITS.maxSources} 个来源。`
     })
     if (result.type !== 'sources') throw new Error('expected sources')
     expect(result.sources).toHaveLength(DESKTOP_CONTROL_LIMITS.maxSources)
+  })
+
+  it('keeps not-determined as pending when the probe finds no sources', async () => {
+    const { api, getSources } = capture({ status: 'not-determined', sources: [] })
+    expect(await api.dispatch({ type: 'permission' })).toMatchObject({
+      permission: { access: 'pending', canCapture: true, mediaAccessStatus: 'not-determined' }
+    })
+    expect(await api.dispatch({ type: 'sources' })).toMatchObject({
+      permission: { access: 'pending', mediaAccessStatus: 'not-determined' },
+      probed: true,
+      sources: [],
+      message: '未发现可截取的屏幕或窗口。'
+    })
+    expect(getSources).toHaveBeenCalledOnce()
+  })
+
+  it('probes unknown Electron status instead of treating it as unsupported', async () => {
+    const { api, getSources } = capture({
+      status: 'unknown',
+      sources: [source('window:1:0', 'Finder')]
+    })
+    expect(await api.dispatch({ type: 'sources' })).toMatchObject({
+      permission: { access: 'granted', mediaAccessStatus: 'unknown' },
+      probed: true
+    })
+    expect(getSources).toHaveBeenCalledOnce()
   })
 
   it('opens the Sequoia-compatible privacy pane and falls back', async () => {
@@ -180,21 +220,25 @@ describe('DesktopCapture', () => {
     })
   })
 
-  it('treats media-status failures as unavailable without listing sources', async () => {
+  it('still probes when media-status lookup fails on macOS', async () => {
+    const getSources = vi.fn(async () => [source('screen:0:0', 'Display')])
     const api = new DesktopCapture({
       platform: 'darwin',
       getMediaAccessStatus: () => {
         throw new Error('no TCC')
       },
-      getSources: async () => {
-        throw new Error('should not list')
-      },
+      getSources,
       openExternal: async () => undefined
     })
     expect(await api.dispatch({ type: 'permission' })).toMatchObject({
-      permission: { mediaAccessStatus: 'unavailable', access: 'unsupported', canCapture: false }
+      permission: { mediaAccessStatus: 'unavailable', access: 'pending', canCapture: true }
     })
-    expect(await api.dispatch({ type: 'sources' })).toMatchObject({ probed: false, sources: [] })
+    expect(await api.dispatch({ type: 'sources' })).toMatchObject({
+      probed: true,
+      permission: { access: 'granted', mediaAccessStatus: 'unavailable' },
+      sources: [{ id: 'screen:0:0' }]
+    })
+    expect(getSources).toHaveBeenCalledOnce()
   })
 
   it('rejects unknown IPC commands', async () => {

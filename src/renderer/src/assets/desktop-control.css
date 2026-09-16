@@ -71,7 +71,8 @@
   color: var(--success-text);
   border-color: color-mix(in srgb, var(--success-text) 35%, var(--line));
 }
-.desktop-control-chip.is-denied {
+.desktop-control-chip.is-denied,
+.desktop-control-chip.is-pending {
   color: var(--text-soft);
 }
 .desktop-control-chip.is-restricted {

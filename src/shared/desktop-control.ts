@@ -40,6 +40,7 @@ export const screenRecordingAccessSchema = z.enum([
   'granted',
   'denied',
   'restricted',
+  'pending',
   'unsupported'
 ])
 export type ScreenRecordingAccess = z.infer<typeof screenRecordingAccessSchema>
@@ -48,6 +49,7 @@ export const SCREEN_RECORDING_CHIP_LABELS = {
   granted: '已授权',
   denied: '未授权',
   restricted: '受限',
+  pending: '待确认',
   unsupported: '不支持'
 } as const
 
@@ -58,8 +60,9 @@ export function mapScreenRecordingAccess(
   if (platform !== 'darwin') return 'unsupported'
   if (mediaAccessStatus === 'granted') return 'granted'
   if (mediaAccessStatus === 'restricted') return 'restricted'
-  if (mediaAccessStatus === 'denied' || mediaAccessStatus === 'not-determined') return 'denied'
-  return 'unsupported'
+  if (mediaAccessStatus === 'denied') return 'denied'
+  // not-determined / unknown / unavailable are not 未授权; probe getSources first.
+  return 'pending'
 }
 
 export function screenRecordingChipLabel(access: ScreenRecordingAccess): string {
@@ -94,6 +97,19 @@ export const desktopControlPermissionSchema = z
   })
   .strict()
 export type DesktopControlPermission = z.infer<typeof desktopControlPermissionSchema>
+
+/** Sequoia+ can report denied while ScreenCaptureKit still returns real sources. */
+export function accessAfterCaptureProbe(
+  permission: DesktopControlPermission,
+  sources: readonly CaptureSource[]
+): DesktopControlPermission {
+  if (sources.length === 0) return permission
+  return {
+    ...permission,
+    access: 'granted',
+    canCapture: true
+  }
+}
 
 export const desktopControlCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('permission') }).strict(),
