@@ -333,6 +333,13 @@ exit 0
   await expect(page.getByText('https://my-mac.tail123.ts.net')).toBeVisible()
   await page.locator('.mobile-tailscale-status').getByRole('button', { name: '复制' }).click()
   await expect(page.locator('.mobile-tailscale-status').getByRole('button', { name: '已复制' })).toBeVisible()
+  await page.getByRole('button', { name: '显示配对码', exact: true }).click()
+  await expect(page.getByAltText('手机配对二维码')).toBeVisible()
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
   await page.screenshot({ path: 'artifacts/e2e/mobile-tailscale-serve.png' })
+  await page.locator('.settings-content').screenshot({ path: 'artifacts/e2e/mobile-settings-panel.png' })
+  await page.locator('.mobile-tailscale-status').scrollIntoViewIfNeeded()
+  await page.locator('.mobile-gateway-settings .settings-card').last().screenshot({
+    path: 'artifacts/e2e/mobile-settings-tailscale.png'
+  })
 })

@@ -219,15 +219,15 @@ a { color: var(--run); }
   min-height: 44px; padding: 2px 6px 8px 10px;
 }
 .composer-tools {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  flex: 1; min-width: 0;
+  display: flex; align-items: center; flex-wrap: nowrap; gap: 6px;
+  flex: 1; min-width: 0; overflow: hidden;
 }
 .composer-chip {
   display: inline-flex; align-items: center;
-  max-width: min(46vw, 220px); height: 28px; padding: 0 10px;
+  max-width: min(34vw, 160px); height: 28px; padding: 0 9px;
   border: 1px solid var(--line); border-radius: 999px; background: var(--composer);
   color: var(--muted); font-size: 12px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1;
 }
 .composer-chip.is-run {
   color: var(--run); border-color: color-mix(in srgb, var(--run) 40%, var(--line));
@@ -236,6 +236,7 @@ a { color: var(--run); }
   color: var(--ask); border-color: color-mix(in srgb, var(--ask) 45%, var(--line));
 }
 .composer-model { color: var(--text); }
+.composer-stop, .composer-clear { flex-shrink: 0; }
 .composer-stop {
   min-width: 44px; height: 32px; padding: 0 12px; border: 0; border-radius: 999px;
   background: var(--danger); color: #fff; font-weight: 600; font-size: 12px;

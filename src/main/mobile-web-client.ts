@@ -295,7 +295,7 @@ function composerHtml() {
     ? '<button type="button" class="composer-stop" id="stop" aria-label="停止">停止</button>'
     : "";
   const clear = queued
-    ? '<button type="button" class="composer-clear" id="clear">清空队列</button>'
+    ? '<button type="button" class="composer-clear" id="clear" aria-label="清空队列">清空</button>'
     : "";
   const canSend = Boolean(draft.trim()) && !blocked;
   const sendLabel = busy ? "加入队列" : "发送";
