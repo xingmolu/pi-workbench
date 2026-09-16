@@ -229,6 +229,9 @@ export class DesktopCapture {
     if (request.type === 'open-screen-recording-settings') {
       return this.openScreenRecordingSettings()
     }
-    return this.listSources()
+    if (request.type === 'sources') {
+      return this.listSources()
+    }
+    throw new Error('桌面截取不处理该命令')
   }
 }

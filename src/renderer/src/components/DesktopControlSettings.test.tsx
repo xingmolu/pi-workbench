@@ -16,14 +16,26 @@ function render(patch: Partial<ComponentProps<typeof DesktopControlPanel>> = {})
   return renderToStaticMarkup(
     <DesktopControlPanel
       permission={unsupported}
+      accessibility={unsupported}
       sources={[]}
       truncated={false}
       probed={false}
       message={null}
+      dump={null}
+      dumpProbed={false}
+      dumpMessage={null}
+      sessionUnlocked={null}
+      previewTarget={null}
+      previewAllowed={false}
+      previewMessage={null}
       pending={null}
       error={null}
       onRefresh={() => undefined}
       onOpenSettings={() => undefined}
+      onOpenAccessibilitySettings={() => undefined}
+      onDump={() => undefined}
+      onPreview={() => undefined}
+      onConfirmClick={() => undefined}
       {...patch}
     />
   )
@@ -32,11 +44,15 @@ function render(patch: Partial<ComponentProps<typeof DesktopControlPanel>> = {})
 it('shows the permission chips and macOS-only copy', () => {
   expect(render()).toContain('不支持')
   expect(render()).toContain('打开系统设置（屏幕录制）')
+  expect(render()).toContain('打开系统设置（辅助功能）')
   expect(render()).toContain('刷新 / 试截取')
+  expect(render()).toContain('读取窗口结构')
+  expect(render()).toContain('确认点击')
   expect(render()).toContain('辅助功能')
   expect(render()).toContain('adhoc')
   expect(render()).toContain('Cmd+Q')
   expect(render()).toContain('Electron')
+  expect(render()).toContain('Ask')
   expect(
     render({ permission: { ...unsupported, access: 'granted', canOpenSettings: true } })
   ).toContain('已授权')
@@ -90,4 +106,43 @@ it('explains denied and empty probe states without inventing sources', () => {
   expect(html).toContain('未授权')
   expect(html).toContain('尚未授权屏幕录制，无法列出屏幕或窗口。')
   expect(html).not.toContain('desktop-control-gallery')
+})
+
+it('renders a bounded AX dump and keeps confirm-click disabled until preview allows it', () => {
+  const html = render({
+    accessibility: {
+      platformSupported: true,
+      mediaAccessStatus: 'granted',
+      access: 'granted',
+      canCapture: true,
+      canOpenSettings: true
+    },
+    dumpProbed: true,
+    dump: {
+      app: 'Finder',
+      bundleId: 'com.apple.finder',
+      nodeCount: 1,
+      truncated: false,
+      windows: [
+        {
+          role: 'window',
+          title: 'Desktop',
+          value: '',
+          description: '',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          children: []
+        }
+      ]
+    },
+    previewAllowed: false,
+    previewTarget: { role: 'button', title: 'OK', value: '', x: 10, y: 12, width: 40, height: 20 }
+  })
+  expect(html).toContain('Finder')
+  expect(html).toContain('Desktop')
+  expect(html).toContain('命中 button')
+  expect(html).toContain('确认点击')
+  expect(html).toContain('disabled=""')
 })

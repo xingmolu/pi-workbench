@@ -24,12 +24,16 @@ import type {
   WorkbenchCommandResult,
   WorkbenchEvent
 } from './workbench-contracts'
+import type {
+  DesktopControlAgentOperation,
+  DesktopControlAgentResult
+} from './desktop-control'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
 export type PermissionMode = 'open' | 'ask'
 
-export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'generic'
+export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'desktop' | 'generic'
 
 export type ToolStatus =
   'queued' | 'awaiting-approval' | 'waiting-resource' | 'running' | 'success' | 'error' | 'blocked' | 'incomplete'
@@ -311,6 +315,37 @@ export type BrowserCapabilityResponse =
   | {
       type: 'capability-response'
       capability: 'browser'
+      requestId: string
+      ok: false
+      error: string
+    }
+
+export type DesktopControlCapabilityRequest = {
+  type: 'capability-request'
+  capability: 'desktop-control'
+  requestId: string
+  sessionId: string | null
+  generation: number
+  operation: DesktopControlAgentOperation
+}
+
+export type DesktopControlCapabilityCancel = {
+  type: 'capability-cancel'
+  capability: 'desktop-control'
+  requestId: string
+}
+
+export type DesktopControlCapabilityResponse =
+  | {
+      type: 'capability-response'
+      capability: 'desktop-control'
+      requestId: string
+      ok: true
+      data: DesktopControlAgentResult
+    }
+  | {
+      type: 'capability-response'
+      capability: 'desktop-control'
       requestId: string
       ok: false
       error: string

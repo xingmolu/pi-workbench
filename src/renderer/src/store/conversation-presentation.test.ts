@@ -5,7 +5,8 @@ import {
   contextDisplay,
   runtimeMetricsDisplay,
   toolMetaDisplay,
-  currentToolApproval
+  currentToolApproval,
+  approvalSummary
 } from './conversation-presentation'
 
 const metrics = (overrides: Partial<UsageMetrics> = {}): UsageMetrics => ({
@@ -39,6 +40,20 @@ it('assigns a reused tool ID approval only to the current awaiting occurrence', 
   }
   const nodes = [{ ...tool, id: 'historical', status: 'success' as const }, tool]
   expect(nodes.map((node) => currentToolApproval(node, [request]))).toEqual([null, request])
+})
+
+it('summarizes desktop Ask the same way as browser Ask', () => {
+  expect(
+    approvalSummary({
+      id: 'approval',
+      generation: 1,
+      toolCallId: 'click',
+      toolName: 'desktop',
+      intent: 'desktop',
+      title: '桌面 · click',
+      detail: JSON.stringify({ action: 'click', x: 12, y: 40 })
+    })
+  ).toBe('点击桌面坐标 · (12, 40)')
 })
 
 describe('contextDisplay', () => {

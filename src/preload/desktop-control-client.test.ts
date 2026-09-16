@@ -20,6 +20,9 @@ describe('desktop control preload client', () => {
     })
     expect(invoke).toHaveBeenCalledExactlyOnceWith({ type: 'permission' })
     await expect(client.desktopControl({ type: 'click' } as never)).rejects.toThrow()
+    await expect(
+      client.desktopControl({ type: 'input-click', x: 1, y: 2 } as never)
+    ).rejects.toThrow()
     invoke.mockResolvedValueOnce({ type: 'permission', extra: true } as never)
     await expect(client.desktopControl({ type: 'permission' })).rejects.toThrow()
   })

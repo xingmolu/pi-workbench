@@ -31,6 +31,22 @@ export function approvalSummary(approval: ApprovalRequest): string {
       return '操作右侧浏览器中的网页'
     }
   }
+  if (approval.intent === 'desktop') {
+    try {
+      const input = JSON.parse(approval.detail)
+      const actions: Record<string, string> = {
+        click: '点击桌面坐标',
+        move: '移动桌面指针',
+        type: '向桌面输入文字'
+      }
+      const action = actions[input.action] ?? '操作本机桌面'
+      return typeof input.x === 'number' && typeof input.y === 'number'
+        ? `${action} · (${input.x}, ${input.y})`
+        : action
+    } catch {
+      return '在确认后操作本机桌面'
+    }
+  }
   return approval.intent === 'diff'
     ? '修改项目文件'
     : approval.intent === 'terminal'

@@ -350,6 +350,7 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
   const permission = await page.evaluate(() => window.pi.desktopControl({ type: 'permission' }))
   expect(permission.type).toBe('permission')
+  if (permission.type !== 'permission') throw new Error('expected permission')
   expect(['granted', 'denied', 'restricted', 'pending', 'unsupported']).toContain(
     permission.permission.access
   )
@@ -359,15 +360,45 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '桌面控制', exact: true }).click()
   await expect(page.getByRole('heading', { name: '桌面控制' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '手机', exact: true })).toBeVisible()
   await expect(page.getByTestId('screen-recording-status')).toHaveText(
     new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
   )
-  await expect(page.getByText('Computer Use 屏幕捕获（Spike 1）', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('accessibility-status')).toHaveText(
+    new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
+  )
+  await expect(page.getByText('Computer Use：屏幕捕获、辅助功能与确认后输入', { exact: true })).toBeVisible()
   await expect(page.getByText(/adhoc/)).toBeVisible()
   const openSettings = page.getByRole('button', { name: '打开系统设置（屏幕录制）' })
   if (permission.permission.canOpenSettings) await expect(openSettings).toBeEnabled()
   else await expect(openSettings).toBeDisabled()
+  const axPerm = await page.evaluate(() =>
+    window.pi.desktopControl({ type: 'accessibility-permission' })
+  )
+  expect(axPerm.type).toBe('accessibility-permission')
+  if (axPerm.type !== 'accessibility-permission') throw new Error('expected accessibility-permission')
+  const openAccessibility = page.getByRole('button', { name: '打开系统设置（辅助功能）' })
+  if (axPerm.permission.canOpenSettings) await expect(openAccessibility).toBeEnabled()
+  else await expect(openAccessibility).toBeDisabled()
   await page.getByRole('button', { name: '刷新 / 试截取' }).click()
   await expect(page.getByRole('button', { name: '刷新 / 试截取' })).toBeEnabled()
+  const ax = await page.evaluate(() => window.pi.desktopControl({ type: 'accessibility-dump' }))
+  expect(ax.type).toBe('accessibility-dump')
+  if (ax.type === 'accessibility-dump') {
+    expect(ax.permission.access).toBe('unsupported')
+    expect(ax.probed).toBe(false)
+    expect(ax.dump).toBeNull()
+  }
+  const preview = await page.evaluate(() =>
+    window.pi.desktopControl({ type: 'input-preview', x: 12, y: 40 })
+  )
+  expect(preview.type).toBe('input-preview')
+  if (preview.type === 'input-preview') expect(preview.allowed).toBe(false)
+  await expect(
+    page.evaluate(() => window.pi.desktopControl({ type: 'input-click', x: 12, y: 40 } as never))
+  ).rejects.toBeTruthy()
+  await page.getByRole('button', { name: '读取窗口结构' }).click()
+  await expect(page.getByTestId('ax-dump')).toBeVisible()
+  await expect(page.getByRole('button', { name: '确认点击' })).toBeDisabled()
   await page.screenshot({ path: 'artifacts/e2e/desktop-control-settings.png' })
 })

@@ -8,7 +8,7 @@ import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
 import { applyStatePatch } from '../shared/state-patch'
 import { GlobalConfigurationGate } from './global-configuration-gate'
 import { handleDesktopSettings } from './desktop-settings'
-import { DesktopCapture } from './desktop-control-capture'
+import { DesktopControlService } from './desktop-control-service'
 import { NativePaletteFocus } from './native-palette-focus'
 import { NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema } from '../shared/native-palette-focus'
 import {
@@ -48,6 +48,7 @@ import type {
   AgentSnapshot,
   BrowserCapabilityResponse,
   BrowserCommand,
+  DesktopControlCapabilityResponse,
   HostCommand,
   DesktopEvent,
   HostRequest,
@@ -65,6 +66,8 @@ import {
   browserCapabilityCancelSchema,
   browserCapabilityRequestSchema,
   browserCommandSchema,
+  desktopControlCapabilityCancelSchema,
+  desktopControlCapabilityRequestSchema,
   hostCommandSchema
 } from '../shared/schemas'
 import { workbenchCommandSchema } from '../shared/workbench-schemas'
@@ -119,6 +122,7 @@ let rejectHostReady: ((error: Error) => void) | null = null
 let preferences: ElectronStore<Preferences> | null = null
 let browserManager: BrowserManager | null = null
 let browserOwner: BrowserWindowType | null = null
+let desktopControl: DesktopControlService | null = null
 const nativePaletteFocus = new NativePaletteFocus()
 const paletteSourceIdentity = (): string => JSON.stringify([activeProjectPath, activeHostIdentity.sessionId, activeHostIdentity.generation])
 let workbenchHost: WorkbenchHost | null = null
@@ -453,6 +457,48 @@ function handleHostMessage(message: unknown): void {
     browserManager?.abortAgent(capabilityCancel.data.requestId)
     return
   }
+  const desktopRequest = desktopControlCapabilityRequestSchema.safeParse(message)
+  if (desktopRequest.success) {
+    const request = desktopRequest.data
+    const fail = (error: string): void => {
+      agentHost?.postMessage({
+        type: 'capability-response',
+        capability: 'desktop-control',
+        requestId: request.requestId,
+        ok: false,
+        error
+      } satisfies DesktopControlCapabilityResponse)
+    }
+    if (
+      request.generation !== activeHostIdentity.generation ||
+      request.sessionId !== activeHostIdentity.sessionId
+    ) {
+      fail('会话已切换，桌面控制操作已取消')
+      return
+    }
+    const service = desktopControl
+    if (!service) {
+      fail('桌面控制尚未就绪')
+      return
+    }
+    void service
+      .executeAgent(request.operation)
+      .then((data) => {
+        agentHost?.postMessage({
+          type: 'capability-response',
+          capability: 'desktop-control',
+          requestId: request.requestId,
+          ok: true,
+          data
+        } satisfies DesktopControlCapabilityResponse)
+      })
+      .catch((error) => fail(errorMessage(error)))
+    return
+  }
+  const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
+  if (desktopCancel.success) {
+    return
+  }
   const event = responseBroker.accept(message)
   if (event?.event === 'snapshot') lobbySnapshot = event.data
   if (event?.event === 'patch' && lobbySnapshot) {
@@ -478,19 +524,52 @@ function handleWorkerCapability(workerId: string, cwd: string, message: unknown,
     return true
   }
   const parsed = browserCapabilityRequestSchema.safeParse(message)
-  if (!parsed.success) return false
-  const request = parsed.data
-  const respond = (ok: boolean, data?: unknown, error?: string) => reply({ type: 'capability-response', capability: 'browser', requestId: request.requestId, ok, ...(ok ? { data } : { error }) })
-  const scope = sessionWorkers.pool.selectedScope
-  if (scope?.workerId !== workerId || request.sessionId !== snapshot?.sessionId || request.generation !== snapshot?.generation || !browserManager) {
-    respond(false, undefined, '当前会话未选中，浏览器操作已取消')
+  if (parsed.success) {
+    const request = parsed.data
+    const respond = (ok: boolean, data?: unknown, error?: string) => reply({ type: 'capability-response', capability: 'browser', requestId: request.requestId, ok, ...(ok ? { data } : { error }) })
+    const scope = sessionWorkers.pool.selectedScope
+    if (scope?.workerId !== workerId || request.sessionId !== snapshot?.sessionId || request.generation !== snapshot?.generation || !browserManager) {
+      respond(false, undefined, '当前会话未选中，浏览器操作已取消')
+      return true
+    }
+    browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
+    void browserManager.executeAgent(request.operation, request.requestId).then(data => {
+      if (sessionWorkers.pool.selectedScope?.selectionEpoch !== scope.selectionEpoch) respond(false, undefined, '会话已切换，浏览器操作已取消')
+      else respond(true, data)
+    }).catch(error => respond(false, undefined, errorMessage(error)))
     return true
   }
-  browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
-  void browserManager.executeAgent(request.operation, request.requestId).then(data => {
-    if (sessionWorkers.pool.selectedScope?.selectionEpoch !== scope.selectionEpoch) respond(false, undefined, '会话已切换，浏览器操作已取消')
-    else respond(true, data)
-  }).catch(error => respond(false, undefined, errorMessage(error)))
+  const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
+  if (desktopCancel.success) return true
+  const desktopParsed = desktopControlCapabilityRequestSchema.safeParse(message)
+  if (!desktopParsed.success) return false
+  const desktop = desktopParsed.data
+  const respondDesktop = (ok: boolean, data?: unknown, error?: string) =>
+    reply({
+      type: 'capability-response',
+      capability: 'desktop-control',
+      requestId: desktop.requestId,
+      ok,
+      ...(ok ? { data } : { error })
+    })
+  const selected = sessionWorkers.pool.selectedScope
+  if (
+    selected?.workerId !== workerId ||
+    desktop.sessionId !== snapshot?.sessionId ||
+    desktop.generation !== snapshot?.generation ||
+    !desktopControl
+  ) {
+    respondDesktop(false, undefined, '当前会话未选中，桌面控制操作已取消')
+    return true
+  }
+  void desktopControl
+    .executeAgent(desktop.operation)
+    .then((data) => {
+      if (sessionWorkers.pool.selectedScope?.selectionEpoch !== selected.selectionEpoch) {
+        respondDesktop(false, undefined, '会话已切换，桌面控制操作已取消')
+      } else respondDesktop(true, data)
+    })
+    .catch((error) => respondDesktop(false, undefined, errorMessage(error)))
   return true
 }
 
@@ -804,15 +883,19 @@ function registerIpc(): void {
     if (!mobileGateway) throw new Error('手机网关尚未就绪')
     return mobileGateway.dispatch(command)
   })
-  const desktopCapture = new DesktopCapture({
+  desktopControl = new DesktopControlService({
     platform: process.platform,
     getMediaAccessStatus: (mediaType) => systemPreferences.getMediaAccessStatus(mediaType),
     getSources: (options) => desktopCapturer.getSources(options),
+    isTrustedAccessibilityClient: (prompt) =>
+      typeof systemPreferences.isTrustedAccessibilityClient === 'function'
+        ? systemPreferences.isTrustedAccessibilityClient(prompt)
+        : false,
     openExternal: (url) => shell.openExternal(url)
   })
   ipcMain.handle(DESKTOP_CONTROL_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
-    return desktopCapture.dispatch(command)
+    return desktopControl!.dispatch(command)
   })
   const tableExporter = new MarkdownTableExporter((owner) => dialog.showSaveDialog(BrowserWindow.fromId(owner.id)!, { title: '保存表格 CSV', defaultPath: '表格.csv', filters: [{ name: 'CSV 表格', extensions: ['csv'] }], properties: ['showOverwriteConfirmation'] }))
   ipcMain.handle(MARKDOWN_TABLE_EXPORT_CHANNEL, (event, request: unknown) => {

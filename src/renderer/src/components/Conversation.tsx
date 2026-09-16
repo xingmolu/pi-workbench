@@ -33,6 +33,7 @@ import {
   Globe2,
   LockKeyhole,
   ListPlus,
+  Monitor,
   Plus,
   Search,
   Settings2,
@@ -95,6 +96,7 @@ const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
   diff: FileDiff,
   search: Search,
   web: Globe2,
+  desktop: Monitor,
   generic: Wrench
 }
 

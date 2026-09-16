@@ -3,8 +3,11 @@ import {
   accessAfterCaptureProbe,
   captureSourceSchema,
   captureSourceTypeFromId,
+  desktopControlAskDecision,
   desktopControlCommandSchema,
+  desktopControlGateMessage,
   desktopControlResultSchema,
+  hitTestAxNodes,
   mapScreenRecordingAccess,
   screenRecordingChipLabel,
   SCREEN_RECORDING_CHIP_LABELS,
@@ -82,16 +85,129 @@ describe('desktop control DTOs', () => {
     ).toMatchObject({ access: 'denied' })
   })
 
-  it('accepts the three renderer commands and rejects extras', () => {
+  it('accepts renderer commands and rejects unconfirmed clicks', () => {
     expect(desktopControlCommandSchema.parse({ type: 'permission' }).type).toBe('permission')
     expect(desktopControlCommandSchema.parse({ type: 'sources' }).type).toBe('sources')
     expect(desktopControlCommandSchema.parse({ type: 'open-screen-recording-settings' }).type).toBe(
       'open-screen-recording-settings'
     )
+    expect(desktopControlCommandSchema.parse({ type: 'accessibility-permission' }).type).toBe(
+      'accessibility-permission'
+    )
+    expect(desktopControlCommandSchema.parse({ type: 'accessibility-dump' }).type).toBe(
+      'accessibility-dump'
+    )
+    expect(desktopControlCommandSchema.parse({ type: 'input-preview', x: 1, y: 2 }).type).toBe(
+      'input-preview'
+    )
+    expect(
+      desktopControlCommandSchema.parse({ type: 'input-click', x: 1, y: 2, confirmed: true }).type
+    ).toBe('input-click')
     expect(desktopControlCommandSchema.safeParse({ type: 'permission', extra: true }).success).toBe(
       false
     )
     expect(desktopControlCommandSchema.safeParse({ type: 'click' }).success).toBe(false)
+    expect(desktopControlCommandSchema.safeParse({ type: 'input-click', x: 1, y: 2 }).success).toBe(
+      false
+    )
+  })
+
+  it('always Asks for agent clicks and skips dump/hit_test', () => {
+    expect(desktopControlAskDecision({ action: 'dump' })).toEqual({ kind: 'skip', action: 'dump' })
+    expect(desktopControlAskDecision({ action: 'hit_test', x: 1, y: 2 })).toEqual({
+      kind: 'skip',
+      action: 'hit_test'
+    })
+    expect(desktopControlAskDecision({ action: 'click', x: 8, y: 9 })).toEqual({
+      kind: 'ask',
+      action: 'click'
+    })
+    expect(desktopControlAskDecision({ action: 'move', x: 8, y: 9 })).toEqual({
+      kind: 'ask',
+      action: 'move'
+    })
+    expect(desktopControlAskDecision({ action: 'type', text: 'hi' })).toEqual({
+      kind: 'ask',
+      action: 'type'
+    })
+    expect(desktopControlAskDecision({ action: 'screenshot' })).toMatchObject({ kind: 'block' })
+  })
+
+  it('maps hard gates without touching TCC', () => {
+    expect(
+      desktopControlGateMessage({
+        platformSupported: false,
+        sessionUnlocked: true,
+        screenGranted: true,
+        accessibilityGranted: true
+      })
+    ).toContain('macOS')
+    expect(
+      desktopControlGateMessage({
+        platformSupported: true,
+        sessionUnlocked: false,
+        screenGranted: true,
+        accessibilityGranted: true
+      })
+    ).toContain('锁定')
+    expect(
+      desktopControlGateMessage({
+        platformSupported: true,
+        sessionUnlocked: true,
+        screenGranted: false,
+        accessibilityGranted: true
+      })
+    ).toContain('屏幕录制')
+    expect(
+      desktopControlGateMessage({
+        platformSupported: true,
+        sessionUnlocked: true,
+        screenGranted: true,
+        accessibilityGranted: false
+      })
+    ).toContain('辅助功能')
+    expect(
+      desktopControlGateMessage({
+        platformSupported: true,
+        sessionUnlocked: true,
+        screenGranted: true,
+        accessibilityGranted: true
+      })
+    ).toBeNull()
+  })
+
+  it('hit-tests the smallest containing AX node', () => {
+    const hit = hitTestAxNodes(
+      [
+        {
+          role: 'window',
+          title: 'App',
+          value: '',
+          description: '',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 200,
+          children: [
+            {
+              role: 'button',
+              title: 'OK',
+              value: '',
+              description: '',
+              x: 10,
+              y: 10,
+              width: 40,
+              height: 20,
+              children: []
+            }
+          ]
+        }
+      ],
+      12,
+      12
+    )
+    expect(hit?.role).toBe('button')
+    expect(hitTestAxNodes([], 0, 0)).toBeNull()
   })
 
   it('parses bounded capture sources and drops oversized thumbnails', () => {
