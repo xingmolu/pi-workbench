@@ -56,7 +56,7 @@ function snapshot(workerId: string): MobileConversationSnapshot {
 function fakeSessions(log: string[]): MobileSessionBridge {
   const current = snapshot('worker-1')
   const catalog: MobileCatalogProject[] = [
-    { path: '/project', name: 'project', sessions: [{ path: '/s.jsonl', title: '旧会话', modified: 'today', status: 'idle' }] }
+    { path: '/project', name: 'project', sessions: [{ path: '/s.jsonl', title: '旧会话2026-09-15T14:40:19.201Z', modified: '2026-09-15T14:40:19.201Z', status: 'idle' }] }
   ]
   return {
     listLive: () => [
@@ -153,6 +153,9 @@ describe('mobile gateway http', () => {
     const list = await request(18765, '/api/sessions', { token })
     expect(list.status).toBe(200)
     expect(list.data.live[0].title).toBe('hello')
+    expect(JSON.stringify(list.data.groups)).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
+    expect(list.data.groups[0].sessions[0].title).toBe('hello')
+    expect(list.data.groups[0].sessions[0].timeLabel).not.toMatch(/T|Z/)
     const send = await request(18765, '/api/sessions/worker-1/send', {
       method: 'POST',
       token,

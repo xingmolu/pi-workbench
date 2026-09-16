@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ApprovalRequest, ConversationNode, SessionStatus } from './contracts'
 import type { LiveSessionSummary } from './session-runtime'
+import { stripIsoTimestamp } from './mobile-list'
 
 export const MOBILE_GATEWAY_CHANNEL = 'pi:mobile-gateway'
 export const MOBILE_GATEWAY_PORT = 43124
@@ -201,6 +202,6 @@ export function liveSessionToMobile(session: LiveSessionSummary): MobileSessionL
     generation: session.generation,
     status: session.status,
     selected: session.selected,
-    title: session.title ?? '新会话'
+    title: stripIsoTimestamp(session.title ?? '新会话')
   }
 }

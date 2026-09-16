@@ -1,5 +1,7 @@
+import { hostname as osHostname } from 'node:os'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { MOBILE_GATEWAY_LOOPBACK, MOBILE_GATEWAY_PORT } from '../shared/mobile-gateway'
+import { buildMobileHomeGroups } from '../shared/mobile-list'
 import { encodeQrMatrix, renderQrSvg } from '../shared/qr'
 import {
   assertGatewayBindAddress,
@@ -18,6 +20,7 @@ export type MobileGatewayOptions = {
   sessions: MobileSessionBridge
   port?: number
   lanAddress?: () => string | null
+  hostName?: () => string
   listen?: (server: Server, port: number, host: string) => Promise<void>
 }
 
@@ -258,9 +261,13 @@ export class MobileGatewayServer {
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/sessions') {
+        const live = this.options.sessions.listLive()
+        const catalog = await this.options.sessions.listCatalog()
         json(response, 200, {
-          live: this.options.sessions.listLive(),
-          catalog: await this.options.sessions.listCatalog()
+          host: (this.options.hostName ?? osHostname)(),
+          live,
+          catalog,
+          groups: buildMobileHomeGroups(live, catalog)
         })
         return
       }
