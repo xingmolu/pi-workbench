@@ -6,7 +6,7 @@ import {
   type Page
 } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
@@ -22,6 +22,14 @@ async function launch() {
       TMPDIR: root,
       TMP: root,
       TEMP: root,
+      ...(process.env.DISPLAY
+        ? {
+            DISPLAY: process.env.DISPLAY,
+            XAUTHORITY: process.env.XAUTHORITY || join(homedir(), '.Xauthority')
+          }
+        : {}),
+      ...(process.env.WAYLAND_DISPLAY ? { WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY } : {}),
+      ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data'),
@@ -292,7 +300,7 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await expect(page.getByTestId('screen-recording-status')).toHaveText(
     new RegExp(`^(${['已授权', '未授权', '受限', '不支持'].join('|')})$`)
   )
-  await expect(page.getByText(/Spike 1/)).toBeVisible()
+  await expect(page.getByText('Computer Use 屏幕捕获（Spike 1）', { exact: true })).toBeVisible()
   await expect(page.getByText(/adhoc/)).toBeVisible()
   const openSettings = page.getByRole('button', { name: '打开系统设置（屏幕录制）' })
   if (permission.permission.canOpenSettings) await expect(openSettings).toBeEnabled()
