@@ -5,13 +5,13 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
-import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
 let app: ElectronApplication, page: Page, root: string
-async function launch() {
+async function launch(extraEnv: Record<string, string> = {}) {
   app = await electron.launch({
     args: [resolve('.')],
     cwd: root,
@@ -25,7 +25,8 @@ async function launch() {
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data'),
-      PI_CODING_AGENT_DIR: join(root, 'agent')
+      PI_CODING_AGENT_DIR: join(root, 'agent'),
+      ...extraEnv
     }
   })
   page = await app.firstWindow()
@@ -277,3 +278,63 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await expect(harness.locator('.composer-stats')).toHaveCount(0)
   await expect(harness.locator('.context-meter')).toBeVisible()
 })
+
+test('mobile Tailscale settings resolve a PATH CLI, enable Serve, and copy the URL', async () => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '手机', exact: true }).click()
+  await page.getByRole('button', { name: '检测', exact: true }).click()
+  await expect(page.getByRole('button', { name: '开启 Tailscale Serve' })).toBeDisabled()
+  await expect(page.getByText(/未找到 Tailscale CLI/)).toBeVisible()
+
+  const binDir = join(root, 'bin')
+  await mkdir(binDir, { recursive: true })
+  const serveState = join(root, 'tailscale-serve-state')
+  await writeFile(
+    join(binDir, 'tailscale'),
+    `#!/usr/bin/env node
+const fs = require('fs')
+const args = process.argv.slice(2)
+const state = ${JSON.stringify(serveState)}
+const on = () => {
+  try { return fs.readFileSync(state, 'utf8') === 'on' } catch { return false }
+}
+if (args[0] === 'status') {
+  process.stdout.write(JSON.stringify({
+    BackendState: 'Running',
+    Self: { DNSName: 'my-mac.tail123.ts.net.', Online: true }
+  }))
+  process.exit(0)
+}
+if (args[0] === 'serve' && args[1] === 'status') {
+  process.stdout.write(JSON.stringify(on() ? { URL: 'https://my-mac.tail123.ts.net' } : {}))
+  process.exit(0)
+}
+if (args[0] === 'serve' && args[1] === '--bg') {
+  fs.writeFileSync(state, 'on')
+  process.exit(0)
+}
+if (args[0] === 'serve' && args[1] === 'off') {
+  fs.writeFileSync(state, 'off')
+  process.exit(0)
+}
+process.exit(0)
+`
+  )
+  await chmod(join(binDir, 'tailscale'), 0o755)
+  await app.close()
+  await launch({
+    PATH: `${binDir}:/usr/bin:/bin`,
+    TAILSCALE_SERVE_STATE: serveState
+  })
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '手机', exact: true }).click()
+  await page.getByRole('button', { name: '检测', exact: true }).click()
+  await expect(page.getByText('my-mac.tail123.ts.net')).toBeVisible()
+  await expect(page.getByRole('button', { name: '开启 Tailscale Serve' })).toBeEnabled()
+  await page.getByRole('button', { name: '开启 Tailscale Serve' }).click()
+  await expect(page.getByText('https://my-mac.tail123.ts.net')).toBeVisible()
+  await page.locator('.mobile-tailscale-status').getByRole('button', { name: '复制' }).click()
+  await expect(page.locator('.mobile-tailscale-status').getByRole('button', { name: '已复制' })).toBeVisible()
+  await mkdir(resolve('artifacts/e2e'), { recursive: true })
+  await page.screenshot({ path: 'artifacts/e2e/mobile-tailscale-serve.png' })
+}))
