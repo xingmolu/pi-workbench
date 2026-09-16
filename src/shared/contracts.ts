@@ -503,6 +503,7 @@ export type DesktopEvent =
   | HostEvent
   | { type: 'event'; event: 'sessions'; data: LiveSessionSummary[] }
   | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
+  | { type: 'event'; event: 'mobile-gateway'; data: import('./mobile-gateway').MobileGatewayState }
   | {
       type: 'event'
       event: 'disconnected'
@@ -512,6 +513,7 @@ export type DesktopEvent =
 export type PiDesktopAPI = {
   nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
+  mobileGateway: (command: import('./mobile-gateway').MobileGatewayCommand) => Promise<import('./mobile-gateway').MobileGatewayState>
   exportMarkdownTable: (
     request: import('./markdown-table-export').MarkdownTableRequest
   ) => Promise<import('./markdown-table-export').MarkdownTableResult>

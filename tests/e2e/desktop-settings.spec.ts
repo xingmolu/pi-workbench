@@ -74,7 +74,7 @@ test('appearance theme persists, follows system changes, and updates highlighted
   expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe('light')
   theme = page.getByLabel('主题', { exact: true })
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  for (const section of ['账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件']) {
+  for (const section of ['手机', '账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件']) {
     await page.getByRole('button', { name: section, exact: true }).click()
     expect(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   }

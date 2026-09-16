@@ -3,7 +3,7 @@
 Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 `@earendil-works/pi-coding-agent`。它不加载 DSH Web UI，也不复制 Pi 的会话或凭证。
 
-当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b、3 和 3b：
+当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b、2c、3 和 3b：
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
 - 代码块与文件预览的 Shiki 语法高亮、原文复制/换行，表格保护复制、系统 CSV 保存和冻结内容的分页只读预览；
@@ -18,7 +18,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - 按 canonical session cwd 隔离的 Pi JSONL 会话列表、新建与恢复（保留 CLI 目录编码）；
 - 已保存会话重命名、跨项目全量标题搜索（⌘/Ctrl+K）和当前对话的问题导航；
 - 已保存会话当前历史分叉为新会话、来源导航与原会话草稿保留；
-- 左下角独立设置弹窗：常规、外观、账号与模型、Codex 订阅额度、Skills、MCP 服务器与 Desktop 插件；
+- 左下角独立设置弹窗：常规、外观、账号与模型、Codex 订阅额度、手机网关（回环 + 局域网配对码 + Tailscale Serve）、Skills、MCP 服务器与 Desktop 插件；
 - Skills 已加载技能库：设置中搜索与只读详情，输入框键入 `/` 搜索并插入原生技能命令；
 - Main 发布的 typed Workbench registry：顶部开关、空态纵向工具列表、已打开工具标签与 `+` 菜单；默认折叠为零宽，展开后可拖动或用方向键调整，折叠再展开保留本窗口的宽度；
 - Files 已支持当前项目的只读目录浏览、文件名搜索、隐藏文件开关、刷新、UTF-8 文本预览与复制；
@@ -27,6 +27,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 - 本地 `sandboxed-web` Workbench 插件：严格 manifest、独立 `WebContentsView`、窄化
   `window.piPlugin` bridge、按 project 状态和崩溃隔离；
 - Pi `browser` 工具：snapshot/ref、click/fill/select、导航、wait、screenshot 与 Stop。
+- 手机对话面：本机回环网关、一次性配对、局域网 QR、可撤销设备 grant；远程主路为 Tailscale Serve（Cloudflare Quick Tunnel 可选）。
 
 Files 不支持编辑、重命名、删除或自动附加到对话；仅预览不超过 1 MiB 的 UTF-8 文本，二进制/非 UTF-8 内容会在检测后拒绝预览，符号链接和 Git 内部路径禁止访问。搜索仅匹配文件名，并跳过依赖与构建目录；达到扫描上限会提示结果不完整。这是应用级只读路径边界，不是针对恶意本机进程的 OS sandbox。
 
@@ -45,7 +46,7 @@ Files 不支持编辑、重命名、删除或自动附加到对话；仅预览�
 
 
 当前源码提供最近问题的「编辑问题」入口（已通过独立规格与质量审查）：独立编辑框只改文字，保留原文本快照和图片，不覆盖普通输入框草稿。取消不发送；明确发送后在同一会话从原问题之前继续，旧记录仍保留，但暂不提供旧分支切换器。文件和终端操作不会撤销，工具可能再次执行。发送结果未知时只查询，不直接重发；引擎断开后使用编辑区重连入口核对历史。附件增删、任意历史编辑和助手重试不在当前实现内。验收及包版本边界见 [编辑验收记录](./docs/SESSION_EDIT_ACCEPTANCE_2026-09-11.md)。
-Git 写入、Trace、手机网关和自动 worktree / agent 编排仍是后续边界。插件
+Git 写入、Trace 和自动 worktree / agent 编排仍是后续边界。插件
 marketplace、签名、自动更新、远端 UI 入口、第三方 native/module、通用 agent command
 绑定和 MCP Apps 也明确延期。`@` 文件/会话引用、
 图片粘贴附件、用户可拖内容轴及 `~/.codex/auth.json` 便利导入也明确延期。

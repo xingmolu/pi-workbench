@@ -15,6 +15,11 @@ import {
   desktopSettingsSchema
 } from '../shared/desktop-settings'
 import {
+  MOBILE_GATEWAY_CHANNEL,
+  mobileGatewayCommandSchema,
+  mobileGatewayStateSchema
+} from '../shared/mobile-gateway'
+import {
   MARKDOWN_TABLE_EXPORT_CHANNEL,
   validateMarkdownTable
 } from '../shared/markdown-table-export'
@@ -83,6 +88,13 @@ const api: PiDesktopAPI = {
         desktopSettingsCommandSchema.parse(command)
       )
     ),
+  mobileGateway: async (command) =>
+    mobileGatewayStateSchema.parse(
+      await ipcRenderer.invoke(
+        MOBILE_GATEWAY_CHANNEL,
+        mobileGatewayCommandSchema.parse(command)
+      )
+    ),
   exportMarkdownTable: (request) =>
     ipcRenderer.invoke(MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable(request)),
   textAttachments: (command) =>
@@ -125,6 +137,9 @@ const api: PiDesktopAPI = {
     const handler = (_event: Electron.IpcRendererEvent, value: DesktopEvent): void => {
       if (value.event === 'sessions') {
         const parsed = liveSessionSummarySchema.array().max(8).safeParse(value.data)
+        if (parsed.success) listener({ ...value, data: parsed.data })
+      } else if (value.event === 'mobile-gateway') {
+        const parsed = mobileGatewayStateSchema.safeParse(value.data)
         if (parsed.success) listener({ ...value, data: parsed.data })
       } else listener(value)
     }

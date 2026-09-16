@@ -149,11 +149,11 @@ MCP 是 Pi inline extension + 官方稳定 MCP SDK 的窄工具桥，不是自�
 
 Composer 两级：账号 → 模型。浏览账号不创建会话；已有 transcript 时切换模型调用 Pi `AgentSession.setModel()`，在同一 JSONL 追加 canonical `model_change` 并保留上下文。新会话跟随当前 active 账号与模型；模型不可用时保持只读，不做静默 failover。Pi SDK `0.84.4` 的公开 `ModelRuntime.login()` 在返回前已同步该进程中的凭证、catalog 与 availability 投影；登录后重新读取公开投影，不直接操作私有 `authStorage.reload()`。升级 SDK 时重新核验这一约束。
 
-## 6. 手机端与外网（后续目标，本轮未实现）
+## 6. 手机端与外网
 
-桌面 = runtime，手机 = 同一 session 的 PWA 对话面。MVP：会话列表、接着聊、Stop/Queue/Steer、Ask 批准、跑完推送。Files/Git/终端/浏览器不上手机。
+桌面 = runtime，手机 = 同一 session 的 PWA 对话面。MVP：会话列表、接着聊、Stop/Queue/Steer（运行中发送进入 follow-up 队列）、Ask 批准、跑完 SSE `run-finished`（作为后续推送钩子）。Files/Git/终端/浏览器不上手机。
 
-可达性：1) LAN 扫码 2) 一键 Cloudflare Quick Tunnel（4G 主路，无账号，URL 每次变）3) 高级：Tailscale / 命名隧道 / 自建。Gateway 绑 loopback。不要端口转发 0.0.0.0。一次性配对 + 按设备 grant，桌面可撤。开外网时防休眠。文案：「手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。」
+可达性：1) 网关始终绑定 **127.0.0.1**；显示局域网二维码时额外绑定当前 RFC1918 Wi‑Fi 地址（不是 0.0.0.0，也不做端口转发）2) **主路远程：Tailscale Serve**（`tailscale serve --bg http://127.0.0.1:<port>` → `https://*.ts.net`，仅尾网，不是 Funnel）3) Cloudflare Quick Tunnel 为可选备用（无账号、URL 每次变）。一次性配对 + 按设备 grant，桌面可撤。开网关时请求防休眠，并提示保持 Mac 唤醒。文案：「手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。」
 
 ## 7. 进程与数据
 
@@ -180,7 +180,7 @@ Renderer (React) — 零 Node、零 Electron、零 Pi import。typed IPC。Main�
 1. 壳：三栏 + Hero + 工作区会话树（MVP 已覆盖）
 2. 对话节点流 + composer + metrics（MVP 已覆盖 snapshot + revision patch、状态、Context 与 Queue；`@` / 图片附件和可拖内容轴延期）
    - **2b.** 账号：Codex 直登 + composer 两级切换（已覆盖显式选择、session pinning、Settings `custom-*` 端点，以及 CLI `models.json` 中运行时可用的只读 provider；`~/.codex/auth.json` 便利导入延期）
-   - **2c.** 手机：gateway + 配对 + LAN QR + Quick Tunnel
+   - **2c.** 手机：gateway + 配对 + LAN QR + Tailscale Serve（Quick Tunnel 可选）
 3. Browser + agent 共享控制（已覆盖首个真实 Workbench mode、隔离 profile、typed capability 与 E2E）
    - **3b.** Workbench contribution registry + 本地 sandboxed web plugin（MVP 已覆盖严格发现、启停/重载、context/state generation、崩溃隔离与真实 Electron E2E；分发、第三方 command/backend 和 MCP Apps 延期）
 4. Files 编辑能力 + Review（Files 已有只读浏览；Review 已有只读未暂存/已暂存/分支差异，写入与 Last turn 延期）

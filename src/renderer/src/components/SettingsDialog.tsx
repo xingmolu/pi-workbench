@@ -1,8 +1,9 @@
 import { useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { KeyRound, Puzzle, Server, Sparkles, X, Settings, Palette } from 'lucide-react'
+import { KeyRound, Puzzle, Server, Smartphone, Sparkles, X, Settings, Palette } from 'lucide-react'
 import GeneralSettings from './GeneralSettings'
 import AppearanceSettings from './AppearanceSettings'
+import MobileGatewaySettings from './MobileGatewaySettings'
 import type {
   AgentSnapshot,
   LoginMethod,
@@ -40,6 +41,7 @@ export default function SettingsDialog({
   const sections = [
     { id: 'general', label: '常规', icon: Settings },
     { id: 'appearance', label: '外观', icon: Palette },
+    { id: 'mobile', label: '手机', icon: Smartphone },
     { id: 'accounts', label: '账号与模型', icon: KeyRound },
     { id: 'skills', label: 'Skills 技能', icon: Sparkles },
     { id: 'mcp', label: 'MCP 服务器', icon: Server },
@@ -63,7 +65,7 @@ export default function SettingsDialog({
             </Dialog.Close>
           </header>
           <Dialog.Description className="settings-sr-only">
-            管理 Pi 账号、模型端点、MCP 服务器与 Desktop 插件。
+              管理 Pi 账号、模型端点、手机网关、MCP 服务器与 Desktop 插件。
           </Dialog.Description>
           <div className="settings-dialog-body">
             <nav className="settings-navigation" aria-label="设置分类">
@@ -92,6 +94,8 @@ export default function SettingsDialog({
                 <GeneralSettings />
               ) : section === 'appearance' ? (
                 <AppearanceSettings />
+              ) : section === 'mobile' ? (
+                <MobileGatewaySettings />
               ) : section === 'accounts' ? (
                 <SettingsAccounts {...props} />
               ) : section === 'skills' ? (
