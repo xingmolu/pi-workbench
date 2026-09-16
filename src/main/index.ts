@@ -1,4 +1,5 @@
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
+import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
 import { SessionWorkerController } from './session-worker-controller'
 import { createUtilitySessionWorker } from './utility-session-worker'
 import { WorkerMutationCapabilities } from './worker-mutation-capabilities'
@@ -7,18 +8,21 @@ import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
 import { applyStatePatch } from '../shared/state-patch'
 import { GlobalConfigurationGate } from './global-configuration-gate'
 import { handleDesktopSettings } from './desktop-settings'
+import { DesktopCapture } from './desktop-control-capture'
 import { NativePaletteFocus } from './native-palette-focus'
 import { NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema } from '../shared/native-palette-focus'
 import {
   app,
   BrowserWindow,
   WebContentsView,
+  desktopCapturer,
   dialog,
   ipcMain,
   nativeTheme,
   powerSaveBlocker,
   clipboard,
   shell,
+  systemPreferences,
   utilityProcess,
   type BrowserWindow as BrowserWindowType,
   type IpcMainInvokeEvent,
@@ -799,6 +803,16 @@ function registerIpc(): void {
     assertTrustedRenderer(event)
     if (!mobileGateway) throw new Error('手机网关尚未就绪')
     return mobileGateway.dispatch(command)
+  })
+  const desktopCapture = new DesktopCapture({
+    platform: process.platform,
+    getMediaAccessStatus: (mediaType) => systemPreferences.getMediaAccessStatus(mediaType),
+    getSources: (options) => desktopCapturer.getSources(options),
+    openExternal: (url) => shell.openExternal(url)
+  })
+  ipcMain.handle(DESKTOP_CONTROL_CHANNEL, (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    return desktopCapture.dispatch(command)
   })
   const tableExporter = new MarkdownTableExporter((owner) => dialog.showSaveDialog(BrowserWindow.fromId(owner.id)!, { title: '保存表格 CSV', defaultPath: '表格.csv', filters: [{ name: 'CSV 表格', extensions: ['csv'] }], properties: ['showOverwriteConfirmation'] }))
   ipcMain.handle(MARKDOWN_TABLE_EXPORT_CHANNEL, (event, request: unknown) => {

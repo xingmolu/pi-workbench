@@ -1,9 +1,10 @@
 import { useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { KeyRound, Puzzle, Server, Smartphone, Sparkles, X, Settings, Palette } from 'lucide-react'
+import { KeyRound, Monitor, Puzzle, Server, Smartphone, Sparkles, X, Settings, Palette } from 'lucide-react'
 import GeneralSettings from './GeneralSettings'
 import AppearanceSettings from './AppearanceSettings'
 import MobileGatewaySettings from './MobileGatewaySettings'
+import DesktopControlSettings from './DesktopControlSettings'
 import type {
   AgentSnapshot,
   LoginMethod,
@@ -45,7 +46,8 @@ export default function SettingsDialog({
     { id: 'accounts', label: '账号与模型', icon: KeyRound },
     { id: 'skills', label: 'Skills 技能', icon: Sparkles },
     { id: 'mcp', label: 'MCP 服务器', icon: Server },
-    { id: 'plugins', label: 'Desktop 插件', icon: Puzzle }
+    { id: 'plugins', label: 'Desktop 插件', icon: Puzzle },
+    { id: 'desktop-control', label: '桌面控制', icon: Monitor }
   ]
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -65,7 +67,7 @@ export default function SettingsDialog({
             </Dialog.Close>
           </header>
           <Dialog.Description className="settings-sr-only">
-              管理 Pi 账号、模型端点、手机网关、MCP 服务器与 Desktop 插件。
+            管理 Pi 账号、模型端点、手机网关、MCP 服务器、Desktop 插件与桌面控制。
           </Dialog.Description>
           <div className="settings-dialog-body">
             <nav className="settings-navigation" aria-label="设置分类">
@@ -105,6 +107,8 @@ export default function SettingsDialog({
                   snapshot={props.workbenchSnapshot}
                   onCommand={props.onWorkbenchCommand}
                 />
+              ) : section === 'desktop-control' ? (
+                <DesktopControlSettings />
               ) : (
                 (mcpContent ?? <p className="inline-hint">MCP 设置模块尚未加载。</p>)
               )}

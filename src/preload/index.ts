@@ -14,6 +14,8 @@ import {
   desktopSettingsCommandSchema,
   desktopSettingsSchema
 } from '../shared/desktop-settings'
+import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
+import { createDesktopControlClient } from './desktop-control-client'
 import {
   MOBILE_GATEWAY_CHANNEL,
   mobileGatewayCommandSchema,
@@ -45,6 +47,10 @@ import {
   terminalCommandSchema,
   terminalEventSchema
 } from '../shared/terminal'
+
+const desktopControlClient = createDesktopControlClient({
+  invoke: (command) => ipcRenderer.invoke(DESKTOP_CONTROL_CHANNEL, command)
+})
 
 const workbenchClient = createWorkbenchClient({
   invoke: (command) => ipcRenderer.invoke(WORKBENCH_CHANNEL, command),
@@ -110,6 +116,7 @@ const api: PiDesktopAPI = {
   },
   gitReview: (command) => ipcRenderer.invoke(GIT_REVIEW_CHANNEL, command),
   workspaceFiles: (command) => ipcRenderer.invoke(WORKSPACE_FILES_CHANNEL, command),
+  desktopControl: (command) => desktopControlClient.desktopControl(command),
   getState: async (): Promise<AgentSnapshot> =>
     acceptSnapshot(await ipcRenderer.invoke('pi:state')),
   reconnect: async (): Promise<AgentSnapshot> =>
