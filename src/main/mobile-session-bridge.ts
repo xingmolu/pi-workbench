@@ -57,6 +57,7 @@ export function toMobileSnapshot(
     followUp: snapshot.followUp,
     queuedCount: snapshot.queuedCount,
     composeBlockReason: snapshot.composeBlockReason,
+    model: snapshot.activeModel,
     ...(snapshot.error ? { error: snapshot.error } : {}),
     nodes
   }

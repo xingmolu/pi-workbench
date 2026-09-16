@@ -49,6 +49,7 @@ function snapshot(workerId: string): MobileConversationSnapshot {
     followUp: [],
     queuedCount: 0,
     composeBlockReason: null,
+    model: base.activeModel,
     nodes: base.nodes
   }
 }
@@ -156,6 +157,9 @@ describe('mobile gateway http', () => {
     expect(JSON.stringify(list.data.groups)).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
     expect(list.data.groups[0].sessions[0].title).toBe('hello')
     expect(list.data.groups[0].sessions[0].timeLabel).not.toMatch(/T|Z/)
+    const conversation = await request(18765, '/api/sessions/worker-1', { token })
+    expect(conversation.status).toBe(200)
+    expect(conversation.data.model).toBe('offline')
     const send = await request(18765, '/api/sessions/worker-1/send', {
       method: 'POST',
       token,
@@ -220,7 +224,9 @@ describe('mobile gateway http', () => {
     expect(js.status).toBe(200)
     expect(page.status).toBe(200)
     expect(await css.text()).toContain('.pane-chat')
-    expect(await js.text()).toContain('已连接到')
+    const script = await js.text()
+    expect(script).toContain('已连接到')
+    expect(script).toContain('composer-toolbar')
     expect(await page.text()).toContain('/mobile.js')
   })
 

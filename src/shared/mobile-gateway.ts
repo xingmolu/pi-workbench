@@ -182,6 +182,7 @@ export type MobileConversationSnapshot = {
   followUp: string[]
   queuedCount: number
   composeBlockReason: string | null
+  model?: string | null
   error?: string
   nodes: ConversationNode[]
 }

@@ -1,3 +1,4 @@
+import { composeBlockChip, composerShouldSend } from '../shared/mobile-composer'
 import { MOBILE_KEEP_AWAKE_COPY, MOBILE_SECURITY_COPY } from '../shared/mobile-gateway'
 import { renderMobileMarkdown } from '../shared/mobile-markdown'
 
@@ -11,6 +12,8 @@ const OPEN_KEY = "pi-mobile-open-projects";
 const SECURITY = ${JSON.stringify(MOBILE_SECURITY_COPY)};
 const AWAKE = ${JSON.stringify(MOBILE_KEEP_AWAKE_COPY)};
 const renderMarkdown = ${renderMobileMarkdown.toString()};
+const composerShouldSend = ${composerShouldSend.toString()};
+const composeBlockChip = ${composeBlockChip.toString()};
 const app = document.getElementById("app");
 let token = localStorage.getItem(TOKEN_KEY) || "";
 let route = location.hash.slice(1) || "/";
@@ -28,6 +31,8 @@ let copiedId = "";
 let copiedTimer = 0;
 let pinBottom = true;
 let listScroll = 0;
+let draftFocused = false;
+let draftCaret = 0;
 
 function applyTheme(value) {
   const next = value || localStorage.getItem(THEME_KEY) || "system";
@@ -270,6 +275,45 @@ function lastSpeakIndex(nodes) {
   return index;
 }
 
+function fitDraft(el) {
+  if (!el) return;
+  el.style.height = "0px";
+  el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + "px";
+}
+
+function composerHtml() {
+  const busy = snapshot.busy;
+  const queued = snapshot.queuedCount || 0;
+  const blocked = composeBlockChip(snapshot.composeBlockReason);
+  const model = snapshot.model ? String(snapshot.model) : "";
+  const chips = [];
+  if (busy) chips.push('<span class="composer-chip is-run">运行中</span>');
+  if (queued) chips.push('<span class="composer-chip is-run">队列 ' + queued + "</span>");
+  if (blocked) chips.push('<span class="composer-chip is-warn">' + esc(blocked) + "</span>");
+  if (model) chips.push('<span class="composer-chip composer-model" title="' + esc(model) + '">' + esc(model) + "</span>");
+  const stop = busy
+    ? '<button type="button" class="composer-stop" id="stop" aria-label="停止">停止</button>'
+    : "";
+  const clear = queued
+    ? '<button type="button" class="composer-clear" id="clear">清空队列</button>'
+    : "";
+  const canSend = Boolean(draft.trim()) && !blocked;
+  const sendLabel = busy ? "加入队列" : "发送";
+  const sendClass = "send-btn" + (busy ? " is-queue" : "");
+  const sendBody = busy ? "队列" : icon("send");
+  return '<form class="composer" id="composer">' +
+    '<p id="composer-keys" class="sr-only">Enter 发送，Shift+Enter 换行。运行中发送会加入队列。</p>' +
+    '<div class="composer-box">' +
+    '<textarea id="draft" name="draft" rows="1" enterkeyhint="send" autocomplete="off" ' +
+    'placeholder="提出后续要求" aria-label="提出后续要求" aria-describedby="composer-keys" ' +
+    'title="Enter 发送，Shift+Enter 换行">' + esc(draft) + "</textarea>" +
+    '<div class="composer-toolbar">' +
+    '<div class="composer-tools">' + chips.join("") + stop + clear + "</div>" +
+    '<button type="submit" class="' + sendClass + '" id="send" aria-label="' + sendLabel + '"' +
+    (canSend ? "" : " disabled") + ">" + sendBody + "</button>" +
+    "</div></div></form>";
+}
+
 function nodeHtml(node, index, last) {
   if (node.type === "user") {
     return '<div class="node user"><p class="bubble">' + esc(node.text) + "</p></div>" +
@@ -392,14 +436,12 @@ function chatPaneHtml() {
     return '<header class="top"><button class="icon-btn back-btn" id="back" aria-label="返回">' + icon("back") +
       '</button><h1>会话</h1></header><p class="empty">正在读取…</p>';
   }
-  const busy = snapshot.busy;
   const mark = badge(snapshot.status);
   const approvals = (snapshot.approvals || []).map(function (item) {
     return '<div class="approval"><strong>等待批准</strong><div>' + esc(item.title) + '</div><small>' +
       esc(item.detail || item.toolName) + '</small><div class="actions"><button data-allow="' + esc(item.id) +
       '">允许</button><button class="danger" data-deny="' + esc(item.id) + '">拒绝</button></div></div>';
   }).join("");
-  const queue = snapshot.queuedCount ? ("队列 " + snapshot.queuedCount) : (busy ? "运行中 · 发送将排队" : "");
   return '<header class="top"><button class="icon-btn back-btn" id="back" aria-label="返回">' + icon("back") +
     '</button><h1>任务会话</h1>' +
     '<button type="button" class="icon-btn" id="copy-title" aria-label="复制标题" data-copy="' + encodeURIComponent(snapshot.title) +
@@ -414,13 +456,7 @@ function chatPaneHtml() {
       const last = lastSpeakIndex(nodes);
       return nodes.map(function (node, index) { return nodeHtml(node, index, index === last); }).join("");
     })() + approvals + '</main>' +
-    '<form class="composer" id="composer"><div class="composer-box">' +
-    '<textarea id="draft" placeholder="继续对话" rows="1">' + esc(draft) + '</textarea>' +
-    (busy ? '<button type="button" class="stop-btn" id="stop" aria-label="停止">' + icon("stop") + '</button>' : '') +
-    '<button class="send-btn" id="send" aria-label="' + (busy ? "加入队列" : "发送") + '">' + icon("send") + '</button>' +
-    '</div><div class="meta"><span>' + esc(queue) + '</span>' +
-    (snapshot.queuedCount ? '<button type="button" id="clear">清空队列</button>' : '') +
-    '</div></form>';
+    composerHtml();
 }
 
 function bindList(root) {
@@ -474,23 +510,42 @@ function bindChat(root) {
   const back = root.querySelector("#back");
   if (back) back.onclick = function () { go("/"); };
   const draftEl = root.querySelector("#draft");
-  if (draftEl) {
-    draftEl.addEventListener("input", function () { draft = draftEl.value; });
-    draftEl.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        root.querySelector("#send").click();
-      }
-    });
-  }
   const sendBtn = root.querySelector("#send");
   const form = root.querySelector("#composer");
-  if (form) form.onsubmit = function (event) { event.preventDefault(); if (sendBtn) sendBtn.click(); };
-  if (sendBtn) sendBtn.onclick = function (event) {
-    event.preventDefault();
-    const text = (draftEl && draftEl.value) || "";
-    send(text).then(function () { draft = ""; render(); }).catch(function (err) { error = err.message; render(); });
-  };
+  function submitDraft(event) {
+    if (event) event.preventDefault();
+    const text = ((draftEl && draftEl.value) || "").trim();
+    if (!text) return;
+    send(text).then(function () { draft = ""; draftCaret = 0; render(); }).catch(function (err) {
+      error = err.message;
+      render();
+    });
+  }
+  if (draftEl) {
+    fitDraft(draftEl);
+    draftEl.addEventListener("input", function () {
+      draft = draftEl.value;
+      draftCaret = draftEl.selectionStart || 0;
+      fitDraft(draftEl);
+      if (sendBtn) {
+        sendBtn.disabled = !draft.trim() || Boolean(snapshot && composeBlockChip(snapshot.composeBlockReason));
+      }
+    });
+    draftEl.addEventListener("focus", function () { draftFocused = true; });
+    draftEl.addEventListener("blur", function () { draftFocused = false; });
+    draftEl.addEventListener("keydown", function (event) {
+      if (composerShouldSend(event)) {
+        event.preventDefault();
+        submitDraft(event);
+      }
+    });
+    if (draftFocused) {
+      draftEl.focus();
+      const pos = Math.min(draftCaret, draftEl.value.length);
+      draftEl.setSelectionRange(pos, pos);
+    }
+  }
+  if (form) form.onsubmit = submitDraft;
   const stop = root.querySelector("#stop");
   if (stop) stop.onclick = function () { abort().catch(function (err) { error = err.message; render(); }); };
   const clear = root.querySelector("#clear");
