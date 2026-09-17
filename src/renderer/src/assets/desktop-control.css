@@ -1,0 +1,183 @@
+.desktop-control-settings {
+  max-width: 900px;
+  color: var(--text-strong);
+}
+.desktop-control-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.desktop-control-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  margin: 0 0 7px;
+}
+.desktop-control-heading p,
+.desktop-control-guide,
+.desktop-control-empty,
+.desktop-control-footnote {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+}
+.desktop-control-guide {
+  margin-bottom: 20px;
+}
+.desktop-control-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+.desktop-control-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.desktop-control-status strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+}
+.desktop-control-status small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.desktop-control-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+}
+.desktop-control-chip.is-granted {
+  color: var(--success-text);
+  border-color: color-mix(in srgb, var(--success-text) 35%, var(--line));
+}
+.desktop-control-chip.is-denied,
+.desktop-control-chip.is-pending {
+  color: var(--text-soft);
+}
+.desktop-control-chip.is-restricted {
+  color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger-text) 35%, var(--line));
+}
+.desktop-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.desktop-control-error {
+  color: var(--danger-text);
+  font-size: 12px;
+}
+.desktop-control-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+}
+.desktop-control-source {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+.desktop-control-source img,
+.desktop-control-thumb-empty {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--composer);
+}
+.desktop-control-thumb-empty {
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.desktop-control-source strong,
+.desktop-control-source small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.desktop-control-source strong {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 550;
+}
+.desktop-control-source small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.desktop-control-empty,
+.desktop-control-footnote {
+  margin-top: 16px;
+}
+.desktop-control-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 550;
+}
+.desktop-control-dump {
+  margin-top: 18px;
+}
+.desktop-control-ax-tree,
+.desktop-control-ax-tree ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.desktop-control-point {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.desktop-control-point label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.desktop-control-point input {
+  width: 88px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text-strong);
+}
+.desktop-control-settings :disabled {
+  opacity: 0.55;
+}

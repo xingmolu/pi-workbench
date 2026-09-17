@@ -27,6 +27,8 @@ it.each([
   ['browser', { action: 'open' }, 'web', '浏览器 · open'],
   ['custom-browser', {}, 'web', 'custom-browser'],
   ['web', {}, 'web', 'web'],
+  ['desktop', { action: 'click', x: 1, y: 2 }, 'desktop', '桌面 · click'],
+  ['desktop-control', {}, 'desktop', 'desktop-control'],
   ['custom', {}, 'generic', 'custom']
 ])('shares %s presentation between approval and transcript', (name, args, intent, title) => {
   expect(toolIntent(String(name))).toBe(intent)

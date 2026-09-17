@@ -14,6 +14,13 @@ import {
   desktopSettingsCommandSchema,
   desktopSettingsSchema
 } from '../shared/desktop-settings'
+import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
+import { createDesktopControlClient } from './desktop-control-client'
+import {
+  MOBILE_GATEWAY_CHANNEL,
+  mobileGatewayCommandSchema,
+  mobileGatewayStateSchema
+} from '../shared/mobile-gateway'
 import {
   MARKDOWN_TABLE_EXPORT_CHANNEL,
   validateMarkdownTable
@@ -40,6 +47,10 @@ import {
   terminalCommandSchema,
   terminalEventSchema
 } from '../shared/terminal'
+
+const desktopControlClient = createDesktopControlClient({
+  invoke: (command) => ipcRenderer.invoke(DESKTOP_CONTROL_CHANNEL, command)
+})
 
 const workbenchClient = createWorkbenchClient({
   invoke: (command) => ipcRenderer.invoke(WORKBENCH_CHANNEL, command),
@@ -83,6 +94,13 @@ const api: PiDesktopAPI = {
         desktopSettingsCommandSchema.parse(command)
       )
     ),
+  mobileGateway: async (command) =>
+    mobileGatewayStateSchema.parse(
+      await ipcRenderer.invoke(
+        MOBILE_GATEWAY_CHANNEL,
+        mobileGatewayCommandSchema.parse(command)
+      )
+    ),
   exportMarkdownTable: (request) =>
     ipcRenderer.invoke(MARKDOWN_TABLE_EXPORT_CHANNEL, validateMarkdownTable(request)),
   textAttachments: (command) =>
@@ -98,6 +116,7 @@ const api: PiDesktopAPI = {
   },
   gitReview: (command) => ipcRenderer.invoke(GIT_REVIEW_CHANNEL, command),
   workspaceFiles: (command) => ipcRenderer.invoke(WORKSPACE_FILES_CHANNEL, command),
+  desktopControl: (command) => desktopControlClient.desktopControl(command),
   getState: async (): Promise<AgentSnapshot> =>
     acceptSnapshot(await ipcRenderer.invoke('pi:state')),
   reconnect: async (): Promise<AgentSnapshot> =>
@@ -125,6 +144,9 @@ const api: PiDesktopAPI = {
     const handler = (_event: Electron.IpcRendererEvent, value: DesktopEvent): void => {
       if (value.event === 'sessions') {
         const parsed = liveSessionSummarySchema.array().max(8).safeParse(value.data)
+        if (parsed.success) listener({ ...value, data: parsed.data })
+      } else if (value.event === 'mobile-gateway') {
+        const parsed = mobileGatewayStateSchema.safeParse(value.data)
         if (parsed.success) listener({ ...value, data: parsed.data })
       } else listener(value)
     }

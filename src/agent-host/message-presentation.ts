@@ -21,6 +21,7 @@ export function toolIntent(name: string): ToolIntent {
   if (name === 'write' || name === 'edit') return 'diff'
   if (name === 'grep' || name === 'find') return 'search'
   if (name === 'web' || name.includes('browser')) return 'web'
+  if (name === 'desktop' || name === 'desktop-control') return 'desktop'
   return 'generic'
 }
 
@@ -55,7 +56,9 @@ export function toolPresentation(
                 ? `搜索 ${pattern ?? path ?? ''}`.trim()
                 : name === 'browser'
                   ? `浏览器 · ${stringArg(args, 'action') ?? '操作'}`
-                  : name
+                  : name === 'desktop'
+                    ? `桌面 · ${stringArg(args, 'action') ?? '操作'}`
+                    : name
 
   let detail = ''
   try {

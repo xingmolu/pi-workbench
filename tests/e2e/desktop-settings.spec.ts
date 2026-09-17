@@ -5,13 +5,14 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
-import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
 let app: ElectronApplication, page: Page, root: string
-async function launch() {
+async function launch(extraEnv: Record<string, string> = {}) {
+  const xauthority = process.env.XAUTHORITY || join(homedir(), '.Xauthority')
   app = await electron.launch({
     args: [resolve('.')],
     cwd: root,
@@ -22,10 +23,15 @@ async function launch() {
       TMPDIR: root,
       TMP: root,
       TEMP: root,
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
+      ...(xauthority ? { XAUTHORITY: xauthority } : {}),
+      ...(process.env.WAYLAND_DISPLAY ? { WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY } : {}),
+      ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data'),
-      PI_CODING_AGENT_DIR: join(root, 'agent')
+      PI_CODING_AGENT_DIR: join(root, 'agent'),
+      ...extraEnv
     }
   })
   page = await app.firstWindow()
@@ -74,7 +80,7 @@ test('appearance theme persists, follows system changes, and updates highlighted
   expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe('light')
   theme = page.getByLabel('主题', { exact: true })
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  for (const section of ['账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件']) {
+  for (const section of ['手机', '账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件', '桌面控制']) {
     await page.getByRole('button', { name: section, exact: true }).click()
     expect(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   }
@@ -276,4 +282,123 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await expect.poll(() => harness.evaluate(() => (window as any).sent)).toBe(3)
   await expect(harness.locator('.composer-stats')).toHaveCount(0)
   await expect(harness.locator('.context-meter')).toBeVisible()
+})
+
+test('mobile Tailscale settings resolve a PATH CLI, enable Serve, and copy the URL', async () => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '手机', exact: true }).click()
+  await page.getByRole('button', { name: '检测', exact: true }).click()
+  await expect(page.getByRole('button', { name: '开启 Tailscale Serve' })).toBeDisabled()
+  await expect(page.getByRole('status')).toContainText('未找到 Tailscale CLI')
+
+  const binDir = join(root, 'bin')
+  await mkdir(binDir, { recursive: true })
+  const serveState = join(root, 'tailscale-serve-state')
+  await writeFile(
+    join(binDir, 'tailscale'),
+    `#!/bin/sh
+state=${JSON.stringify(serveState)}
+on() { [ -f "$state" ] && [ "$(cat "$state")" = "on" ]; }
+if [ "$1" = "status" ]; then
+  printf '%s' '{"BackendState":"Running","Self":{"DNSName":"my-mac.tail123.ts.net.","Online":true}}'
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "status" ]; then
+  if on; then printf '%s' '{"URL":"https://my-mac.tail123.ts.net"}'
+  else printf '%s' '{}'
+  fi
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "--bg" ]; then
+  printf 'on' > "$state"
+  exit 0
+fi
+if [ "$1" = "serve" ] && [ "$2" = "off" ]; then
+  printf 'off' > "$state"
+  exit 0
+fi
+exit 0
+`
+  )
+  await chmod(join(binDir, 'tailscale'), 0o755)
+  await app.close()
+  await launch({
+    PATH: `${binDir}:/usr/bin:/bin`,
+    TAILSCALE_SERVE_STATE: serveState
+  })
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '手机', exact: true }).click()
+  await page.getByRole('button', { name: '检测', exact: true }).click()
+  await expect(page.getByText('my-mac.tail123.ts.net')).toBeVisible()
+  await expect(page.getByRole('button', { name: '开启 Tailscale Serve' })).toBeEnabled()
+  await page.getByRole('button', { name: '开启 Tailscale Serve' }).click()
+  await expect(page.getByText('https://my-mac.tail123.ts.net')).toBeVisible()
+  await page.locator('.mobile-tailscale-status').getByRole('button', { name: '复制' }).click()
+  await expect(page.locator('.mobile-tailscale-status').getByRole('button', { name: '已复制' })).toBeVisible()
+  await page.getByRole('button', { name: '显示配对码', exact: true }).click()
+  await expect(page.getByAltText('手机配对二维码')).toBeVisible()
+  await mkdir(resolve('artifacts/e2e'), { recursive: true })
+  await page.screenshot({ path: 'artifacts/e2e/mobile-tailscale-serve.png' })
+  await page.locator('.settings-content').screenshot({ path: 'artifacts/e2e/mobile-settings-panel.png' })
+  await page.locator('.mobile-tailscale-status').scrollIntoViewIfNeeded()
+  await page.locator('.mobile-gateway-settings .settings-card').last().screenshot({
+    path: 'artifacts/e2e/mobile-settings-tailscale.png'
+  })
+})
+
+test('desktop control settings exposes permission without requiring a TCC grant', async () => {
+  await mkdir(resolve('artifacts/e2e'), { recursive: true })
+  const permission = await page.evaluate(() => window.pi.desktopControl({ type: 'permission' }))
+  expect(permission.type).toBe('permission')
+  if (permission.type !== 'permission') throw new Error('expected permission')
+  expect(['granted', 'denied', 'restricted', 'pending', 'unsupported']).toContain(
+    permission.permission.access
+  )
+  const sources = await page.evaluate(() => window.pi.desktopControl({ type: 'sources' }))
+  expect(sources.type).toBe('sources')
+  if (sources.type === 'sources' && !sources.permission.canCapture) expect(sources.probed).toBe(false)
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '桌面控制', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '桌面控制' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '手机', exact: true })).toBeVisible()
+  await expect(page.getByTestId('screen-recording-status')).toHaveText(
+    new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
+  )
+  await expect(page.getByTestId('accessibility-status')).toHaveText(
+    new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
+  )
+  await expect(page.getByText('Computer Use：屏幕捕获、辅助功能与确认后输入', { exact: true })).toBeVisible()
+  await expect(page.getByText(/adhoc/)).toBeVisible()
+  const openSettings = page.getByRole('button', { name: '打开系统设置（屏幕录制）' })
+  if (permission.permission.canOpenSettings) await expect(openSettings).toBeEnabled()
+  else await expect(openSettings).toBeDisabled()
+  const axPerm = await page.evaluate(() =>
+    window.pi.desktopControl({ type: 'accessibility-permission' })
+  )
+  expect(axPerm.type).toBe('accessibility-permission')
+  if (axPerm.type !== 'accessibility-permission') throw new Error('expected accessibility-permission')
+  const openAccessibility = page.getByRole('button', { name: '打开系统设置（辅助功能）' })
+  if (axPerm.permission.canOpenSettings) await expect(openAccessibility).toBeEnabled()
+  else await expect(openAccessibility).toBeDisabled()
+  await page.getByRole('button', { name: '刷新 / 试截取' }).click()
+  await expect(page.getByRole('button', { name: '刷新 / 试截取' })).toBeEnabled()
+  const ax = await page.evaluate(() => window.pi.desktopControl({ type: 'accessibility-dump' }))
+  expect(ax.type).toBe('accessibility-dump')
+  if (ax.type === 'accessibility-dump') {
+    expect(ax.permission.access).toBe('unsupported')
+    expect(ax.probed).toBe(false)
+    expect(ax.dump).toBeNull()
+  }
+  const preview = await page.evaluate(() =>
+    window.pi.desktopControl({ type: 'input-preview', x: 12, y: 40 })
+  )
+  expect(preview.type).toBe('input-preview')
+  if (preview.type === 'input-preview') expect(preview.allowed).toBe(false)
+  await expect(
+    page.evaluate(() => window.pi.desktopControl({ type: 'input-click', x: 12, y: 40 } as never))
+  ).rejects.toBeTruthy()
+  await page.getByRole('button', { name: '读取窗口结构' }).click()
+  await expect(page.getByTestId('ax-dump')).toBeVisible()
+  await expect(page.getByRole('button', { name: '确认点击' })).toBeDisabled()
+  await page.screenshot({ path: 'artifacts/e2e/desktop-control-settings.png' })
 })

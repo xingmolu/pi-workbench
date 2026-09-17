@@ -11,6 +11,7 @@ export class SessionWorkerController {
       publish(event: DesktopEvent): void
       selected(snapshot: AgentSnapshot): void
       receiptsSettled?(workerId: string, snapshot: AgentSnapshot): boolean
+      onWorkerEvent?(workerId: string, snapshot: AgentSnapshot | null): void
     }
   ) {
     this.pool = new SessionWorkerPool({
@@ -34,6 +35,7 @@ export class SessionWorkerController {
           else options.publish(event)
         }
         this.summaries()
+        options.onWorkerEvent?.(workerId, snapshot)
       }
     })
   }

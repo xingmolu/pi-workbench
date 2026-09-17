@@ -24,12 +24,16 @@ import type {
   WorkbenchCommandResult,
   WorkbenchEvent
 } from './workbench-contracts'
+import type {
+  DesktopControlAgentOperation,
+  DesktopControlAgentResult
+} from './desktop-control'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
 export type PermissionMode = 'open' | 'ask'
 
-export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'generic'
+export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'desktop' | 'generic'
 
 export type ToolStatus =
   'queued' | 'awaiting-approval' | 'waiting-resource' | 'running' | 'success' | 'error' | 'blocked' | 'incomplete'
@@ -316,6 +320,37 @@ export type BrowserCapabilityResponse =
       error: string
     }
 
+export type DesktopControlCapabilityRequest = {
+  type: 'capability-request'
+  capability: 'desktop-control'
+  requestId: string
+  sessionId: string | null
+  generation: number
+  operation: DesktopControlAgentOperation
+}
+
+export type DesktopControlCapabilityCancel = {
+  type: 'capability-cancel'
+  capability: 'desktop-control'
+  requestId: string
+}
+
+export type DesktopControlCapabilityResponse =
+  | {
+      type: 'capability-response'
+      capability: 'desktop-control'
+      requestId: string
+      ok: true
+      data: DesktopControlAgentResult
+    }
+  | {
+      type: 'capability-response'
+      capability: 'desktop-control'
+      requestId: string
+      ok: false
+      error: string
+    }
+
 export type AgentSnapshot = {
   /** Main-only foreground epoch; never persisted in Pi history. */
   desktopScope?: SelectedSessionScope
@@ -503,6 +538,7 @@ export type DesktopEvent =
   | HostEvent
   | { type: 'event'; event: 'sessions'; data: LiveSessionSummary[] }
   | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
+  | { type: 'event'; event: 'mobile-gateway'; data: import('./mobile-gateway').MobileGatewayState }
   | {
       type: 'event'
       event: 'disconnected'
@@ -512,6 +548,7 @@ export type DesktopEvent =
 export type PiDesktopAPI = {
   nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
+  mobileGateway: (command: import('./mobile-gateway').MobileGatewayCommand) => Promise<import('./mobile-gateway').MobileGatewayState>
   exportMarkdownTable: (
     request: import('./markdown-table-export').MarkdownTableRequest
   ) => Promise<import('./markdown-table-export').MarkdownTableResult>
@@ -520,6 +557,9 @@ export type PiDesktopAPI = {
   onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void
   gitReview: (command: GitReviewCommand) => Promise<GitReviewResult>
   workspaceFiles: (command: WorkspaceFilesCommand) => Promise<WorkspaceFilesResult>
+  desktopControl: (
+    command: import('./desktop-control').DesktopControlCommand
+  ) => Promise<import('./desktop-control').DesktopControlResult>
   getState: () => Promise<AgentSnapshot>
   reconnect: () => Promise<AgentSnapshot>
   selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>
