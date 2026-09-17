@@ -20,20 +20,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-
-      - name: Install current Git
-        run: |
-          sudo add-apt-repository -y ppa:git-core/ppa
-          sudo apt-get update
-          sudo apt-get install -y git
-          git --version
 
       - name: Install dependencies
         run: npm ci
@@ -46,3 +39,39 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e-smoke:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Multi-session Electron smoke
+        run: xvfb-run -a npx playwright test tests/e2e/multi-session.spec.ts --reporter=line
+
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-smoke-diagnostics-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            test-results/
+            playwright-report/
+            artifacts/e2e/
