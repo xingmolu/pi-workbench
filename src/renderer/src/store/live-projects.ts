@@ -6,8 +6,43 @@ import type { LiveSessionSummary } from '../../../shared/session-runtime'
 export type LiveSessionRow = Omit<SessionSummary, 'path'> & {
   path: string | null
   workerId?: string
+  sessionTask?: LiveSessionSummary['sessionTask']
 }
 export type LiveProject = Omit<CatalogProject, 'sessions'> & { sessions: LiveSessionRow[] }
+
+/** Keep SessionTask children adjacent to their live parent without inventing a persistent tree. */
+export function sessionTaskTreeRows(sessions: LiveSessionRow[]): LiveSessionRow[] {
+  const children = new Map<string, LiveSessionRow[]>()
+  for (const session of sessions) {
+    const relation = session.sessionTask
+    if (!relation) continue
+    const group = children.get(relation.parentWorkerId) ?? []
+    group.push(session)
+    children.set(relation.parentWorkerId, group)
+  }
+  for (const group of children.values()) {
+    group.sort((left, right) =>
+      (left.sessionTask?.createdAt ?? 0) - (right.sessionTask?.createdAt ?? 0)
+    )
+  }
+
+  const nested = new Set<string>()
+  const result: LiveSessionRow[] = []
+  for (const session of sessions) {
+    if (session.sessionTask) continue
+    result.push(session)
+    if (!session.workerId) continue
+    for (const child of children.get(session.workerId) ?? []) {
+      result.push(child)
+      if (child.workerId) nested.add(child.workerId)
+    }
+  }
+  for (const session of sessions) {
+    if (!session.sessionTask || (session.workerId && nested.has(session.workerId))) continue
+    result.push(session)
+  }
+  return result
+}
 
 /** Catalog history and runtime status have different lifetimes. Never invent a file for a draft. */
 export function liveProjects(
@@ -46,10 +81,12 @@ export function liveProjects(
       messageCount: existing?.messageCount ?? 0,
       workerId: resident.workerId,
       active: resident.selected,
-      status: resident.status === 'opening' ? 'idle' : resident.status
+      status: resident.status === 'opening' ? 'idle' : resident.status,
+      ...(resident.sessionTask ? { sessionTask: resident.sessionTask } : {})
     }
     if (existing) Object.assign(existing, row)
     else project.sessions.unshift(row)
   }
+  for (const project of projects) project.sessions = sessionTaskTreeRows(project.sessions)
   return projects
 }
