@@ -35,6 +35,16 @@ export type SessionTaskRecord = {
   updatedAt: number
 }
 
+export type SessionTaskRelationship = Pick<
+  SessionTaskRecord,
+  | 'taskId'
+  | 'parentWorkerId'
+  | 'parentSessionId'
+  | 'parentGeneration'
+  | 'workerId'
+  | 'createdAt'
+>
+
 export type SessionTaskView = SessionTaskRecord & {
   state: BackgroundSessionStatus['status'] | 'unavailable'
   busy: boolean
@@ -64,6 +74,7 @@ export type SessionTaskOrchestratorOptions = {
   maxWaitMs?: number
   createTaskId?: () => string
   now?: () => number
+  onTasksChanged?: () => void
 }
 
 /**
@@ -80,6 +91,7 @@ export class SessionTaskOrchestrator {
   private readonly maxWaitMs: number
   private readonly createTaskId: () => string
   private readonly now: () => number
+  private readonly onTasksChanged: () => void
 
   constructor(
     private readonly runtime: SessionTaskRuntime,
@@ -91,6 +103,7 @@ export class SessionTaskOrchestrator {
     this.maxWaitMs = options.maxWaitMs ?? 45_000
     this.createTaskId = options.createTaskId ?? randomUUID
     this.now = options.now ?? Date.now
+    this.onTasksChanged = options.onTasksChanged ?? (() => undefined)
     if (!Number.isInteger(this.maxWorkersPerParent) || this.maxWorkersPerParent < 1) {
       throw new Error('maxWorkersPerParent must be a positive integer')
     }
@@ -139,6 +152,7 @@ export class SessionTaskOrchestrator {
       updatedAt: timestamp
     }
     this.tasks.set(record.taskId, record)
+    this.onTasksChanged()
     return this.view(record)
   }
 
@@ -203,6 +217,19 @@ export class SessionTaskOrchestrator {
       .map((task) => this.view(task))
   }
 
+  relationships(): SessionTaskRelationship[] {
+    return [...this.tasks.values()]
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .map(({ taskId, parentWorkerId, parentSessionId, parentGeneration, workerId, createdAt }) => ({
+        taskId,
+        parentWorkerId,
+        parentSessionId,
+        parentGeneration,
+        workerId,
+        createdAt
+      }))
+  }
+
   release(parent: SessionTaskParent, taskId: string): void {
     const task = this.requireOwned(parent, taskId)
     const state = this.tryStatus(task)
@@ -217,6 +244,7 @@ export class SessionTaskOrchestrator {
       throw new Error('后台任务仍在运行或等待处理，不能释放关系')
     }
     this.tasks.delete(task.taskId)
+    this.onTasksChanged()
   }
 
   private assertParentCanSpawn(parent: SessionTaskParent): void {
