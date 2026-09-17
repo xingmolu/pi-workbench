@@ -5,6 +5,10 @@ import type {
   SessionMessageEntry
 } from '@earendil-works/pi-coding-agent'
 import type { ConversationNode } from '../shared/contracts'
+import {
+  clearAgentSessionIdentity,
+  setAgentSessionIdentity
+} from './agent-session-identity'
 import { ConversationProjection } from './conversation-projection'
 import { historyGroupId, projectSessionHistory, type HistoryToolOverlay } from './session-history'
 
@@ -152,6 +156,7 @@ export class SessionHistoryController {
     this.detach()
     this.manager = manager
     this.generation = generation
+    setAgentSessionIdentity({ sessionId: manager.getSessionId(), generation })
     this.refresh()
   }
 
@@ -160,6 +165,7 @@ export class SessionHistoryController {
     this.unsubscribe = null
     this.manager = null
     this.running = false
+    clearAgentSessionIdentity()
     this.objects = new WeakMap()
     this.temporary.clear()
     this.active = null
