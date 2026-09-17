@@ -19,6 +19,11 @@ export type SessionWorkerSafety = {
   unsaved: boolean
 }
 
+export type SessionWorkerLifecycleListener = (
+  workerId: string,
+  snapshot: AgentSnapshot | null
+) => void
+
 type SupervisorBaseOptions = Omit<SessionWorkerPoolOptions, 'onEvent' | 'runtime'> & {
   publish(event: DesktopEvent): void
   selected(snapshot: AgentSnapshot): void
@@ -59,13 +64,17 @@ export class SessionWorkerSupervisor {
    */
   readonly pool: SessionWorkerPool
   private lastForeground: AgentSnapshot | null = null
+  private readonly lifecycleListeners = new Set<SessionWorkerLifecycleListener>()
 
   constructor(private readonly options: SessionWorkerSupervisorOptions) {
     this.pool = new SessionWorkerPool({
       capacity: options.capacity,
       canonicalize: options.canonicalize,
       runtime: resolveRuntime(options),
-      onExit: options.onExit,
+      onExit: (workerId, error) => {
+        this.notifyLifecycle(workerId, null)
+        options.onExit?.(workerId, error)
+      },
       onNeedsSnapshot: options.onNeedsSnapshot,
       onEvent: (workerId, event) => {
         const snapshot = this.pool.getSnapshot(workerId)
@@ -87,8 +96,24 @@ export class SessionWorkerSupervisor {
         }
         this.summaries()
         options.onWorkerEvent?.(workerId, snapshot)
+        this.notifyLifecycle(workerId, snapshot)
       }
     })
+  }
+
+  /**
+   * Subscribe to bounded worker lifecycle projections without taking ownership
+   * of a worker or changing foreground selection. A `null` snapshot means the
+   * resident worker exited/was retired. The listener must treat snapshots as
+   * read-only projections and query the supervisor for any control action.
+   */
+  subscribe(listener: SessionWorkerLifecycleListener): () => void {
+    this.lifecycleListeners.add(listener)
+    return () => this.lifecycleListeners.delete(listener)
+  }
+
+  private notifyLifecycle(workerId: string, snapshot: AgentSnapshot | null): void {
+    for (const listener of this.lifecycleListeners) listener(workerId, snapshot)
   }
 
   get selectedScope(): SelectedSessionScope | null {
@@ -254,6 +279,7 @@ export class SessionWorkerSupervisor {
     })
     this.summaries()
     this.options.onWorkerEvent?.(result.workerId, result.snapshot)
+    this.notifyLifecycle(result.workerId, result.snapshot)
     return result
   }
 
