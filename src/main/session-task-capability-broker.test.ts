@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
 import type { SessionTaskWaitResult } from './session-task-orchestrator'
+import type { SessionTaskSuperviseResult } from './session-task-supervision'
 
 const parent = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -45,8 +46,11 @@ function fixture() {
   }
   const supervisor = {
     supervise: vi.fn(
-      (_parent, options?: { mode?: 'snapshot' | 'any' | 'all'; signal?: AbortSignal }) =>
-        new Promise((resolve, reject) => {
+      (
+        _parent,
+        options?: { mode?: 'snapshot' | 'any' | 'all'; signal?: AbortSignal }
+      ): Promise<SessionTaskSuperviseResult> =>
+        new Promise<SessionTaskSuperviseResult>((resolve, reject) => {
           options?.signal?.addEventListener('abort', () => reject(new Error('supervise aborted')), {
             once: true
           })
