@@ -84,6 +84,24 @@ describe('session task capability client', () => {
     expect(sent[0]).toEqual(expect.objectContaining({ action: 'spawn' }))
   })
 
+  it.each([
+    [{ action: 'status' as const, taskId: 'task-1' }, 'status'],
+    [{ action: 'list' as const }, 'list'],
+    [{ action: 'result' as const, taskId: 'task-1' }, 'result'],
+    [{ action: 'collect' as const }, 'collect']
+  ])('cancels pure read %s locally without claiming an unknown side effect', async (operation, action) => {
+    const { client, sent } = fixture()
+    const controller = new AbortController()
+    const pending = client.request(operation, controller.signal)
+
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('读取已取消')
+    expect(sent).toEqual([
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action })
+    ])
+  })
+
   it('cancels pending waits and supervision during runtime teardown and ignores late responses', async () => {
     const { client, sent } = fixture()
     const wait = client.request({ action: 'wait', taskId: 'task-1' })
