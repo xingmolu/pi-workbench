@@ -4,16 +4,11 @@ import { getSessionTaskCapabilityClient } from './session-task-runtime-client'
 
 const SESSION_TASK_PARAMETERS = Type.Object({
   action: Type.Union([
-    Type.Literal('spawn'),
     Type.Literal('delegate'),
     Type.Literal('send'),
-    Type.Literal('status'),
-    Type.Literal('wait'),
     Type.Literal('supervise'),
     Type.Literal('collect'),
-    Type.Literal('result'),
     Type.Literal('cancel'),
-    Type.Literal('list'),
     Type.Literal('release')
   ]),
   taskId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
@@ -31,18 +26,7 @@ const SESSION_TASK_PARAMETERS = Type.Object({
 })
 
 type SessionTaskParams = {
-  action:
-    | 'spawn'
-    | 'delegate'
-    | 'send'
-    | 'status'
-    | 'wait'
-    | 'supervise'
-    | 'collect'
-    | 'result'
-    | 'cancel'
-    | 'list'
-    | 'release'
+  action: 'delegate' | 'send' | 'supervise' | 'collect' | 'cancel' | 'release'
   taskId?: string
   prompt?: string
   tasks?: string[]
@@ -52,9 +36,6 @@ type SessionTaskParams = {
 
 function operation(params: SessionTaskParams) {
   switch (params.action) {
-    case 'spawn':
-      if (!params.prompt?.trim()) throw new Error('spawn 需要 prompt')
-      return { action: 'spawn' as const, prompt: params.prompt }
     case 'delegate':
       if (!params.tasks?.length || params.tasks.length > 4) throw new Error('delegate 需要 1-4 个 tasks')
       if (params.tasks.some((task) => !task.trim())) throw new Error('delegate tasks 不能为空')
@@ -63,19 +44,6 @@ function operation(params: SessionTaskParams) {
       if (!params.taskId) throw new Error('send 需要 taskId')
       if (!params.prompt?.trim()) throw new Error('send 需要 prompt')
       return { action: 'send' as const, taskId: params.taskId, prompt: params.prompt }
-    case 'status':
-    case 'result':
-    case 'cancel':
-    case 'release':
-      if (!params.taskId) throw new Error(`${params.action} 需要 taskId`)
-      return { action: params.action, taskId: params.taskId }
-    case 'wait':
-      if (!params.taskId) throw new Error('wait 需要 taskId')
-      return {
-        action: 'wait' as const,
-        taskId: params.taskId,
-        ...(params.timeoutMs === undefined ? {} : { timeoutMs: params.timeoutMs })
-      }
     case 'supervise':
       return {
         action: 'supervise' as const,
@@ -84,29 +52,30 @@ function operation(params: SessionTaskParams) {
       }
     case 'collect':
       return { action: 'collect' as const }
-    case 'list':
-      return { action: 'list' as const }
+    case 'cancel':
+    case 'release':
+      if (!params.taskId) throw new Error(`${params.action} 需要 taskId`)
+      return { action: params.action, taskId: params.taskId }
   }
 }
 
 export function registerSessionTaskTool(pi: ExtensionAPI): void {
-  // The lobby Agent Host has no resident worker identity and therefore no Main
-  // SessionTask route. Only per-session utility workers are allowed to expose it.
   if (process.env.PI_DESKTOP_SESSION_WORKER !== '1') return
 
   pi.registerTool({
     name: 'session_task',
     label: '后台 Agent',
     description:
-      'Create and supervise bounded background Agent sessions in the same project. Use delegate for 1-4 independent tasks, spawn for one task, supervise snapshot/any/all to observe them without polling, and collect to read canonical results in one bounded response. Use send for follow-up, cancel to stop work, and release only after settlement. Background workers cannot recursively spawn more workers.',
-    promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
+      'Delegate one to four independent tasks to background Agent sessions, supervise their progress, collect canonical results, send follow-up instructions, cancel work, and release settled task relationships.',
+    promptSnippet: 'Delegate independent work to background Agent sessions and coordinate the results.',
     promptGuidelines: [
-      'Use delegate when 2-4 tasks are independent and can start without each other\'s results. Keep dependent reasoning in the current session or sequence it explicitly.',
-      'Delegate admission is bounded and may partially succeed. Preserve returned spawnedTaskIds/failedIndexes and never assume a failed response means no worker was created.',
-      'Prefer supervise mode any/all for multiple tasks instead of manually polling status. Use snapshot for one bounded aggregate view.',
-      'After supervision, prefer collect to read the current canonical results for all owned tasks in one call. Treat attention outcomes such as ambiguous/no-result/error as explicit, never guess missing text.',
-      'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with supervise/list/status before retrying.',
-      'Background workers inherit the parent project, model and permission mode and cannot spawn nested workers.'
+      'Use delegate for 1-4 independent tasks that can start without each other\'s results. For dependent work, keep it in the current session or delegate the next step after collecting the prerequisite result.',
+      'Delegate admission may partially succeed. Preserve spawnedTaskIds/failedIndexes and do not assume an interrupted response means no worker was created.',
+      'Use supervise snapshot for one aggregate status view, any to continue when the first task settles, or all to wait for every task. Do not manually poll individual tasks.',
+      'Use collect to read canonical results for the current owned tasks. Treat ambiguous/no-result/error outcomes as explicit instead of guessing missing text.',
+      'Use send for follow-up instructions and cancel to stop a specific child. Release a settled relationship only when no further follow-up is needed.',
+      'If an interrupted side-effecting call has an unknown outcome, reconcile with supervise snapshot before retrying.',
+      'Background workers inherit the parent project, model and permission mode and cannot recursively delegate more workers.'
     ],
     executionMode: 'sequential',
     parameters: SESSION_TASK_PARAMETERS,
