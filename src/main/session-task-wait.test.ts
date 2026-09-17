@@ -6,9 +6,20 @@ import type {
 } from './background-session-service'
 import {
   SessionTaskOrchestrator,
+  type SessionTaskParent,
   type SessionTaskRuntime
 } from './session-task-orchestrator'
 
+const parent: SessionTaskParent = {
+  workerId: 'parent-a',
+  sessionId: 'parent-session-a',
+  generation: 1
+}
+const otherParent: SessionTaskParent = {
+  workerId: 'parent-b',
+  sessionId: 'parent-session-b',
+  generation: 1
+}
 const handle: BackgroundSessionHandle = {
   workerId: 'worker-1',
   sessionId: 'session-1',
@@ -16,9 +27,7 @@ const handle: BackgroundSessionHandle = {
   projectPath: '/project'
 }
 
-function status(
-  overrides: Partial<BackgroundSessionStatus> = {}
-): BackgroundSessionStatus {
+function status(overrides: Partial<BackgroundSessionStatus> = {}): BackgroundSessionStatus {
   return {
     ...handle,
     status: 'running',
@@ -54,9 +63,9 @@ function fixture(waitResult: BackgroundSessionWaitResult = {
 describe('session task wait policy', () => {
   it('bounds requested wait time and returns the settled lifecycle projection', async () => {
     const { orchestrator, wait } = fixture()
-    const spawned = await orchestrator.spawn('parent-a', 'work')
+    const spawned = await orchestrator.spawn(parent, 'work')
 
-    const result = await orchestrator.wait('parent-a', spawned.taskId, { timeoutMs: 5_000 })
+    const result = await orchestrator.wait(parent, spawned.taskId, { timeoutMs: 5_000 })
 
     expect(wait).toHaveBeenCalledWith(handle, { timeoutMs: 500 })
     expect(result).toMatchObject({
@@ -75,9 +84,9 @@ describe('session task wait policy', () => {
       outcome: 'timeout',
       status: status()
     })
-    const spawned = await orchestrator.spawn('parent-a', 'work')
+    const spawned = await orchestrator.spawn(parent, 'work')
 
-    const result = await orchestrator.wait('parent-a', spawned.taskId)
+    const result = await orchestrator.wait(parent, spawned.taskId)
 
     expect(wait).toHaveBeenCalledWith(handle, { timeoutMs: 100 })
     expect(result).toMatchObject({
@@ -91,19 +100,22 @@ describe('session task wait policy', () => {
       outcome: 'completed',
       status: status({ sessionId: 'replacement', status: 'idle', busy: false })
     })
-    const spawned = await orchestrator.spawn('parent-a', 'work')
+    const spawned = await orchestrator.spawn(parent, 'work')
 
-    await expect(orchestrator.wait('parent-a', spawned.taskId)).resolves.toMatchObject({
+    await expect(orchestrator.wait(parent, spawned.taskId)).resolves.toMatchObject({
       outcome: 'unavailable',
       task: { state: 'unavailable' }
     })
   })
 
-  it('keeps wait parent-scoped and reports missing lifecycle support explicitly', async () => {
+  it('keeps wait parent-session-scoped and reports missing lifecycle support explicitly', async () => {
     const { orchestrator, runtime, wait } = fixture()
-    const spawned = await orchestrator.spawn('parent-a', 'work')
+    const spawned = await orchestrator.spawn(parent, 'work')
 
-    await expect(orchestrator.wait('parent-b', spawned.taskId)).rejects.toThrow('不属于')
+    await expect(orchestrator.wait(otherParent, spawned.taskId)).rejects.toThrow('不属于')
+    await expect(
+      orchestrator.wait({ ...parent, sessionId: 'replacement', generation: 2 }, spawned.taskId)
+    ).rejects.toThrow('不属于')
     expect(wait).not.toHaveBeenCalled()
 
     const withoutWait = new SessionTaskOrchestrator({
@@ -112,7 +124,7 @@ describe('session task wait policy', () => {
       abort: runtime.abort,
       status: runtime.status
     })
-    const other = await withoutWait.spawn('parent-a', 'work')
-    await expect(withoutWait.wait('parent-a', other.taskId)).rejects.toThrow('不支持事件等待')
+    const other = await withoutWait.spawn(parent, 'work')
+    await expect(withoutWait.wait(parent, other.taskId)).rejects.toThrow('不支持事件等待')
   })
 })

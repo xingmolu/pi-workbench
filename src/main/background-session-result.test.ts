@@ -2,8 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { AGENT_ENGINE, type AgentSnapshot, type HostCommand, type HostResult } from '../shared/contracts'
 import {
   BackgroundSessionService,
+  type BackgroundSessionParent,
   type BackgroundSessionRuntime
 } from './background-session-service'
+
+const parent: BackgroundSessionParent = {
+  workerId: 'parent-worker',
+  sessionId: 'session-parent',
+  generation: 3
+}
 
 function snapshot(overrides: Partial<AgentSnapshot> = {}): AgentSnapshot {
   return {
@@ -52,7 +59,7 @@ function assistant(id: string, markdown: string) {
 
 function fixture() {
   const residents = new Map<string, AgentSnapshot>()
-  residents.set('parent-worker', snapshot())
+  residents.set(parent.workerId, snapshot())
   const child = snapshot({
     sessionId: 'session-child',
     generation: 8,
@@ -102,7 +109,7 @@ function fixture() {
 describe('background session canonical result', () => {
   it('returns only the completed canonical assistant reply for the dispatched prompt', async () => {
     const { service, residents } = fixture()
-    const handle = await service.spawnFromParent('parent-worker', 'inspect tests')
+    const handle = await service.spawnFromParent(parent, 'inspect tests')
     const current = residents.get(handle.workerId)!
     residents.set(handle.workerId, {
       ...current,
@@ -127,7 +134,7 @@ describe('background session canonical result', () => {
 
   it('fails closed when another canonical user turn wins the dispatch boundary', async () => {
     const { service, residents } = fixture()
-    const handle = await service.spawnFromParent('parent-worker', 'task prompt')
+    const handle = await service.spawnFromParent(parent, 'task prompt')
     const current = residents.get(handle.workerId)!
     residents.set(handle.workerId, {
       ...current,
@@ -146,7 +153,7 @@ describe('background session canonical result', () => {
 
   it('invalidates attribution after any later canonical user turn, including identical text', async () => {
     const { service, residents } = fixture()
-    const handle = await service.spawnFromParent('parent-worker', 'same prompt')
+    const handle = await service.spawnFromParent(parent, 'same prompt')
     const current = residents.get(handle.workerId)!
     residents.set(handle.workerId, {
       ...current,
@@ -165,7 +172,7 @@ describe('background session canonical result', () => {
 
   it('moves the private cursor forward when the parent sends follow-up work', async () => {
     const { service, residents } = fixture()
-    const handle = await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent(parent, 'first')
     const running = residents.get(handle.workerId)!
     residents.set(handle.workerId, {
       ...running,
@@ -202,7 +209,7 @@ describe('background session canonical result', () => {
 
   it('bounds returned markdown and does not expose a partial result while the task is running', async () => {
     const { service, residents } = fixture()
-    const handle = await service.spawnFromParent('parent-worker', 'large result')
+    const handle = await service.spawnFromParent(parent, 'large result')
 
     expect(service.result(handle)).toEqual({ outcome: 'pending' })
 

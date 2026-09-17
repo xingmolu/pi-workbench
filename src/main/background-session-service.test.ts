@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AGENT_ENGINE, type AgentSnapshot, type HostCommand, type HostResult } from '../shared/contracts'
-import { BackgroundSessionService, type BackgroundSessionRuntime } from './background-session-service'
+import {
+  BackgroundSessionService,
+  type BackgroundSessionParent,
+  type BackgroundSessionRuntime
+} from './background-session-service'
+
+const parent: BackgroundSessionParent = {
+  workerId: 'parent-worker',
+  sessionId: 'session-parent',
+  generation: 3
+}
 
 function snapshot(overrides: Partial<AgentSnapshot> = {}): AgentSnapshot {
   return {
@@ -35,7 +45,7 @@ function snapshot(overrides: Partial<AgentSnapshot> = {}): AgentSnapshot {
 
 function fixture(childOverrides: Partial<AgentSnapshot> = {}) {
   const residents = new Map<string, AgentSnapshot>()
-  residents.set('parent-worker', snapshot())
+  residents.set(parent.workerId, snapshot())
   const child = snapshot({
     sessionId: 'session-child',
     generation: 8,
@@ -62,7 +72,11 @@ function fixture(childOverrides: Partial<AgentSnapshot> = {}) {
       const current = residents.get(workerId)
       if (!current) throw new Error('missing worker')
       if (command.type === 'permission:set') {
-        residents.set(workerId, { ...current, permissionMode: command.mode, revision: current.revision + 1 })
+        residents.set(workerId, {
+          ...current,
+          permissionMode: command.mode,
+          revision: current.revision + 1
+        })
       } else if (command.type === 'prompt:send') {
         residents.set(workerId, {
           ...current,
@@ -106,7 +120,7 @@ describe('background session service', () => {
   it('inherits parent project, model and permission before sending the first task', async () => {
     const { service, openBackground, commands } = fixture()
 
-    const handle = await service.spawnFromParent('parent-worker', '  inspect the failing tests  ')
+    const handle = await service.spawnFromParent(parent, '  inspect the failing tests  ')
 
     expect(openBackground).toHaveBeenCalledWith(
       { cwd: '/project' },
@@ -137,17 +151,25 @@ describe('background session service', () => {
     })
   })
 
+  it('refuses spawn after the parent worker has changed durable session identity', async () => {
+    const { service, residents, openBackground } = fixture()
+    residents.set(parent.workerId, snapshot({ sessionId: 'replacement-parent', generation: 4 }))
+
+    await expect(service.spawnFromParent(parent, 'stale task')).rejects.toThrow('父会话身份已改变')
+    expect(openBackground).not.toHaveBeenCalled()
+  })
+
   it('does not write permission state when the child already matches the parent', async () => {
     const { service, commands } = fixture({ permissionMode: 'open' })
 
-    await service.spawnFromParent('parent-worker', 'run tests')
+    await service.spawnFromParent(parent, 'run tests')
 
     expect(commands.map(({ command }) => command.type)).toEqual(['prompt:send'])
   })
 
   it('sends follow-up work and aborts through the stable background handle', async () => {
     const { service, commands } = fixture({ permissionMode: 'open' })
-    const handle = await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent(parent, 'first')
 
     await service.send(handle, '  second  ')
     await service.abort(handle)
@@ -173,7 +195,7 @@ describe('background session service', () => {
 
   it('fails closed before controlling a worker whose durable identity changed', async () => {
     const { service, residents, requestWorker } = fixture({ permissionMode: 'open' })
-    const handle = await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent(parent, 'first')
     const callsAfterSpawn = requestWorker.mock.calls.length
     const current = residents.get('child-worker')!
     residents.set('child-worker', {
@@ -191,7 +213,7 @@ describe('background session service', () => {
 
   it('returns bounded status instead of exposing the transcript', async () => {
     const { service, residents } = fixture({ permissionMode: 'open' })
-    const handle = await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent(parent, 'first')
     const current = residents.get('child-worker')!
     residents.set('child-worker', {
       ...current,
@@ -226,33 +248,30 @@ describe('background session service', () => {
   })
 
   it.each([
-    ['empty task', () => fixture().service.spawnFromParent('parent-worker', '   '), '不能为空'],
+    ['empty task', () => fixture().service.spawnFromParent(parent, '   '), '不能为空'],
     [
       'missing parent',
-      () => fixture().service.spawnFromParent('missing-worker', 'task'),
+      () => fixture().service.spawnFromParent({ ...parent, workerId: 'missing-worker' }, 'task'),
       '后台会话已结束'
     ],
     [
       'missing model',
       () => {
         const value = fixture()
-        value.residents.set('parent-worker', snapshot({ activeProvider: null, activeModel: null }))
-        return value.service.spawnFromParent('parent-worker', 'task')
+        value.residents.set(parent.workerId, snapshot({ activeProvider: null, activeModel: null }))
+        return value.service.spawnFromParent(parent, 'task')
       },
       '没有可继承的模型'
     ],
     [
       'unstable child identity',
-      () => fixture({ sessionId: null }).service.spawnFromParent('parent-worker', 'task'),
+      () => fixture({ sessionId: null }).service.spawnFromParent(parent, 'task'),
       '稳定身份'
     ],
     [
       'blocked child',
       () =>
-        fixture({ composeBlockReason: 'model-unavailable' }).service.spawnFromParent(
-          'parent-worker',
-          'task'
-        ),
+        fixture({ composeBlockReason: 'model-unavailable' }).service.spawnFromParent(parent, 'task'),
       '不能接收任务'
     ]
   ])('fails closed for %s', async (_name, operation, message) => {

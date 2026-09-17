@@ -23,12 +23,13 @@ export type BackgroundSessionRuntime = {
     expectedIdentity?: { sessionId: string | null; generation: number }
   ): Promise<HostResult>
   tryGetSnapshot(workerId: string): AgentSnapshot | null
-  /**
-   * Lifecycle subscription is required by wait(), but remains optional on the
-   * structural runtime contract so older test/runtime adapters can migrate
-   * without changing ordinary spawn/send/status behavior.
-   */
   subscribe?(listener: BackgroundSessionLifecycleListener): () => void
+}
+
+export type BackgroundSessionParent = {
+  workerId: string
+  sessionId: string
+  generation: number
 }
 
 export type BackgroundSessionHandle = {
@@ -101,6 +102,20 @@ function requireIdentity(snapshot: AgentSnapshot): {
 } {
   if (!snapshot.sessionId) throw new Error('后台会话尚未建立稳定身份')
   return { sessionId: snapshot.sessionId, generation: snapshot.generation }
+}
+
+function requireParentSnapshot(
+  runtime: BackgroundSessionRuntime,
+  parent: BackgroundSessionParent
+): AgentSnapshot {
+  const snapshot = requireResidentSnapshot(runtime, parent.workerId)
+  if (
+    snapshot.sessionId !== parent.sessionId ||
+    snapshot.generation !== parent.generation
+  ) {
+    throw new Error('父会话身份已改变，请重新创建任务')
+  }
+  return snapshot
 }
 
 function requireProject(snapshot: AgentSnapshot): string {
@@ -202,9 +217,6 @@ function resultFromSnapshot(
   }
   if (promptIndex < 0) return { outcome: 'no-result' }
 
-  // A task result is intentionally single-turn. Any later canonical user turn
-  // invalidates attribution, even if it repeats the exact same text. This is a
-  // conservative alternative to adding a second prompt-submission protocol.
   for (let index = promptIndex + 1; index < snapshot.nodes.length; index += 1) {
     const node = snapshot.nodes[index]
     if (node.type === 'user' && node.canonicalEntryId) return { outcome: 'ambiguous' }
@@ -242,31 +254,22 @@ function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId:
   return { providerId: snapshot.activeProvider, modelId: snapshot.activeModel }
 }
 
-/**
- * Narrow service used by Orchestrator/Subagent policy.
- *
- * It translates high-level background-session operations into the stable
- * SessionWorkerSupervisor boundary. Every control operation is scoped to the
- * durable handle captured at spawn time; a worker whose session identity has
- * changed fails closed instead of silently accepting an old task relationship.
- * Result extraction is additionally scoped to a private dispatch cursor, so a
- * later/manual user turn cannot be mistaken for the task's answer.
- * The service deliberately owns no task graph, persistence, worker limits or
- * recursive-spawn policy.
- */
 export class BackgroundSessionService {
   private readonly resultCursors = new Map<string, ResultCursor>()
 
   constructor(private readonly runtime: BackgroundSessionRuntime) {}
 
-  async spawnFromParent(parentWorkerId: string, prompt: string): Promise<BackgroundSessionHandle> {
+  async spawnFromParent(
+    parent: BackgroundSessionParent,
+    prompt: string
+  ): Promise<BackgroundSessionHandle> {
     const text = prompt.trim()
     if (!text) throw new Error('后台任务不能为空')
 
-    const parent = requireResidentSnapshot(this.runtime, parentWorkerId)
-    const projectPath = requireProject(parent)
-    const model = inheritedModel(parent)
-    const permissionMode: PermissionMode = parent.permissionMode
+    const parentSnapshot = requireParentSnapshot(this.runtime, parent)
+    const projectPath = requireProject(parentSnapshot)
+    const model = inheritedModel(parentSnapshot)
+    const permissionMode: PermissionMode = parentSnapshot.permissionMode
 
     const admitted = await this.runtime.openBackground({ cwd: projectPath }, model)
     let child = admitted.snapshot
@@ -349,14 +352,6 @@ export class BackgroundSessionService {
     return resultFromSnapshot(handle, snapshot, cursor)
   }
 
-  /**
-   * Wait for the exact durable child to reach a settled terminal state.
-   *
-   * Subscribe first, then re-read the current snapshot to avoid missing a fast
-   * completion between the caller's last status read and listener attachment.
-   * The wait never infers transcript/result content; it returns only bounded
-   * lifecycle state.
-   */
   wait(
     handle: BackgroundSessionHandle,
     options: BackgroundSessionWaitOptions
