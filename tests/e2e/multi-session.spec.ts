@@ -60,6 +60,11 @@ test.beforeEach(async () => {
       TMPDIR: root,
       TMP: root,
       TEMP: root,
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
+      ...(process.env.XAUTHORITY ? { XAUTHORITY: process.env.XAUTHORITY } : {}),
+      ...(process.env.DBUS_SESSION_BUS_ADDRESS
+        ? { DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS }
+        : {}),
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'data')
