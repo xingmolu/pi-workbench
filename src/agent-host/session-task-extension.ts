@@ -25,6 +25,8 @@ type SessionTaskParams = {
   timeoutMs?: number
 }
 
+type ExtensionApi = Parameters<InlineExtension['factory']>[0]
+
 function operation(params: SessionTaskParams) {
   switch (params.action) {
     case 'spawn':
@@ -52,35 +54,37 @@ function operation(params: SessionTaskParams) {
   }
 }
 
+export function registerSessionTaskTool(pi: ExtensionApi): void {
+  pi.registerTool({
+    name: 'session_task',
+    label: '后台 Agent',
+    description:
+      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work, wait/status to supervise, result for the canonical completed reply, send for a follow-up, cancel to stop work, and release only after the task is settled. Background workers cannot recursively spawn more workers.',
+    promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
+    promptGuidelines: [
+      'Use session_task spawn only for work that can proceed independently; keep dependent reasoning in the current session.',
+      'After spawn, use wait or status rather than repeatedly polling. Read result only after completion; ambiguous/no-result must not be guessed.',
+      'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with list/status before retrying.',
+      'Background workers inherit the parent project, model and permission mode and cannot spawn nested workers.'
+    ],
+    executionMode: 'sequential',
+    parameters: SESSION_TASK_PARAMETERS,
+    execute: async (_toolCallId, params, signal) => {
+      const data = await getSessionTaskCapabilityClient().request(
+        operation(params as SessionTaskParams),
+        signal
+      )
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+        details: data
+      }
+    }
+  })
+}
+
 export function createSessionTaskExtension(): InlineExtension {
   return {
     name: 'pi-desktop-session-task',
-    factory: (pi) => {
-      pi.registerTool({
-        name: 'session_task',
-        label: '后台 Agent',
-        description:
-          'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work, wait/status to supervise, result for the canonical completed reply, send for a follow-up, cancel to stop work, and release only after the task is settled. Background workers cannot recursively spawn more workers.',
-        promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
-        promptGuidelines: [
-          'Use session_task spawn only for work that can proceed independently; keep dependent reasoning in the current session.',
-          'After spawn, use wait or status rather than repeatedly polling. Read result only after completion; ambiguous/no-result must not be guessed.',
-          'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with list/status before retrying.',
-          'Background workers inherit the parent project, model and permission mode and cannot spawn nested workers.'
-        ],
-        executionMode: 'sequential',
-        parameters: SESSION_TASK_PARAMETERS,
-        execute: async (_toolCallId, params, signal) => {
-          const data = await getSessionTaskCapabilityClient().request(
-            operation(params as SessionTaskParams),
-            signal
-          )
-          return {
-            content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
-            details: data
-          }
-        }
-      })
-    }
+    factory: registerSessionTaskTool
   }
 }
