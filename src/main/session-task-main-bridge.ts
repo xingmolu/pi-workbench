@@ -45,6 +45,14 @@ export class SessionTaskMainBridge {
     message: unknown,
     reply: (message: SessionTaskResponse) => void
   ): boolean {
+    if (snapshot?.sessionId) {
+      this.orchestrator.retireParent(workerId, {
+        sessionId: snapshot.sessionId,
+        generation: snapshot.generation
+      })
+    } else {
+      this.orchestrator.retireParent(workerId)
+    }
     return this.broker.handle(
       workerId,
       snapshot
@@ -72,18 +80,6 @@ export class SessionTaskMainBridge {
           createdAt: relation.createdAt
         }
       }
-    })
-  }
-
-  /** Remove stale authority if a resident worker switches its native Pi session. */
-  workerObserved(workerId: string, snapshot: AgentSnapshot | null): void {
-    if (!snapshot?.sessionId) {
-      this.orchestrator.retireParent(workerId)
-      return
-    }
-    this.orchestrator.retireParent(workerId, {
-      sessionId: snapshot.sessionId,
-      generation: snapshot.generation
     })
   }
 
