@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
+import type { SessionTaskCollector } from './session-task-collection'
 
 const identity = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -22,7 +23,7 @@ const task = {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
-function broker(collector?: { collect(parent: { workerId: string; sessionId: string; generation: number }): unknown }) {
+function broker(collector?: Pick<SessionTaskCollector, 'collect'>) {
   return new SessionTaskCapabilityBroker({
     orchestrator: {
       spawn: async () => task,
