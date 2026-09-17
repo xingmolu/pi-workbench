@@ -1,8 +1,9 @@
 import type { AgentSnapshot, DesktopEvent, HostCommand, HostResult } from '../shared/contracts'
-import type {
-  DesktopCommandOrigin,
-  LiveSessionSummary,
-  SelectedSessionScope
+import {
+  sameSelectedScope,
+  type DesktopCommandOrigin,
+  type LiveSessionSummary,
+  type SelectedSessionScope
 } from '../shared/session-runtime'
 import type { AgentRuntime } from './agent-runtime'
 import {
@@ -51,6 +52,9 @@ export class SessionWorkerSupervisor {
   /**
    * Transitional escape hatch for existing Main call sites. Do not use from
    * new code; these accesses are migrated to the facade incrementally.
+   *
+   * @deprecated Use the supervisor methods instead. This property will become
+   * private once Main has finished migrating.
    */
   readonly pool: SessionWorkerPool
   private lastForeground: AgentSnapshot | null = null
@@ -90,24 +94,58 @@ export class SessionWorkerSupervisor {
     return this.pool.selectedScope
   }
 
+  get hasSelection(): boolean {
+    return this.pool.selectedScope !== null
+  }
+
   get quiescent(): boolean {
     return this.pool.quiescent
+  }
+
+  isSelected(workerId: string): boolean {
+    return this.pool.selectedScope?.workerId === workerId
+  }
+
+  retainsSelection(scope: SelectedSessionScope | null): boolean {
+    return sameSelectedScope(scope, this.pool.selectedScope)
   }
 
   validateSelected(scope: SelectedSessionScope | null): void {
     this.pool.validateSelected(scope)
   }
 
+  /** Strict resident lookup. Throws after a worker exits or is evicted. */
   getSnapshot(workerId: string): AgentSnapshot | null {
     return this.pool.getSnapshot(workerId)
+  }
+
+  /** Safe resident lookup for asynchronous cleanup and mobile projections. */
+  tryGetSnapshot(workerId: string): AgentSnapshot | null {
+    try {
+      return this.pool.getSnapshot(workerId)
+    } catch {
+      return null
+    }
   }
 
   getLiveSummaries(): LiveSessionSummary[] {
     return this.pool.getLiveSummaries()
   }
 
+  /** Only summaries whose workers are still resident; excludes crash tombstones. */
+  getResidentSummaries(): LiveSessionSummary[] {
+    return this.pool
+      .getLiveSummaries()
+      .filter((summary) => this.tryGetSnapshot(summary.workerId) !== null)
+  }
+
   findLiveSummary(workerId: string): LiveSessionSummary | undefined {
     return this.pool.getLiveSummaries().find((summary) => summary.workerId === workerId)
+  }
+
+  findResidentSummary(workerId: string): LiveSessionSummary | undefined {
+    if (!this.tryGetSnapshot(workerId)) return undefined
+    return this.findLiveSummary(workerId)
   }
 
   updateSafety(workerId: string, safety: SessionWorkerSafety): void {
