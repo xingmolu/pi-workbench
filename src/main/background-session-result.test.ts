@@ -144,6 +144,25 @@ describe('background session canonical result', () => {
     expect(service.result(handle)).toEqual({ outcome: 'ambiguous' })
   })
 
+  it('invalidates attribution after any later canonical user turn, including identical text', async () => {
+    const { service, residents } = fixture()
+    const handle = await service.spawnFromParent('parent-worker', 'same prompt')
+    const current = residents.get(handle.workerId)!
+    residents.set(handle.workerId, {
+      ...current,
+      busy: false,
+      status: 'idle',
+      nodes: [
+        user('task-user', 'same prompt'),
+        assistant('task-answer', 'task answer'),
+        user('manual-repeat', 'same prompt'),
+        assistant('manual-answer', 'manual answer')
+      ]
+    })
+
+    expect(service.result(handle)).toEqual({ outcome: 'ambiguous' })
+  })
+
   it('moves the private cursor forward when the parent sends follow-up work', async () => {
     const { service, residents } = fixture()
     const handle = await service.spawnFromParent('parent-worker', 'first')
