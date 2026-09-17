@@ -230,6 +230,28 @@ export class SessionTaskOrchestrator {
       }))
   }
 
+  /**
+   * Drop orchestration ownership when a parent worker disappears or changes
+   * native session identity. Child sessions are ordinary resident sessions and
+   * deliberately keep running; only the stale parent-child relationship is removed.
+   */
+  retireParent(
+    workerId: string,
+    currentIdentity?: { sessionId: string; generation: number }
+  ): number {
+    const stale = [...this.tasks.values()].filter(
+      (task) =>
+        task.parentWorkerId === workerId &&
+        (!currentIdentity ||
+          task.parentSessionId !== currentIdentity.sessionId ||
+          task.parentGeneration !== currentIdentity.generation)
+    )
+    if (!stale.length) return 0
+    for (const task of stale) this.tasks.delete(task.taskId)
+    this.onTasksChanged()
+    return stale.length
+  }
+
   release(parent: SessionTaskParent, taskId: string): void {
     const task = this.requireOwned(parent, taskId)
     const state = this.tryStatus(task)
