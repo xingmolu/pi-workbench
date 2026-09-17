@@ -140,3 +140,35 @@ it('separates resident workers from crash tombstones and stale selections', asyn
   expect(supervisor.getResidentSummaries().map((item) => item.workerId)).toEqual([bId])
   expect(supervisor.retainsSelection(b.desktopScope!)).toBe(true)
 })
+
+it('publishes background lifecycle snapshots and an exit tombstone without stealing selection', async () => {
+  const { supervisor, workers } = fixture()
+  const events: Array<{ workerId: string; snapshot: AgentSnapshot | null }> = []
+  const unsubscribe = supervisor.subscribe((workerId, current) => {
+    events.push({ workerId, snapshot: current })
+  })
+
+  const admitted = await supervisor.openBackground({ cwd: '/project', path: '/background' })
+  expect(supervisor.selectedScope).toBeNull()
+  expect(events.at(-1)).toMatchObject({
+    workerId: admitted.workerId,
+    snapshot: { sessionId: '/background', revision: 1 }
+  })
+
+  workers[0].options.onEvent({
+    type: 'event',
+    event: 'snapshot',
+    data: snapshot('/background', 2)
+  })
+  expect(events.at(-1)).toMatchObject({
+    workerId: admitted.workerId,
+    snapshot: { revision: 2 }
+  })
+
+  workers[0].options.onExit(new Error('worker crashed'))
+  expect(events.at(-1)).toEqual({ workerId: admitted.workerId, snapshot: null })
+
+  const count = events.length
+  unsubscribe()
+  expect(events).toHaveLength(count)
+})
