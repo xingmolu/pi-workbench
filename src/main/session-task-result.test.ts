@@ -6,9 +6,15 @@ import type {
 } from './background-session-service'
 import {
   SessionTaskOrchestrator,
+  type SessionTaskParent,
   type SessionTaskRuntime
 } from './session-task-orchestrator'
 
+const parent: SessionTaskParent = {
+  workerId: 'parent-a',
+  sessionId: 'parent-session-a',
+  generation: 1
+}
 const handle: BackgroundSessionHandle = {
   workerId: 'worker-1',
   sessionId: 'session-1',
@@ -50,17 +56,20 @@ function fixture(resultValue: BackgroundSessionResult = {
 }
 
 describe('session task result policy', () => {
-  it('keeps canonical result lookup parent-scoped and passes the durable handle', async () => {
+  it('keeps canonical result lookup parent-session-scoped and passes the durable handle', async () => {
     const { orchestrator, result } = fixture()
-    const task = await orchestrator.spawn('parent-a', 'inspect')
+    const task = await orchestrator.spawn(parent, 'inspect')
+    const replacementParent = { ...parent, sessionId: 'replacement-parent', generation: 2 }
 
-    expect(() => orchestrator.result('parent-b', task.taskId)).toThrow('不属于')
+    expect(() => orchestrator.result(replacementParent, task.taskId)).toThrow('不属于')
     expect(result).not.toHaveBeenCalled()
 
-    expect(orchestrator.result('parent-a', task.taskId)).toEqual({
+    expect(orchestrator.result(parent, task.taskId)).toEqual({
       task: expect.objectContaining({
         taskId: 'task-1',
-        parentWorkerId: 'parent-a',
+        parentWorkerId: parent.workerId,
+        parentSessionId: parent.sessionId,
+        parentGeneration: parent.generation,
         state: 'idle'
       }),
       result: {
@@ -76,9 +85,9 @@ describe('session task result policy', () => {
 
   it('preserves explicit ambiguous/unavailable result outcomes without inventing text', async () => {
     const { orchestrator } = fixture({ outcome: 'ambiguous' })
-    const task = await orchestrator.spawn('parent-a', 'inspect')
+    const task = await orchestrator.spawn(parent, 'inspect')
 
-    expect(orchestrator.result('parent-a', task.taskId)).toEqual({
+    expect(orchestrator.result(parent, task.taskId)).toEqual({
       task: expect.objectContaining({ taskId: task.taskId }),
       result: { outcome: 'ambiguous' }
     })
@@ -92,8 +101,8 @@ describe('session task result policy', () => {
       abort: runtime.abort,
       status: runtime.status
     })
-    const task = await orchestrator.spawn('parent-a', 'inspect')
+    const task = await orchestrator.spawn(parent, 'inspect')
 
-    expect(() => orchestrator.result('parent-a', task.taskId)).toThrow('canonical 结果读取')
+    expect(() => orchestrator.result(parent, task.taskId)).toThrow('canonical 结果读取')
   })
 })
