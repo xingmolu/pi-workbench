@@ -84,7 +84,7 @@ export class SessionTaskCapabilityClient {
           finishReject(new Error('等待后台任务已取消'))
         } else if (sideEffecting(operation.action)) {
           finishReject(
-            new Error('SessionTask 操作响应未知；操作可能已执行，请使用 supervise/list/status 核对')
+            new Error('SessionTask 操作响应未知；操作可能已执行，请使用 supervise snapshot 核对后再重试')
           )
         } else {
           finishReject(new Error('SessionTask 读取已取消'))
