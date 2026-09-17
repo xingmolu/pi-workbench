@@ -21,7 +21,8 @@ export type SessionTaskCapabilityBrokerOptions = {
     'spawn' | 'send' | 'status' | 'wait' | 'result' | 'cancel' | 'list' | 'release'
   >
   supervisor: Pick<SessionTaskSupervisor, 'supervise'>
-  collector: Pick<SessionTaskCollector, 'collect'>
+  /** Transitional optional seam for tests/adapters; production Main always injects it. */
+  collector?: Pick<SessionTaskCollector, 'collect'>
 }
 
 type PendingRequest = {
@@ -169,6 +170,9 @@ export class SessionTaskCapabilityBroker {
           ...(signal ? { signal } : {})
         })
       case 'collect':
+        if (!this.options.collector) {
+          throw new Error('SessionTask 运行时不支持 canonical 结果聚合')
+        }
         return this.options.collector.collect(parent)
       case 'result':
         return this.options.orchestrator.result(parent, request.taskId)
