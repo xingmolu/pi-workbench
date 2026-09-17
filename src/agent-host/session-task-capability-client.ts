@@ -6,16 +6,11 @@ import {
 } from '../shared/session-task-capability'
 
 export type SessionTaskOperation =
-  | { action: 'spawn'; prompt: string }
   | { action: 'delegate'; tasks: string[] }
   | { action: 'send'; taskId: string; prompt: string }
-  | { action: 'status'; taskId: string }
-  | { action: 'wait'; taskId: string; timeoutMs?: number }
   | { action: 'supervise'; mode: 'snapshot' | 'any' | 'all'; timeoutMs?: number }
   | { action: 'collect' }
-  | { action: 'result'; taskId: string }
   | { action: 'cancel'; taskId: string }
-  | { action: 'list' }
   | { action: 'release'; taskId: string }
 
 export type SessionTaskCapabilityClientOptions = {
@@ -31,17 +26,11 @@ type Pending = {
 }
 
 function cancellable(action: SessionTaskOperation['action']): boolean {
-  return action === 'wait' || action === 'supervise'
+  return action === 'supervise'
 }
 
 function sideEffecting(action: SessionTaskOperation['action']): boolean {
-  return (
-    action === 'spawn' ||
-    action === 'delegate' ||
-    action === 'send' ||
-    action === 'cancel' ||
-    action === 'release'
-  )
+  return action === 'delegate' || action === 'send' || action === 'cancel' || action === 'release'
 }
 
 /** Thin Agent Host client for the Main-owned SessionTask capability. */
