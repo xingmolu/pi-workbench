@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { MutationCapability, MutationResponse } from '../shared/runtime-capabilities'
+import { acceptSessionTaskCapabilityResponse } from './session-task-runtime-client'
 
 export class ProjectMutationClient {
   private readonly calls = new Map<
@@ -39,6 +40,10 @@ export class ProjectMutationClient {
     }
   }
   accept(response: MutationResponse): void {
+    if (response.type === 'session-task-response') {
+      acceptSessionTaskCapabilityResponse(response)
+      return
+    }
     for (const entry of this.calls.values())
       if (entry.requestId === response.requestId) {
         if (entry.cancelled) {

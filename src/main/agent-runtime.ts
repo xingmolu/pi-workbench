@@ -24,6 +24,12 @@ export type AgentRuntimeSessionOptions = {
   cwd: string
   onEvent(event: HostEvent): void
   onExit(error?: Error): void
+  /**
+   * Runtime-private capability channel consumed before ordinary Host events.
+   * Desktop services use it for worker-scoped protocols such as SessionTask;
+   * concrete runtimes may ignore it when they do not expose raw messages.
+   */
+  onCapability?(message: unknown, reply: (message: unknown) => void): boolean
 }
 
 /**

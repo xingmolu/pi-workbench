@@ -45,7 +45,10 @@ export async function createUtilitySessionWorker(
   const child = utilityProcess.fork(options.script, [], {
     serviceName: `Pi Session Host ${options.workerId}`,
     stdio: 'pipe',
-    ...(options.env ? { env: options.env } : {})
+    env: {
+      ...(options.env ?? process.env),
+      PI_DESKTOP_SESSION_WORKER: '1'
+    }
   })
   let exited = false
   let disposing = false
@@ -64,12 +67,11 @@ export async function createUtilitySessionWorker(
     child.kill()
   })
   child.on('message', (message) => {
-    if (
-      options.onMessage(message, (reply) => {
-        if (!exited) child.postMessage(reply)
-      })
-    )
-      return
+    const reply = (response: unknown): void => {
+      if (!exited) child.postMessage(response)
+    }
+    if (options.onCapability?.(message, reply)) return
+    if (options.onMessage(message, reply)) return
     const event = broker.accept(message)
     if (event) options.onEvent(event)
   })

@@ -5,6 +5,10 @@ import type {
   SessionMessageEntry
 } from '@earendil-works/pi-coding-agent'
 import type { ConversationNode } from '../shared/contracts'
+import {
+  clearAgentSessionIdentity,
+  setAgentSessionIdentity
+} from './agent-session-identity'
 import { ConversationProjection } from './conversation-projection'
 import { historyGroupId, projectSessionHistory, type HistoryToolOverlay } from './session-history'
 
@@ -149,17 +153,22 @@ export class SessionHistoryController {
   }
 
   bind(manager: SessionManager, generation: number): void {
-    this.detach()
+    // Rebinding history is an internal observer transition, not a temporary loss
+    // of parent-session authority. Keep identity continuous until the new exact
+    // manager/generation is published below.
+    this.detach(false)
     this.manager = manager
     this.generation = generation
+    setAgentSessionIdentity({ sessionId: manager.getSessionId(), generation })
     this.refresh()
   }
 
-  detach(): void {
+  detach(clearIdentity = true): void {
     this.unsubscribe?.()
     this.unsubscribe = null
     this.manager = null
     this.running = false
+    if (clearIdentity) clearAgentSessionIdentity()
     this.objects = new WeakMap()
     this.temporary.clear()
     this.active = null

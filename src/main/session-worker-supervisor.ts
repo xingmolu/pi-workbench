@@ -13,6 +13,7 @@ import {
   type SessionWorkerFactoryOptions,
   type SessionWorkerPoolOptions
 } from './session-worker-pool'
+import { SessionTaskMainBridge } from './session-task-main-bridge'
 
 export type SessionWorkerSafety = {
   receipts: 'unknown' | 'pending' | 'settled'
@@ -65,13 +66,23 @@ export class SessionWorkerSupervisor {
   readonly pool: SessionWorkerPool
   private lastForeground: AgentSnapshot | null = null
   private readonly lifecycleListeners = new Set<SessionWorkerLifecycleListener>()
+  private sessionTaskBridge: SessionTaskMainBridge | null = null
 
   constructor(private readonly options: SessionWorkerSupervisorOptions) {
+    const runtime = resolveRuntime(options)
     this.pool = new SessionWorkerPool({
       capacity: options.capacity,
       canonicalize: options.canonicalize,
-      runtime: resolveRuntime(options),
+      runtime: {
+        createSession: (sessionOptions) =>
+          runtime.createSession({
+            ...sessionOptions,
+            onCapability: (message, reply) =>
+              this.handleRuntimeCapability(sessionOptions.workerId, message, reply)
+          })
+      },
       onExit: (workerId, error) => {
+        this.sessionTaskBridge?.workerExited(workerId)
         this.notifyLifecycle(workerId, null)
         options.onExit?.(workerId, error)
       },
@@ -114,6 +125,15 @@ export class SessionWorkerSupervisor {
 
   private notifyLifecycle(workerId: string, snapshot: AgentSnapshot | null): void {
     for (const listener of this.lifecycleListeners) listener(workerId, snapshot)
+  }
+
+  private handleRuntimeCapability(
+    workerId: string,
+    message: unknown,
+    reply: (message: unknown) => void
+  ): boolean {
+    const bridge = (this.sessionTaskBridge ??= new SessionTaskMainBridge(this))
+    return bridge.handle(workerId, this.tryGetSnapshot(workerId), message, reply)
   }
 
   get selectedScope(): SelectedSessionScope | null {

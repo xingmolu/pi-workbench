@@ -25,7 +25,6 @@ type Pending = {
   action: SessionTaskOperation['action']
   resolve(data: SessionTaskResponseData): void
   reject(error: Error): void
-  abort?: () => void
 }
 
 /** Thin Agent Host client for the Main-owned SessionTask capability. */
@@ -64,7 +63,7 @@ export class SessionTaskCapabilityClient {
       }
       const onAbort = (): void => {
         if (operation.action === 'wait') {
-          this.options.send({ type: 'session-task-cancel', requestId })
+          this.safeCancel(requestId)
           finishReject(new Error('等待后台任务已取消'))
         } else {
           finishReject(
@@ -75,8 +74,7 @@ export class SessionTaskCapabilityClient {
       const pending: Pending = {
         action: operation.action,
         resolve: finishResolve,
-        reject: finishReject,
-        ...(signal ? { abort: onAbort } : {})
+        reject: finishReject
       }
       this.pending.set(requestId, pending)
       signal?.addEventListener('abort', onAbort, { once: true })
@@ -109,7 +107,18 @@ export class SessionTaskCapabilityClient {
 
   rejectAll(reason: string): void {
     const error = new Error(reason)
-    for (const pending of [...this.pending.values()]) pending.reject(error)
+    for (const [requestId, pending] of [...this.pending]) {
+      if (pending.action === 'wait') this.safeCancel(requestId)
+      pending.reject(error)
+    }
+  }
+
+  private safeCancel(requestId: string): void {
+    try {
+      this.options.send({ type: 'session-task-cancel', requestId })
+    } catch {
+      // Local teardown still rejects the waiter; Main also clears waits on worker exit.
+    }
   }
 
   get pendingCount(): number {
