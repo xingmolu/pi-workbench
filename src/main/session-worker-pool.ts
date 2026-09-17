@@ -20,14 +20,24 @@ export type SessionWorker = AgentRuntimeSession
 export type PrepareSessionWorker = PrepareAgentRuntimeSession
 export type SessionWorkerFactoryOptions = AgentRuntimeSessionOptions
 
-export type SessionWorkerPoolOptions = {
+type SessionWorkerPoolBaseOptions = {
   capacity?: number
   canonicalize?: (path: string) => Promise<string>
-  runtime: AgentRuntime
   onEvent?: (workerId: string, event: HostEvent) => void
   onExit?: (workerId: string, error?: Error) => void
   onNeedsSnapshot?: (workerId: string) => void
 }
+
+export type SessionWorkerPoolOptions = SessionWorkerPoolBaseOptions &
+  (
+    | { runtime: AgentRuntime; createWorker?: never }
+    | {
+        /** @deprecated Migrate callers to AgentRuntime. */
+        createWorker(options: SessionWorkerFactoryOptions): Promise<SessionWorker>
+        runtime?: never
+      }
+  )
+
 type Resident = {
   workerId: string
   cwd: string
@@ -44,6 +54,11 @@ type Resident = {
   disposal?: Promise<void>
 }
 
+function resolveRuntime(options: SessionWorkerPoolOptions): AgentRuntime {
+  if (options.runtime) return options.runtime
+  return { createSession: options.createWorker }
+}
+
 export class SessionWorkerPool {
   private readonly residents = new Map<string, Resident>()
   private readonly failures = new Map<string, LiveSessionSummary>()
@@ -54,10 +69,13 @@ export class SessionWorkerPool {
   private closed = false
   private shutdownPromise?: Promise<void>
   private readonly capacity: number
+  private readonly runtime: AgentRuntime
+
   constructor(private readonly options: SessionWorkerPoolOptions) {
     this.capacity = options.capacity ?? 8
     if (!Number.isInteger(this.capacity) || this.capacity < 1 || this.capacity > 8)
       throw new Error('Worker capacity must be between 1 and 8')
+    this.runtime = resolveRuntime(options)
   }
 
   get selectedScope(): SelectedSessionScope | null {
@@ -125,7 +143,7 @@ export class SessionWorkerPool {
       end = reject
     })
     void ended.catch(() => {})
-    const worker = await this.options.runtime.createSession({
+    const worker = await this.runtime.createSession({
       workerId,
       cwd,
       onEvent: (event) => {
@@ -313,8 +331,7 @@ export class SessionWorkerPool {
   }
 
   updateSafety(workerId: string, safety: Resident['safety']): void {
-    const owner = this.resolveOwner(workerId)
-    owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
+    ownerSafeUpdate(this.resolveOwner(workerId), safety)
   }
 
   private canEvict(owner: Resident): boolean {
@@ -362,4 +379,14 @@ export class SessionWorkerPool {
       return owner.pending === 0 && owner.safety.receipts === 'settled' && !owner.disposing && !!s?.ready && !s.busy && !s.queuedCount && !s.followUp.length && !s.approvals.length && !s.edit?.pending && !s.loginPrompt && ['idle', 'success', 'error'].includes(s.login.phase)
     })
   }
+}
+
+function ownerSafeUpdate(
+  owner: Resident,
+  safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
+): void {
+  // An idle projection is not a completion receipt for a timed-out command.
+  // Keep uncertain ownership until this process exits; ordinary snapshots and
+  // attachment reconciliation cannot certify a different outstanding request.
+  owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
 }
