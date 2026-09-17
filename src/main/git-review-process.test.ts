@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess } from 'node:child_process'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitReviewProcess } from './git-review-process'
+
+const nullGitConfig = process.platform === 'win32' ? 'NUL' : '/dev/null'
 
 function fixture() {
   const children: Array<ChildProcess & { stdout: PassThrough; stderr: PassThrough }> = []
@@ -26,6 +28,9 @@ function fixture() {
       PATH: '/usr/bin:/bin',
       TMPDIR: '/tmp',
       GIT_DIR: '/evil',
+      GIT_CONFIG_GLOBAL: '/evil/global',
+      GIT_CONFIG_SYSTEM: '/evil/system',
+      GIT_ATTR_NOSYSTEM: '0',
       NODE_OPTIONS: '--inspect',
       ELECTRON_RUN_AS_NODE: '1'
     },
@@ -41,6 +46,10 @@ describe('bounded host Git process', () => {
     try {
       const hooksPath = join(root, 'hooks')
       await mkdir(hooksPath)
+      await writeFile(
+        join(root, '.gitconfig'),
+        '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n'
+      )
       const runner = new GitReviewProcess({
         gitPath: '/usr/bin/git',
         hooksPath,
@@ -48,6 +57,12 @@ describe('bounded host Git process', () => {
       })
       const result = await runner.run({ cwd: root, args: ['--version'], budget: 'status' })
       expect(result.ok && result.stdout.toString()).toMatch(/^git version /)
+      const filters = await runner.run({
+        cwd: root,
+        args: ['config', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|process)$'],
+        budget: 'status'
+      })
+      expect(filters).toMatchObject({ ok: false, reason: 'exit', exitCode: 1 })
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -222,6 +237,9 @@ describe('bounded host Git process', () => {
           HOME: '/host/home',
           PATH: '/usr/bin:/bin',
           TMPDIR: '/tmp',
+          GIT_CONFIG_GLOBAL: nullGitConfig,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_ATTR_NOSYSTEM: '1',
           GIT_TERMINAL_PROMPT: '0',
           GIT_NO_LAZY_FETCH: '1'
         }
