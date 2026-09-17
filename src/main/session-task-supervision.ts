@@ -137,6 +137,7 @@ export class SessionTaskSupervisor {
         for (const controller of controllers.values()) controller.abort()
       }
       options.signal?.addEventListener('abort', forwardAbort, { once: true })
+      if (options.signal?.aborted) forwardAbort()
       try {
         await Promise.race(waits)
       } finally {
