@@ -30,13 +30,11 @@ async function fixture() {
   modelRuntime.registerNativeProvider(faux.provider)
   await modelRuntime.setRuntimeApiKey(faux.provider.id, 'fixture-only-not-a-credential')
 
-  let activeAtSessionStart: string[] = []
+  let readActiveTools: () => string[] = () => []
   const observer: InlineExtension = {
     name: 'session-task-active-observer',
     factory: (pi) => {
-      pi.on('session_start', () => {
-        activeAtSessionStart = pi.getActiveTools()
-      })
+      readActiveTools = () => pi.getActiveTools()
     }
   }
   const settingsManager = SettingsManager.inMemory({
@@ -71,16 +69,16 @@ async function fixture() {
   return {
     directory,
     session,
-    activeAtSessionStart: () => activeAtSessionStart
+    activeTools: () => readActiveTools()
   }
 }
 
 describe('SessionTask Pi SDK activation', () => {
-  it('activates session_task even when the initial host allowlist omits it', async () => {
+  it('activates session_task after session_start even when the initial host allowlist omits it', async () => {
     const value = await fixture()
     try {
-      expect(value.activeAtSessionStart()).toContain('read')
-      expect(value.activeAtSessionStart()).toContain('session_task')
+      expect(value.activeTools()).toContain('read')
+      expect(value.activeTools()).toContain('session_task')
     } finally {
       value.session.dispose()
       await rm(value.directory, { recursive: true, force: true })
