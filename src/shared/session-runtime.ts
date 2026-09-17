@@ -23,12 +23,10 @@ export const desktopCommandOriginSchema: z.ZodType<DesktopCommandOrigin> = z
   })
   .strict()
 
-/** Read-only relationship metadata used to project Main-owned background tasks in the desktop UI. */
+/** Minimal read-only relationship metadata used only for Sidebar projection. */
 export type LiveSessionTaskRelation = {
   taskId: string
   parentWorkerId: string
-  parentSessionId: string
-  parentGeneration: number
   createdAt: number
 }
 
@@ -36,8 +34,6 @@ const liveSessionTaskRelationSchema: z.ZodType<LiveSessionTaskRelation> = z
   .object({
     taskId: z.string().min(1).max(256),
     parentWorkerId: z.string().min(1).max(128),
-    parentSessionId: z.string().min(1).max(1024),
-    parentGeneration: z.number().int().nonnegative(),
     createdAt: z.number().finite()
   })
   .strict()
