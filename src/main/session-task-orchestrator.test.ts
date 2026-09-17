@@ -30,23 +30,44 @@ function fixture(options: { perParent?: number; total?: number } = {}) {
     })
     return handle
   })
-  const send = vi.fn(async (workerId: string) => {
-    const current = statuses.get(workerId)
+  const send = vi.fn(async (handle: BackgroundSessionHandle) => {
+    const current = statuses.get(handle.workerId)
     if (!current) throw new Error('missing worker')
-    statuses.set(workerId, { ...current, status: 'running', busy: true })
+    if (
+      current.sessionId !== handle.sessionId ||
+      current.generation !== handle.generation ||
+      current.projectPath !== handle.projectPath
+    ) {
+      throw new Error('stale handle')
+    }
+    statuses.set(handle.workerId, { ...current, status: 'running', busy: true })
   })
-  const abort = vi.fn(async (workerId: string) => {
-    const current = statuses.get(workerId)
+  const abort = vi.fn(async (handle: BackgroundSessionHandle) => {
+    const current = statuses.get(handle.workerId)
     if (!current) throw new Error('missing worker')
-    statuses.set(workerId, { ...current, status: 'stopped', busy: false })
+    if (
+      current.sessionId !== handle.sessionId ||
+      current.generation !== handle.generation ||
+      current.projectPath !== handle.projectPath
+    ) {
+      throw new Error('stale handle')
+    }
+    statuses.set(handle.workerId, { ...current, status: 'stopped', busy: false })
   })
   const runtime: SessionTaskRuntime = {
     spawnFromParent,
     send,
     abort,
-    status: (workerId) => {
-      const status = statuses.get(workerId)
+    status: (handle) => {
+      const status = statuses.get(handle.workerId)
       if (!status) throw new Error('worker gone')
+      if (
+        status.sessionId !== handle.sessionId ||
+        status.generation !== handle.generation ||
+        status.projectPath !== handle.projectPath
+      ) {
+        throw new Error('stale handle')
+      }
       return status
     }
   }
@@ -78,9 +99,15 @@ describe('session task orchestrator', () => {
     expect(task).not.toHaveProperty('prompt')
   })
 
-  it('enforces parent scope for status, send, cancel and release', async () => {
+  it('enforces parent scope and passes the durable handle to control operations', async () => {
     const { orchestrator, send, abort, statuses } = fixture()
     const task = await orchestrator.spawn('parent-a', 'first')
+    const handle = {
+      workerId: 'worker-1',
+      sessionId: 'session-1',
+      generation: 1,
+      projectPath: '/project'
+    }
 
     expect(() => orchestrator.status('parent-b', task.taskId)).toThrow('不属于')
     await expect(orchestrator.send('parent-b', task.taskId, 'second')).rejects.toThrow('不属于')
@@ -88,10 +115,27 @@ describe('session task orchestrator', () => {
     expect(() => orchestrator.release('parent-b', task.taskId)).toThrow('不属于')
 
     await orchestrator.send('parent-a', task.taskId, 'second')
-    expect(send).toHaveBeenCalledWith('worker-1', 'second')
+    expect(send).toHaveBeenCalledWith(handle, 'second')
     await orchestrator.cancel('parent-a', task.taskId)
-    expect(abort).toHaveBeenCalledWith('worker-1')
+    expect(abort).toHaveBeenCalledWith(handle)
     expect(statuses.get('worker-1')?.status).toBe('stopped')
+  })
+
+  it('degrades stale worker identity to unavailable and refuses stale controls', async () => {
+    const { orchestrator, statuses, send, abort } = fixture()
+    const task = await orchestrator.spawn('parent-a', 'first')
+    const current = statuses.get(task.workerId)!
+    statuses.set(task.workerId, {
+      ...current,
+      sessionId: 'replacement',
+      generation: current.generation + 1
+    })
+
+    expect(orchestrator.status('parent-a', task.taskId).state).toBe('unavailable')
+    await expect(orchestrator.send('parent-a', task.taskId, 'stale')).rejects.toThrow('stale handle')
+    await expect(orchestrator.cancel('parent-a', task.taskId)).rejects.toThrow('stale handle')
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(abort).toHaveBeenCalledTimes(1)
   })
 
   it('prevents recursive workers and enforces per-parent and global relation limits', async () => {
