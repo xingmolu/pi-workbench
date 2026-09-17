@@ -1,15 +1,46 @@
 import { utilityProcess } from 'electron'
+import type {
+  AgentRuntime,
+  AgentRuntimeSession,
+  AgentRuntimeSessionOptions
+} from './agent-runtime'
 import { HostResponseBroker } from './host-response-broker'
-import type { SessionWorker, SessionWorkerFactoryOptions } from './session-worker-pool'
+
+export type UtilityProcessAgentRuntimeOptions = {
+  script: string
+  env?: Record<string, string | undefined>
+  onMessage(
+    worker: AgentRuntimeSessionOptions,
+    message: unknown,
+    reply: (message: unknown) => void
+  ): boolean
+}
+
+/**
+ * Concrete local AgentRuntime backed by one Electron utilityProcess per session.
+ * Session orchestration does not depend on Electron or Pi-specific process details.
+ */
+export class UtilityProcessAgentRuntime implements AgentRuntime {
+  constructor(private readonly options: UtilityProcessAgentRuntimeOptions) {}
+
+  createSession(options: AgentRuntimeSessionOptions): Promise<AgentRuntimeSession> {
+    return createUtilitySessionWorker({
+      ...options,
+      script: this.options.script,
+      ...(this.options.env ? { env: this.options.env } : {}),
+      onMessage: (message, reply) => this.options.onMessage(options, message, reply)
+    })
+  }
+}
 
 /** One broker and one readiness promise per child; disposal waits for actual exit. */
 export async function createUtilitySessionWorker(
-  options: SessionWorkerFactoryOptions & {
+  options: AgentRuntimeSessionOptions & {
     script: string
     env?: Record<string, string | undefined>
     onMessage(message: unknown, reply: (message: unknown) => void): boolean
   }
-): Promise<SessionWorker> {
+): Promise<AgentRuntimeSession> {
   const broker = new HostResponseBroker()
   const child = utilityProcess.fork(options.script, [], {
     serviceName: `Pi Session Host ${options.workerId}`,
@@ -49,7 +80,7 @@ export async function createUtilitySessionWorker(
     resolveExit()
     options.onExit(disposing ? undefined : error)
   })
-  const request: SessionWorker['request'] = async (command, expectedIdentity) => {
+  const request: AgentRuntimeSession['request'] = async (command, expectedIdentity) => {
     await ready
     if (exited) throw new Error('会话进程已退出')
     return broker.request(command, (request) => child.postMessage(request), expectedIdentity)
