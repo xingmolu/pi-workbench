@@ -45,6 +45,14 @@ export class SessionTaskMainBridge {
     message: unknown,
     reply: (message: SessionTaskResponse) => void
   ): boolean {
+    if (snapshot?.sessionId) {
+      this.orchestrator.retireParent(workerId, {
+        sessionId: snapshot.sessionId,
+        generation: snapshot.generation
+      })
+    } else {
+      this.orchestrator.retireParent(workerId)
+    }
     return this.broker.handle(
       workerId,
       snapshot
@@ -77,6 +85,7 @@ export class SessionTaskMainBridge {
 
   workerExited(workerId: string): void {
     this.broker.workerExited(workerId)
+    this.orchestrator.retireParent(workerId)
   }
 
   hasPending(workerId: string): boolean {
