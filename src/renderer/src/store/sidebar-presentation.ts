@@ -19,13 +19,20 @@ export function sidebarPathHint(path: string, peers: string[]): string {
   return parts.slice(-depth).join('/')
 }
 
-/** Keep active work reachable even when older history is folded. */
+/** Keep active work and its parent/child SessionTask branch reachable when history is folded. */
 export function sidebarSessions(sessions: LiveSessionRow[], expanded: boolean): LiveSessionRow[] {
   if (expanded) return sessions
+  const taskParents = new Set(
+    sessions.flatMap((session) =>
+      session.sessionTask ? [session.sessionTask.parentWorkerId] : []
+    )
+  )
   return sessions.filter(
     (session, index) =>
       index < RECENT_SESSION_LIMIT ||
       session.active ||
+      Boolean(session.sessionTask) ||
+      Boolean(session.workerId && taskParents.has(session.workerId)) ||
       (session.workerId && ['running', 'awaiting-approval', 'error'].includes(session.status))
   )
 }
