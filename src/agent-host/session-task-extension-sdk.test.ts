@@ -79,16 +79,21 @@ async function fixture() {
 }
 
 describe('SessionTask Pi SDK activation', () => {
-  it('activates session_task at the final per-run boundary even when the initial allowlist omits it', async () => {
-    const value = await fixture()
+  it('activates session_task at the final per-run boundary for a resident session worker', async () => {
+    const previous = process.env.PI_DESKTOP_SESSION_WORKER
+    process.env.PI_DESKTOP_SESSION_WORKER = '1'
+    let value: Awaited<ReturnType<typeof fixture>> | undefined
     try {
+      value = await fixture()
       expect(value.activeTools()).toEqual(['read'])
       await value.session.prompt('trigger one offline run')
       expect(value.activeTools()).toContain('read')
       expect(value.activeTools()).toContain('session_task')
     } finally {
-      value.session.dispose()
-      await rm(value.directory, { recursive: true, force: true })
+      value?.session.dispose()
+      if (value) await rm(value.directory, { recursive: true, force: true })
+      if (previous === undefined) delete process.env.PI_DESKTOP_SESSION_WORKER
+      else process.env.PI_DESKTOP_SESSION_WORKER = previous
     }
   })
 })
