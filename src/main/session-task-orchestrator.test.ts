@@ -5,8 +5,20 @@ import type {
 } from './background-session-service'
 import {
   SessionTaskOrchestrator,
+  type SessionTaskParent,
   type SessionTaskRuntime
 } from './session-task-orchestrator'
+
+const parentA: SessionTaskParent = {
+  workerId: 'parent-a',
+  sessionId: 'parent-session-a',
+  generation: 1
+}
+const parentB: SessionTaskParent = {
+  workerId: 'parent-b',
+  sessionId: 'parent-session-b',
+  generation: 1
+}
 
 function fixture(options: { perParent?: number; total?: number } = {}) {
   let sequence = 0
@@ -81,15 +93,17 @@ function fixture(options: { perParent?: number; total?: number } = {}) {
 }
 
 describe('session task orchestrator', () => {
-  it('spawns parent-scoped tasks over ordinary background sessions', async () => {
+  it('spawns parent-session-scoped tasks over ordinary background sessions', async () => {
     const { orchestrator, spawnFromParent } = fixture()
 
-    const task = await orchestrator.spawn('parent-a', 'inspect tests')
+    const task = await orchestrator.spawn(parentA, 'inspect tests')
 
-    expect(spawnFromParent).toHaveBeenCalledWith('parent-a', 'inspect tests')
+    expect(spawnFromParent).toHaveBeenCalledWith(parentA, 'inspect tests')
     expect(task).toMatchObject({
       taskId: 'task-1',
-      parentWorkerId: 'parent-a',
+      parentWorkerId: parentA.workerId,
+      parentSessionId: parentA.sessionId,
+      parentGeneration: parentA.generation,
       workerId: 'worker-1',
       sessionId: 'session-1',
       projectPath: '/project',
@@ -99,9 +113,26 @@ describe('session task orchestrator', () => {
     expect(task).not.toHaveProperty('prompt')
   })
 
-  it('enforces parent scope and passes the durable handle to control operations', async () => {
+  it('does not transfer task authority when the same parent worker changes session identity', async () => {
+    const { orchestrator, send, abort } = fixture()
+    const task = await orchestrator.spawn(parentA, 'first')
+    const replacementParent = {
+      ...parentA,
+      sessionId: 'replacement-parent-session',
+      generation: parentA.generation + 1
+    }
+
+    expect(() => orchestrator.status(replacementParent, task.taskId)).toThrow('不属于')
+    await expect(orchestrator.send(replacementParent, task.taskId, 'second')).rejects.toThrow('不属于')
+    await expect(orchestrator.cancel(replacementParent, task.taskId)).rejects.toThrow('不属于')
+    expect(orchestrator.list(replacementParent)).toEqual([])
+    expect(send).not.toHaveBeenCalled()
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it('enforces parent scope and passes the durable child handle to control operations', async () => {
     const { orchestrator, send, abort, statuses } = fixture()
-    const task = await orchestrator.spawn('parent-a', 'first')
+    const task = await orchestrator.spawn(parentA, 'first')
     const handle = {
       workerId: 'worker-1',
       sessionId: 'session-1',
@@ -109,21 +140,21 @@ describe('session task orchestrator', () => {
       projectPath: '/project'
     }
 
-    expect(() => orchestrator.status('parent-b', task.taskId)).toThrow('不属于')
-    await expect(orchestrator.send('parent-b', task.taskId, 'second')).rejects.toThrow('不属于')
-    await expect(orchestrator.cancel('parent-b', task.taskId)).rejects.toThrow('不属于')
-    expect(() => orchestrator.release('parent-b', task.taskId)).toThrow('不属于')
+    expect(() => orchestrator.status(parentB, task.taskId)).toThrow('不属于')
+    await expect(orchestrator.send(parentB, task.taskId, 'second')).rejects.toThrow('不属于')
+    await expect(orchestrator.cancel(parentB, task.taskId)).rejects.toThrow('不属于')
+    expect(() => orchestrator.release(parentB, task.taskId)).toThrow('不属于')
 
-    await orchestrator.send('parent-a', task.taskId, 'second')
+    await orchestrator.send(parentA, task.taskId, 'second')
     expect(send).toHaveBeenCalledWith(handle, 'second')
-    await orchestrator.cancel('parent-a', task.taskId)
+    await orchestrator.cancel(parentA, task.taskId)
     expect(abort).toHaveBeenCalledWith(handle)
     expect(statuses.get('worker-1')?.status).toBe('stopped')
   })
 
-  it('degrades stale worker identity to unavailable and refuses stale controls', async () => {
+  it('degrades stale child identity to unavailable and refuses stale controls', async () => {
     const { orchestrator, statuses, send, abort } = fixture()
-    const task = await orchestrator.spawn('parent-a', 'first')
+    const task = await orchestrator.spawn(parentA, 'first')
     const current = statuses.get(task.workerId)!
     statuses.set(task.workerId, {
       ...current,
@@ -131,40 +162,55 @@ describe('session task orchestrator', () => {
       generation: current.generation + 1
     })
 
-    expect(orchestrator.status('parent-a', task.taskId).state).toBe('unavailable')
-    await expect(orchestrator.send('parent-a', task.taskId, 'stale')).rejects.toThrow('stale handle')
-    await expect(orchestrator.cancel('parent-a', task.taskId)).rejects.toThrow('stale handle')
+    expect(orchestrator.status(parentA, task.taskId).state).toBe('unavailable')
+    await expect(orchestrator.send(parentA, task.taskId, 'stale')).rejects.toThrow('stale handle')
+    await expect(orchestrator.cancel(parentA, task.taskId)).rejects.toThrow('stale handle')
     expect(send).toHaveBeenCalledTimes(1)
     expect(abort).toHaveBeenCalledTimes(1)
   })
 
   it('prevents recursive workers and enforces per-parent and global relation limits', async () => {
     const { orchestrator } = fixture({ perParent: 2, total: 3 })
-    const first = await orchestrator.spawn('parent-a', 'one')
-    await orchestrator.spawn('parent-a', 'two')
+    const first = await orchestrator.spawn(parentA, 'one')
+    await orchestrator.spawn(parentA, 'two')
 
-    await expect(orchestrator.spawn('parent-a', 'three')).rejects.toThrow('父会话')
-    await expect(orchestrator.spawn(first.workerId, 'recursive')).rejects.toThrow('不能继续创建')
+    await expect(orchestrator.spawn(parentA, 'three')).rejects.toThrow('父会话')
+    await expect(
+      orchestrator.spawn(
+        {
+          workerId: first.workerId,
+          sessionId: first.sessionId,
+          generation: first.generation
+        },
+        'recursive'
+      )
+    ).rejects.toThrow('不能继续创建')
 
-    await orchestrator.spawn('parent-b', 'three')
-    await expect(orchestrator.spawn('parent-c', 'four')).rejects.toThrow('总数')
+    await orchestrator.spawn(parentB, 'three')
+    await expect(
+      orchestrator.spawn(
+        { workerId: 'parent-c', sessionId: 'parent-session-c', generation: 1 },
+        'four'
+      )
+    ).rejects.toThrow('总数')
   })
 
   it('does not consume a relation slot when runtime spawn fails', async () => {
     const { orchestrator, runtime } = fixture({ perParent: 1, total: 1 })
     vi.mocked(runtime.spawnFromParent).mockRejectedValueOnce(new Error('spawn failed'))
 
-    await expect(orchestrator.spawn('parent-a', 'broken')).rejects.toThrow('spawn failed')
-    await expect(orchestrator.spawn('parent-a', 'retry')).resolves.toMatchObject({
-      parentWorkerId: 'parent-a'
+    await expect(orchestrator.spawn(parentA, 'broken')).rejects.toThrow('spawn failed')
+    await expect(orchestrator.spawn(parentA, 'retry')).resolves.toMatchObject({
+      parentWorkerId: parentA.workerId,
+      parentSessionId: parentA.sessionId
     })
   })
 
   it('lists bounded live status and degrades a vanished worker to unavailable', async () => {
     const { orchestrator, statuses } = fixture()
-    const first = await orchestrator.spawn('parent-a', 'one')
-    const second = await orchestrator.spawn('parent-a', 'two')
-    await orchestrator.spawn('parent-b', 'other parent')
+    const first = await orchestrator.spawn(parentA, 'one')
+    const second = await orchestrator.spawn(parentA, 'two')
+    await orchestrator.spawn(parentB, 'other parent')
 
     statuses.set(first.workerId, {
       ...statuses.get(first.workerId)!,
@@ -174,7 +220,7 @@ describe('session task orchestrator', () => {
     })
     statuses.delete(second.workerId)
 
-    expect(orchestrator.list('parent-a')).toMatchObject([
+    expect(orchestrator.list(parentA)).toMatchObject([
       {
         taskId: first.taskId,
         state: 'awaiting-approval',
@@ -188,22 +234,22 @@ describe('session task orchestrator', () => {
         approvals: 0
       }
     ])
-    expect(orchestrator.list('parent-a')).toHaveLength(2)
+    expect(orchestrator.list(parentA)).toHaveLength(2)
   })
 
   it('releases only settled relationships and never deletes the worker session', async () => {
     const { orchestrator, statuses, abort } = fixture({ perParent: 1, total: 1 })
-    const task = await orchestrator.spawn('parent-a', 'work')
+    const task = await orchestrator.spawn(parentA, 'work')
 
-    expect(() => orchestrator.release('parent-a', task.taskId)).toThrow('仍在运行')
-    await orchestrator.cancel('parent-a', task.taskId)
-    orchestrator.release('parent-a', task.taskId)
+    expect(() => orchestrator.release(parentA, task.taskId)).toThrow('仍在运行')
+    await orchestrator.cancel(parentA, task.taskId)
+    orchestrator.release(parentA, task.taskId)
 
-    expect(orchestrator.list('parent-a')).toEqual([])
+    expect(orchestrator.list(parentA)).toEqual([])
     expect(abort).toHaveBeenCalledTimes(1)
     expect(statuses.has(task.workerId)).toBe(true)
-    await expect(orchestrator.spawn('parent-a', 'next')).resolves.toMatchObject({
-      parentWorkerId: 'parent-a'
+    await expect(orchestrator.spawn(parentA, 'next')).resolves.toMatchObject({
+      parentWorkerId: parentA.workerId
     })
   })
 
