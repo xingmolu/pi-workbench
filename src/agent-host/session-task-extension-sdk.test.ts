@@ -10,11 +10,7 @@ import {
   SettingsManager,
   type InlineExtension
 } from '@earendil-works/pi-coding-agent'
-import {
-  InMemoryCredentialStore,
-  fauxAssistantMessage,
-  fauxProvider
-} from '@earendil-works/pi-ai'
+import { InMemoryCredentialStore, fauxProvider } from '@earendil-works/pi-ai'
 import { createSessionTaskExtension } from './session-task-extension'
 
 async function fixture() {
@@ -31,7 +27,6 @@ async function fixture() {
     refreshOnCreate: false
   })
   const faux = fauxProvider({ models: [{ id: 'offline' }] })
-  faux.setResponses([fauxAssistantMessage('done')])
   modelRuntime.registerNativeProvider(faux.provider)
   await modelRuntime.setRuntimeApiKey(faux.provider.id, 'fixture-only-not-a-credential')
 
@@ -67,7 +62,7 @@ async function fixture() {
     sessionManager: manager,
     settingsManager,
     resourceLoader,
-    tools: ['read']
+    tools: ['read', 'session_task']
   })
   await session.bindExtensions({ mode: 'rpc' })
 
@@ -78,22 +73,42 @@ async function fixture() {
   }
 }
 
+async function withWorkerEnv<T>(enabled: boolean, operation: () => Promise<T>): Promise<T> {
+  const previous = process.env.PI_DESKTOP_SESSION_WORKER
+  if (enabled) process.env.PI_DESKTOP_SESSION_WORKER = '1'
+  else delete process.env.PI_DESKTOP_SESSION_WORKER
+  try {
+    return await operation()
+  } finally {
+    if (previous === undefined) delete process.env.PI_DESKTOP_SESSION_WORKER
+    else process.env.PI_DESKTOP_SESSION_WORKER = previous
+  }
+}
+
 describe('SessionTask Pi SDK activation', () => {
-  it('activates session_task at the final per-run boundary for a resident session worker', async () => {
-    const previous = process.env.PI_DESKTOP_SESSION_WORKER
-    process.env.PI_DESKTOP_SESSION_WORKER = '1'
-    let value: Awaited<ReturnType<typeof fixture>> | undefined
-    try {
-      value = await fixture()
-      expect(value.activeTools()).toEqual(['read'])
-      await value.session.prompt('trigger one offline run')
-      expect(value.activeTools()).toContain('read')
-      expect(value.activeTools()).toContain('session_task')
-    } finally {
-      value?.session.dispose()
-      if (value) await rm(value.directory, { recursive: true, force: true })
-      if (previous === undefined) delete process.env.PI_DESKTOP_SESSION_WORKER
-      else process.env.PI_DESKTOP_SESSION_WORKER = previous
-    }
+  it('activates session_task when the resident worker host explicitly allows it', async () => {
+    await withWorkerEnv(true, async () => {
+      const value = await fixture()
+      try {
+        expect(value.activeTools()).toContain('read')
+        expect(value.activeTools()).toContain('session_task')
+      } finally {
+        value.session.dispose()
+        await rm(value.directory, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it('does not expose session_task from the lobby Agent Host', async () => {
+    await withWorkerEnv(false, async () => {
+      const value = await fixture()
+      try {
+        expect(value.activeTools()).toContain('read')
+        expect(value.activeTools()).not.toContain('session_task')
+      } finally {
+        value.session.dispose()
+        await rm(value.directory, { recursive: true, force: true })
+      }
+    })
   })
 })
