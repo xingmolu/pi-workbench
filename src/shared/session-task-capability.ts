@@ -5,6 +5,7 @@ const sessionIdSchema = z.string().min(1).max(1024)
 const generationSchema = z.number().int().nonnegative()
 const taskIdSchema = z.string().min(1).max(256)
 const promptSchema = z.string().min(1).max(200_000)
+const superviseModeSchema = z.enum(['snapshot', 'any', 'all'])
 
 const requestBase = {
   type: z.literal('session-task-request'),
@@ -29,6 +30,14 @@ export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
       ...requestBase,
       action: z.literal('wait'),
       taskId: taskIdSchema,
+      timeoutMs: z.number().int().nonnegative().max(45_000).optional()
+    })
+    .strict(),
+  z
+    .object({
+      ...requestBase,
+      action: z.literal('supervise'),
+      mode: superviseModeSchema,
       timeoutMs: z.number().int().nonnegative().max(45_000).optional()
     })
     .strict(),
@@ -81,6 +90,16 @@ export const sessionTaskWaitResultSchema = z
   })
   .strict()
 
+export const sessionTaskSuperviseResultSchema = z
+  .object({
+    mode: superviseModeSchema,
+    outcome: z.enum(['snapshot', 'settled', 'all-settled', 'timeout', 'empty']),
+    tasks: z.array(sessionTaskViewSchema).max(16),
+    settledTaskIds: z.array(taskIdSchema).max(16),
+    pendingTaskIds: z.array(taskIdSchema).max(16)
+  })
+  .strict()
+
 export const sessionTaskCanonicalResultSchema = z
   .object({
     outcome: z.enum([
@@ -110,6 +129,7 @@ const responseDataSchema = z.union([
   sessionTaskViewSchema,
   z.array(sessionTaskViewSchema).max(16),
   sessionTaskWaitResultSchema,
+  sessionTaskSuperviseResultSchema,
   sessionTaskResultSchema,
   z.object({ released: z.literal(true) }).strict()
 ])
@@ -137,6 +157,7 @@ export type SessionTaskRequest = z.infer<typeof sessionTaskRequestSchema>
 export type SessionTaskCancel = z.infer<typeof sessionTaskCancelSchema>
 export type SessionTaskViewWire = z.infer<typeof sessionTaskViewSchema>
 export type SessionTaskWaitResultWire = z.infer<typeof sessionTaskWaitResultSchema>
+export type SessionTaskSuperviseResultWire = z.infer<typeof sessionTaskSuperviseResultSchema>
 export type SessionTaskResultWire = z.infer<typeof sessionTaskResultSchema>
 export type SessionTaskResponse = z.infer<typeof sessionTaskResponseSchema>
 export type SessionTaskResponseData = z.infer<typeof responseDataSchema>
