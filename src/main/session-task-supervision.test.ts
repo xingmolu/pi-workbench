@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   SessionTaskParent,
   SessionTaskView,
+  SessionTaskWaitOptions,
   SessionTaskWaitResult
 } from './session-task-orchestrator'
 import {
@@ -49,10 +50,14 @@ function fixture(initial: SessionTaskView[]) {
     }>
   >()
   const wait = vi.fn(
-    (owner: SessionTaskParent, taskId: string, options = {}) =>
+    (
+      owner: SessionTaskParent,
+      taskId: string,
+      options: SessionTaskWaitOptions = {}
+    ) =>
       new Promise<SessionTaskWaitResult>((resolve, reject) => {
         expect(owner).toEqual(parent)
-        const signal = 'signal' in options ? options.signal : undefined
+        const signal = options.signal
         if (signal?.aborted) {
           reject(new Error('等待后台任务已取消'))
           return
