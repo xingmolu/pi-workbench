@@ -107,8 +107,36 @@ it('exposes runtime state without requiring callers to reach through the pool', 
   const workerId = opened.desktopScope!.workerId
 
   expect(supervisor.getSnapshot(workerId)?.sessionId).toBe('/a')
+  expect(supervisor.tryGetSnapshot(workerId)?.sessionId).toBe('/a')
   expect(supervisor.findLiveSummary(workerId)?.sessionPath).toBe('/a')
+  expect(supervisor.findResidentSummary(workerId)?.sessionPath).toBe('/a')
+  expect(supervisor.getResidentSummaries()).toHaveLength(1)
+  expect(supervisor.hasSelection).toBe(true)
+  expect(supervisor.isSelected(workerId)).toBe(true)
+  expect(supervisor.retainsSelection(opened.desktopScope!)).toBe(true)
   supervisor.updateSafety(workerId, { receipts: 'settled', unsaved: false })
   expect(supervisor.quiescent).toBe(true)
   supervisor.validateSelected(supervisor.selectedScope)
+})
+
+it('separates resident workers from crash tombstones and stale selections', async () => {
+  const { supervisor, workers } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  const b = await supervisor.open({ cwd: '/project', path: '/b' }, a.desktopScope!)
+  const aId = a.desktopScope!.workerId
+  const bId = b.desktopScope!.workerId
+
+  expect(supervisor.retainsSelection(a.desktopScope!)).toBe(false)
+  expect(supervisor.retainsSelection(b.desktopScope!)).toBe(true)
+  expect(supervisor.isSelected(aId)).toBe(false)
+  expect(supervisor.isSelected(bId)).toBe(true)
+  expect(supervisor.getResidentSummaries().map((item) => item.workerId)).toEqual([aId, bId])
+
+  workers[0].options.onExit(new Error('worker crashed'))
+
+  expect(supervisor.tryGetSnapshot(aId)).toBeNull()
+  expect(supervisor.findResidentSummary(aId)).toBeUndefined()
+  expect(supervisor.findLiveSummary(aId)).toMatchObject({ workerId: aId, status: 'error' })
+  expect(supervisor.getResidentSummaries().map((item) => item.workerId)).toEqual([bId])
+  expect(supervisor.retainsSelection(b.desktopScope!)).toBe(true)
 })
