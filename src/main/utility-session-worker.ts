@@ -64,12 +64,11 @@ export async function createUtilitySessionWorker(
     child.kill()
   })
   child.on('message', (message) => {
-    if (
-      options.onMessage(message, (reply) => {
-        if (!exited) child.postMessage(reply)
-      })
-    )
-      return
+    const reply = (response: unknown): void => {
+      if (!exited) child.postMessage(response)
+    }
+    if (options.onCapability?.(message, reply)) return
+    if (options.onMessage(message, reply)) return
     const event = broker.accept(message)
     if (event) options.onEvent(event)
   })
