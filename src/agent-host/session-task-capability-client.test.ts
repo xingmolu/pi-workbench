@@ -30,41 +30,49 @@ function fixture() {
 }
 
 describe('session task capability client', () => {
-  it('adds current durable parent identity and accepts a matching response', async () => {
+  it('adds current durable parent identity and accepts a matching delegation response', async () => {
     const { client, sent } = fixture()
-    const pending = client.request({ action: 'spawn', prompt: 'inspect' })
+    const pending = client.request({ action: 'delegate', tasks: ['inspect'] })
 
     expect(sent[0]).toEqual({
       type: 'session-task-request',
       requestId: 'r1',
       sessionId: 'parent-session',
       generation: 3,
-      action: 'spawn',
-      prompt: 'inspect'
+      action: 'delegate',
+      tasks: ['inspect']
     })
-    expect(client.accept({
-      type: 'session-task-response',
-      requestId: 'r1',
-      ok: true,
-      data: task
-    })).toBe(true)
-    await expect(pending).resolves.toEqual(task)
+    const data = {
+      items: [{ index: 0, status: 'spawned' as const, task }],
+      spawnedTaskIds: [task.taskId],
+      failedIndexes: []
+    }
+    expect(
+      client.accept({
+        type: 'session-task-response',
+        requestId: 'r1',
+        ok: true,
+        data
+      })
+    ).toBe(true)
+    await expect(pending).resolves.toEqual(data)
     expect(client.pendingCount).toBe(0)
   })
 
-  it.each([
-    [{ action: 'wait' as const, taskId: 'task-1' }, 'wait'],
-    [{ action: 'supervise' as const, mode: 'any' as const }, 'supervise']
-  ])('sends a cancel wire for cancellable %s aborts', async (operation, action) => {
+  it('sends a cancel wire when supervision is aborted', async () => {
     const { client, sent } = fixture()
     const controller = new AbortController()
-    const pending = client.request(operation, controller.signal)
+    const pending = client.request({ action: 'supervise', mode: 'any' }, controller.signal)
 
     controller.abort()
 
     await expect(pending).rejects.toThrow('等待后台任务已取消')
     expect(sent).toEqual([
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action }),
+      expect.objectContaining({
+        type: 'session-task-request',
+        requestId: 'r1',
+        action: 'supervise'
+      }),
       { type: 'session-task-cancel', requestId: 'r1' }
     ])
   })
@@ -73,7 +81,7 @@ describe('session task capability client', () => {
     const { client, sent } = fixture()
     const controller = new AbortController()
     const pending = client.request(
-      { action: 'spawn', prompt: 'may already run' },
+      { action: 'delegate', tasks: ['may already run'] },
       controller.signal
     )
 
@@ -81,51 +89,51 @@ describe('session task capability client', () => {
 
     await expect(pending).rejects.toThrow('响应未知')
     expect(sent).toHaveLength(1)
-    expect(sent[0]).toEqual(expect.objectContaining({ action: 'spawn' }))
+    expect(sent[0]).toEqual(expect.objectContaining({ action: 'delegate' }))
   })
 
-  it.each([
-    [{ action: 'status' as const, taskId: 'task-1' }, 'status'],
-    [{ action: 'list' as const }, 'list'],
-    [{ action: 'result' as const, taskId: 'task-1' }, 'result'],
-    [{ action: 'collect' as const }, 'collect']
-  ])('cancels pure read %s locally without claiming an unknown side effect', async (operation, action) => {
+  it('cancels collect locally without claiming an unknown side effect', async () => {
     const { client, sent } = fixture()
     const controller = new AbortController()
-    const pending = client.request(operation, controller.signal)
+    const pending = client.request({ action: 'collect' }, controller.signal)
 
     controller.abort()
 
     await expect(pending).rejects.toThrow('读取已取消')
     expect(sent).toEqual([
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action })
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'collect' })
     ])
   })
 
-  it('cancels pending waits and supervision during runtime teardown and ignores late responses', async () => {
+  it('cancels pending supervision during teardown and rejects other pending operations locally', async () => {
     const { client, sent } = fixture()
-    const wait = client.request({ action: 'wait', taskId: 'task-1' })
     const supervise = client.request({ action: 'supervise', mode: 'all' })
-    const status = client.request({ action: 'status', taskId: 'task-1' })
+    const collect = client.request({ action: 'collect' })
+    const send = client.request({ action: 'send', taskId: task.taskId, prompt: 'follow up' })
 
     client.rejectAll('runtime closed')
-    await expect(wait).rejects.toThrow('runtime closed')
     await expect(supervise).rejects.toThrow('runtime closed')
-    await expect(status).rejects.toThrow('runtime closed')
+    await expect(collect).rejects.toThrow('runtime closed')
+    await expect(send).rejects.toThrow('runtime closed')
     expect(client.pendingCount).toBe(0)
     expect(sent).toEqual([
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'wait' }),
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r2', action: 'supervise' }),
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r3', action: 'status' }),
-      { type: 'session-task-cancel', requestId: 'r1' },
-      { type: 'session-task-cancel', requestId: 'r2' }
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'supervise' }),
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r2', action: 'collect' }),
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r3', action: 'send' }),
+      { type: 'session-task-cancel', requestId: 'r1' }
     ])
     expect(
       client.accept({
         type: 'session-task-response',
         requestId: 'r1',
         ok: true,
-        data: task
+        data: {
+          mode: 'all',
+          outcome: 'all-settled',
+          tasks: [task],
+          settledTaskIds: [task.taskId],
+          pendingTaskIds: []
+        }
       })
     ).toBe(true)
   })
