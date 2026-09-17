@@ -58,6 +58,10 @@ function activateSessionTask(pi: ExtensionAPI): void {
 }
 
 export function registerSessionTaskTool(pi: ExtensionAPI): void {
+  // The lobby Agent Host has no resident worker identity and therefore no Main
+  // SessionTask route. Only per-session utility workers are allowed to expose it.
+  if (process.env.PI_DESKTOP_SESSION_WORKER !== '1') return
+
   pi.registerTool({
     name: 'session_task',
     label: '后台 Agent',
