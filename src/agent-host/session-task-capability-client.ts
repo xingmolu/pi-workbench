@@ -11,6 +11,7 @@ export type SessionTaskOperation =
   | { action: 'status'; taskId: string }
   | { action: 'wait'; taskId: string; timeoutMs?: number }
   | { action: 'supervise'; mode: 'snapshot' | 'any' | 'all'; timeoutMs?: number }
+  | { action: 'collect' }
   | { action: 'result'; taskId: string }
   | { action: 'cancel'; taskId: string }
   | { action: 'list' }
@@ -30,6 +31,10 @@ type Pending = {
 
 function cancellable(action: SessionTaskOperation['action']): boolean {
   return action === 'wait' || action === 'supervise'
+}
+
+function sideEffecting(action: SessionTaskOperation['action']): boolean {
+  return action === 'spawn' || action === 'send' || action === 'cancel' || action === 'release'
 }
 
 /** Thin Agent Host client for the Main-owned SessionTask capability. */
@@ -70,10 +75,12 @@ export class SessionTaskCapabilityClient {
         if (cancellable(operation.action)) {
           this.safeCancel(requestId)
           finishReject(new Error('等待后台任务已取消'))
-        } else {
+        } else if (sideEffecting(operation.action)) {
           finishReject(
-            new Error('SessionTask 操作响应未知；操作可能已执行，请使用 list/status 核对')
+            new Error('SessionTask 操作响应未知；操作可能已执行，请使用 supervise/list/status 核对')
           )
+        } else {
+          finishReject(new Error('SessionTask 读取已取消'))
         }
       }
       const pending: Pending = {
