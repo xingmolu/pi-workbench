@@ -7,34 +7,43 @@ import {
   type SelectedSessionScope
 } from '../shared/session-runtime'
 import { applyStatePatch } from '../shared/state-patch'
+import type {
+  AgentRuntime,
+  AgentRuntimeSession,
+  AgentRuntimeSessionOptions,
+  PrepareAgentRuntimeSession
+} from './agent-runtime'
 import { HostRejectedError } from './host-response-broker'
 
-export type SessionWorker = {
-  request(command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult>
-  /** Resolves only after the worker has stopped and cannot execute further work. */
-  dispose(): Promise<void>
-}
-export type PrepareSessionWorker = (worker: SessionWorker, snapshot: AgentSnapshot) => Promise<AgentSnapshot | void>
-export type SessionWorkerFactoryOptions = {
-  workerId: string
-  cwd: string
-  onEvent(event: HostEvent): void
-  onExit(error?: Error): void
-}
-export type SessionWorkerPoolOptions = {
+// Compatibility aliases while tests and a few call sites migrate terminology.
+export type SessionWorker = AgentRuntimeSession
+export type PrepareSessionWorker = PrepareAgentRuntimeSession
+export type SessionWorkerFactoryOptions = AgentRuntimeSessionOptions
+
+type SessionWorkerPoolBaseOptions = {
   capacity?: number
   canonicalize?: (path: string) => Promise<string>
-  createWorker(options: SessionWorkerFactoryOptions): Promise<SessionWorker>
   onEvent?: (workerId: string, event: HostEvent) => void
   onExit?: (workerId: string, error?: Error) => void
   onNeedsSnapshot?: (workerId: string) => void
 }
+
+export type SessionWorkerPoolOptions = SessionWorkerPoolBaseOptions &
+  (
+    | { runtime: AgentRuntime; createWorker?: never }
+    | {
+        /** @deprecated Migrate callers to AgentRuntime. */
+        createWorker(options: SessionWorkerFactoryOptions): Promise<SessionWorker>
+        runtime?: never
+      }
+  )
+
 type Resident = {
   workerId: string
   cwd: string
   path: string | null
   pathVersion: number
-  worker: SessionWorker
+  worker: AgentRuntimeSession
   snapshot: AgentSnapshot | null
   safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
   unreconciledRequest: boolean
@@ -43,6 +52,11 @@ type Resident = {
   ended: Promise<never>
   end(error: Error): void
   disposal?: Promise<void>
+}
+
+function resolveRuntime(options: SessionWorkerPoolOptions): AgentRuntime {
+  if (options.runtime) return options.runtime
+  return { createSession: options.createWorker }
 }
 
 export class SessionWorkerPool {
@@ -55,10 +69,13 @@ export class SessionWorkerPool {
   private closed = false
   private shutdownPromise?: Promise<void>
   private readonly capacity: number
+  private readonly runtime: AgentRuntime
+
   constructor(private readonly options: SessionWorkerPoolOptions) {
     this.capacity = options.capacity ?? 8
     if (!Number.isInteger(this.capacity) || this.capacity < 1 || this.capacity > 8)
       throw new Error('Worker capacity must be between 1 and 8')
+    this.runtime = resolveRuntime(options)
   }
 
   get selectedScope(): SelectedSessionScope | null {
@@ -126,7 +143,7 @@ export class SessionWorkerPool {
       end = reject
     })
     void ended.catch(() => {})
-    const worker = await this.options.createWorker({
+    const worker = await this.runtime.createSession({
       workerId,
       cwd,
       onEvent: (event) => {
@@ -181,7 +198,6 @@ export class SessionWorkerPool {
     }
     if (claimed) {
       await worker.dispose()
-      // Re-resolve after disposal as well, before selecting an existing owner.
       return this.openResident(target, expected, prepare)
     }
     this.residents.set(workerId, {
@@ -251,7 +267,6 @@ export class SessionWorkerPool {
   private async refreshResidentPaths(
     canonicalize: (path: string) => Promise<string>
   ): Promise<void> {
-    // Resolve a consistent set: any owner can fork while another path is resolving.
     while (true) {
       const captured = [...this.residents.values()].map((owner) => ({
         owner,
@@ -316,11 +331,7 @@ export class SessionWorkerPool {
   }
 
   updateSafety(workerId: string, safety: Resident['safety']): void {
-    const owner = this.resolveOwner(workerId)
-    // An idle projection is not a completion receipt for a timed-out command.
-    // Keep uncertain ownership until this process exits; ordinary snapshots and
-    // attachment reconciliation cannot certify a different outstanding request.
-    owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
+    ownerSafeUpdate(this.resolveOwner(workerId), safety)
   }
 
   private canEvict(owner: Resident): boolean {
@@ -368,4 +379,14 @@ export class SessionWorkerPool {
       return owner.pending === 0 && owner.safety.receipts === 'settled' && !owner.disposing && !!s?.ready && !s.busy && !s.queuedCount && !s.followUp.length && !s.approvals.length && !s.edit?.pending && !s.loginPrompt && ['idle', 'success', 'error'].includes(s.login.phase)
     })
   }
+}
+
+function ownerSafeUpdate(
+  owner: Resident,
+  safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
+): void {
+  // An idle projection is not a completion receipt for a timed-out command.
+  // Keep uncertain ownership until this process exits; ordinary snapshots and
+  // attachment reconciliation cannot certify a different outstanding request.
+  owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
 }
