@@ -53,8 +53,6 @@ it('keeps an idle SessionTask child and its parent visible outside the recent wi
           sessionTask: {
             taskId: 'task-1',
             parentWorkerId: 'parent',
-            parentSessionId: 'parent-session',
-            parentGeneration: 2,
             createdAt: 1
           }
         }
