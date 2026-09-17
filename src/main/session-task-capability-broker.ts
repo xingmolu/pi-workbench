@@ -6,27 +6,27 @@ import {
   type SessionTaskResponse,
   type SessionTaskResponseData
 } from '../shared/session-task-capability'
-import type { SessionTaskCollector } from './session-task-collection'
-import type { SessionTaskDelegator } from './session-task-delegation'
 import type {
   SessionTaskOrchestrator,
   SessionTaskParent
 } from './session-task-orchestrator'
-import type { SessionTaskSupervisor } from './session-task-supervision'
 
 export type SessionTaskCapabilityIdentity = Pick<AgentSnapshot, 'sessionId' | 'generation'>
 
-export type SessionTaskCapabilityBrokerOptions = {
-  orchestrator: Pick<
-    SessionTaskOrchestrator,
-    'spawn' | 'send' | 'status' | 'wait' | 'result' | 'cancel' | 'list' | 'release'
-  >
-  supervisor: Pick<SessionTaskSupervisor, 'supervise'>
-  /** Transitional optional seam for tests/adapters; production Main always injects it. */
-  collector?: Pick<SessionTaskCollector, 'collect'>
-  /** Transitional optional seam for tests/adapters; production Main always injects it. */
-  delegator?: Pick<SessionTaskDelegator, 'delegate'>
-}
+export type SessionTaskCapabilityRuntime = Pick<
+  SessionTaskOrchestrator,
+  | 'spawn'
+  | 'delegate'
+  | 'send'
+  | 'status'
+  | 'wait'
+  | 'supervise'
+  | 'collect'
+  | 'result'
+  | 'cancel'
+  | 'list'
+  | 'release'
+>
 
 type PendingRequest = {
   workerId: string
@@ -43,17 +43,11 @@ function cancellable(action: SessionTaskRequest['action']): boolean {
   return action === 'wait' || action === 'supervise'
 }
 
-/**
- * Main-owned authority boundary for Agent-originated SessionTask operations.
- *
- * Worker transport identity is supplied out-of-band by Main. The payload must
- * additionally match the resident worker's canonical session id/generation;
- * only then is it converted into a parent authority for SessionTaskOrchestrator.
- */
+/** Main-owned authority boundary for Agent-originated SessionTask operations. */
 export class SessionTaskCapabilityBroker {
   private readonly pending = new Map<string, PendingRequest>()
 
-  constructor(private readonly options: SessionTaskCapabilityBrokerOptions) {}
+  constructor(private readonly runtime: SessionTaskCapabilityRuntime) {}
 
   handle(
     workerId: string,
@@ -65,9 +59,7 @@ export class SessionTaskCapabilityBroker {
     if (cancel.success) {
       const key = this.key(workerId, cancel.data.requestId)
       const pending = this.pending.get(key)
-      if (pending?.workerId === workerId && cancellable(pending.action)) {
-        pending.controller?.abort()
-      }
+      if (pending?.workerId === workerId && cancellable(pending.action)) pending.controller?.abort()
       return true
     }
 
@@ -112,25 +104,18 @@ export class SessionTaskCapabilityBroker {
     }
 
     void this.execute(parent, request, controller?.signal)
-      .then((data) => {
-        reply({
-          type: 'session-task-response',
-          requestId: request.requestId,
-          ok: true,
-          data
-        })
-      })
-      .catch((error) => {
+      .then((data) =>
+        reply({ type: 'session-task-response', requestId: request.requestId, ok: true, data })
+      )
+      .catch((error) =>
         reply({
           type: 'session-task-response',
           requestId: request.requestId,
           ok: false,
           error: safeError(error)
         })
-      })
-      .finally(() => {
-        this.pending.delete(key)
-      })
+      )
+      .finally(() => this.pending.delete(key))
     return true
   }
 
@@ -156,40 +141,34 @@ export class SessionTaskCapabilityBroker {
   ): Promise<SessionTaskResponseData> {
     switch (request.action) {
       case 'spawn':
-        return this.options.orchestrator.spawn(parent, request.prompt)
+        return this.runtime.spawn(parent, request.prompt)
       case 'delegate':
-        if (!this.options.delegator) {
-          throw new Error('SessionTask 运行时不支持批量委派')
-        }
-        return this.options.delegator.delegate(parent, request.tasks)
+        return this.runtime.delegate(parent, request.tasks)
       case 'send':
-        return this.options.orchestrator.send(parent, request.taskId, request.prompt)
+        return this.runtime.send(parent, request.taskId, request.prompt)
       case 'status':
-        return this.options.orchestrator.status(parent, request.taskId)
+        return this.runtime.status(parent, request.taskId)
       case 'wait':
-        return this.options.orchestrator.wait(parent, request.taskId, {
+        return this.runtime.wait(parent, request.taskId, {
           ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
           ...(signal ? { signal } : {})
         })
       case 'supervise':
-        return this.options.supervisor.supervise(parent, {
+        return this.runtime.supervise(parent, {
           mode: request.mode,
           ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
           ...(signal ? { signal } : {})
         })
       case 'collect':
-        if (!this.options.collector) {
-          throw new Error('SessionTask 运行时不支持 canonical 结果聚合')
-        }
-        return this.options.collector.collect(parent)
+        return this.runtime.collect(parent)
       case 'result':
-        return this.options.orchestrator.result(parent, request.taskId)
+        return this.runtime.result(parent, request.taskId)
       case 'cancel':
-        return this.options.orchestrator.cancel(parent, request.taskId)
+        return this.runtime.cancel(parent, request.taskId)
       case 'list':
-        return this.options.orchestrator.list(parent)
+        return this.runtime.list(parent)
       case 'release':
-        this.options.orchestrator.release(parent, request.taskId)
+        this.runtime.release(parent, request.taskId)
         return { released: true }
     }
   }

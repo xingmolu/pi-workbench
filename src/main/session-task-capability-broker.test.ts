@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
-import type { SessionTaskWaitResult } from './session-task-orchestrator'
-import type { SessionTaskSuperviseResult } from './session-task-supervision'
+import type {
+  SessionTaskSuperviseResult,
+  SessionTaskWaitResult
+} from './session-task-orchestrator'
 
 const parent = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -28,6 +30,11 @@ function fixture() {
   let waitResolve!: (value: SessionTaskWaitResult) => void
   const orchestrator = {
     spawn: vi.fn(async () => task),
+    delegate: vi.fn(async () => ({
+      items: [{ index: 0, status: 'spawned' as const, task }],
+      spawnedTaskIds: [task.taskId],
+      failedIndexes: []
+    })),
     send: vi.fn(async () => task),
     status: vi.fn(() => task),
     wait: vi.fn(
@@ -39,12 +46,6 @@ function fixture() {
           })
         })
     ),
-    result: vi.fn(() => ({ task, result: { outcome: 'pending' as const } })),
-    cancel: vi.fn(async () => ({ ...task, state: 'stopped' as const, busy: false })),
-    list: vi.fn(() => [task]),
-    release: vi.fn(() => undefined)
-  }
-  const supervisor = {
     supervise: vi.fn(
       (
         _parent,
@@ -64,15 +65,24 @@ function fixture() {
             })
           }
         })
-    )
+    ),
+    result: vi.fn(() => ({ task, result: { outcome: 'pending' as const } })),
+    collect: vi.fn(() => ({
+      items: [{ task, result: { outcome: 'pending' as const } }],
+      readyTaskIds: [],
+      pendingTaskIds: [task.taskId],
+      attentionTaskIds: []
+    })),
+    cancel: vi.fn(async () => ({ ...task, state: 'stopped' as const, busy: false })),
+    list: vi.fn(() => [task]),
+    release: vi.fn(() => undefined)
   }
-  const broker = new SessionTaskCapabilityBroker({ orchestrator, supervisor })
+  const broker = new SessionTaskCapabilityBroker(orchestrator)
   const replies: SessionTaskResponse[] = []
   const reply = (message: SessionTaskResponse) => replies.push(message)
   return {
     broker,
     orchestrator,
-    supervisor,
     replies,
     reply,
     resolveWait: (value: SessionTaskWaitResult) => waitResolve(value)
@@ -183,7 +193,7 @@ describe('session task capability broker', () => {
   })
 
   it('routes supervise through the parent authority and supports explicit cancellation', async () => {
-    const { broker, supervisor, replies, reply } = fixture()
+    const { broker, orchestrator, replies, reply } = fixture()
 
     broker.handle(
       'parent-worker',
@@ -201,7 +211,7 @@ describe('session task capability broker', () => {
     )
     await flush()
 
-    expect(supervisor.supervise).toHaveBeenCalledWith(
+    expect(orchestrator.supervise).toHaveBeenCalledWith(
       { workerId: 'parent-worker', ...parent },
       expect.objectContaining({ mode: 'any', timeoutMs: 500, signal: expect.any(AbortSignal) })
     )

@@ -3,24 +3,13 @@ import type { LiveSessionSummary } from '../shared/session-runtime'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { BackgroundSessionService } from './background-session-service'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
-import { SessionTaskCollector } from './session-task-collection'
-import { SessionTaskDelegator } from './session-task-delegation'
 import { SessionTaskOrchestrator } from './session-task-orchestrator'
-import { SessionTaskSupervisor } from './session-task-supervision'
 import type { SessionWorkerSupervisor } from './session-worker-supervisor'
 
-/**
- * Main-owned assembly for SessionTask orchestration.
- *
- * The bridge is intentionally created above SessionWorkerSupervisor and keeps
- * task policy, background-session control and worker IPC authority in Main.
- */
+/** Main-owned assembly for background Agent session orchestration. */
 export class SessionTaskMainBridge {
   private readonly service: BackgroundSessionService
   private readonly orchestrator: SessionTaskOrchestrator
-  private readonly supervisor: SessionTaskSupervisor
-  private readonly collector: SessionTaskCollector
-  private readonly delegator: SessionTaskDelegator
   private readonly broker: SessionTaskCapabilityBroker
 
   constructor(workerSupervisor: SessionWorkerSupervisor) {
@@ -28,15 +17,7 @@ export class SessionTaskMainBridge {
     this.orchestrator = new SessionTaskOrchestrator(this.service, {
       onTasksChanged: () => workerSupervisor.summaries()
     })
-    this.supervisor = new SessionTaskSupervisor(this.orchestrator)
-    this.collector = new SessionTaskCollector(this.orchestrator)
-    this.delegator = new SessionTaskDelegator(this.orchestrator)
-    this.broker = new SessionTaskCapabilityBroker({
-      orchestrator: this.orchestrator,
-      supervisor: this.supervisor,
-      collector: this.collector,
-      delegator: this.delegator
-    })
+    this.broker = new SessionTaskCapabilityBroker(this.orchestrator)
   }
 
   handle(

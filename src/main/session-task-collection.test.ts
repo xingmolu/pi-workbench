@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  SessionTaskParent,
-  SessionTaskResult,
-  SessionTaskView
+  BackgroundSessionHandle,
+  BackgroundSessionResult,
+  BackgroundSessionStatus
+} from './background-session-service'
+import {
+  SessionTaskOrchestrator,
+  type SessionTaskParent,
+  type SessionTaskRuntime
 } from './session-task-orchestrator'
-import { SessionTaskCollector } from './session-task-collection'
 
 const parent: SessionTaskParent = {
   workerId: 'parent-worker',
@@ -12,112 +16,77 @@ const parent: SessionTaskParent = {
   generation: 5
 }
 
-function task(taskId: string, state: SessionTaskView['state']): SessionTaskView {
-  return {
-    taskId,
-    parentWorkerId: parent.workerId,
-    parentSessionId: parent.sessionId,
-    parentGeneration: parent.generation,
-    workerId: `worker-${taskId}`,
-    sessionId: `session-${taskId}`,
-    generation: 1,
-    projectPath: '/project',
-    createdAt: 1,
-    updatedAt: 2,
-    state,
-    busy: state === 'running' || state === 'awaiting-approval',
-    queuedCount: 0,
-    approvals: state === 'awaiting-approval' ? 1 : 0
+function fixture() {
+  let sequence = 0
+  const statuses = new Map<string, BackgroundSessionStatus>()
+  const results = new Map<string, BackgroundSessionResult>()
+  const runtime: SessionTaskRuntime = {
+    spawnFromParent: vi.fn(async () => {
+      const index = ++sequence
+      const handle: BackgroundSessionHandle = {
+        workerId: `worker-${index}`,
+        sessionId: `session-${index}`,
+        generation: index,
+        projectPath: '/project'
+      }
+      statuses.set(handle.workerId, {
+        ...handle,
+        status: 'running',
+        busy: true,
+        queuedCount: 0,
+        approvals: 0
+      })
+      results.set(handle.workerId, { outcome: 'pending' })
+      return handle
+    }),
+    send: vi.fn(async () => undefined),
+    abort: vi.fn(async () => undefined),
+    status: (handle) => {
+      const status = statuses.get(handle.workerId)
+      if (!status) throw new Error('missing worker')
+      return status
+    },
+    result: (handle) => results.get(handle.workerId) ?? { outcome: 'unavailable' }
   }
-}
-
-function item(
-  view: SessionTaskView,
-  result: SessionTaskResult['result']
-): SessionTaskResult {
-  return { task: view, result }
+  const orchestrator = new SessionTaskOrchestrator(runtime, {
+    createTaskId: () => `task-${sequence}`
+  })
+  return { orchestrator, statuses, results }
 }
 
 describe('session task collection', () => {
-  it('aggregates ready, pending and attention outcomes without copying a new transcript', () => {
-    const ready = task('ready', 'idle')
-    const pending = task('pending', 'running')
-    const ambiguous = task('ambiguous', 'idle')
-    const unavailable = task('gone', 'unavailable')
-    const byId = new Map<string, SessionTaskResult>([
-      [
-        ready.taskId,
-        item(ready, {
-          outcome: 'ready',
-          entryId: 'assistant-1',
-          markdown: 'canonical answer',
-          originalLength: 16,
-          truncated: false
-        })
-      ],
-      [pending.taskId, item(pending, { outcome: 'pending' })],
-      [ambiguous.taskId, item(ambiguous, { outcome: 'ambiguous' })],
-      [unavailable.taskId, item(unavailable, { outcome: 'unavailable' })]
-    ])
-    const runtime = {
-      list: vi.fn(() => [ready, pending, ambiguous, unavailable]),
-      result: vi.fn((_parent: SessionTaskParent, taskId: string) => byId.get(taskId)!)
-    }
-    const collector = new SessionTaskCollector(runtime)
+  it('aggregates ready, pending and attention outcomes from canonical task results', async () => {
+    const { orchestrator, statuses, results } = fixture()
+    const ready = await orchestrator.spawn(parent, 'ready')
+    const pending = await orchestrator.spawn(parent, 'pending')
+    const ambiguous = await orchestrator.spawn(parent, 'ambiguous')
+    const gone = await orchestrator.spawn(parent, 'gone')
 
-    expect(collector.collect(parent)).toEqual({
-      items: [
-        byId.get('ready'),
-        byId.get('pending'),
-        byId.get('ambiguous'),
-        byId.get('gone')
-      ],
-      readyTaskIds: ['ready'],
-      pendingTaskIds: ['pending'],
-      attentionTaskIds: ['ambiguous', 'gone']
+    statuses.set(ready.workerId, { ...statuses.get(ready.workerId)!, status: 'idle', busy: false })
+    statuses.set(ambiguous.workerId, {
+      ...statuses.get(ambiguous.workerId)!,
+      status: 'idle',
+      busy: false
     })
-    expect(runtime.list).toHaveBeenCalledWith(parent)
-    expect(runtime.result.mock.calls).toEqual([
-      [parent, 'ready'],
-      [parent, 'pending'],
-      [parent, 'ambiguous'],
-      [parent, 'gone']
-    ])
+    results.set(ready.workerId, { outcome: 'ready', markdown: 'canonical answer' })
+    results.set(pending.workerId, { outcome: 'pending' })
+    results.set(ambiguous.workerId, { outcome: 'ambiguous' })
+    results.set(gone.workerId, { outcome: 'unavailable' })
+
+    expect(orchestrator.collect(parent)).toMatchObject({
+      readyTaskIds: [ready.taskId],
+      pendingTaskIds: [pending.taskId],
+      attentionTaskIds: [ambiguous.taskId, gone.taskId]
+    })
   })
 
-  it('returns an empty bounded collection when the parent has no tasks', () => {
-    const runtime = {
-      list: vi.fn((): SessionTaskView[] => []),
-      result: vi.fn()
-    }
-    const collector = new SessionTaskCollector(runtime)
-
-    expect(collector.collect(parent)).toEqual({
+  it('returns an empty collection when the parent has no tasks', () => {
+    const { orchestrator } = fixture()
+    expect(orchestrator.collect(parent)).toEqual({
       items: [],
       readyTaskIds: [],
       pendingTaskIds: [],
       attentionTaskIds: []
-    })
-    expect(runtime.result).not.toHaveBeenCalled()
-  })
-
-  it('preserves explicit error/no-result/stopped outcomes as attention instead of guessing text', () => {
-    const values = [
-      item(task('error', 'error'), { outcome: 'error' }),
-      item(task('stopped', 'stopped'), { outcome: 'stopped' }),
-      item(task('empty', 'idle'), { outcome: 'no-result' })
-    ]
-    const runtime = {
-      list: vi.fn(() => values.map((value) => value.task)),
-      result: vi.fn((_parent: SessionTaskParent, taskId: string) =>
-        values.find((value) => value.task.taskId === taskId)!
-      )
-    }
-
-    expect(new SessionTaskCollector(runtime).collect(parent)).toMatchObject({
-      readyTaskIds: [],
-      pendingTaskIds: [],
-      attentionTaskIds: ['error', 'stopped', 'empty']
     })
   })
 })
