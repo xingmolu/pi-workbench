@@ -9,6 +9,7 @@ const SESSION_TASK_PARAMETERS = Type.Object({
     Type.Literal('status'),
     Type.Literal('wait'),
     Type.Literal('supervise'),
+    Type.Literal('collect'),
     Type.Literal('result'),
     Type.Literal('cancel'),
     Type.Literal('list'),
@@ -29,6 +30,7 @@ type SessionTaskParams = {
     | 'status'
     | 'wait'
     | 'supervise'
+    | 'collect'
     | 'result'
     | 'cancel'
     | 'list'
@@ -67,6 +69,8 @@ function operation(params: SessionTaskParams) {
         mode: params.mode ?? 'snapshot',
         ...(params.timeoutMs === undefined ? {} : { timeoutMs: params.timeoutMs })
       }
+    case 'collect':
+      return { action: 'collect' as const }
     case 'list':
       return { action: 'list' as const }
   }
@@ -81,12 +85,12 @@ export function registerSessionTaskTool(pi: ExtensionAPI): void {
     name: 'session_task',
     label: '后台 Agent',
     description:
-      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work; supervise snapshot/any/all to observe a task set without polling; result for canonical completed replies; send for follow-up; cancel to stop work; release only after settlement. Background workers cannot recursively spawn more workers.',
+      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work; supervise snapshot/any/all to observe a task set without polling; collect to read all canonical task results in one bounded response; result for one task; send for follow-up; cancel to stop work; release only after settlement. Background workers cannot recursively spawn more workers.',
     promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
     promptGuidelines: [
       'Use session_task spawn only for work that can proceed independently; keep dependent reasoning in the current session.',
       'Prefer supervise mode any/all for multiple tasks instead of manually polling status. Use snapshot for one bounded aggregate view.',
-      'Read result only after completion; ambiguous/no-result must not be guessed.',
+      'After supervision, prefer collect to read the current canonical results for all owned tasks in one call. Treat attention outcomes such as ambiguous/no-result/error as explicit, never guess missing text.',
       'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with supervise/list/status before retrying.',
       'Background workers inherit the parent project, model and permission mode and cannot spawn nested workers.'
     ],
