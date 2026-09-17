@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   AgentSnapshot,
   HostCommand,
@@ -60,6 +61,30 @@ export type BackgroundSessionWaitResult = {
   outcome: BackgroundSessionWaitOutcome
   status: BackgroundSessionStatus | null
 }
+
+export type BackgroundSessionResultOutcome =
+  | 'ready'
+  | 'pending'
+  | 'error'
+  | 'stopped'
+  | 'unavailable'
+  | 'no-result'
+  | 'ambiguous'
+
+export type BackgroundSessionResult = {
+  outcome: BackgroundSessionResultOutcome
+  entryId?: string
+  markdown?: string
+  truncated?: boolean
+  originalLength?: number
+}
+
+type ResultCursor = {
+  baselineUserEntryId: string | null
+  promptDigest: string
+}
+
+const MAX_RESULT_CHARS = 32_000
 
 function requireResidentSnapshot(
   runtime: BackgroundSessionRuntime,
@@ -128,6 +153,88 @@ function settledOutcome(
   return null
 }
 
+function promptDigest(text: string): string {
+  return createHash('sha256').update(text.trim(), 'utf8').digest('hex')
+}
+
+function latestCanonicalUserEntryId(snapshot: AgentSnapshot): string | null {
+  for (let index = snapshot.nodes.length - 1; index >= 0; index -= 1) {
+    const node = snapshot.nodes[index]
+    if (node.type === 'user' && node.canonicalEntryId) return node.canonicalEntryId
+  }
+  return null
+}
+
+function captureResultCursor(snapshot: AgentSnapshot, prompt: string): ResultCursor {
+  return {
+    baselineUserEntryId: latestCanonicalUserEntryId(snapshot),
+    promptDigest: promptDigest(prompt)
+  }
+}
+
+function resultFromSnapshot(
+  handle: BackgroundSessionHandle,
+  snapshot: AgentSnapshot,
+  cursor: ResultCursor
+): BackgroundSessionResult {
+  if (!matchesHandle(snapshot, handle)) return { outcome: 'unavailable' }
+  const status = statusFromSnapshot(handle, snapshot)
+  const settled = settledOutcome(status)
+  if (!settled) return { outcome: 'pending' }
+  if (settled === 'error') return { outcome: 'error' }
+  if (settled === 'stopped') return { outcome: 'stopped' }
+
+  let baselineIndex = -1
+  if (cursor.baselineUserEntryId) {
+    baselineIndex = snapshot.nodes.findIndex(
+      (node) => node.type === 'user' && node.canonicalEntryId === cursor.baselineUserEntryId
+    )
+    if (baselineIndex < 0) return { outcome: 'unavailable' }
+  }
+
+  let promptIndex = -1
+  for (let index = baselineIndex + 1; index < snapshot.nodes.length; index += 1) {
+    const node = snapshot.nodes[index]
+    if (node.type !== 'user' || !node.canonicalEntryId) continue
+    if (promptDigest(node.text) !== cursor.promptDigest) return { outcome: 'ambiguous' }
+    promptIndex = index
+    break
+  }
+  if (promptIndex < 0) return { outcome: 'no-result' }
+
+  // A task result is intentionally single-turn. Any later canonical user turn
+  // invalidates attribution, even if it repeats the exact same text. This is a
+  // conservative alternative to adding a second prompt-submission protocol.
+  for (let index = promptIndex + 1; index < snapshot.nodes.length; index += 1) {
+    const node = snapshot.nodes[index]
+    if (node.type === 'user' && node.canonicalEntryId) return { outcome: 'ambiguous' }
+  }
+
+  const completed = snapshot.nodes
+    .slice(promptIndex + 1)
+    .filter(
+      (node): node is Extract<(typeof snapshot.nodes)[number], { type: 'assistant' }> =>
+        node.type === 'assistant' && Boolean(node.canonicalEntryId) && !node.streaming
+    )
+  const entryIds = [...new Set(completed.map((node) => node.canonicalEntryId!))]
+  if (entryIds.length === 0) return { outcome: 'no-result' }
+  if (entryIds.length !== 1) return { outcome: 'ambiguous' }
+
+  const entryId = entryIds[0]
+  const markdown = completed
+    .filter((node) => node.canonicalEntryId === entryId)
+    .map((node) => node.markdown)
+    .join('\n\n')
+  if (!markdown) return { outcome: 'no-result' }
+  return {
+    outcome: 'ready',
+    entryId,
+    markdown: markdown.slice(0, MAX_RESULT_CHARS),
+    originalLength: markdown.length,
+    truncated: markdown.length > MAX_RESULT_CHARS
+  }
+}
+
 function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId: string } {
   if (!snapshot.activeProvider || !snapshot.activeModel) {
     throw new Error('父会话没有可继承的模型')
@@ -142,10 +249,14 @@ function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId:
  * SessionWorkerSupervisor boundary. Every control operation is scoped to the
  * durable handle captured at spawn time; a worker whose session identity has
  * changed fails closed instead of silently accepting an old task relationship.
+ * Result extraction is additionally scoped to a private dispatch cursor, so a
+ * later/manual user turn cannot be mistaken for the task's answer.
  * The service deliberately owns no task graph, persistence, worker limits or
  * recursive-spawn policy.
  */
 export class BackgroundSessionService {
+  private readonly resultCursors = new Map<string, ResultCursor>()
+
   constructor(private readonly runtime: BackgroundSessionRuntime) {}
 
   async spawnFromParent(parentWorkerId: string, prompt: string): Promise<BackgroundSessionHandle> {
@@ -175,6 +286,13 @@ export class BackgroundSessionService {
       throw new Error('后台会话当前不能接收任务')
     }
 
+    const handle = {
+      workerId: admitted.workerId,
+      sessionId: identity.sessionId,
+      generation: identity.generation,
+      projectPath
+    }
+    const cursor = captureResultCursor(child, text)
     await this.runtime.requestWorker(
       admitted.workerId,
       {
@@ -185,13 +303,8 @@ export class BackgroundSessionService {
       },
       identity
     )
-
-    return {
-      workerId: admitted.workerId,
-      sessionId: identity.sessionId,
-      generation: identity.generation,
-      projectPath
-    }
+    this.resultCursors.set(this.handleKey(handle), cursor)
+    return handle
   }
 
   async send(handle: BackgroundSessionHandle, prompt: string): Promise<void> {
@@ -201,6 +314,7 @@ export class BackgroundSessionService {
     if (!snapshot.ready || snapshot.composeBlockReason !== null) {
       throw new Error('后台会话当前不能接收任务')
     }
+    const cursor = captureResultCursor(snapshot, text)
     await this.runtime.requestWorker(
       handle.workerId,
       {
@@ -211,6 +325,7 @@ export class BackgroundSessionService {
       },
       { sessionId: handle.sessionId, generation: handle.generation }
     )
+    this.resultCursors.set(this.handleKey(handle), cursor)
   }
 
   async abort(handle: BackgroundSessionHandle): Promise<void> {
@@ -224,6 +339,14 @@ export class BackgroundSessionService {
 
   status(handle: BackgroundSessionHandle): BackgroundSessionStatus {
     return statusFromSnapshot(handle, requireHandleSnapshot(this.runtime, handle))
+  }
+
+  result(handle: BackgroundSessionHandle): BackgroundSessionResult {
+    const snapshot = this.runtime.tryGetSnapshot(handle.workerId)
+    if (!snapshot || !matchesHandle(snapshot, handle)) return { outcome: 'unavailable' }
+    const cursor = this.resultCursors.get(this.handleKey(handle))
+    if (!cursor) return { outcome: 'no-result' }
+    return resultFromSnapshot(handle, snapshot, cursor)
   }
 
   /**
@@ -304,5 +427,14 @@ export class BackgroundSessionService {
         finish({ outcome: 'timeout', status: statusFromSnapshot(handle, snapshot) })
       }, options.timeoutMs)
     })
+  }
+
+  private handleKey(handle: BackgroundSessionHandle): string {
+    return JSON.stringify([
+      handle.workerId,
+      handle.sessionId,
+      handle.generation,
+      handle.projectPath
+    ])
   }
 }

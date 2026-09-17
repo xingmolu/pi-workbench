@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
   BackgroundSessionHandle,
+  BackgroundSessionResult,
   BackgroundSessionStatus,
   BackgroundSessionWaitOptions,
   BackgroundSessionWaitResult
@@ -16,6 +17,8 @@ export type SessionTaskRuntime = {
     handle: BackgroundSessionHandle,
     options: BackgroundSessionWaitOptions
   ): Promise<BackgroundSessionWaitResult>
+  /** Transitional optional seam while callers migrate to canonical result cursors. */
+  result?(handle: BackgroundSessionHandle): BackgroundSessionResult
 }
 
 export type SessionTaskRecord = {
@@ -44,6 +47,11 @@ export type SessionTaskWaitOptions = {
 export type SessionTaskWaitResult = {
   outcome: BackgroundSessionWaitResult['outcome']
   task: SessionTaskView
+}
+
+export type SessionTaskResult = {
+  task: SessionTaskView
+  result: BackgroundSessionResult
 }
 
 export type SessionTaskOrchestratorOptions = {
@@ -164,6 +172,15 @@ export class SessionTaskOrchestrator {
     return {
       outcome: result.outcome === 'unavailable' || !status ? 'unavailable' : result.outcome,
       task: this.viewFromStatus(task, status)
+    }
+  }
+
+  result(parentWorkerId: string, taskId: string): SessionTaskResult {
+    const task = this.requireOwned(parentWorkerId, taskId)
+    if (!this.runtime.result) throw new Error('后台任务运行时不支持 canonical 结果读取')
+    return {
+      task: this.view(task),
+      result: this.runtime.result(this.handle(task))
     }
   }
 
