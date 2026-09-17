@@ -18,7 +18,7 @@ export function getSessionTaskCapabilityClient(): SessionTaskCapabilityClient {
     )
       return
     client?.rejectAll(
-      '父会话已切换；SessionTask 操作结果可能未知，请回到原会话后使用 list/status 核对'
+      '父会话已切换；SessionTask 操作结果可能未知，请回到原会话后使用 supervise snapshot 核对'
     )
   })
   return client
