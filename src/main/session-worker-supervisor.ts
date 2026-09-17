@@ -8,6 +8,7 @@ import {
 import type { AgentRuntime } from './agent-runtime'
 import {
   SessionWorkerPool,
+  type BackgroundSessionAdmission,
   type SessionWorker,
   type SessionWorkerFactoryOptions,
   type SessionWorkerPoolOptions
@@ -234,6 +235,26 @@ export class SessionWorkerSupervisor {
       return state.snapshot
     })
     return this.publish(result.snapshot, result.scope)
+  }
+
+  /**
+   * Admit a durable resident session for background work without changing the
+   * user's foreground selection. The returned worker participates in the same
+   * capacity, crash isolation and capability rules as every normal session.
+   */
+  async openBackground(
+    target: { cwd: string; path?: string },
+    model?: { providerId: string; modelId: string }
+  ): Promise<BackgroundSessionAdmission> {
+    const result = await this.pool.openBackground(target, async (worker) => {
+      if (!target.path && model) await worker.request({ type: 'model:set', ...model })
+      const state = await worker.request({ type: 'state:get' })
+      if (state.kind !== 'snapshot') throw new Error('会话状态不可用')
+      return state.snapshot
+    })
+    this.summaries()
+    this.options.onWorkerEvent?.(result.workerId, result.snapshot)
+    return result
   }
 
   select(workerId: string, origin?: DesktopCommandOrigin): AgentSnapshot {
