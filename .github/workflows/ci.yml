@@ -61,8 +61,12 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Multi-session Electron smoke
-        run: xvfb-run -a npx playwright test tests/e2e/multi-session.spec.ts --reporter=line
+      - name: Electron architecture smoke
+        run: >-
+          xvfb-run -a npx playwright test
+          tests/e2e/multi-session.spec.ts
+          tests/e2e/session-task.spec.ts
+          --reporter=line
 
       - name: Upload E2E diagnostics
         if: failure()
