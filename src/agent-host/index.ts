@@ -1147,7 +1147,7 @@ class PiDesktopHost {
         sessionManager: nextManager,
         sessionStartEvent,
         model: selected,
-        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'desktop', 'mcp']
+        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'desktop', 'mcp', 'session_task']
       })
       // Pi's parallel batch prepares every tool before executing any. Acquiring a
       // project lease during preparation would otherwise deadlock the second tool.
