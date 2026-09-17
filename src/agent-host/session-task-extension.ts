@@ -8,6 +8,7 @@ const SESSION_TASK_PARAMETERS = Type.Object({
     Type.Literal('send'),
     Type.Literal('status'),
     Type.Literal('wait'),
+    Type.Literal('supervise'),
     Type.Literal('result'),
     Type.Literal('cancel'),
     Type.Literal('list'),
@@ -15,14 +16,27 @@ const SESSION_TASK_PARAMETERS = Type.Object({
   ]),
   taskId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
   prompt: Type.Optional(Type.String({ minLength: 1, maxLength: 200_000 })),
-  timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 45_000 }))
+  timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 45_000 })),
+  mode: Type.Optional(
+    Type.Union([Type.Literal('snapshot'), Type.Literal('any'), Type.Literal('all')])
+  )
 })
 
 type SessionTaskParams = {
-  action: 'spawn' | 'send' | 'status' | 'wait' | 'result' | 'cancel' | 'list' | 'release'
+  action:
+    | 'spawn'
+    | 'send'
+    | 'status'
+    | 'wait'
+    | 'supervise'
+    | 'result'
+    | 'cancel'
+    | 'list'
+    | 'release'
   taskId?: string
   prompt?: string
   timeoutMs?: number
+  mode?: 'snapshot' | 'any' | 'all'
 }
 
 function operation(params: SessionTaskParams) {
@@ -47,6 +61,12 @@ function operation(params: SessionTaskParams) {
         taskId: params.taskId,
         ...(params.timeoutMs === undefined ? {} : { timeoutMs: params.timeoutMs })
       }
+    case 'supervise':
+      return {
+        action: 'supervise' as const,
+        mode: params.mode ?? 'snapshot',
+        ...(params.timeoutMs === undefined ? {} : { timeoutMs: params.timeoutMs })
+      }
     case 'list':
       return { action: 'list' as const }
   }
@@ -61,12 +81,13 @@ export function registerSessionTaskTool(pi: ExtensionAPI): void {
     name: 'session_task',
     label: '后台 Agent',
     description:
-      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work, wait/status to supervise, result for the canonical completed reply, send for a follow-up, cancel to stop work, and release only after the task is settled. Background workers cannot recursively spawn more workers.',
+      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work; supervise snapshot/any/all to observe a task set without polling; result for canonical completed replies; send for follow-up; cancel to stop work; release only after settlement. Background workers cannot recursively spawn more workers.',
     promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
     promptGuidelines: [
       'Use session_task spawn only for work that can proceed independently; keep dependent reasoning in the current session.',
-      'After spawn, use wait or status rather than repeatedly polling. Read result only after completion; ambiguous/no-result must not be guessed.',
-      'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with list/status before retrying.',
+      'Prefer supervise mode any/all for multiple tasks instead of manually polling status. Use snapshot for one bounded aggregate view.',
+      'Read result only after completion; ambiguous/no-result must not be guessed.',
+      'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with supervise/list/status before retrying.',
       'Background workers inherit the parent project, model and permission mode and cannot spawn nested workers.'
     ],
     executionMode: 'sequential',
