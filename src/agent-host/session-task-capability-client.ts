@@ -7,6 +7,7 @@ import {
 
 export type SessionTaskOperation =
   | { action: 'spawn'; prompt: string }
+  | { action: 'delegate'; tasks: string[] }
   | { action: 'send'; taskId: string; prompt: string }
   | { action: 'status'; taskId: string }
   | { action: 'wait'; taskId: string; timeoutMs?: number }
@@ -34,7 +35,13 @@ function cancellable(action: SessionTaskOperation['action']): boolean {
 }
 
 function sideEffecting(action: SessionTaskOperation['action']): boolean {
-  return action === 'spawn' || action === 'send' || action === 'cancel' || action === 'release'
+  return (
+    action === 'spawn' ||
+    action === 'delegate' ||
+    action === 'send' ||
+    action === 'cancel' ||
+    action === 'release'
+  )
 }
 
 /** Thin Agent Host client for the Main-owned SessionTask capability. */
