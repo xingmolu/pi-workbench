@@ -43,6 +43,34 @@ it('keeps selected, running and approval residents visible in original order', (
   ])
 })
 
+it('keeps an idle SessionTask child and its parent visible outside the recent window', () => {
+  const current = rows.map((row, i) => ({
+    ...row,
+    ...(i === 8 ? { workerId: 'parent' } : {}),
+    ...(i === 9
+      ? {
+          workerId: 'child',
+          sessionTask: {
+            taskId: 'task-1',
+            parentWorkerId: 'parent',
+            parentSessionId: 'parent-session',
+            parentGeneration: 2,
+            createdAt: 1
+          }
+        }
+      : {})
+  }))
+  expect(sidebarSessions(current, false).map((row) => row.id)).toEqual([
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '8',
+    '9'
+  ])
+})
+
 it('keeps resident failures visible but does not expand every historical error', () => {
   const current = rows.map((row, i) => ({
     ...row,
