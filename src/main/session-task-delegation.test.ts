@@ -18,7 +18,7 @@ const parent: SessionTaskParent = {
 function fixture() {
   let sequence = 0
   const statuses = new Map<string, BackgroundSessionStatus>()
-  const spawnFromParent = vi.fn(async (_parent: SessionTaskParent, prompt: string) => {
+  const spawnFromParent = vi.fn(async (_parent: SessionTaskParent, _prompt: string) => {
     const index = ++sequence
     const handle: BackgroundSessionHandle = {
       workerId: `worker-${index}`,
