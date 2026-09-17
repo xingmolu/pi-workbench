@@ -61,6 +61,9 @@ function fixture() {
             worker.current = snapshot(command.sessionPath ?? null)
             return { kind: 'snapshot' as const, snapshot: worker.current }
           }
+          if (command.type === 'state:get') {
+            return { kind: 'snapshot' as const, snapshot: worker.current }
+          }
           return {
             kind: 'ack' as const,
             sessionId: worker.current.sessionId,
