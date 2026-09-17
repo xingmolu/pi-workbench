@@ -10,7 +10,11 @@ import {
   SettingsManager,
   type InlineExtension
 } from '@earendil-works/pi-coding-agent'
-import { InMemoryCredentialStore, fauxProvider } from '@earendil-works/pi-ai'
+import {
+  InMemoryCredentialStore,
+  fauxAssistantMessage,
+  fauxProvider
+} from '@earendil-works/pi-ai'
 import { createSessionTaskExtension } from './session-task-extension'
 
 async function fixture() {
@@ -27,6 +31,7 @@ async function fixture() {
     refreshOnCreate: false
   })
   const faux = fauxProvider({ models: [{ id: 'offline' }] })
+  faux.setResponses([fauxAssistantMessage('done')])
   modelRuntime.registerNativeProvider(faux.provider)
   await modelRuntime.setRuntimeApiKey(faux.provider.id, 'fixture-only-not-a-credential')
 
@@ -74,9 +79,11 @@ async function fixture() {
 }
 
 describe('SessionTask Pi SDK activation', () => {
-  it('activates session_task after session_start even when the initial host allowlist omits it', async () => {
+  it('activates session_task at the final per-run boundary even when the initial allowlist omits it', async () => {
     const value = await fixture()
     try {
+      expect(value.activeTools()).toEqual(['read'])
+      await value.session.prompt('trigger one offline run')
       expect(value.activeTools()).toContain('read')
       expect(value.activeTools()).toContain('session_task')
     } finally {
