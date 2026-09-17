@@ -7,24 +7,23 @@ import {
   type SelectedSessionScope
 } from '../shared/session-runtime'
 import { applyStatePatch } from '../shared/state-patch'
+import type {
+  AgentRuntime,
+  AgentRuntimeSession,
+  AgentRuntimeSessionOptions,
+  PrepareAgentRuntimeSession
+} from './agent-runtime'
 import { HostRejectedError } from './host-response-broker'
 
-export type SessionWorker = {
-  request(command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult>
-  /** Resolves only after the worker has stopped and cannot execute further work. */
-  dispose(): Promise<void>
-}
-export type PrepareSessionWorker = (worker: SessionWorker, snapshot: AgentSnapshot) => Promise<AgentSnapshot | void>
-export type SessionWorkerFactoryOptions = {
-  workerId: string
-  cwd: string
-  onEvent(event: HostEvent): void
-  onExit(error?: Error): void
-}
+// Compatibility aliases while tests and a few call sites migrate terminology.
+export type SessionWorker = AgentRuntimeSession
+export type PrepareSessionWorker = PrepareAgentRuntimeSession
+export type SessionWorkerFactoryOptions = AgentRuntimeSessionOptions
+
 export type SessionWorkerPoolOptions = {
   capacity?: number
   canonicalize?: (path: string) => Promise<string>
-  createWorker(options: SessionWorkerFactoryOptions): Promise<SessionWorker>
+  runtime: AgentRuntime
   onEvent?: (workerId: string, event: HostEvent) => void
   onExit?: (workerId: string, error?: Error) => void
   onNeedsSnapshot?: (workerId: string) => void
@@ -34,7 +33,7 @@ type Resident = {
   cwd: string
   path: string | null
   pathVersion: number
-  worker: SessionWorker
+  worker: AgentRuntimeSession
   snapshot: AgentSnapshot | null
   safety: { receipts: 'unknown' | 'pending' | 'settled'; unsaved: boolean }
   unreconciledRequest: boolean
@@ -126,7 +125,7 @@ export class SessionWorkerPool {
       end = reject
     })
     void ended.catch(() => {})
-    const worker = await this.options.createWorker({
+    const worker = await this.options.runtime.createSession({
       workerId,
       cwd,
       onEvent: (event) => {
@@ -181,7 +180,6 @@ export class SessionWorkerPool {
     }
     if (claimed) {
       await worker.dispose()
-      // Re-resolve after disposal as well, before selecting an existing owner.
       return this.openResident(target, expected, prepare)
     }
     this.residents.set(workerId, {
@@ -251,7 +249,6 @@ export class SessionWorkerPool {
   private async refreshResidentPaths(
     canonicalize: (path: string) => Promise<string>
   ): Promise<void> {
-    // Resolve a consistent set: any owner can fork while another path is resolving.
     while (true) {
       const captured = [...this.residents.values()].map((owner) => ({
         owner,
@@ -317,9 +314,6 @@ export class SessionWorkerPool {
 
   updateSafety(workerId: string, safety: Resident['safety']): void {
     const owner = this.resolveOwner(workerId)
-    // An idle projection is not a completion receipt for a timed-out command.
-    // Keep uncertain ownership until this process exits; ordinary snapshots and
-    // attachment reconciliation cannot certify a different outstanding request.
     owner.safety = { ...safety, receipts: owner.unreconciledRequest ? 'unknown' : safety.receipts }
   }
 
