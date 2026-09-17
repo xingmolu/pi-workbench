@@ -117,6 +117,7 @@ import { selectProjectedProviders } from './auth-projection'
 import { AccountQuotaReader } from './account-quota'
 import { McpConfigStore } from './mcp-config'
 import { McpRuntime } from './mcp-runtime'
+import { createSessionTaskExtension } from './session-task-extension'
 import type { McpCommand, McpSnapshot } from '../shared/mcp'
 import { CustomEndpointConfig } from './custom-endpoint-config'
 import { CustomEndpointService, type EndpointSafety } from './custom-endpoints'
@@ -1108,6 +1109,7 @@ class PiDesktopHost {
             this.browserExtension(),
             this.desktopExtension(),
             this.historyExtension(),
+            createSessionTaskExtension(),
             mcp.extension()
           ]
         }

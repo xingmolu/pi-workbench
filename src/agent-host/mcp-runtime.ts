@@ -6,7 +6,6 @@ import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import type { McpServer, McpSummary } from '../shared/mcp'
-import { registerSessionTaskTool } from './session-task-extension'
 
 type Approval = (
   callId: string,
@@ -188,7 +187,6 @@ export class McpRuntime {
     return {
       name: 'pi-desktop-mcp',
       factory: (pi) => {
-        registerSessionTaskTool(pi)
         pi.on('session_shutdown', () => this.close())
         pi.registerTool({
           name: 'mcp',
