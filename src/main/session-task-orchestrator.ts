@@ -67,6 +67,42 @@ export type SessionTaskResult = {
   result: BackgroundSessionResult
 }
 
+export type SessionTaskSuperviseMode = 'snapshot' | 'any' | 'all'
+export type SessionTaskSuperviseOptions = {
+  mode?: SessionTaskSuperviseMode
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+export type SessionTaskSuperviseOutcome =
+  | 'snapshot'
+  | 'settled'
+  | 'all-settled'
+  | 'timeout'
+  | 'empty'
+export type SessionTaskSuperviseResult = {
+  mode: SessionTaskSuperviseMode
+  outcome: SessionTaskSuperviseOutcome
+  tasks: SessionTaskView[]
+  settledTaskIds: string[]
+  pendingTaskIds: string[]
+}
+
+export type SessionTaskCollection = {
+  items: SessionTaskResult[]
+  readyTaskIds: string[]
+  pendingTaskIds: string[]
+  attentionTaskIds: string[]
+}
+
+export type SessionTaskDelegationItem =
+  | { index: number; status: 'spawned'; task: SessionTaskView }
+  | { index: number; status: 'failed'; error: string }
+export type SessionTaskDelegationResult = {
+  items: SessionTaskDelegationItem[]
+  spawnedTaskIds: string[]
+  failedIndexes: number[]
+}
+
 export type SessionTaskOrchestratorOptions = {
   maxWorkersPerParent?: number
   maxWorkersTotal?: number
@@ -75,6 +111,13 @@ export type SessionTaskOrchestratorOptions = {
   createTaskId?: () => string
   now?: () => number
   onTasksChanged?: () => void
+}
+
+const MAX_DELEGATE_BATCH = 4
+
+function safeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return (message || '后台任务创建失败').slice(0, 4096)
 }
 
 /**
@@ -156,6 +199,33 @@ export class SessionTaskOrchestrator {
     return this.view(record)
   }
 
+  async delegate(
+    parent: SessionTaskParent,
+    prompts: readonly string[]
+  ): Promise<SessionTaskDelegationResult> {
+    if (prompts.length < 1 || prompts.length > MAX_DELEGATE_BATCH) {
+      throw new Error(`delegate requires between 1 and ${MAX_DELEGATE_BATCH} tasks`)
+    }
+    const normalized = prompts.map((prompt) => prompt.trim())
+    if (normalized.some((prompt) => !prompt)) throw new Error('delegate tasks cannot be empty')
+
+    const items: SessionTaskDelegationItem[] = []
+    for (let index = 0; index < normalized.length; index += 1) {
+      try {
+        items.push({ index, status: 'spawned', task: await this.spawn(parent, normalized[index]) })
+      } catch (error) {
+        items.push({ index, status: 'failed', error: safeError(error) })
+      }
+    }
+    return {
+      items,
+      spawnedTaskIds: items.flatMap((item) =>
+        item.status === 'spawned' ? [item.task.taskId] : []
+      ),
+      failedIndexes: items.flatMap((item) => (item.status === 'failed' ? [item.index] : []))
+    }
+  }
+
   async send(
     parent: SessionTaskParent,
     taskId: string,
@@ -197,6 +267,71 @@ export class SessionTaskOrchestrator {
     }
   }
 
+  async supervise(
+    parent: SessionTaskParent,
+    options: SessionTaskSuperviseOptions = {}
+  ): Promise<SessionTaskSuperviseResult> {
+    const mode = options.mode ?? 'snapshot'
+    const initial = this.list(parent)
+    if (!initial.length) return this.superviseSummary(mode, 'empty', initial)
+    if (mode === 'snapshot') return this.superviseSummary(mode, 'snapshot', initial)
+
+    const initialSettled = initial.filter((task) => this.isSettled(task))
+    if (mode === 'any' && initialSettled.length) {
+      return this.superviseSummary(mode, 'settled', initial)
+    }
+    if (mode === 'all' && initialSettled.length === initial.length) {
+      return this.superviseSummary(mode, 'all-settled', initial)
+    }
+
+    const requested = options.timeoutMs ?? this.defaultWaitMs
+    if (!Number.isFinite(requested) || requested < 0) {
+      throw new Error('timeoutMs must be a non-negative finite number')
+    }
+    if (options.signal?.aborted) throw new Error('等待后台任务已取消')
+    const timeoutMs = Math.min(requested, this.maxWaitMs)
+    const pending = initial.filter((task) => !this.isSettled(task))
+
+    if (mode === 'all') {
+      await Promise.all(
+        pending.map((task) =>
+          this.wait(parent, task.taskId, {
+            timeoutMs,
+            ...(options.signal ? { signal: options.signal } : {})
+          })
+        )
+      )
+    } else {
+      const controllers = pending.map(() => new AbortController())
+      const waits = pending.map((task, index) =>
+        this.wait(parent, task.taskId, { timeoutMs, signal: controllers[index].signal })
+      )
+      const forwardAbort = (): void => controllers.forEach((controller) => controller.abort())
+      options.signal?.addEventListener('abort', forwardAbort, { once: true })
+      if (options.signal?.aborted) forwardAbort()
+      try {
+        await Promise.race(waits)
+      } finally {
+        controllers.forEach((controller) => controller.abort())
+        await Promise.allSettled(waits)
+        options.signal?.removeEventListener('abort', forwardAbort)
+      }
+      if (options.signal?.aborted) throw new Error('等待后台任务已取消')
+    }
+
+    const latest = this.list(parent)
+    const settled = latest.filter((task) => this.isSettled(task)).length
+    const outcome: SessionTaskSuperviseOutcome =
+      mode === 'any'
+        ? settled > 0
+          ? 'settled'
+          : 'timeout'
+        : settled === latest.length
+          ? 'all-settled'
+          : 'timeout'
+    return this.superviseSummary(mode, outcome, latest)
+  }
+
   result(parent: SessionTaskParent, taskId: string): SessionTaskResult {
     const task = this.requireOwned(parent, taskId)
     if (!this.runtime.result) throw new Error('后台任务运行时不支持 canonical 结果读取')
@@ -204,6 +339,19 @@ export class SessionTaskOrchestrator {
       task: this.view(task),
       result: this.runtime.result(this.handle(task))
     }
+  }
+
+  collect(parent: SessionTaskParent): SessionTaskCollection {
+    const items = this.list(parent).map((task) => this.result(parent, task.taskId))
+    const readyTaskIds: string[] = []
+    const pendingTaskIds: string[] = []
+    const attentionTaskIds: string[] = []
+    for (const item of items) {
+      if (item.result.outcome === 'ready') readyTaskIds.push(item.task.taskId)
+      else if (item.result.outcome === 'pending') pendingTaskIds.push(item.task.taskId)
+      else attentionTaskIds.push(item.task.taskId)
+    }
+    return { items, readyTaskIds, pendingTaskIds, attentionTaskIds }
   }
 
   status(parent: SessionTaskParent, taskId: string): SessionTaskView {
@@ -267,6 +415,28 @@ export class SessionTaskOrchestrator {
     }
     this.tasks.delete(task.taskId)
     this.onTasksChanged()
+  }
+
+  private isSettled(task: SessionTaskView): boolean {
+    if (task.state === 'unavailable') return true
+    if (task.busy || task.queuedCount > 0 || task.approvals > 0) return false
+    return task.state === 'idle' || task.state === 'error' || task.state === 'stopped'
+  }
+
+  private superviseSummary(
+    mode: SessionTaskSuperviseMode,
+    outcome: SessionTaskSuperviseOutcome,
+    tasks: SessionTaskView[]
+  ): SessionTaskSuperviseResult {
+    const settledTaskIds = tasks.filter((task) => this.isSettled(task)).map((task) => task.taskId)
+    const settled = new Set(settledTaskIds)
+    return {
+      mode,
+      outcome,
+      tasks,
+      settledTaskIds,
+      pendingTaskIds: tasks.filter((task) => !settled.has(task.taskId)).map((task) => task.taskId)
+    }
   }
 
   private assertParentCanSpawn(parent: SessionTaskParent): void {
