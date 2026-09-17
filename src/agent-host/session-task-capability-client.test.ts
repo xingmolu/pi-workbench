@@ -1,0 +1,100 @@
+import { describe, expect, it } from 'vitest'
+import { SessionTaskCapabilityClient } from './session-task-capability-client'
+
+const task = {
+  taskId: 'task-1',
+  parentWorkerId: 'parent-worker',
+  parentSessionId: 'parent-session',
+  parentGeneration: 3,
+  workerId: 'child-worker',
+  sessionId: 'child-session',
+  generation: 8,
+  projectPath: '/project',
+  createdAt: 1,
+  updatedAt: 2,
+  state: 'running' as const,
+  busy: true,
+  queuedCount: 0,
+  approvals: 0
+}
+
+function fixture() {
+  const sent: unknown[] = []
+  let sequence = 0
+  const client = new SessionTaskCapabilityClient({
+    send: (message) => sent.push(message),
+    identity: () => ({ sessionId: 'parent-session', generation: 3 }),
+    createRequestId: () => `r${++sequence}`
+  })
+  return { client, sent }
+}
+
+describe('session task capability client', () => {
+  it('adds current durable parent identity and accepts a matching response', async () => {
+    const { client, sent } = fixture()
+    const pending = client.request({ action: 'spawn', prompt: 'inspect' })
+
+    expect(sent[0]).toEqual({
+      type: 'session-task-request',
+      requestId: 'r1',
+      sessionId: 'parent-session',
+      generation: 3,
+      action: 'spawn',
+      prompt: 'inspect'
+    })
+    expect(client.accept({
+      type: 'session-task-response',
+      requestId: 'r1',
+      ok: true,
+      data: task
+    })).toBe(true)
+    await expect(pending).resolves.toEqual(task)
+    expect(client.pendingCount).toBe(0)
+  })
+
+  it('sends a cancel wire only for wait aborts', async () => {
+    const { client, sent } = fixture()
+    const controller = new AbortController()
+    const pending = client.request({ action: 'wait', taskId: 'task-1' }, controller.signal)
+
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('等待后台任务已取消')
+    expect(sent).toEqual([
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'wait' }),
+      { type: 'session-task-cancel', requestId: 'r1' }
+    ])
+  })
+
+  it('reports unknown outcome for an aborted side-effecting request without claiming cancellation', async () => {
+    const { client, sent } = fixture()
+    const controller = new AbortController()
+    const pending = client.request(
+      { action: 'spawn', prompt: 'may already run' },
+      controller.signal
+    )
+
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('响应未知')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toEqual(expect.objectContaining({ action: 'spawn' }))
+  })
+
+  it('rejects all pending calls on runtime teardown and ignores late responses', async () => {
+    const { client } = fixture()
+    const pending = client.request({ action: 'status', taskId: 'task-1' })
+
+    client.rejectAll('runtime closed')
+    await expect(pending).rejects.toThrow('runtime closed')
+    expect(client.pendingCount).toBe(0)
+    expect(
+      client.accept({
+        type: 'session-task-response',
+        requestId: 'r1',
+        ok: true,
+        data: task
+      })
+    ).toBe(true)
+  })
+})
