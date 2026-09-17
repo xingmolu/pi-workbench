@@ -70,8 +70,6 @@ it('orders SessionTask children directly below their parent in delegation order'
   const relation = (taskId: string, createdAt: number): LiveSessionSummary['sessionTask'] => ({
     taskId,
     parentWorkerId: 'parent',
-    parentSessionId: 'parent-session',
-    parentGeneration: 4,
     createdAt
   })
   const result = liveProjects(null, EMPTY_SNAPSHOT, [
