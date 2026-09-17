@@ -6,6 +6,11 @@ import type {
 } from '../shared/contracts'
 import type { BackgroundSessionAdmission } from './session-worker-pool'
 
+export type BackgroundSessionLifecycleListener = (
+  workerId: string,
+  snapshot: AgentSnapshot | null
+) => void
+
 export type BackgroundSessionRuntime = {
   openBackground(
     target: { cwd: string; path?: string },
@@ -17,6 +22,12 @@ export type BackgroundSessionRuntime = {
     expectedIdentity?: { sessionId: string | null; generation: number }
   ): Promise<HostResult>
   tryGetSnapshot(workerId: string): AgentSnapshot | null
+  /**
+   * Lifecycle subscription is required by wait(), but remains optional on the
+   * structural runtime contract so older test/runtime adapters can migrate
+   * without changing ordinary spawn/send/status behavior.
+   */
+  subscribe?(listener: BackgroundSessionLifecycleListener): () => void
 }
 
 export type BackgroundSessionHandle = {
@@ -31,6 +42,23 @@ export type BackgroundSessionStatus = BackgroundSessionHandle & {
   busy: boolean
   queuedCount: number
   approvals: number
+}
+
+export type BackgroundSessionWaitOutcome =
+  | 'completed'
+  | 'error'
+  | 'stopped'
+  | 'unavailable'
+  | 'timeout'
+
+export type BackgroundSessionWaitOptions = {
+  timeoutMs: number
+  signal?: AbortSignal
+}
+
+export type BackgroundSessionWaitResult = {
+  outcome: BackgroundSessionWaitOutcome
+  status: BackgroundSessionStatus | null
 }
 
 function requireResidentSnapshot(
@@ -55,21 +83,49 @@ function requireProject(snapshot: AgentSnapshot): string {
   return snapshot.project.path
 }
 
+function matchesHandle(snapshot: AgentSnapshot, handle: BackgroundSessionHandle): boolean {
+  return (
+    snapshot.sessionId === handle.sessionId &&
+    snapshot.generation === handle.generation &&
+    snapshot.project?.path === handle.projectPath
+  )
+}
+
 function requireHandleSnapshot(
   runtime: BackgroundSessionRuntime,
   handle: BackgroundSessionHandle
 ): AgentSnapshot {
   const snapshot = requireResidentSnapshot(runtime, handle.workerId)
-  const identity = requireIdentity(snapshot)
-  const projectPath = requireProject(snapshot)
-  if (
-    identity.sessionId !== handle.sessionId ||
-    identity.generation !== handle.generation ||
-    projectPath !== handle.projectPath
-  ) {
+  if (!matchesHandle(snapshot, handle)) {
     throw new Error('后台会话身份已改变，请重新创建任务')
   }
   return snapshot
+}
+
+function statusFromSnapshot(
+  handle: BackgroundSessionHandle,
+  snapshot: AgentSnapshot
+): BackgroundSessionStatus {
+  if (!matchesHandle(snapshot, handle)) {
+    throw new Error('后台会话身份已改变，请重新创建任务')
+  }
+  return {
+    ...handle,
+    status: snapshot.status,
+    busy: snapshot.busy,
+    queuedCount: snapshot.queuedCount,
+    approvals: snapshot.approvals.length
+  }
+}
+
+function settledOutcome(
+  status: BackgroundSessionStatus
+): Exclude<BackgroundSessionWaitOutcome, 'unavailable' | 'timeout'> | null {
+  if (status.busy || status.queuedCount > 0 || status.approvals > 0) return null
+  if (status.status === 'idle') return 'completed'
+  if (status.status === 'error') return 'error'
+  if (status.status === 'stopped') return 'stopped'
+  return null
 }
 
 function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId: string } {
@@ -167,13 +223,86 @@ export class BackgroundSessionService {
   }
 
   status(handle: BackgroundSessionHandle): BackgroundSessionStatus {
-    const snapshot = requireHandleSnapshot(this.runtime, handle)
-    return {
-      ...handle,
-      status: snapshot.status,
-      busy: snapshot.busy,
-      queuedCount: snapshot.queuedCount,
-      approvals: snapshot.approvals.length
+    return statusFromSnapshot(handle, requireHandleSnapshot(this.runtime, handle))
+  }
+
+  /**
+   * Wait for the exact durable child to reach a settled terminal state.
+   *
+   * Subscribe first, then re-read the current snapshot to avoid missing a fast
+   * completion between the caller's last status read and listener attachment.
+   * The wait never infers transcript/result content; it returns only bounded
+   * lifecycle state.
+   */
+  wait(
+    handle: BackgroundSessionHandle,
+    options: BackgroundSessionWaitOptions
+  ): Promise<BackgroundSessionWaitResult> {
+    if (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 0) {
+      return Promise.reject(new Error('timeoutMs must be a non-negative finite number'))
     }
+    const subscribe = this.runtime.subscribe
+    if (!subscribe) {
+      return Promise.reject(new Error('后台会话运行时不支持生命周期订阅'))
+    }
+    if (options.signal?.aborted) {
+      return Promise.reject(new Error('等待后台任务已取消'))
+    }
+
+    return new Promise<BackgroundSessionWaitResult>((resolve, reject) => {
+      let finished = false
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let unsubscribe = (): void => undefined
+
+      const cleanup = (): void => {
+        if (timer) clearTimeout(timer)
+        options.signal?.removeEventListener('abort', onAbort)
+        unsubscribe()
+      }
+      const finish = (result: BackgroundSessionWaitResult): void => {
+        if (finished) return
+        finished = true
+        cleanup()
+        resolve(result)
+      }
+      const fail = (error: Error): void => {
+        if (finished) return
+        finished = true
+        cleanup()
+        reject(error)
+      }
+      const evaluate = (snapshot: AgentSnapshot | null): void => {
+        if (!snapshot || !matchesHandle(snapshot, handle)) {
+          finish({ outcome: 'unavailable', status: null })
+          return
+        }
+        const status = statusFromSnapshot(handle, snapshot)
+        const outcome = settledOutcome(status)
+        if (outcome) finish({ outcome, status })
+      }
+      const onAbort = (): void => fail(new Error('等待后台任务已取消'))
+
+      options.signal?.addEventListener('abort', onAbort, { once: true })
+      try {
+        unsubscribe = subscribe.call(this.runtime, (workerId, snapshot) => {
+          if (workerId === handle.workerId) evaluate(snapshot)
+        })
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+
+      evaluate(this.runtime.tryGetSnapshot(handle.workerId))
+      if (finished) return
+
+      timer = setTimeout(() => {
+        const snapshot = this.runtime.tryGetSnapshot(handle.workerId)
+        if (!snapshot || !matchesHandle(snapshot, handle)) {
+          finish({ outcome: 'unavailable', status: null })
+          return
+        }
+        finish({ outcome: 'timeout', status: statusFromSnapshot(handle, snapshot) })
+      }, options.timeoutMs)
+    })
   }
 }
