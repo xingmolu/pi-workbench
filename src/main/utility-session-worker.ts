@@ -45,7 +45,10 @@ export async function createUtilitySessionWorker(
   const child = utilityProcess.fork(options.script, [], {
     serviceName: `Pi Session Host ${options.workerId}`,
     stdio: 'pipe',
-    ...(options.env ? { env: options.env } : {})
+    env: {
+      ...(options.env ?? process.env),
+      PI_DESKTOP_SESSION_WORKER: '1'
+    }
   })
   let exited = false
   let disposing = false
