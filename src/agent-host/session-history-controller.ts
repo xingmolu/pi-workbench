@@ -153,19 +153,22 @@ export class SessionHistoryController {
   }
 
   bind(manager: SessionManager, generation: number): void {
-    this.detach()
+    // Rebinding history is an internal observer transition, not a temporary loss
+    // of parent-session authority. Keep identity continuous until the new exact
+    // manager/generation is published below.
+    this.detach(false)
     this.manager = manager
     this.generation = generation
     setAgentSessionIdentity({ sessionId: manager.getSessionId(), generation })
     this.refresh()
   }
 
-  detach(): void {
+  detach(clearIdentity = true): void {
     this.unsubscribe?.()
     this.unsubscribe = null
     this.manager = null
     this.running = false
-    clearAgentSessionIdentity()
+    if (clearIdentity) clearAgentSessionIdentity()
     this.objects = new WeakMap()
     this.temporary.clear()
     this.active = null
