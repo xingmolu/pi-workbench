@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
-import type { SessionTaskCollector } from './session-task-collection'
 
 const identity = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -23,49 +22,41 @@ const task = {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
-function broker(collector?: Pick<SessionTaskCollector, 'collect'>) {
-  return new SessionTaskCapabilityBroker({
-    orchestrator: {
-      spawn: async () => task,
-      send: async () => task,
-      status: () => task,
-      wait: async () => ({ outcome: 'completed' as const, task }),
-      result: () => ({ task, result: { outcome: 'ready' as const, markdown: 'answer' } }),
-      cancel: async () => task,
-      list: () => [task],
-      release: () => undefined
-    },
-    supervisor: {
-      supervise: async () => ({
-        mode: 'snapshot' as const,
-        outcome: 'snapshot' as const,
-        tasks: [task],
-        settledTaskIds: [task.taskId],
-        pendingTaskIds: []
-      })
-    },
-    ...(collector ? { collector } : {})
-  })
+function runtime() {
+  return {
+    spawn: vi.fn(async () => task),
+    delegate: vi.fn(async () => ({ items: [], spawnedTaskIds: [], failedIndexes: [] })),
+    send: vi.fn(async () => task),
+    status: vi.fn(() => task),
+    wait: vi.fn(async () => ({ outcome: 'completed' as const, task })),
+    supervise: vi.fn(async () => ({
+      mode: 'snapshot' as const,
+      outcome: 'snapshot' as const,
+      tasks: [task],
+      settledTaskIds: [task.taskId],
+      pendingTaskIds: []
+    })),
+    result: vi.fn(() => ({ task, result: { outcome: 'ready' as const, markdown: 'answer' } })),
+    collect: vi.fn(() => ({
+      items: [{ task, result: { outcome: 'ready' as const, markdown: 'answer' } }],
+      readyTaskIds: [task.taskId],
+      pendingTaskIds: [],
+      attentionTaskIds: []
+    })),
+    cancel: vi.fn(async () => task),
+    list: vi.fn(() => [task]),
+    release: vi.fn(() => undefined)
+  }
 }
 
 describe('SessionTask collect capability', () => {
   it('routes a collect read through the exact parent authority', async () => {
-    const seen: unknown[] = []
-    const value = broker({
-      collect: (parent) => {
-        seen.push(parent)
-        return {
-          items: [{ task, result: { outcome: 'ready', markdown: 'answer' } }],
-          readyTaskIds: [task.taskId],
-          pendingTaskIds: [],
-          attentionTaskIds: []
-        }
-      }
-    })
+    const orchestrator = runtime()
+    const broker = new SessionTaskCapabilityBroker(orchestrator)
     const replies: SessionTaskResponse[] = []
 
     expect(
-      value.handle(
+      broker.handle(
         'parent-worker',
         identity,
         {
@@ -80,39 +71,12 @@ describe('SessionTask collect capability', () => {
     ).toBe(true)
     await flush()
 
-    expect(seen).toEqual([{ workerId: 'parent-worker', ...identity }])
+    expect(orchestrator.collect).toHaveBeenCalledWith({ workerId: 'parent-worker', ...identity })
     expect(replies).toEqual([
       expect.objectContaining({
         requestId: 'collect-1',
         ok: true,
         data: expect.objectContaining({ readyTaskIds: ['task-1'] })
-      })
-    ])
-  })
-
-  it('fails closed when a legacy adapter has no collector', async () => {
-    const value = broker()
-    const replies: SessionTaskResponse[] = []
-
-    value.handle(
-      'parent-worker',
-      identity,
-      {
-        type: 'session-task-request',
-        requestId: 'collect-1',
-        sessionId: identity.sessionId,
-        generation: identity.generation,
-        action: 'collect'
-      },
-      (reply) => replies.push(reply)
-    )
-    await flush()
-
-    expect(replies).toEqual([
-      expect.objectContaining({
-        requestId: 'collect-1',
-        ok: false,
-        error: expect.stringContaining('不支持 canonical 结果聚合')
       })
     ])
   })
