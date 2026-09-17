@@ -15,7 +15,6 @@ const requestBase = {
 }
 
 export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
-  z.object({ ...requestBase, action: z.literal('spawn'), prompt: promptSchema }).strict(),
   z
     .object({
       ...requestBase,
@@ -31,15 +30,6 @@ export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
       prompt: promptSchema
     })
     .strict(),
-  z.object({ ...requestBase, action: z.literal('status'), taskId: taskIdSchema }).strict(),
-  z
-    .object({
-      ...requestBase,
-      action: z.literal('wait'),
-      taskId: taskIdSchema,
-      timeoutMs: z.number().int().nonnegative().max(45_000).optional()
-    })
-    .strict(),
   z
     .object({
       ...requestBase,
@@ -49,9 +39,7 @@ export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
     })
     .strict(),
   z.object({ ...requestBase, action: z.literal('collect') }).strict(),
-  z.object({ ...requestBase, action: z.literal('result'), taskId: taskIdSchema }).strict(),
   z.object({ ...requestBase, action: z.literal('cancel'), taskId: taskIdSchema }).strict(),
-  z.object({ ...requestBase, action: z.literal('list') }).strict(),
   z.object({ ...requestBase, action: z.literal('release'), taskId: taskIdSchema }).strict()
 ])
 
@@ -87,14 +75,6 @@ export const sessionTaskViewSchema = z
     busy: z.boolean(),
     queuedCount: z.number().int().nonnegative(),
     approvals: z.number().int().nonnegative()
-  })
-  .strict()
-
-const waitOutcomeSchema = z.enum(['completed', 'error', 'stopped', 'unavailable', 'timeout'])
-export const sessionTaskWaitResultSchema = z
-  .object({
-    outcome: waitOutcomeSchema,
-    task: sessionTaskViewSchema
   })
   .strict()
 
@@ -169,10 +149,7 @@ export const sessionTaskDelegationSchema = z
 
 const responseDataSchema = z.union([
   sessionTaskViewSchema,
-  z.array(sessionTaskViewSchema).max(16),
-  sessionTaskWaitResultSchema,
   sessionTaskSuperviseResultSchema,
-  sessionTaskResultSchema,
   sessionTaskCollectionSchema,
   sessionTaskDelegationSchema,
   z.object({ released: z.literal(true) }).strict()
@@ -200,7 +177,6 @@ export const sessionTaskResponseSchema = z.discriminatedUnion('ok', [
 export type SessionTaskRequest = z.infer<typeof sessionTaskRequestSchema>
 export type SessionTaskCancel = z.infer<typeof sessionTaskCancelSchema>
 export type SessionTaskViewWire = z.infer<typeof sessionTaskViewSchema>
-export type SessionTaskWaitResultWire = z.infer<typeof sessionTaskWaitResultSchema>
 export type SessionTaskSuperviseResultWire = z.infer<typeof sessionTaskSuperviseResultSchema>
 export type SessionTaskResultWire = z.infer<typeof sessionTaskResultSchema>
 export type SessionTaskCollectionWire = z.infer<typeof sessionTaskCollectionSchema>
