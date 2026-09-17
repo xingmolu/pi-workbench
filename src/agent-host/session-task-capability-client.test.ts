@@ -81,13 +81,20 @@ describe('session task capability client', () => {
     expect(sent[0]).toEqual(expect.objectContaining({ action: 'spawn' }))
   })
 
-  it('rejects all pending calls on runtime teardown and ignores late responses', async () => {
-    const { client } = fixture()
-    const pending = client.request({ action: 'status', taskId: 'task-1' })
+  it('cancels pending waits during runtime teardown and ignores late responses', async () => {
+    const { client, sent } = fixture()
+    const wait = client.request({ action: 'wait', taskId: 'task-1' })
+    const status = client.request({ action: 'status', taskId: 'task-1' })
 
     client.rejectAll('runtime closed')
-    await expect(pending).rejects.toThrow('runtime closed')
+    await expect(wait).rejects.toThrow('runtime closed')
+    await expect(status).rejects.toThrow('runtime closed')
     expect(client.pendingCount).toBe(0)
+    expect(sent).toEqual([
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'wait' }),
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r2', action: 'status' }),
+      { type: 'session-task-cancel', requestId: 'r1' }
+    ])
     expect(
       client.accept({
         type: 'session-task-response',
