@@ -46,20 +46,21 @@ test.beforeEach(async () => {
       const respond = async (context) => {
         const user = context.messages.filter(message => message.role === 'user').at(-1);
         const userText = JSON.stringify(user?.content ?? '');
-        if (userText.includes('CHILD_TASK')) return fauxAssistantMessage('CHILD_DONE');
+        if (userText.includes('CHILD_TASK_A')) return fauxAssistantMessage('CHILD_DONE_A');
+        if (userText.includes('CHILD_TASK_B')) return fauxAssistantMessage('CHILD_DONE_B');
         if (!userText.includes('ORCHESTRATE')) return fauxAssistantMessage('UNEXPECTED');
         const results = context.messages.filter(message => message.role === 'toolResult' && message.toolName === 'session_task');
         if (results.length === 0) {
           return fauxAssistantMessage(
-            fauxToolCall('session_task', {action:'spawn', prompt:'CHILD_TASK'}, {id:'session-task-spawn'}),
+            fauxToolCall('session_task', {action:'delegate', tasks:['CHILD_TASK_A','CHILD_TASK_B']}, {id:'session-task-delegate'}),
             {stopReason:'toolUse'}
           );
         }
         const resultText = textContent(results.at(-1));
         if (results.length === 1) {
-          if (!resultText.match(/"taskId"\\s*:\\s*"([^"]+)"/)) return fauxAssistantMessage('PARENT_ERROR_NO_TASK_ID');
+          if (!resultText.includes('spawnedTaskIds')) return fauxAssistantMessage('PARENT_ERROR_NO_DELEGATION');
           return fauxAssistantMessage(
-            fauxToolCall('session_task', {action:'supervise', mode:'any', timeoutMs:45000}, {id:'session-task-supervise'}),
+            fauxToolCall('session_task', {action:'supervise', mode:'all', timeoutMs:45000}, {id:'session-task-supervise'}),
             {stopReason:'toolUse'}
           );
         }
@@ -71,7 +72,7 @@ test.beforeEach(async () => {
         }
         return fauxAssistantMessage('PARENT_DONE ' + resultText);
       };
-      faux.setResponses([respond, respond, respond, respond, respond, respond]);
+      faux.setResponses([respond, respond, respond, respond, respond, respond, respond, respond, respond, respond]);
       pi.registerProvider(faux.provider);
       writeFileSync(registered, 'registered');
     }`
@@ -121,7 +122,7 @@ test.afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 
-test('parent Agent delegates, supervises and collects background SessionTask results', async () => {
+test('parent Agent batch delegates, supervises and collects two background results', async () => {
   test.setTimeout(90000)
   await page.evaluate(async () => {
     const state = await window.pi.getState()
@@ -144,7 +145,8 @@ test('parent Agent delegates, supervises and collects background SessionTask res
     .map((node) => (node.type === 'assistant' ? node.markdown : ''))
     .join('\n')
   expect(assistantText).toContain('PARENT_DONE')
-  expect(assistantText).toContain('CHILD_DONE')
+  expect(assistantText).toContain('CHILD_DONE_A')
+  expect(assistantText).toContain('CHILD_DONE_B')
   expect(assistantText).toContain('readyTaskIds')
 
   const sessionTaskTools = finished.nodes.filter(
@@ -156,7 +158,8 @@ test('parent Agent delegates, supervises and collects background SessionTask res
   const sessions = join(root, 'agent/sessions')
   const files = (await readdir(sessions, { recursive: true })).filter((path) => path.endsWith('.jsonl'))
   const histories = await Promise.all(files.map((path) => readFile(join(sessions, path), 'utf8')))
-  expect(histories.some((history) => history.includes('CHILD_TASK') && history.includes('CHILD_DONE'))).toBe(true)
+  expect(histories.some((history) => history.includes('CHILD_TASK_A') && history.includes('CHILD_DONE_A'))).toBe(true)
+  expect(histories.some((history) => history.includes('CHILD_TASK_B') && history.includes('CHILD_DONE_B'))).toBe(true)
   expect(histories.some((history) => history.includes('ORCHESTRATE') && history.includes('PARENT_DONE'))).toBe(true)
-  await page.screenshot({ path: resolve('artifacts/e2e/session-task-collection.png') })
+  await page.screenshot({ path: resolve('artifacts/e2e/session-task-delegation.png') })
 })
