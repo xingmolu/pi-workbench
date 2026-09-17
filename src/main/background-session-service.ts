@@ -202,17 +202,16 @@ function resultFromSnapshot(
   }
   if (promptIndex < 0) return { outcome: 'no-result' }
 
-  let boundary = snapshot.nodes.length
+  // A task result is intentionally single-turn. Any later canonical user turn
+  // invalidates attribution, even if it repeats the exact same text. This is a
+  // conservative alternative to adding a second prompt-submission protocol.
   for (let index = promptIndex + 1; index < snapshot.nodes.length; index += 1) {
     const node = snapshot.nodes[index]
-    if (node.type === 'user' && node.canonicalEntryId) {
-      boundary = index
-      break
-    }
+    if (node.type === 'user' && node.canonicalEntryId) return { outcome: 'ambiguous' }
   }
 
   const completed = snapshot.nodes
-    .slice(promptIndex + 1, boundary)
+    .slice(promptIndex + 1)
     .filter(
       (node): node is Extract<(typeof snapshot.nodes)[number], { type: 'assistant' }> =>
         node.type === 'assistant' && Boolean(node.canonicalEntryId) && !node.streaming
