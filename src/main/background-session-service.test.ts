@@ -145,12 +145,12 @@ describe('background session service', () => {
     expect(commands.map(({ command }) => command.type)).toEqual(['prompt:send'])
   })
 
-  it('sends follow-up work and aborts by stable worker identity', async () => {
+  it('sends follow-up work and aborts through the stable background handle', async () => {
     const { service, commands } = fixture({ permissionMode: 'open' })
-    await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent('parent-worker', 'first')
 
-    await service.send('child-worker', '  second  ')
-    await service.abort('child-worker')
+    await service.send(handle, '  second  ')
+    await service.abort(handle)
 
     expect(commands.slice(-2)).toEqual([
       {
@@ -171,9 +171,27 @@ describe('background session service', () => {
     ])
   })
 
+  it('fails closed before controlling a worker whose durable identity changed', async () => {
+    const { service, residents, requestWorker } = fixture({ permissionMode: 'open' })
+    const handle = await service.spawnFromParent('parent-worker', 'first')
+    const callsAfterSpawn = requestWorker.mock.calls.length
+    const current = residents.get('child-worker')!
+    residents.set('child-worker', {
+      ...current,
+      sessionId: 'replacement-session',
+      generation: current.generation + 1,
+      activeSessionPath: '/sessions/replacement.jsonl'
+    })
+
+    await expect(service.send(handle, 'stale follow-up')).rejects.toThrow('身份已改变')
+    await expect(service.abort(handle)).rejects.toThrow('身份已改变')
+    expect(() => service.status(handle)).toThrow('身份已改变')
+    expect(requestWorker).toHaveBeenCalledTimes(callsAfterSpawn)
+  })
+
   it('returns bounded status instead of exposing the transcript', async () => {
     const { service, residents } = fixture({ permissionMode: 'open' })
-    await service.spawnFromParent('parent-worker', 'first')
+    const handle = await service.spawnFromParent('parent-worker', 'first')
     const current = residents.get('child-worker')!
     residents.set('child-worker', {
       ...current,
@@ -194,7 +212,7 @@ describe('background session service', () => {
       nodes: [{ id: 'private', type: 'assistant', markdown: 'private transcript' }]
     })
 
-    expect(service.status('child-worker')).toEqual({
+    expect(service.status(handle)).toEqual({
       workerId: 'child-worker',
       sessionId: 'session-child',
       generation: 8,
@@ -204,7 +222,7 @@ describe('background session service', () => {
       queuedCount: 2,
       approvals: 1
     })
-    expect(service.status('child-worker')).not.toHaveProperty('nodes')
+    expect(service.status(handle)).not.toHaveProperty('nodes')
   })
 
   it.each([

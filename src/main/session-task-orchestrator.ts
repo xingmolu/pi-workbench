@@ -6,9 +6,9 @@ import type {
 
 export type SessionTaskRuntime = {
   spawnFromParent(parentWorkerId: string, prompt: string): Promise<BackgroundSessionHandle>
-  send(workerId: string, prompt: string): Promise<void>
-  abort(workerId: string): Promise<void>
-  status(workerId: string): BackgroundSessionStatus
+  send(handle: BackgroundSessionHandle, prompt: string): Promise<void>
+  abort(handle: BackgroundSessionHandle): Promise<void>
+  status(handle: BackgroundSessionHandle): BackgroundSessionStatus
 }
 
 export type SessionTaskRecord = {
@@ -103,14 +103,14 @@ export class SessionTaskOrchestrator {
 
   async send(parentWorkerId: string, taskId: string, prompt: string): Promise<SessionTaskView> {
     const task = this.requireOwned(parentWorkerId, taskId)
-    await this.runtime.send(task.workerId, prompt)
+    await this.runtime.send(this.handle(task), prompt)
     task.updatedAt = this.now()
     return this.view(task)
   }
 
   async cancel(parentWorkerId: string, taskId: string): Promise<SessionTaskView> {
     const task = this.requireOwned(parentWorkerId, taskId)
-    await this.runtime.abort(task.workerId)
+    await this.runtime.abort(this.handle(task))
     task.updatedAt = this.now()
     return this.view(task)
   }
@@ -161,17 +161,18 @@ export class SessionTaskOrchestrator {
     return task
   }
 
+  private handle(task: SessionTaskRecord): BackgroundSessionHandle {
+    return {
+      workerId: task.workerId,
+      sessionId: task.sessionId,
+      generation: task.generation,
+      projectPath: task.projectPath
+    }
+  }
+
   private tryStatus(task: SessionTaskRecord): BackgroundSessionStatus | null {
     try {
-      const status = this.runtime.status(task.workerId)
-      if (
-        status.sessionId !== task.sessionId ||
-        status.generation !== task.generation ||
-        status.projectPath !== task.projectPath
-      ) {
-        return null
-      }
-      return status
+      return this.runtime.status(this.handle(task))
     } catch {
       return null
     }
