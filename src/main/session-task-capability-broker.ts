@@ -10,6 +10,7 @@ import type {
   SessionTaskOrchestrator,
   SessionTaskParent
 } from './session-task-orchestrator'
+import type { SessionTaskSupervisor } from './session-task-supervision'
 
 export type SessionTaskCapabilityIdentity = Pick<AgentSnapshot, 'sessionId' | 'generation'>
 
@@ -18,6 +19,7 @@ export type SessionTaskCapabilityBrokerOptions = {
     SessionTaskOrchestrator,
     'spawn' | 'send' | 'status' | 'wait' | 'result' | 'cancel' | 'list' | 'release'
   >
+  supervisor: Pick<SessionTaskSupervisor, 'supervise'>
 }
 
 type PendingRequest = {
@@ -29,6 +31,10 @@ type PendingRequest = {
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return (message || 'SessionTask 操作失败').slice(0, 4096)
+}
+
+function cancellable(action: SessionTaskRequest['action']): boolean {
+  return action === 'wait' || action === 'supervise'
 }
 
 /**
@@ -53,7 +59,7 @@ export class SessionTaskCapabilityBroker {
     if (cancel.success) {
       const key = this.key(workerId, cancel.data.requestId)
       const pending = this.pending.get(key)
-      if (pending?.workerId === workerId && pending.action === 'wait') {
+      if (pending?.workerId === workerId && cancellable(pending.action)) {
         pending.controller?.abort()
       }
       return true
@@ -87,7 +93,7 @@ export class SessionTaskCapabilityBroker {
       return true
     }
 
-    const controller = request.action === 'wait' ? new AbortController() : undefined
+    const controller = cancellable(request.action) ? new AbortController() : undefined
     this.pending.set(key, {
       workerId,
       action: request.action,
@@ -151,6 +157,12 @@ export class SessionTaskCapabilityBroker {
         return this.options.orchestrator.status(parent, request.taskId)
       case 'wait':
         return this.options.orchestrator.wait(parent, request.taskId, {
+          ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+          ...(signal ? { signal } : {})
+        })
+      case 'supervise':
+        return this.options.supervisor.supervise(parent, {
+          mode: request.mode,
           ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
           ...(signal ? { signal } : {})
         })
