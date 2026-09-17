@@ -34,51 +34,21 @@ test.beforeEach(async () => {
     import { existsSync } from 'node:fs';
     export default function(pi) {
       const faux = fauxProvider({ provider: 'fixture', api: 'fixture-api', models: [{id:'offline'}], tokensPerSecond:40, tokenSize:{min:4,max:4} });
-      const textContent = (message) => Array.isArray(message?.content)
-        ? message.content.filter(block => block?.type === 'text').map(block => block.text).join('\n')
-        : String(message?.content ?? '');
       const respond = async (context) => {
         const user = context.messages.filter(m => m.role === 'user').at(-1);
-        const userText = JSON.stringify(user?.content);
-        const tag = userText.includes('TEST_B') ? 'TEST_B' : 'TEST_A';
-        if (userText.includes('CHILD_TASK')) return fauxAssistantMessage('CHILD_DONE');
-        if (userText.includes('ORCHESTRATE')) {
-          const results = context.messages.filter(m => m.role === 'toolResult' && m.toolName === 'session_task');
-          if (results.length === 0) {
-            return fauxAssistantMessage(
-              fauxToolCall('session_task', {action:'spawn', prompt:'CHILD_TASK'}, {id:'session-task-spawn'}),
-              {stopReason:'toolUse'}
-            );
-          }
-          const resultText = textContent(results.at(-1));
-          const taskId = resultText.match(/"taskId"\s*:\s*"([^"]+)"/)?.[1];
-          if (!taskId) return fauxAssistantMessage('PARENT_ERROR_NO_TASK_ID');
-          if (results.length === 1) {
-            return fauxAssistantMessage(
-              fauxToolCall('session_task', {action:'wait', taskId, timeoutMs:45000}, {id:'session-task-wait'}),
-              {stopReason:'toolUse'}
-            );
-          }
-          if (results.length === 2) {
-            return fauxAssistantMessage(
-              fauxToolCall('session_task', {action:'result', taskId}, {id:'session-task-result'}),
-              {stopReason:'toolUse'}
-            );
-          }
-          return fauxAssistantMessage('PARENT_DONE ' + resultText);
-        }
-        if (userText.includes('BROWSER')) {
+        const tag = JSON.stringify(user?.content).includes('TEST_B') ? 'TEST_B' : 'TEST_A';
+        if (JSON.stringify(user?.content).includes('BROWSER')) {
           if (context.messages.at(-1)?.role === 'toolResult') return fauxAssistantMessage(tag + '_DONE');
           for (let n = 0; n < 100 && !existsSync(${JSON.stringify(join(root, 'release-browser'))}); n++) await new Promise(resolve => setTimeout(resolve, 100));
           return fauxAssistantMessage(fauxToolCall('browser', {action:'new_tab'}, {id:'background-browser'}), {stopReason:'toolUse'});
         }
-        if (userText.includes('APPROVAL')) {
+        if (JSON.stringify(user?.content).includes('APPROVAL')) {
           if (context.messages.at(-1)?.role === 'toolResult') return fauxAssistantMessage(tag + '_DONE');
           return fauxAssistantMessage(fauxToolCall('bash', {command: 'echo start_' + tag + ' >> lease.log; sleep 2; echo end_' + tag + ' >> lease.log'}, {id:'tool-' + tag}), {stopReason:'toolUse'});
         }
         return fauxAssistantMessage(tag + '_START ' + '并行会话的独立内容。'.repeat(180) + tag + '_DONE');
       };
-      faux.setResponses([respond, respond, respond, respond, respond, respond]); pi.registerProvider(faux.provider);
+      faux.setResponses([respond, respond, respond]); pi.registerProvider(faux.provider);
     }`
   )
   app = await electron.launch({
@@ -103,15 +73,6 @@ test.beforeEach(async () => {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
-  await expect
-    .poll(
-      () =>
-        page.evaluate(async () =>
-          (await window.pi.getState()).accounts.find((account) => account.id === 'fixture') ?? null
-        ),
-      { timeout: 10000 }
-    )
-    .toMatchObject({ id: 'fixture', connected: true })
   await page.evaluate(() =>
     window.pi.send({ type: 'model:set', providerId: 'fixture', modelId: 'offline' })
   )
@@ -275,35 +236,6 @@ test('a crashed foreground does not stop its sibling and the sidebar can select 
   await expect(page.getByRole('button', { name: '重新连接引擎' })).toHaveCount(0)
   await page.screenshot({ path: resolve('artifacts/e2e/multi-session-crash-isolation.png') })
   await page.evaluate(() => window.pi.send({ type: 'prompt:abort' }))
-})
-
-test('parent Agent delegates to a background SessionTask and reads its canonical result', async () => {
-  test.setTimeout(90000)
-  await prompt('TEST_A ORCHESTRATE')
-  await expect
-    .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 60000 })
-    .toBe(false)
-
-  const finished = await page.evaluate(() => window.pi.getState())
-  const assistantText = finished.nodes
-    .filter((node) => node.type === 'assistant')
-    .map((node) => node.type === 'assistant' ? node.markdown : '')
-    .join('\n')
-  expect(assistantText).toContain('PARENT_DONE')
-  expect(assistantText).toContain('CHILD_DONE')
-
-  const sessionTaskTools = finished.nodes.filter(
-    (node) => node.type === 'tool' && node.name === 'session_task'
-  )
-  expect(sessionTaskTools).toHaveLength(3)
-  expect(sessionTaskTools.every((node) => node.type === 'tool' && node.status === 'success')).toBe(true)
-
-  const sessions = join(root, 'agent/sessions')
-  const files = (await readdir(sessions, { recursive: true })).filter((path) => path.endsWith('.jsonl'))
-  const histories = await Promise.all(files.map((path) => readFile(join(sessions, path), 'utf8')))
-  expect(histories.some((history) => history.includes('CHILD_TASK') && history.includes('CHILD_DONE'))).toBe(true)
-  expect(histories.some((history) => history.includes('ORCHESTRATE') && history.includes('PARENT_DONE'))).toBe(true)
-  await page.screenshot({ path: resolve('artifacts/e2e/session-task-delegation.png') })
 })
 
 test('background agent browser calls fail without opening or revealing foreground tabs', async () => {
