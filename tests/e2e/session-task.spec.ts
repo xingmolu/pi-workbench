@@ -60,7 +60,7 @@ test.beforeEach(async () => {
         if (!taskId) return fauxAssistantMessage('PARENT_ERROR_NO_TASK_ID');
         if (results.length === 1) {
           return fauxAssistantMessage(
-            fauxToolCall('session_task', {action:'wait', taskId, timeoutMs:45000}, {id:'session-task-wait'}),
+            fauxToolCall('session_task', {action:'supervise', mode:'any', timeoutMs:45000}, {id:'session-task-supervise'}),
             {stopReason:'toolUse'}
           );
         }
@@ -122,7 +122,7 @@ test.afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 
-test('parent Agent delegates to a background SessionTask and reads its canonical result', async () => {
+test('parent Agent delegates, supervises and reads a background SessionTask result', async () => {
   test.setTimeout(90000)
   await page.evaluate(async () => {
     const state = await window.pi.getState()
@@ -152,11 +152,12 @@ test('parent Agent delegates to a background SessionTask and reads its canonical
   )
   expect(sessionTaskTools).toHaveLength(3)
   expect(sessionTaskTools.every((node) => node.type === 'tool' && node.status === 'success')).toBe(true)
+  expect(sessionTaskTools.some((node) => node.type === 'tool' && node.title.includes('session_task'))).toBe(true)
 
   const sessions = join(root, 'agent/sessions')
   const files = (await readdir(sessions, { recursive: true })).filter((path) => path.endsWith('.jsonl'))
   const histories = await Promise.all(files.map((path) => readFile(join(sessions, path), 'utf8')))
   expect(histories.some((history) => history.includes('CHILD_TASK') && history.includes('CHILD_DONE'))).toBe(true)
   expect(histories.some((history) => history.includes('ORCHESTRATE') && history.includes('PARENT_DONE'))).toBe(true)
-  await page.screenshot({ path: resolve('artifacts/e2e/session-task-delegation.png') })
+  await page.screenshot({ path: resolve('artifacts/e2e/session-task-supervision.png') })
 })
