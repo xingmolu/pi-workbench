@@ -44,6 +44,11 @@ export function sessionTaskTreeRows(sessions: LiveSessionRow[]): LiveSessionRow[
   return result
 }
 
+function liveTitle(resident: LiveSessionSummary, fallback?: string): string {
+  const title = resident.title || fallback || '新会话'
+  return resident.sessionTask ? `↳ 后台 Agent · ${title}` : title
+}
+
 /** Catalog history and runtime status have different lifetimes. Never invent a file for a draft. */
 export function liveProjects(
   catalog: ProjectCatalog | null,
@@ -76,7 +81,7 @@ export function liveProjects(
       ...existing,
       id: resident.sessionId ?? resident.workerId,
       path: resident.sessionPath,
-      title: resident.title || existing?.title || '新会话',
+      title: liveTitle(resident, existing?.title),
       modified: existing?.modified ?? '',
       messageCount: existing?.messageCount ?? 0,
       workerId: resident.workerId,
