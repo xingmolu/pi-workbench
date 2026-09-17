@@ -20,6 +20,11 @@ export type SessionWorker = AgentRuntimeSession
 export type PrepareSessionWorker = PrepareAgentRuntimeSession
 export type SessionWorkerFactoryOptions = AgentRuntimeSessionOptions
 
+export type BackgroundSessionAdmission = {
+  workerId: string
+  snapshot: AgentSnapshot
+}
+
 type SessionWorkerPoolBaseOptions = {
   capacity?: number
   canonicalize?: (path: string) => Promise<string>
@@ -99,18 +104,52 @@ export class SessionWorkerPool {
     return owner
   }
 
-  open(target: { cwd: string; path?: string }, expected?: SelectedSessionScope | null, prepare?: PrepareSessionWorker) {
-    this.admissions++
-    const operation = this.admission.then(() => this.openResident(target, expected, prepare)).finally(() => { this.admissions-- })
-    this.admission = operation.catch(() => {})
-    return operation
-  }
-
-  private async openResident(
+  open(
     target: { cwd: string; path?: string },
     expected?: SelectedSessionScope | null,
     prepare?: PrepareSessionWorker
   ) {
+    return this.enqueueAdmission(() =>
+      this.openResident(target, expected, prepare, (owner) => ({
+        scope: this.select(owner.workerId, expected),
+        snapshot: owner.snapshot!
+      }))
+    )
+  }
+
+  /**
+   * Admit or reuse a resident session without changing desktop foreground selection.
+   * This is the primitive used by future orchestrators/background agents: residency,
+   * capacity and path ownership stay identical to foreground opens, while UI ownership
+   * remains entirely unchanged.
+   */
+  openBackground(
+    target: { cwd: string; path?: string },
+    prepare?: PrepareSessionWorker
+  ): Promise<BackgroundSessionAdmission> {
+    return this.enqueueAdmission(() =>
+      this.openResident(target, undefined, prepare, (owner) => ({
+        workerId: owner.workerId,
+        snapshot: owner.snapshot!
+      }))
+    )
+  }
+
+  private enqueueAdmission<Result>(operation: () => Promise<Result>): Promise<Result> {
+    this.admissions++
+    const admitted = this.admission.then(operation).finally(() => {
+      this.admissions--
+    })
+    this.admission = admitted.catch(() => {})
+    return admitted
+  }
+
+  private async openResident<Result>(
+    target: { cwd: string; path?: string },
+    expected: SelectedSessionScope | null | undefined,
+    prepare: PrepareSessionWorker | undefined,
+    finish: (owner: Resident) => Result
+  ): Promise<Result> {
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
     const canonicalize = this.options.canonicalize ?? realpath
@@ -125,10 +164,16 @@ export class SessionWorkerPool {
     if (existing && existing.cwd !== cwd) throw new Error('Session file belongs to another project')
     if (existing?.snapshot) {
       if (prepare) {
-        const prepared = await prepare({ request: command => this.requestOwner(existing, command), dispose: () => existing.worker.dispose() }, existing.snapshot)
+        const prepared = await prepare(
+          {
+            request: (command) => this.requestOwner(existing, command),
+            dispose: () => existing.worker.dispose()
+          },
+          existing.snapshot
+        )
         if (prepared) this.acceptSnapshot(existing, prepared)
       }
-      return { scope: this.select(existing.workerId, expected), snapshot: existing.snapshot }
+      return finish(existing)
     }
     if (this.residents.size >= this.capacity) {
       const victim = [...this.residents.values()].find((owner) => this.canEvict(owner))
@@ -172,10 +217,17 @@ export class SessionWorkerPool {
         end(exited)
         const failedOwner = this.residents.get(workerId)
         if (failedOwner && !failedOwner.disposing && error) {
-          this.failures.set(workerId, { workerId, cwd: failedOwner.cwd, sessionPath: failedOwner.path,
-            sessionId: failedOwner.snapshot?.sessionId ?? null, generation: failedOwner.snapshot?.generation ?? null,
-            status: 'error', selected: false })
-          while (this.failures.size > this.capacity) this.failures.delete(this.failures.keys().next().value!)
+          this.failures.set(workerId, {
+            workerId,
+            cwd: failedOwner.cwd,
+            sessionPath: failedOwner.path,
+            sessionId: failedOwner.snapshot?.sessionId ?? null,
+            generation: failedOwner.snapshot?.generation ?? null,
+            status: 'error',
+            selected: false
+          })
+          while (this.failures.size > this.capacity)
+            this.failures.delete(this.failures.keys().next().value!)
         }
         if (!this.residents.get(workerId)?.disposing) this.residents.delete(workerId)
         if (this.selection?.workerId === workerId) this.selection = null
@@ -198,7 +250,7 @@ export class SessionWorkerPool {
     }
     if (claimed) {
       await worker.dispose()
-      return this.openResident(target, expected, prepare)
+      return this.openResident(target, expected, prepare, finish)
     }
     this.residents.set(workerId, {
       workerId,
@@ -224,14 +276,19 @@ export class SessionWorkerPool {
       })
       if (result.kind !== 'snapshot') throw new Error('Opening a session requires a snapshot')
       if (prepare) {
-        const prepared = await prepare({ request: command => this.requestOwner(this.resolveOwner(workerId), command), dispose: () => worker.dispose() }, result.snapshot)
+        const prepared = await prepare(
+          {
+            request: (command) => this.requestOwner(this.resolveOwner(workerId), command),
+            dispose: () => worker.dispose()
+          },
+          result.snapshot
+        )
         if (prepared) this.acceptSnapshot(this.resolveOwner(workerId), prepared)
       }
-      if (path) for (const [failedId, failed] of this.failures) if (failed.sessionPath === path) this.failures.delete(failedId)
-      return {
-        scope: this.select(workerId, expected),
-        snapshot: this.resolveOwner(workerId).snapshot!
-      }
+      if (path)
+        for (const [failedId, failed] of this.failures)
+          if (failed.sessionPath === path) this.failures.delete(failedId)
+      return finish(this.resolveOwner(workerId))
     } catch (error) {
       const owner = this.residents.get(workerId)
       if (owner) await this.disposeResident(owner)
@@ -239,14 +296,22 @@ export class SessionWorkerPool {
     }
   }
 
-  async request(scope: SelectedSessionScope, command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult> {
+  async request(
+    scope: SelectedSessionScope,
+    command: HostCommand,
+    expectedIdentity?: { sessionId: string | null; generation: number }
+  ): Promise<HostResult> {
     if (['session:new', 'session:open', 'project:open', 'project:navigate'].includes(command.type)) {
       throw new Error('Session navigation must use pool.open')
     }
     return this.requestOwner(this.resolveOwner(scope.workerId), command, expectedIdentity)
   }
 
-  private async requestOwner(owner: Resident, command: HostCommand, expectedIdentity?: { sessionId: string | null; generation: number }): Promise<HostResult> {
+  private async requestOwner(
+    owner: Resident,
+    command: HostCommand,
+    expectedIdentity?: { sessionId: string | null; generation: number }
+  ): Promise<HostResult> {
     owner.pending++
     try {
       const result = await Promise.race([owner.worker.request(command, expectedIdentity), owner.ended])
@@ -273,9 +338,7 @@ export class SessionWorkerPool {
         path: owner.path,
         version: owner.pathVersion
       }))
-      const paths = await Promise.all(
-        captured.map(({ path }) => (path ? canonicalize(path) : null))
-      )
+      const paths = await Promise.all(captured.map(({ path }) => (path ? canonicalize(path) : null)))
       if (
         captured.some(
           ({ owner, version }) =>
@@ -368,16 +431,38 @@ export class SessionWorkerPool {
       generation: owner.snapshot?.generation ?? null,
       status: owner.snapshot?.status ?? 'opening',
       selected: this.selection?.workerId === owner.workerId,
-      title: (owner.snapshot?.sessions.find(session => session.path === owner.path)?.title || owner.snapshot?.nodes.find(node => node.type === 'user')?.text || '新会话').slice(0, 200)
+      title: (
+        owner.snapshot?.sessions.find((session) => session.path === owner.path)?.title ||
+        owner.snapshot?.nodes.find((node) => node.type === 'user')?.text ||
+        '新会话'
+      ).slice(0, 200)
     }))
-    return [...live, ...[...this.failures.values()].reverse().slice(0, this.capacity - live.length)]
+    return [
+      ...live,
+      ...[...this.failures.values()].reverse().slice(0, this.capacity - live.length)
+    ]
   }
 
   get quiescent(): boolean {
-    return this.admissions === 0 && [...this.residents.values()].every(owner => {
-      const s = owner.snapshot
-      return owner.pending === 0 && owner.safety.receipts === 'settled' && !owner.disposing && !!s?.ready && !s.busy && !s.queuedCount && !s.followUp.length && !s.approvals.length && !s.edit?.pending && !s.loginPrompt && ['idle', 'success', 'error'].includes(s.login.phase)
-    })
+    return (
+      this.admissions === 0 &&
+      [...this.residents.values()].every((owner) => {
+        const s = owner.snapshot
+        return (
+          owner.pending === 0 &&
+          owner.safety.receipts === 'settled' &&
+          !owner.disposing &&
+          !!s?.ready &&
+          !s.busy &&
+          !s.queuedCount &&
+          !s.followUp.length &&
+          !s.approvals.length &&
+          !s.edit?.pending &&
+          !s.loginPrompt &&
+          ['idle', 'success', 'error'].includes(s.login.phase)
+        )
+      })
+    )
   }
 }
 
