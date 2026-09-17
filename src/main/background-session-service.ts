@@ -26,11 +26,7 @@ export type BackgroundSessionHandle = {
   projectPath: string
 }
 
-export type BackgroundSessionStatus = {
-  workerId: string
-  sessionId: string
-  generation: number
-  projectPath: string
+export type BackgroundSessionStatus = BackgroundSessionHandle & {
   status: AgentSnapshot['status']
   busy: boolean
   queuedCount: number
@@ -59,6 +55,23 @@ function requireProject(snapshot: AgentSnapshot): string {
   return snapshot.project.path
 }
 
+function requireHandleSnapshot(
+  runtime: BackgroundSessionRuntime,
+  handle: BackgroundSessionHandle
+): AgentSnapshot {
+  const snapshot = requireResidentSnapshot(runtime, handle.workerId)
+  const identity = requireIdentity(snapshot)
+  const projectPath = requireProject(snapshot)
+  if (
+    identity.sessionId !== handle.sessionId ||
+    identity.generation !== handle.generation ||
+    projectPath !== handle.projectPath
+  ) {
+    throw new Error('后台会话身份已改变，请重新创建任务')
+  }
+  return snapshot
+}
+
 function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId: string } {
   if (!snapshot.activeProvider || !snapshot.activeModel) {
     throw new Error('父会话没有可继承的模型')
@@ -67,11 +80,14 @@ function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId:
 }
 
 /**
- * Narrow service used by future Orchestrator/Subagent policy.
+ * Narrow service used by Orchestrator/Subagent policy.
  *
  * It translates high-level background-session operations into the stable
- * SessionWorkerSupervisor boundary. It deliberately owns no task graph,
- * persistence, worker limits or recursive-spawn policy.
+ * SessionWorkerSupervisor boundary. Every control operation is scoped to the
+ * durable handle captured at spawn time; a worker whose session identity has
+ * changed fails closed instead of silently accepting an old task relationship.
+ * The service deliberately owns no task graph, persistence, worker limits or
+ * recursive-spawn policy.
  */
 export class BackgroundSessionService {
   constructor(private readonly runtime: BackgroundSessionRuntime) {}
@@ -122,38 +138,38 @@ export class BackgroundSessionService {
     }
   }
 
-  async send(workerId: string, prompt: string): Promise<void> {
+  async send(handle: BackgroundSessionHandle, prompt: string): Promise<void> {
     const text = prompt.trim()
     if (!text) throw new Error('后台任务不能为空')
-    const snapshot = requireResidentSnapshot(this.runtime, workerId)
-    const identity = requireIdentity(snapshot)
+    const snapshot = requireHandleSnapshot(this.runtime, handle)
     if (!snapshot.ready || snapshot.composeBlockReason !== null) {
       throw new Error('后台会话当前不能接收任务')
     }
     await this.runtime.requestWorker(
-      workerId,
+      handle.workerId,
       {
         type: 'prompt:send',
         text,
-        sessionId: identity.sessionId,
-        generation: identity.generation
+        sessionId: handle.sessionId,
+        generation: handle.generation
       },
-      identity
+      { sessionId: handle.sessionId, generation: handle.generation }
     )
   }
 
-  async abort(workerId: string): Promise<void> {
-    const snapshot = requireResidentSnapshot(this.runtime, workerId)
-    await this.runtime.requestWorker(workerId, { type: 'prompt:abort' }, requireIdentity(snapshot))
+  async abort(handle: BackgroundSessionHandle): Promise<void> {
+    requireHandleSnapshot(this.runtime, handle)
+    await this.runtime.requestWorker(
+      handle.workerId,
+      { type: 'prompt:abort' },
+      { sessionId: handle.sessionId, generation: handle.generation }
+    )
   }
 
-  status(workerId: string): BackgroundSessionStatus {
-    const snapshot = requireResidentSnapshot(this.runtime, workerId)
-    const identity = requireIdentity(snapshot)
+  status(handle: BackgroundSessionHandle): BackgroundSessionStatus {
+    const snapshot = requireHandleSnapshot(this.runtime, handle)
     return {
-      workerId,
-      ...identity,
-      projectPath: requireProject(snapshot),
+      ...handle,
       status: snapshot.status,
       busy: snapshot.busy,
       queuedCount: snapshot.queuedCount,
