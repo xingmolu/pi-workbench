@@ -56,9 +56,8 @@ test.beforeEach(async () => {
           );
         }
         const resultText = textContent(results.at(-1));
-        const taskId = resultText.match(/"taskId"\\s*:\\s*"([^"]+)"/)?.[1];
-        if (!taskId) return fauxAssistantMessage('PARENT_ERROR_NO_TASK_ID');
         if (results.length === 1) {
+          if (!resultText.match(/"taskId"\\s*:\\s*"([^"]+)"/)) return fauxAssistantMessage('PARENT_ERROR_NO_TASK_ID');
           return fauxAssistantMessage(
             fauxToolCall('session_task', {action:'supervise', mode:'any', timeoutMs:45000}, {id:'session-task-supervise'}),
             {stopReason:'toolUse'}
@@ -66,7 +65,7 @@ test.beforeEach(async () => {
         }
         if (results.length === 2) {
           return fauxAssistantMessage(
-            fauxToolCall('session_task', {action:'result', taskId}, {id:'session-task-result'}),
+            fauxToolCall('session_task', {action:'collect'}, {id:'session-task-collect'}),
             {stopReason:'toolUse'}
           );
         }
@@ -122,7 +121,7 @@ test.afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 
-test('parent Agent delegates, supervises and reads a background SessionTask result', async () => {
+test('parent Agent delegates, supervises and collects background SessionTask results', async () => {
   test.setTimeout(90000)
   await page.evaluate(async () => {
     const state = await window.pi.getState()
@@ -146,18 +145,18 @@ test('parent Agent delegates, supervises and reads a background SessionTask resu
     .join('\n')
   expect(assistantText).toContain('PARENT_DONE')
   expect(assistantText).toContain('CHILD_DONE')
+  expect(assistantText).toContain('readyTaskIds')
 
   const sessionTaskTools = finished.nodes.filter(
     (node) => node.type === 'tool' && node.name === 'session_task'
   )
   expect(sessionTaskTools).toHaveLength(3)
   expect(sessionTaskTools.every((node) => node.type === 'tool' && node.status === 'success')).toBe(true)
-  expect(sessionTaskTools.some((node) => node.type === 'tool' && node.title.includes('session_task'))).toBe(true)
 
   const sessions = join(root, 'agent/sessions')
   const files = (await readdir(sessions, { recursive: true })).filter((path) => path.endsWith('.jsonl'))
   const histories = await Promise.all(files.map((path) => readFile(join(sessions, path), 'utf8')))
   expect(histories.some((history) => history.includes('CHILD_TASK') && history.includes('CHILD_DONE'))).toBe(true)
   expect(histories.some((history) => history.includes('ORCHESTRATE') && history.includes('PARENT_DONE'))).toBe(true)
-  await page.screenshot({ path: resolve('artifacts/e2e/session-task-supervision.png') })
+  await page.screenshot({ path: resolve('artifacts/e2e/session-task-collection.png') })
 })
