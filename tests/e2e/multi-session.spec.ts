@@ -37,6 +37,9 @@ test.beforeEach(async () => {
       const respond = async (context) => {
         const user = context.messages.filter(m => m.role === 'user').at(-1);
         const tag = JSON.stringify(user?.content).includes('TEST_B') ? 'TEST_B' : 'TEST_A';
+        if (JSON.stringify(user?.content).includes('OVERLAP')) {
+          for (let n = 0; n < 300 && !existsSync(${JSON.stringify(join(root, 'release-overlap'))}); n++) await new Promise(resolve => setTimeout(resolve, 100));
+        }
         if (JSON.stringify(user?.content).includes('BROWSER')) {
           if (context.messages.at(-1)?.role === 'toolResult') return fauxAssistantMessage(tag + '_DONE');
           for (let n = 0; n < 100 && !existsSync(${JSON.stringify(join(root, 'release-browser'))}); n++) await new Promise(resolve => setTimeout(resolve, 100));
@@ -108,20 +111,21 @@ async function select(state: AgentSnapshot): Promise<void> {
 
 test('two real Pi workers overlap, preserve histories and remain independently selectable', async () => {
   test.setTimeout(60000)
-  const a = await prompt('TEST_A：独立回答，不要操作文件')
+  const a = await prompt('TEST_A OVERLAP：独立回答，不要操作文件')
   const newChat = page.getByRole('button', { name: '在 project 中新建会话', exact: true })
   await expect(newChat).toBeEnabled()
   await newChat.click()
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId))
     .not.toBe(a.sessionId)
-  const b = await prompt('TEST_B：另一段独立回答，不要操作文件')
+  const b = await prompt('TEST_B OVERLAP：另一段独立回答，不要操作文件')
   expect(b.activeModel).toBe('offline')
   expect(b.desktopScope?.workerId).not.toBe(a.desktopScope?.workerId)
   await select(a)
   expect((await page.evaluate(() => window.pi.getState())).busy).toBe(true)
   await expect(page.locator('.project-session-row .is-running')).toHaveCount(2)
   await page.screenshot({ path: resolve('artifacts/e2e/multi-session-two-running.png') })
+  await writeFile(join(root, 'release-overlap'), 'ready')
   await select(b)
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 30000 })
