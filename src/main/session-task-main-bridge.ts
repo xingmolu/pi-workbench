@@ -56,8 +56,6 @@ export class SessionTaskMainBridge {
         sessionTask: {
           taskId: relation.taskId,
           parentWorkerId: relation.parentWorkerId,
-          parentSessionId: relation.parentSessionId,
-          parentGeneration: relation.parentGeneration,
           createdAt: relation.createdAt
         }
       }
