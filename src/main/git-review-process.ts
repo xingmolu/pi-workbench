@@ -50,6 +50,13 @@ export class GitReviewProcess {
     for (const key of ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL']) {
       if (options.trustedEnv[key] !== undefined) this.env[key] = options.trustedEnv[key]
     }
+    // Review behavior must depend on repository state, not whichever machine-level
+    // Git/LFS helpers happen to be installed on the host. Repository-local config
+    // (and includes reached from it) remains visible, so project-declared filters
+    // are still detected and rejected before a scan can execute them.
+    this.env.GIT_CONFIG_GLOBAL = process.platform === 'win32' ? 'NUL' : '/dev/null'
+    this.env.GIT_CONFIG_NOSYSTEM = '1'
+    this.env.GIT_ATTR_NOSYSTEM = '1'
     this.env.GIT_TERMINAL_PROMPT = '0'
     this.env.GIT_NO_LAZY_FETCH = '1'
   }
