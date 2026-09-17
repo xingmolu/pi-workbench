@@ -15,17 +15,7 @@ export type SessionTaskCapabilityIdentity = Pick<AgentSnapshot, 'sessionId' | 'g
 
 export type SessionTaskCapabilityRuntime = Pick<
   SessionTaskOrchestrator,
-  | 'spawn'
-  | 'delegate'
-  | 'send'
-  | 'status'
-  | 'wait'
-  | 'supervise'
-  | 'collect'
-  | 'result'
-  | 'cancel'
-  | 'list'
-  | 'release'
+  'delegate' | 'send' | 'supervise' | 'collect' | 'cancel' | 'release'
 >
 
 type PendingRequest = {
@@ -40,7 +30,7 @@ function safeError(error: unknown): string {
 }
 
 function cancellable(action: SessionTaskRequest['action']): boolean {
-  return action === 'wait' || action === 'supervise'
+  return action === 'supervise'
 }
 
 /** Main-owned authority boundary for Agent-originated SessionTask operations. */
@@ -140,19 +130,10 @@ export class SessionTaskCapabilityBroker {
     signal?: AbortSignal
   ): Promise<SessionTaskResponseData> {
     switch (request.action) {
-      case 'spawn':
-        return this.runtime.spawn(parent, request.prompt)
       case 'delegate':
         return this.runtime.delegate(parent, request.tasks)
       case 'send':
         return this.runtime.send(parent, request.taskId, request.prompt)
-      case 'status':
-        return this.runtime.status(parent, request.taskId)
-      case 'wait':
-        return this.runtime.wait(parent, request.taskId, {
-          ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
-          ...(signal ? { signal } : {})
-        })
       case 'supervise':
         return this.runtime.supervise(parent, {
           mode: request.mode,
@@ -161,12 +142,8 @@ export class SessionTaskCapabilityBroker {
         })
       case 'collect':
         return this.runtime.collect(parent)
-      case 'result':
-        return this.runtime.result(parent, request.taskId)
       case 'cancel':
         return this.runtime.cancel(parent, request.taskId)
-      case 'list':
-        return this.runtime.list(parent)
       case 'release':
         this.runtime.release(parent, request.taskId)
         return { released: true }
