@@ -1,0 +1,46 @@
+name: One-shot SessionTask allowlist patch
+
+on:
+  push:
+    branches:
+      - feat/session-task-tool
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Patch exact Agent Host allowlist
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/agent-host/index.ts')
+          old = "tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'desktop', 'mcp']"
+          new = "tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'desktop', 'mcp', 'session_task']"
+          text = path.read_text()
+          count = text.count(old)
+          if count == 0 and new in text:
+              raise SystemExit(0)
+          if count != 1:
+              raise SystemExit(f'expected exactly one allowlist target, found {count}')
+          path.write_text(text.replace(old, new))
+          PY
+
+          if git diff --quiet; then
+            exit 0
+          fi
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/agent-host/index.ts
+          git commit -m "feat(orchestrator): allow SessionTask tool in Agent Host"
+          git push origin HEAD:feat/session-task-tool
