@@ -1,4 +1,4 @@
-import type { InlineExtension } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import { getSessionTaskCapabilityClient } from './session-task-runtime-client'
 
@@ -24,8 +24,6 @@ type SessionTaskParams = {
   prompt?: string
   timeoutMs?: number
 }
-
-type ExtensionApi = Parameters<InlineExtension['factory']>[0]
 
 function operation(params: SessionTaskParams) {
   switch (params.action) {
@@ -54,7 +52,7 @@ function operation(params: SessionTaskParams) {
   }
 }
 
-export function registerSessionTaskTool(pi: ExtensionApi): void {
+export function registerSessionTaskTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: 'session_task',
     label: '后台 Agent',
