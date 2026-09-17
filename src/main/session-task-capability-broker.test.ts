@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
+import type { SessionTaskWaitResult } from './session-task-orchestrator'
 
 const parent = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -23,14 +24,14 @@ const task = {
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 function fixture() {
-  let waitResolve!: (value: unknown) => void
+  let waitResolve!: (value: SessionTaskWaitResult) => void
   const orchestrator = {
     spawn: vi.fn(async () => task),
     send: vi.fn(async () => task),
     status: vi.fn(() => task),
     wait: vi.fn(
-      (_parent, _taskId, options?: { signal?: AbortSignal }) =>
-        new Promise((resolve, reject) => {
+      (_parent, _taskId, options?: { signal?: AbortSignal }): Promise<SessionTaskWaitResult> =>
+        new Promise<SessionTaskWaitResult>((resolve, reject) => {
           waitResolve = resolve
           options?.signal?.addEventListener('abort', () => reject(new Error('wait aborted')), {
             once: true
@@ -45,7 +46,13 @@ function fixture() {
   const broker = new SessionTaskCapabilityBroker({ orchestrator })
   const replies: SessionTaskResponse[] = []
   const reply = (message: SessionTaskResponse) => replies.push(message)
-  return { broker, orchestrator, replies, reply, resolveWait: (value: unknown) => waitResolve(value) }
+  return {
+    broker,
+    orchestrator,
+    replies,
+    reply,
+    resolveWait: (value: SessionTaskWaitResult) => waitResolve(value)
+  }
 }
 
 describe('session task capability broker', () => {
