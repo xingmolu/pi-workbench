@@ -5,6 +5,7 @@ import { getSessionTaskCapabilityClient } from './session-task-runtime-client'
 const SESSION_TASK_PARAMETERS = Type.Object({
   action: Type.Union([
     Type.Literal('spawn'),
+    Type.Literal('delegate'),
     Type.Literal('send'),
     Type.Literal('status'),
     Type.Literal('wait'),
@@ -17,6 +18,12 @@ const SESSION_TASK_PARAMETERS = Type.Object({
   ]),
   taskId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
   prompt: Type.Optional(Type.String({ minLength: 1, maxLength: 200_000 })),
+  tasks: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 200_000 }), {
+      minItems: 1,
+      maxItems: 4
+    })
+  ),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 45_000 })),
   mode: Type.Optional(
     Type.Union([Type.Literal('snapshot'), Type.Literal('any'), Type.Literal('all')])
@@ -26,6 +33,7 @@ const SESSION_TASK_PARAMETERS = Type.Object({
 type SessionTaskParams = {
   action:
     | 'spawn'
+    | 'delegate'
     | 'send'
     | 'status'
     | 'wait'
@@ -37,6 +45,7 @@ type SessionTaskParams = {
     | 'release'
   taskId?: string
   prompt?: string
+  tasks?: string[]
   timeoutMs?: number
   mode?: 'snapshot' | 'any' | 'all'
 }
@@ -46,6 +55,10 @@ function operation(params: SessionTaskParams) {
     case 'spawn':
       if (!params.prompt?.trim()) throw new Error('spawn 需要 prompt')
       return { action: 'spawn' as const, prompt: params.prompt }
+    case 'delegate':
+      if (!params.tasks?.length || params.tasks.length > 4) throw new Error('delegate 需要 1-4 个 tasks')
+      if (params.tasks.some((task) => !task.trim())) throw new Error('delegate tasks 不能为空')
+      return { action: 'delegate' as const, tasks: params.tasks }
     case 'send':
       if (!params.taskId) throw new Error('send 需要 taskId')
       if (!params.prompt?.trim()) throw new Error('send 需要 prompt')
@@ -85,10 +98,11 @@ export function registerSessionTaskTool(pi: ExtensionAPI): void {
     name: 'session_task',
     label: '后台 Agent',
     description:
-      'Create and supervise bounded background Agent sessions in the same project. Use spawn for independent work; supervise snapshot/any/all to observe a task set without polling; collect to read all canonical task results in one bounded response; result for one task; send for follow-up; cancel to stop work; release only after settlement. Background workers cannot recursively spawn more workers.',
+      'Create and supervise bounded background Agent sessions in the same project. Use delegate for 1-4 independent tasks, spawn for one task, supervise snapshot/any/all to observe them without polling, and collect to read canonical results in one bounded response. Use send for follow-up, cancel to stop work, and release only after settlement. Background workers cannot recursively spawn more workers.',
     promptSnippet: 'Delegate independent coding/research work to background Agent sessions.',
     promptGuidelines: [
-      'Use session_task spawn only for work that can proceed independently; keep dependent reasoning in the current session.',
+      'Use delegate when 2-4 tasks are independent and can start without each other\'s results. Keep dependent reasoning in the current session or sequence it explicitly.',
+      'Delegate admission is bounded and may partially succeed. Preserve returned spawnedTaskIds/failedIndexes and never assume a failed response means no worker was created.',
       'Prefer supervise mode any/all for multiple tasks instead of manually polling status. Use snapshot for one bounded aggregate view.',
       'After supervision, prefer collect to read the current canonical results for all owned tasks in one call. Treat attention outcomes such as ambiguous/no-result/error as explicit, never guess missing text.',
       'A cancelled or interrupted side-effecting SessionTask call can have an unknown outcome; reconcile with supervise/list/status before retrying.',

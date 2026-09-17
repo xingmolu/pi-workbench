@@ -7,6 +7,7 @@ import {
   type SessionTaskResponseData
 } from '../shared/session-task-capability'
 import type { SessionTaskCollector } from './session-task-collection'
+import type { SessionTaskDelegator } from './session-task-delegation'
 import type {
   SessionTaskOrchestrator,
   SessionTaskParent
@@ -23,6 +24,8 @@ export type SessionTaskCapabilityBrokerOptions = {
   supervisor: Pick<SessionTaskSupervisor, 'supervise'>
   /** Transitional optional seam for tests/adapters; production Main always injects it. */
   collector?: Pick<SessionTaskCollector, 'collect'>
+  /** Transitional optional seam for tests/adapters; production Main always injects it. */
+  delegator?: Pick<SessionTaskDelegator, 'delegate'>
 }
 
 type PendingRequest = {
@@ -154,6 +157,11 @@ export class SessionTaskCapabilityBroker {
     switch (request.action) {
       case 'spawn':
         return this.options.orchestrator.spawn(parent, request.prompt)
+      case 'delegate':
+        if (!this.options.delegator) {
+          throw new Error('SessionTask 运行时不支持批量委派')
+        }
+        return this.options.delegator.delegate(parent, request.tasks)
       case 'send':
         return this.options.orchestrator.send(parent, request.taskId, request.prompt)
       case 'status':
