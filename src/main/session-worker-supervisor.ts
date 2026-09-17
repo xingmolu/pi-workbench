@@ -132,7 +132,11 @@ export class SessionWorkerSupervisor {
     return this.pool.getLiveSummaries()
   }
 
-  /** Only summaries whose workers are still resident; excludes crash tombstones. */
+  /**
+   * Only summaries whose workers are still resident; excludes crash tombstones.
+   * Main, mobile surfaces and future orchestrators should use this instead of
+   * inferring residency from SessionWorkerPool internals.
+   */
   getResidentSummaries(): LiveSessionSummary[] {
     return this.pool
       .getLiveSummaries()
