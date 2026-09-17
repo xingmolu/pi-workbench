@@ -78,7 +78,7 @@ test.beforeEach(async () => {
         }
         return fauxAssistantMessage(tag + '_START ' + '并行会话的独立内容。'.repeat(180) + tag + '_DONE');
       };
-      faux.setResponses(Array.from({length:12}, () => respond)); pi.registerProvider(faux.provider);
+      faux.setResponses([respond, respond, respond, respond, respond, respond]); pi.registerProvider(faux.provider);
     }`
   )
   app = await electron.launch({
@@ -103,6 +103,15 @@ test.beforeEach(async () => {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () =>
+          (await window.pi.getState()).accounts.find((account) => account.id === 'fixture') ?? null
+        ),
+      { timeout: 10000 }
+    )
+    .toMatchObject({ id: 'fixture', connected: true })
   await page.evaluate(() =>
     window.pi.send({ type: 'model:set', providerId: 'fixture', modelId: 'offline' })
   )
