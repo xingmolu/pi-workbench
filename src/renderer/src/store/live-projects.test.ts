@@ -7,7 +7,8 @@ import type { ProjectCatalog } from '../../../shared/project-catalog'
 const resident = (
   workerId: string,
   sessionPath: string | null,
-  selected = false
+  selected = false,
+  sessionTask?: LiveSessionSummary['sessionTask']
 ): LiveSessionSummary => ({
   workerId,
   cwd: '/project',
@@ -16,7 +17,8 @@ const resident = (
   generation: 2,
   status: 'running',
   selected,
-  title: `会话 ${workerId}`
+  title: `会话 ${workerId}`,
+  ...(sessionTask ? { sessionTask } : {})
 })
 const catalog: ProjectCatalog = {
   projects: [
@@ -62,6 +64,30 @@ it('includes unsaved residents without inventing a canonical path and keeps thei
   expect(result[0].sessions).toHaveLength(2)
   expect(result[0].sessions.every((s) => s.path === null)).toBe(true)
   expect(new Set(result[0].sessions.map((s) => s.workerId)).size).toBe(2)
+})
+
+it('orders SessionTask children directly below their parent in delegation order', () => {
+  const relation = (taskId: string, createdAt: number): LiveSessionSummary['sessionTask'] => ({
+    taskId,
+    parentWorkerId: 'parent',
+    parentSessionId: 'parent-session',
+    parentGeneration: 4,
+    createdAt
+  })
+  const result = liveProjects(null, EMPTY_SNAPSHOT, [
+    resident('child-b', null, false, relation('task-b', 20)),
+    resident('other', null),
+    resident('parent', null, true),
+    resident('child-a', null, false, relation('task-a', 10))
+  ])
+
+  expect(result[0].sessions.map((session) => session.workerId)).toEqual([
+    'parent',
+    'child-a',
+    'child-b',
+    'other'
+  ])
+  expect(result[0].sessions[1].sessionTask?.taskId).toBe('task-a')
 })
 
 it('does not mark historical catalog rows active in a different selected project', () => {

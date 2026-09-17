@@ -23,6 +23,25 @@ export const desktopCommandOriginSchema: z.ZodType<DesktopCommandOrigin> = z
   })
   .strict()
 
+/** Read-only relationship metadata used to project Main-owned background tasks in the desktop UI. */
+export type LiveSessionTaskRelation = {
+  taskId: string
+  parentWorkerId: string
+  parentSessionId: string
+  parentGeneration: number
+  createdAt: number
+}
+
+const liveSessionTaskRelationSchema: z.ZodType<LiveSessionTaskRelation> = z
+  .object({
+    taskId: z.string().min(1).max(256),
+    parentWorkerId: z.string().min(1).max(128),
+    parentSessionId: z.string().min(1).max(1024),
+    parentGeneration: z.number().int().nonnegative(),
+    createdAt: z.number().finite()
+  })
+  .strict()
+
 export type LiveSessionSummary = {
   workerId: string
   cwd: string
@@ -32,6 +51,7 @@ export type LiveSessionSummary = {
   status: SessionStatus | 'opening'
   selected: boolean
   title?: string
+  sessionTask?: LiveSessionTaskRelation
 }
 
 export const liveSessionSummarySchema: z.ZodType<LiveSessionSummary> = z
@@ -43,7 +63,8 @@ export const liveSessionSummarySchema: z.ZodType<LiveSessionSummary> = z
     generation: z.number().int().nonnegative().nullable(),
     status: z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped', 'opening']),
     selected: z.boolean(),
-    title: z.string().max(200).optional()
+    title: z.string().max(200).optional(),
+    sessionTask: liveSessionTaskRelationSchema.optional()
   })
   .strict()
 

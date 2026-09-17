@@ -321,6 +321,11 @@ export class SessionWorkerSupervisor {
   }
 
   summaries(): void {
-    this.options.publish({ type: 'event', event: 'sessions', data: this.pool.getLiveSummaries() })
+    const summaries = this.pool.getLiveSummaries()
+    this.options.publish({
+      type: 'event',
+      event: 'sessions',
+      data: this.sessionTaskBridge?.decorateSummaries(summaries) ?? summaries
+    })
   }
 }

@@ -155,11 +155,17 @@ test('parent Agent batch delegates, supervises and collects two background resul
   expect(sessionTaskTools).toHaveLength(3)
   expect(sessionTaskTools.every((node) => node.type === 'tool' && node.status === 'success')).toBe(true)
 
+  const backgroundRows = page.locator('.project-session-row').filter({ hasText: '后台 Agent' })
+  await expect(backgroundRows).toHaveCount(2)
+  await expect(backgroundRows.nth(0)).toContainText('CHILD_TASK_A')
+  await expect(backgroundRows.nth(1)).toContainText('CHILD_TASK_B')
+  await expect(page.locator('.project-session-row.is-active')).not.toContainText('后台 Agent')
+
   const sessions = join(root, 'agent/sessions')
   const files = (await readdir(sessions, { recursive: true })).filter((path) => path.endsWith('.jsonl'))
   const histories = await Promise.all(files.map((path) => readFile(join(sessions, path), 'utf8')))
   expect(histories.some((history) => history.includes('CHILD_TASK_A') && history.includes('CHILD_DONE_A'))).toBe(true)
   expect(histories.some((history) => history.includes('CHILD_TASK_B') && history.includes('CHILD_DONE_B'))).toBe(true)
   expect(histories.some((history) => history.includes('ORCHESTRATE') && history.includes('PARENT_DONE'))).toBe(true)
-  await page.screenshot({ path: resolve('artifacts/e2e/session-task-delegation.png') })
+  await page.screenshot({ path: resolve('artifacts/e2e/session-task-sidebar.png') })
 })

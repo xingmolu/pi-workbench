@@ -1,4 +1,5 @@
 import type { AgentSnapshot } from '../shared/contracts'
+import type { LiveSessionSummary } from '../shared/session-runtime'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { BackgroundSessionService } from './background-session-service'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
@@ -24,7 +25,9 @@ export class SessionTaskMainBridge {
 
   constructor(workerSupervisor: SessionWorkerSupervisor) {
     this.service = new BackgroundSessionService(workerSupervisor)
-    this.orchestrator = new SessionTaskOrchestrator(this.service)
+    this.orchestrator = new SessionTaskOrchestrator(this.service, {
+      onTasksChanged: () => workerSupervisor.summaries()
+    })
     this.supervisor = new SessionTaskSupervisor(this.orchestrator)
     this.collector = new SessionTaskCollector(this.orchestrator)
     this.delegator = new SessionTaskDelegator(this.orchestrator)
@@ -50,6 +53,26 @@ export class SessionTaskMainBridge {
       message,
       reply
     )
+  }
+
+  decorateSummaries(summaries: LiveSessionSummary[]): LiveSessionSummary[] {
+    const relations = new Map(
+      this.orchestrator.relationships().map((relation) => [relation.workerId, relation])
+    )
+    return summaries.map((summary) => {
+      const relation = relations.get(summary.workerId)
+      if (!relation) return summary
+      return {
+        ...summary,
+        sessionTask: {
+          taskId: relation.taskId,
+          parentWorkerId: relation.parentWorkerId,
+          parentSessionId: relation.parentSessionId,
+          parentGeneration: relation.parentGeneration,
+          createdAt: relation.createdAt
+        }
+      }
+    })
   }
 
   workerExited(workerId: string): void {
