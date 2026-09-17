@@ -41,6 +41,7 @@ export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
       timeoutMs: z.number().int().nonnegative().max(45_000).optional()
     })
     .strict(),
+  z.object({ ...requestBase, action: z.literal('collect') }).strict(),
   z.object({ ...requestBase, action: z.literal('result'), taskId: taskIdSchema }).strict(),
   z.object({ ...requestBase, action: z.literal('cancel'), taskId: taskIdSchema }).strict(),
   z.object({ ...requestBase, action: z.literal('list') }).strict(),
@@ -125,12 +126,22 @@ export const sessionTaskResultSchema = z
   })
   .strict()
 
+export const sessionTaskCollectionSchema = z
+  .object({
+    items: z.array(sessionTaskResultSchema).max(16),
+    readyTaskIds: z.array(taskIdSchema).max(16),
+    pendingTaskIds: z.array(taskIdSchema).max(16),
+    attentionTaskIds: z.array(taskIdSchema).max(16)
+  })
+  .strict()
+
 const responseDataSchema = z.union([
   sessionTaskViewSchema,
   z.array(sessionTaskViewSchema).max(16),
   sessionTaskWaitResultSchema,
   sessionTaskSuperviseResultSchema,
   sessionTaskResultSchema,
+  sessionTaskCollectionSchema,
   z.object({ released: z.literal(true) }).strict()
 ])
 
@@ -159,5 +170,6 @@ export type SessionTaskViewWire = z.infer<typeof sessionTaskViewSchema>
 export type SessionTaskWaitResultWire = z.infer<typeof sessionTaskWaitResultSchema>
 export type SessionTaskSuperviseResultWire = z.infer<typeof sessionTaskSuperviseResultSchema>
 export type SessionTaskResultWire = z.infer<typeof sessionTaskResultSchema>
+export type SessionTaskCollectionWire = z.infer<typeof sessionTaskCollectionSchema>
 export type SessionTaskResponse = z.infer<typeof sessionTaskResponseSchema>
 export type SessionTaskResponseData = z.infer<typeof responseDataSchema>
