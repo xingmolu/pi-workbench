@@ -4,18 +4,39 @@ import type {
   LiveSessionSummary,
   SelectedSessionScope
 } from '../shared/session-runtime'
-import { SessionWorkerPool, type SessionWorkerPoolOptions } from './session-worker-pool'
+import type { AgentRuntime } from './agent-runtime'
+import {
+  SessionWorkerPool,
+  type SessionWorker,
+  type SessionWorkerFactoryOptions,
+  type SessionWorkerPoolOptions
+} from './session-worker-pool'
 
 export type SessionWorkerSafety = {
   receipts: 'unknown' | 'pending' | 'settled'
   unsaved: boolean
 }
 
-export type SessionWorkerSupervisorOptions = Omit<SessionWorkerPoolOptions, 'onEvent'> & {
+type SupervisorBaseOptions = Omit<SessionWorkerPoolOptions, 'onEvent' | 'runtime'> & {
   publish(event: DesktopEvent): void
   selected(snapshot: AgentSnapshot): void
   receiptsSettled?(workerId: string, snapshot: AgentSnapshot): boolean
   onWorkerEvent?(workerId: string, snapshot: AgentSnapshot | null): void
+}
+
+export type SessionWorkerSupervisorOptions = SupervisorBaseOptions &
+  (
+    | { runtime: AgentRuntime; createWorker?: never }
+    | {
+        /** @deprecated Production wiring should migrate to AgentRuntime. */
+        createWorker(options: SessionWorkerFactoryOptions): Promise<SessionWorker>
+        runtime?: never
+      }
+  )
+
+function resolveRuntime(options: SessionWorkerSupervisorOptions): AgentRuntime {
+  if (options.runtime) return options.runtime
+  return { createSession: options.createWorker }
 }
 
 /**
@@ -36,7 +57,11 @@ export class SessionWorkerSupervisor {
 
   constructor(private readonly options: SessionWorkerSupervisorOptions) {
     this.pool = new SessionWorkerPool({
-      ...options,
+      capacity: options.capacity,
+      canonicalize: options.canonicalize,
+      runtime: resolveRuntime(options),
+      onExit: options.onExit,
+      onNeedsSnapshot: options.onNeedsSnapshot,
       onEvent: (workerId, event) => {
         const snapshot = this.pool.getSnapshot(workerId)
         if (snapshot && options.receiptsSettled)
