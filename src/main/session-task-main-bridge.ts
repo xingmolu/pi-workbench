@@ -3,6 +3,7 @@ import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { BackgroundSessionService } from './background-session-service'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
 import { SessionTaskOrchestrator } from './session-task-orchestrator'
+import { SessionTaskSupervisor } from './session-task-supervision'
 import type { SessionWorkerSupervisor } from './session-worker-supervisor'
 
 /**
@@ -14,12 +15,17 @@ import type { SessionWorkerSupervisor } from './session-worker-supervisor'
 export class SessionTaskMainBridge {
   private readonly service: BackgroundSessionService
   private readonly orchestrator: SessionTaskOrchestrator
+  private readonly supervisor: SessionTaskSupervisor
   private readonly broker: SessionTaskCapabilityBroker
 
-  constructor(supervisor: SessionWorkerSupervisor) {
-    this.service = new BackgroundSessionService(supervisor)
+  constructor(workerSupervisor: SessionWorkerSupervisor) {
+    this.service = new BackgroundSessionService(workerSupervisor)
     this.orchestrator = new SessionTaskOrchestrator(this.service)
-    this.broker = new SessionTaskCapabilityBroker({ orchestrator: this.orchestrator })
+    this.supervisor = new SessionTaskSupervisor(this.orchestrator)
+    this.broker = new SessionTaskCapabilityBroker({
+      orchestrator: this.orchestrator,
+      supervisor: this.supervisor
+    })
   }
 
   handle(
