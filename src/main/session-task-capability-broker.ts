@@ -6,6 +6,7 @@ import {
   type SessionTaskResponse,
   type SessionTaskResponseData
 } from '../shared/session-task-capability'
+import type { SessionTaskCollector } from './session-task-collection'
 import type {
   SessionTaskOrchestrator,
   SessionTaskParent
@@ -20,6 +21,8 @@ export type SessionTaskCapabilityBrokerOptions = {
     'spawn' | 'send' | 'status' | 'wait' | 'result' | 'cancel' | 'list' | 'release'
   >
   supervisor: Pick<SessionTaskSupervisor, 'supervise'>
+  /** Transitional optional seam for tests/adapters; production Main always injects it. */
+  collector?: Pick<SessionTaskCollector, 'collect'>
 }
 
 type PendingRequest = {
@@ -166,6 +169,11 @@ export class SessionTaskCapabilityBroker {
           ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
           ...(signal ? { signal } : {})
         })
+      case 'collect':
+        if (!this.options.collector) {
+          throw new Error('SessionTask 运行时不支持 canonical 结果聚合')
+        }
+        return this.options.collector.collect(parent)
       case 'result':
         return this.options.orchestrator.result(parent, request.taskId)
       case 'cancel':
