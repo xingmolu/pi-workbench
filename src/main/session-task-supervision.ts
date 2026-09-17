@@ -125,24 +125,23 @@ export class SessionTaskSupervisor {
       )
     } else {
       const controllers = new Map<string, AbortController>()
+      const waits = pending.map((task) => {
+        const controller = new AbortController()
+        controllers.set(task.taskId, controller)
+        return this.runtime.wait(parent, task.taskId, {
+          timeoutMs,
+          signal: controller.signal
+        })
+      })
       const forwardAbort = (): void => {
         for (const controller of controllers.values()) controller.abort()
       }
       options.signal?.addEventListener('abort', forwardAbort, { once: true })
       try {
-        const waits = pending.map((task) => {
-          const controller = new AbortController()
-          controllers.set(task.taskId, controller)
-          const onParentAbort = (): void => controller.abort()
-          options.signal?.addEventListener('abort', onParentAbort, { once: true })
-          return this.runtime
-            .wait(parent, task.taskId, { timeoutMs, signal: controller.signal })
-            .finally(() => options.signal?.removeEventListener('abort', onParentAbort))
-        })
         await Promise.race(waits)
+      } finally {
         for (const controller of controllers.values()) controller.abort()
         await Promise.allSettled(waits)
-      } finally {
         options.signal?.removeEventListener('abort', forwardAbort)
       }
       if (options.signal?.aborted) throw new Error('等待后台任务已取消')
