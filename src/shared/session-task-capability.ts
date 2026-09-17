@@ -19,6 +19,13 @@ export const sessionTaskRequestSchema = z.discriminatedUnion('action', [
   z
     .object({
       ...requestBase,
+      action: z.literal('delegate'),
+      tasks: z.array(promptSchema).min(1).max(4)
+    })
+    .strict(),
+  z
+    .object({
+      ...requestBase,
       action: z.literal('send'),
       taskId: taskIdSchema,
       prompt: promptSchema
@@ -135,6 +142,31 @@ export const sessionTaskCollectionSchema = z
   })
   .strict()
 
+const delegationItemSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      index: z.number().int().min(0).max(3),
+      status: z.literal('spawned'),
+      task: sessionTaskViewSchema
+    })
+    .strict(),
+  z
+    .object({
+      index: z.number().int().min(0).max(3),
+      status: z.literal('failed'),
+      error: z.string().min(1).max(4096)
+    })
+    .strict()
+])
+
+export const sessionTaskDelegationSchema = z
+  .object({
+    items: z.array(delegationItemSchema).min(1).max(4),
+    spawnedTaskIds: z.array(taskIdSchema).max(4),
+    failedIndexes: z.array(z.number().int().min(0).max(3)).max(4)
+  })
+  .strict()
+
 const responseDataSchema = z.union([
   sessionTaskViewSchema,
   z.array(sessionTaskViewSchema).max(16),
@@ -142,6 +174,7 @@ const responseDataSchema = z.union([
   sessionTaskSuperviseResultSchema,
   sessionTaskResultSchema,
   sessionTaskCollectionSchema,
+  sessionTaskDelegationSchema,
   z.object({ released: z.literal(true) }).strict()
 ])
 
@@ -171,5 +204,6 @@ export type SessionTaskWaitResultWire = z.infer<typeof sessionTaskWaitResultSche
 export type SessionTaskSuperviseResultWire = z.infer<typeof sessionTaskSuperviseResultSchema>
 export type SessionTaskResultWire = z.infer<typeof sessionTaskResultSchema>
 export type SessionTaskCollectionWire = z.infer<typeof sessionTaskCollectionSchema>
+export type SessionTaskDelegationWire = z.infer<typeof sessionTaskDelegationSchema>
 export type SessionTaskResponse = z.infer<typeof sessionTaskResponseSchema>
 export type SessionTaskResponseData = z.infer<typeof responseDataSchema>
