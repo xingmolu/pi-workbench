@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
-import type {
-  SessionTaskSuperviseResult,
-  SessionTaskWaitResult
-} from './session-task-orchestrator'
+import type { SessionTaskSuperviseResult } from './session-task-orchestrator'
 
 const parent = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -27,25 +24,13 @@ const task = {
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 function fixture() {
-  let waitResolve!: (value: SessionTaskWaitResult) => void
   const orchestrator = {
-    spawn: vi.fn(async () => task),
     delegate: vi.fn(async () => ({
       items: [{ index: 0, status: 'spawned' as const, task }],
       spawnedTaskIds: [task.taskId],
       failedIndexes: []
     })),
     send: vi.fn(async () => task),
-    status: vi.fn(() => task),
-    wait: vi.fn(
-      (_parent, _taskId, options?: { signal?: AbortSignal }): Promise<SessionTaskWaitResult> =>
-        new Promise<SessionTaskWaitResult>((resolve, reject) => {
-          waitResolve = resolve
-          options?.signal?.addEventListener('abort', () => reject(new Error('wait aborted')), {
-            once: true
-          })
-        })
-    ),
     supervise: vi.fn(
       (
         _parent,
@@ -66,7 +51,6 @@ function fixture() {
           }
         })
     ),
-    result: vi.fn(() => ({ task, result: { outcome: 'pending' as const } })),
     collect: vi.fn(() => ({
       items: [{ task, result: { outcome: 'pending' as const } }],
       readyTaskIds: [],
@@ -74,23 +58,16 @@ function fixture() {
       attentionTaskIds: []
     })),
     cancel: vi.fn(async () => ({ ...task, state: 'stopped' as const, busy: false })),
-    list: vi.fn(() => [task]),
     release: vi.fn(() => undefined)
   }
   const broker = new SessionTaskCapabilityBroker(orchestrator)
   const replies: SessionTaskResponse[] = []
   const reply = (message: SessionTaskResponse) => replies.push(message)
-  return {
-    broker,
-    orchestrator,
-    replies,
-    reply,
-    resolveWait: (value: SessionTaskWaitResult) => waitResolve(value)
-  }
+  return { broker, orchestrator, replies, reply }
 }
 
 describe('session task capability broker', () => {
-  it('binds worker transport plus session identity before spawning', async () => {
+  it('binds worker transport plus session identity before delegation', async () => {
     const { broker, orchestrator, replies, reply } = fixture()
 
     expect(
@@ -102,24 +79,24 @@ describe('session task capability broker', () => {
           requestId: 'r1',
           sessionId: parent.sessionId,
           generation: parent.generation,
-          action: 'spawn',
-          prompt: 'inspect tests'
+          action: 'delegate',
+          tasks: ['inspect tests']
         },
         reply
       )
     ).toBe(true)
     await flush()
 
-    expect(orchestrator.spawn).toHaveBeenCalledWith(
+    expect(orchestrator.delegate).toHaveBeenCalledWith(
       { workerId: 'parent-worker', ...parent },
-      'inspect tests'
+      ['inspect tests']
     )
     expect(replies).toEqual([
       expect.objectContaining({ type: 'session-task-response', requestId: 'r1', ok: true })
     ])
   })
 
-  it('rejects stale parent identity before calling the orchestrator', async () => {
+  it('rejects stale parent identity before calling the runtime', async () => {
     const { broker, orchestrator, replies, reply } = fixture()
 
     broker.handle(
@@ -130,25 +107,25 @@ describe('session task capability broker', () => {
         requestId: 'r1',
         sessionId: 'replacement',
         generation: 4,
-        action: 'list'
+        action: 'collect'
       },
       reply
     )
     await flush()
 
-    expect(orchestrator.list).not.toHaveBeenCalled()
+    expect(orchestrator.collect).not.toHaveBeenCalled()
     expect(replies[0]).toMatchObject({ requestId: 'r1', ok: false })
   })
 
-  it('rejects duplicate in-flight request ids without replacing the original wait', async () => {
+  it('rejects duplicate in-flight request ids without replacing supervision', async () => {
     const { broker, replies, reply } = fixture()
     const request = {
       type: 'session-task-request' as const,
       requestId: 'same',
       sessionId: parent.sessionId,
       generation: parent.generation,
-      action: 'wait' as const,
-      taskId: task.taskId,
+      action: 'supervise' as const,
+      mode: 'all' as const,
       timeoutMs: 1000
     }
 
@@ -162,33 +139,42 @@ describe('session task capability broker', () => {
     expect(broker.hasPending('parent-worker')).toBe(true)
   })
 
-  it('only cancels a matching wait and clears it when the worker exits', async () => {
+  it('only cancels matching supervision and clears pending work when the worker exits', async () => {
     const { broker, orchestrator, replies, reply } = fixture()
     broker.handle(
       'parent-worker',
       parent,
       {
         type: 'session-task-request',
-        requestId: 'wait-1',
+        requestId: 'supervise-1',
         sessionId: parent.sessionId,
         generation: parent.generation,
-        action: 'wait',
-        taskId: task.taskId
+        action: 'supervise',
+        mode: 'any'
       },
       reply
     )
     await flush()
 
     expect(broker.hasPending('parent-worker')).toBe(true)
-    broker.handle('other-worker', parent, { type: 'session-task-cancel', requestId: 'wait-1' }, reply)
+    broker.handle(
+      'other-worker',
+      parent,
+      { type: 'session-task-cancel', requestId: 'supervise-1' },
+      reply
+    )
     expect(broker.hasPending('parent-worker')).toBe(true)
 
     broker.workerExited('parent-worker')
     await flush()
-    expect(orchestrator.wait).toHaveBeenCalledTimes(1)
+    expect(orchestrator.supervise).toHaveBeenCalledTimes(1)
     expect(broker.hasPending('parent-worker')).toBe(false)
     expect(replies).toContainEqual(
-      expect.objectContaining({ requestId: 'wait-1', ok: false, error: 'wait aborted' })
+      expect.objectContaining({
+        requestId: 'supervise-1',
+        ok: false,
+        error: 'supervise aborted'
+      })
     )
   })
 
