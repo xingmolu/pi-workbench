@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
 import { SessionTaskCapabilityBroker } from './session-task-capability-broker'
 import type { SessionTaskWaitResult } from './session-task-orchestrator'
+import type { SessionTaskSuperviseResult } from './session-task-supervision'
 
 const parent = { sessionId: 'parent-session', generation: 3 }
 const task = {
@@ -43,12 +44,35 @@ function fixture() {
     list: vi.fn(() => [task]),
     release: vi.fn(() => undefined)
   }
-  const broker = new SessionTaskCapabilityBroker({ orchestrator })
+  const supervisor = {
+    supervise: vi.fn(
+      (
+        _parent,
+        options?: { mode?: 'snapshot' | 'any' | 'all'; signal?: AbortSignal }
+      ): Promise<SessionTaskSuperviseResult> =>
+        new Promise<SessionTaskSuperviseResult>((resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(new Error('supervise aborted')), {
+            once: true
+          })
+          if (options?.mode === 'snapshot') {
+            resolve({
+              mode: 'snapshot',
+              outcome: 'snapshot',
+              tasks: [task],
+              settledTaskIds: [],
+              pendingTaskIds: [task.taskId]
+            })
+          }
+        })
+    )
+  }
+  const broker = new SessionTaskCapabilityBroker({ orchestrator, supervisor })
   const replies: SessionTaskResponse[] = []
   const reply = (message: SessionTaskResponse) => replies.push(message)
   return {
     broker,
     orchestrator,
+    supervisor,
     replies,
     reply,
     resolveWait: (value: SessionTaskWaitResult) => waitResolve(value)
@@ -155,6 +179,49 @@ describe('session task capability broker', () => {
     expect(broker.hasPending('parent-worker')).toBe(false)
     expect(replies).toContainEqual(
       expect.objectContaining({ requestId: 'wait-1', ok: false, error: 'wait aborted' })
+    )
+  })
+
+  it('routes supervise through the parent authority and supports explicit cancellation', async () => {
+    const { broker, supervisor, replies, reply } = fixture()
+
+    broker.handle(
+      'parent-worker',
+      parent,
+      {
+        type: 'session-task-request',
+        requestId: 'supervise-1',
+        sessionId: parent.sessionId,
+        generation: parent.generation,
+        action: 'supervise',
+        mode: 'any',
+        timeoutMs: 500
+      },
+      reply
+    )
+    await flush()
+
+    expect(supervisor.supervise).toHaveBeenCalledWith(
+      { workerId: 'parent-worker', ...parent },
+      expect.objectContaining({ mode: 'any', timeoutMs: 500, signal: expect.any(AbortSignal) })
+    )
+    expect(broker.hasPending('parent-worker')).toBe(true)
+
+    broker.handle(
+      'parent-worker',
+      parent,
+      { type: 'session-task-cancel', requestId: 'supervise-1' },
+      reply
+    )
+    await flush()
+
+    expect(broker.hasPending('parent-worker')).toBe(false)
+    expect(replies).toContainEqual(
+      expect.objectContaining({
+        requestId: 'supervise-1',
+        ok: false,
+        error: 'supervise aborted'
+      })
     )
   })
 })

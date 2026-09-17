@@ -10,6 +10,7 @@ export type SessionTaskOperation =
   | { action: 'send'; taskId: string; prompt: string }
   | { action: 'status'; taskId: string }
   | { action: 'wait'; taskId: string; timeoutMs?: number }
+  | { action: 'supervise'; mode: 'snapshot' | 'any' | 'all'; timeoutMs?: number }
   | { action: 'result'; taskId: string }
   | { action: 'cancel'; taskId: string }
   | { action: 'list' }
@@ -25,6 +26,10 @@ type Pending = {
   action: SessionTaskOperation['action']
   resolve(data: SessionTaskResponseData): void
   reject(error: Error): void
+}
+
+function cancellable(action: SessionTaskOperation['action']): boolean {
+  return action === 'wait' || action === 'supervise'
 }
 
 /** Thin Agent Host client for the Main-owned SessionTask capability. */
@@ -62,7 +67,7 @@ export class SessionTaskCapabilityClient {
         reject(error)
       }
       const onAbort = (): void => {
-        if (operation.action === 'wait') {
+        if (cancellable(operation.action)) {
           this.safeCancel(requestId)
           finishReject(new Error('等待后台任务已取消'))
         } else {
@@ -108,7 +113,7 @@ export class SessionTaskCapabilityClient {
   rejectAll(reason: string): void {
     const error = new Error(reason)
     for (const [requestId, pending] of [...this.pending]) {
-      if (pending.action === 'wait') this.safeCancel(requestId)
+      if (cancellable(pending.action)) this.safeCancel(requestId)
       pending.reject(error)
     }
   }

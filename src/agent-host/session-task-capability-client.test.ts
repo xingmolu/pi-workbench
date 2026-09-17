@@ -52,16 +52,19 @@ describe('session task capability client', () => {
     expect(client.pendingCount).toBe(0)
   })
 
-  it('sends a cancel wire only for wait aborts', async () => {
+  it.each([
+    [{ action: 'wait' as const, taskId: 'task-1' }, 'wait'],
+    [{ action: 'supervise' as const, mode: 'any' as const }, 'supervise']
+  ])('sends a cancel wire for cancellable %s aborts', async (operation, action) => {
     const { client, sent } = fixture()
     const controller = new AbortController()
-    const pending = client.request({ action: 'wait', taskId: 'task-1' }, controller.signal)
+    const pending = client.request(operation, controller.signal)
 
     controller.abort()
 
     await expect(pending).rejects.toThrow('等待后台任务已取消')
     expect(sent).toEqual([
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'wait' }),
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action }),
       { type: 'session-task-cancel', requestId: 'r1' }
     ])
   })
@@ -81,19 +84,23 @@ describe('session task capability client', () => {
     expect(sent[0]).toEqual(expect.objectContaining({ action: 'spawn' }))
   })
 
-  it('cancels pending waits during runtime teardown and ignores late responses', async () => {
+  it('cancels pending waits and supervision during runtime teardown and ignores late responses', async () => {
     const { client, sent } = fixture()
     const wait = client.request({ action: 'wait', taskId: 'task-1' })
+    const supervise = client.request({ action: 'supervise', mode: 'all' })
     const status = client.request({ action: 'status', taskId: 'task-1' })
 
     client.rejectAll('runtime closed')
     await expect(wait).rejects.toThrow('runtime closed')
+    await expect(supervise).rejects.toThrow('runtime closed')
     await expect(status).rejects.toThrow('runtime closed')
     expect(client.pendingCount).toBe(0)
     expect(sent).toEqual([
       expect.objectContaining({ type: 'session-task-request', requestId: 'r1', action: 'wait' }),
-      expect.objectContaining({ type: 'session-task-request', requestId: 'r2', action: 'status' }),
-      { type: 'session-task-cancel', requestId: 'r1' }
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r2', action: 'supervise' }),
+      expect.objectContaining({ type: 'session-task-request', requestId: 'r3', action: 'status' }),
+      { type: 'session-task-cancel', requestId: 'r1' },
+      { type: 'session-task-cancel', requestId: 'r2' }
     ])
     expect(
       client.accept({
