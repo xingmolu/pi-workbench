@@ -80,6 +80,15 @@ export function registerSessionTaskTool(pi: ExtensionApi): void {
       }
     }
   })
+
+  // createAgentSession's `tools` option is an initial allowlist. Pi 0.84.x
+  // supports runtime tool activation, so the Desktop-owned extension can add
+  // its tool after the session is fully constructed without changing the large
+  // Agent Host allowlist. Re-assert after reload/new-session lifecycle events.
+  pi.on('session_start', () => {
+    const active = pi.getActiveTools()
+    if (!active.includes('session_task')) pi.setActiveTools([...active, 'session_task'])
+  })
 }
 
 export function createSessionTaskExtension(): InlineExtension {
