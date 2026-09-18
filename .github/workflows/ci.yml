@@ -79,3 +79,53 @@ jobs:
             test-results/
             playwright-report/
             artifacts/e2e/
+
+  package:
+    needs: e2e-smoke
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-14
+            command: npx electron-builder --mac dmg zip --publish never
+          - name: macos-x64
+            os: macos-15-intel
+            command: npx electron-builder --mac dmg zip --publish never
+          - name: windows-x64
+            os: windows-2025
+            command: npx electron-builder --win nsis --publish never
+          - name: linux-x64
+            os: ubuntu-24.04
+            command: npx electron-builder --linux AppImage deb --publish never
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Package installer
+        run: ${{ matrix.command }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: pi-desktop-${{ matrix.name }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/*
