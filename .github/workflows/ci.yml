@@ -102,6 +102,39 @@ jobs:
           retention-days: 7
           path: artifacts/e2e/ui-experience/
 
+  package-pr:
+    needs: e2e-smoke
+    if: github.event_name == 'pull_request'
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Package macOS ARM64 preview
+        run: npx electron-builder --mac dmg zip --publish never
+
+      - name: Upload PR installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: pi-desktop-macos-arm64-pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/*
+
   package:
     needs: e2e-smoke
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
