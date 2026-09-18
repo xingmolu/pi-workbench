@@ -61,11 +61,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Electron architecture smoke
+      - name: Install Electron test runtime
+        run: node node_modules/electron/install.js
+
+      - name: Electron architecture and UI smoke
         run: >-
           xvfb-run -a npx playwright test
           tests/e2e/multi-session.spec.ts
           tests/e2e/session-task.spec.ts
+          tests/e2e/ui-experience.spec.ts
           --reporter=line
 
       - name: Upload E2E diagnostics
@@ -79,6 +83,15 @@ jobs:
             test-results/
             playwright-report/
             artifacts/e2e/
+
+      - name: Upload UI previews
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-experience-previews-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: artifacts/e2e/ui-experience/
 
   package:
     needs: e2e-smoke
