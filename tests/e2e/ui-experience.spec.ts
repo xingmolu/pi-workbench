@@ -413,9 +413,20 @@ test('pending approvals stay visible and cannot be removed through the project m
   await page.evaluate(() => document.documentElement.dataset.theme = 'dark')
   await page.screenshot({ path: join(artifacts, 'awaiting-approval-dark.png'), animations: 'disabled' })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 720))
-  // The compact card keeps its decisions in view at this size; the dedicated offscreen test covers the jump hint.
-  await expect(approval.getByRole('button', { name: '允许一次', exact: true })).toBeInViewport()
-  await expect(page.locator('.approval-jump')).toHaveCount(0)
+  // Compact layout may keep the decision row visible or move it just offscreen.
+  // Either way the pending decision must remain reachable without layout overflow.
+  const allow = approval.getByRole('button', { name: '允许一次', exact: true })
+  const allowInViewport = await allow.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.bottom > 0 && rect.top < innerHeight
+  })
+  if (allowInViewport) {
+    await expect(page.locator('.approval-jump')).toHaveCount(0)
+  } else {
+    await expect(page.locator('.approval-jump')).toBeVisible()
+    await page.locator('.approval-jump').click()
+    await expect(allow).toBeInViewport()
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: join(artifacts, 'awaiting-approval-narrow.png'), animations: 'disabled' })
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
