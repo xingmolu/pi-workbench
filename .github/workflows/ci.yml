@@ -125,12 +125,39 @@ jobs:
         run: npm run build
 
       - name: Package macOS ARM64 preview
+        env:
+          # electron-builder skips all signing on pull_request events unless this is explicit.
+          # This preview uses only the configured ad-hoc identity ("-"); no signing secret is exposed.
+          CSC_FOR_PULL_REQUEST: "true"
         run: npx electron-builder --mac dmg zip --publish never
+
+      - name: Verify preview code signature
+        run: codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Pi Desktop.app"
+
+      - name: Add PR preview instructions
+        run: |
+          cat > "dist/PR-PREVIEW-README.txt" <<'EOF'
+          Pi Desktop PR preview
+          =====================
+
+          This build is ARM64 and ad-hoc signed for pull-request testing.
+          It is NOT Apple-notarized, so macOS Gatekeeper may still block it
+          after downloading it from GitHub.
+
+          If you trust this repository and this exact CI artifact, drag
+          Pi Desktop.app to /Applications, then run:
+
+            xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+            open "/Applications/Pi Desktop.app"
+
+          A normal distributable build requires a Developer ID Application
+          certificate plus Apple notarization.
+          EOF
 
       - name: Upload PR installer
         uses: actions/upload-artifact@v7
         with:
-          name: pi-desktop-macos-arm64-pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+          name: pi-desktop-macos-arm64-pr-${{ github.event.pull_request.number }}-adhoc-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: dist/*
