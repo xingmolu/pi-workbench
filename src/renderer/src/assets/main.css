@@ -14,7 +14,7 @@
   --success: #58a96f;
   --danger: #dc6b6b;
   --warning: #d9a441;
-  --sidebar-width: 280px;
+  --sidebar-width: 248px;
   --sidebar-rail: 56px;
   --sidebar-text: #e4e4e4;
   --sidebar-secondary: #a8a8a8;
@@ -24,7 +24,7 @@
   --sidebar-meta-size: 12px;
   --workbench-width: 412px;
   --workbench-rail: 52px;
-  --font: 'PingFang SC', 'Noto Sans CJK SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --serif: 'Songti SC', 'Noto Serif CJK SC', 'STSong', serif;
   color: var(--text);
   font: 14px/1.55 var(--font);
@@ -3316,59 +3316,6 @@ button.send:disabled {
     width: min(360px, calc(100vw - 104px));
     border-left: 1px solid var(--line-soft);
   }
-}
-
-/* Adapt to the actual conversation width, including an expanded workbench.
-   Row-major placement preserves the existing keyboard order. */
-@container composer (max-width: 600px) {
-  .composer-tools {
-    display: grid;
-    grid-template-columns: 28px minmax(106px, 1fr) minmax(0, 1fr) 24px max-content 32px;
-    gap: 7px 5px;
-  }
-
-  .composer-tools > .icon-only {
-    grid-area: 1 / 1;
-  }
-
-  .composer-tools > .permission-chip {
-    grid-area: 1 / 2;
-    max-width: none;
-  }
-
-  .composer-tools > .account-chip {
-    grid-area: 1 / 3 / 2 / -1;
-    max-width: none;
-  }
-
-  .composer-tools > .model-chip {
-    grid-area: 2 / 1 / 3 / 4;
-    max-width: none;
-  }
-
-  .account-chip span,
-  .model-chip span {
-    flex: 1;
-    max-width: none;
-  }
-
-  .composer-spacer {
-    display: none;
-  }
-
-  .context-meter {
-    grid-area: 2 / 4;
-    justify-self: center;
-  }
-
-  .queue-button {
-    grid-area: 2 / 5;
-  }
-
-  .send {
-    grid-area: 2 / 6;
-  }
-
 }
 
 @media (pointer: coarse) {

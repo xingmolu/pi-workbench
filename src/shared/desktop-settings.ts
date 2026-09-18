@@ -14,14 +14,14 @@ export const desktopSettingsSchema = z.strictObject({
 })
 export type DesktopSettings = z.infer<typeof desktopSettingsSchema>
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
-  theme: 'dark',
-  messageFontSize: 14,
-  codeFontSize: 12,
+  theme: 'system',
+  messageFontSize: 15,
+  codeFontSize: 13,
   codeWrap: false,
   reducedMotion: false,
   sendShortcut: 'enter',
   workDetails: 'compact',
-  showUsage: true
+  showUsage: false
 }
 export const desktopSettingsCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('get') }),

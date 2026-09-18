@@ -1,5 +1,9 @@
+import ProjectHeader from './navigation/ProjectHeader'
+import SessionNavigationRow from './navigation/SessionNavigationRow'
+import { useNavigationLibrary } from '../store/navigation-library'
+import { presentNavigationProjects } from '../store/navigation-presentation'
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Folder, GitFork, Plus } from 'lucide-react'
+import { GitFork } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import type { ProjectCatalog, ProjectNavigationFailures } from '../../../shared/project-catalog'
 import { projectNavigationReason } from '../../../shared/project-catalog'
@@ -41,6 +45,8 @@ export default function ProjectSessionList({
   pending?: boolean
   disabledReason?: string | null
 }): React.JSX.Element {
+  const library = useNavigationLibrary((state) => state.library)
+  const libraryError = useNavigationLibrary((state) => state.error)
   const residents = usePiStore((state) => state.liveSessions)
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,7 +80,7 @@ export default function ProjectSessionList({
     return () => {
       epoch.current++
     }
-  }, [snapshot.ready, snapshot.project?.path, historyKey, retry])
+  }, [snapshot.ready, snapshot.project?.path, historyKey, retry, library.revision])
 
   const loadGroup = async (project: LiveProject, more: boolean): Promise<void> => {
     if (loadingGroups.includes(project.path)) return
@@ -138,7 +144,7 @@ export default function ProjectSessionList({
   // Keep native interaction guards; only transient pending gets stable visual styling.
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
   const navigationReason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
-  const projects = liveProjects(catalog, snapshot, residents)
+  const projects = presentNavigationProjects(liveProjects(catalog, snapshot, residents), library)
   const loaded = projects.reduce((total, project) => total + project.sessions.length, 0)
   return (
     <section
@@ -151,12 +157,13 @@ export default function ProjectSessionList({
           className="catalog-count"
           title={`已加载 ${projects.length} 个项目 · ${loaded} 个会话`}
         >
-          已加载 {projects.length} 个项目 · {loaded} 个会话
+          项目 <span className="sidebar-count">{projects.length}</span>
         </span>
         <span className="catalog-status" role="status">
           {pending ? '正在切换会话' : loading && catalog ? '更新中' : ''}
         </span>
       </div>
+      {libraryError && <p className="catalog-error" role="alert">项目偏好读取失败：{libraryError}<button onClick={() => void useNavigationLibrary.getState().hydrate()}>重试</button></p>}
       {blockReason && (
         <p className="catalog-disabled-reason" role="status">
           {blockReason}
@@ -201,40 +208,10 @@ export default function ProjectSessionList({
               key={project.path}
               data-project-path={project.path}
             >
-              <div className="project-group-head">
-                <button
-                  type="button"
-                  className="project-group-toggle"
-                  title={project.path}
-                  aria-expanded={expanded}
-                  onClick={() => toggle(project.path)}
-                >
-                  {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <Folder size={14} />
-                  <span>{project.name}</span>
-                </button>
-                <button
-                  type="button"
-                  className="project-new icon-btn"
-                  title={blocked ?? `在 ${project.name} 中新建会话`}
-                  aria-label={`在 ${project.name} 中新建会话`}
-                  disabled={Boolean(blocked)}
-                  data-navigation-pending={pendingOnly || undefined}
-                  onClick={() => onNavigate(project.path)}
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-              {(duplicateName || project.error) && (
-                <p className="project-path-hint" title={project.path}>
-                  {sidebarPathHint(
-                    project.path,
-                    projects
-                      .filter((other) => other.name === project.name)
-                      .map((other) => other.path)
-                  )}
-                </p>
-              )}
+              <ProjectHeader project={project} snapshot={snapshot} expanded={expanded}
+                hint={duplicateName ? sidebarPathHint(project.path, projects.filter((other) => other.name === project.name).map((other) => other.path)).split('/').slice(0, -1).join('/') : undefined}
+                blocked={blocked} operationReason={disabledReason ?? null} pending={pending}
+                onToggle={() => toggle(project.path)} onNew={() => onNavigate(project.path)} />
               {navigationFailures[project.path] && (
                 <p className="catalog-error" role="alert">
                   {navigationFailures[project.path].message}{' '}
@@ -277,6 +254,8 @@ export default function ProjectSessionList({
                       session.status
                     )
                     return (
+                      <SessionNavigationRow key={session.workerId ?? session.path ?? session.id}
+                        session={session} cwd={project.path} blocked={rowBlocked}>
                       <button
                         type="button"
                         key={session.workerId ?? session.path ?? session.id}
@@ -305,6 +284,7 @@ export default function ProjectSessionList({
                           <time dateTime={session.modified}>{relativeTime(session.modified)}</time>
                         )}
                       </button>
+                      </SessionNavigationRow>
                     )
                   })}
                   {!matching.length && <p className="project-group-empty">暂无会话</p>}
@@ -321,7 +301,7 @@ export default function ProjectSessionList({
                         )
                       }
                     >
-                      {showHistory ? '收起历史' : '展开显示'}
+                      {showHistory ? '收起历史' : '显示更多历史'}
                     </button>
                   )}
                   {project.nextOffset !== null && !hasHiddenHistory && (

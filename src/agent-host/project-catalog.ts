@@ -1,3 +1,4 @@
+import { comparePinned, projectDisplayName, projectIsHidden, sessionIsArchived, type NavigationLibraryState } from '../shared/navigation-library.ts'
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import type { SessionManager } from '@earendil-works/pi-coding-agent'
@@ -17,6 +18,7 @@ type CatalogOptions = ProjectCatalogQuery & {
   manager: Pick<typeof SessionManager, 'listAll'>
   agentDir: string
   recentPaths: string[]
+  navigation?: NavigationLibraryState
   normalize?: (path: string) => Promise<string | null>
   directories?: (path: string) => Promise<string[]>
   onSkippedDirectory?: () => void
@@ -82,25 +84,27 @@ export async function readProjectCatalog(options: CatalogOptions): Promise<Proje
     if (!isAbsolute(session.cwd) || !isAbsolute(session.path)) continue
     projects.get(canonical.get(session.cwd) ?? resolve(session.cwd))?.sessions.push(session)
   }
-  const visible = [...projects].slice(0, 100)
+  const visible = [...projects].filter(([path]) => options.includeHidden || !projectIsHidden(options.navigation, path))
+    .sort(([left], [right]) => comparePinned(options.navigation?.projects[left], options.navigation?.projects[right]))
   const requestedCwd = options.cwd
     ? ((await normalize(options.cwd)) ?? resolve(options.cwd))
     : undefined
   return {
-    totalProjects: projects.size,
-    truncated: projects.size > 100,
+    totalProjects: visible.length,
+    truncated: !requestedCwd && visible.length > 100,
     ...(skippedDirectories ? {skippedDirectories} : {}),
     projects: visible
       .filter(([path]) => !requestedCwd || path === requestedCwd)
+      .slice(0, 100)
       .map(([path, group]) => {
-        const sessions = group.sessions.sort(
-          (a, b) => b.modified.getTime() - a.modified.getTime() || a.path.localeCompare(b.path)
-        )
+        const sessions = group.sessions
+          .filter((session) => options.includeArchived || !sessionIsArchived(options.navigation, session.path))
+          .sort((a, b) => comparePinned(options.navigation?.sessions[a.path], options.navigation?.sessions[b.path]) || b.modified.getTime() - a.modified.getTime() || a.path.localeCompare(b.path))
         const offset = options.offset ?? 0
         const end = Math.min(sessions.length, offset + 50)
         return {
           path,
-          name: basename(path) || path,
+          name: projectDisplayName(options.navigation, path, basename(path) || path),
           totalSessions: sessions.length,
           nextOffset: end < sessions.length ? end : null,
           ...(!group.available ? { error: 'directory-unavailable' as const } : {}),
@@ -116,7 +120,7 @@ export async function readProjectCatalog(options: CatalogOptions): Promise<Proje
             active: false,
             status: 'idle' as const,
             ...(session.parentSessionPath
-              ? sessions.some((parent) => parent.path === session.parentSessionPath)
+              ? group.sessions.some((parent) => parent.path === session.parentSessionPath)
                 ? { parentSessionPath: session.parentSessionPath }
                 : { parentUnavailable: true }
               : {})

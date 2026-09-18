@@ -1,10 +1,12 @@
 import type { AgentSnapshot, SessionSummary } from './contracts'
 
-export type ProjectCatalogQuery = { cwd?: string; offset?: number }
+export type ProjectCatalogQuery = { cwd?: string; offset?: number; includeHidden?: boolean; includeArchived?: boolean }
 export type ProjectNavigationFailures = Record<string, { message: string; sessionPath?: string }>
 export type ProjectCatalogCommand = ProjectCatalogQuery & {
   type: 'project:catalog'
   recentPaths?: string[]
+  /** Main injects trusted desktop presentation state before dispatching to the catalog host. */
+  navigation?: import('./navigation-library').NavigationLibraryState
 }
 export type ProjectNavigateCommand = {
   type: 'project:navigate'

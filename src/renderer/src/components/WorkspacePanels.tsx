@@ -1,3 +1,5 @@
+import { useNavigationLibrary } from '../store/navigation-library'
+import { performNavigationAction } from '../store/navigation-feedback'
 import {
   createContext,
   useContext,
@@ -26,7 +28,11 @@ export default function WorkspacePanels({
   const panel = useRef<PanelImperativeHandle | null>(null)
   const group = useRef<HTMLDivElement | null>(null)
   const separator = useRef<HTMLDivElement | null>(null)
-  const expandedWidth = useRef(412)
+  const storedWidth = useNavigationLibrary((state) => state.library.layout.workbenchWidth ?? 440)
+  const expandedWidth = useRef(storedWidth)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => { expandedWidth.current = storedWidth }, [storedWidth])
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
   const [resizing, setResizing] = useState(false)
   useLayoutEffect(() => {
     // Panel constraints are registered by the library during this layout commit.
@@ -58,9 +64,14 @@ export default function WorkspacePanels({
         onLayoutChanged={(layout, { isUserInteraction }) => {
           // The callback can precede React's DOM commit, so getSize() can still
           // report the previous pixels. Convert the supplied, committed layout.
-          if (!collapsed && isUserInteraction && group.current && separator.current)
-            expandedWidth.current =
-              (layout.workbench / 100) * (group.current.clientWidth - separator.current.offsetWidth)
+          if (!collapsed && isUserInteraction && group.current && separator.current) {
+            expandedWidth.current = (layout.workbench / 100) * (group.current.clientWidth - separator.current.offsetWidth)
+            if (saveTimer.current) clearTimeout(saveTimer.current)
+            saveTimer.current = setTimeout(() => {
+              const width = Math.round(Math.min(1200, Math.max(252, expandedWidth.current)))
+              void performNavigationAction({ type: 'layout:save', layout: { workbenchWidth: width } })
+            }, 350)
+          }
         }}
       >
         <ResizablePanel id="conversation" minSize="420px" className="conversation-panel">

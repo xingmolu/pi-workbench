@@ -1,3 +1,4 @@
+import { navigationLibrarySchema } from './navigation-library'
 import { z } from 'zod'
 import { sessionSearchCommandSchema, projectSearchCommandSchema, sessionSearchResultSchema, projectSearchResultSchema } from './session-search'
 import { skillsListSchema, skillsDetailSchema, skillsCatalogSchema, skillDetailSchema } from './skills'
@@ -525,7 +526,10 @@ const projectCatalogCommandSchema = z.object({
   type: z.literal('project:catalog'),
   cwd: z.string().min(1).optional(),
   offset: z.number().int().min(0).max(1_000_000).optional(),
-  recentPaths: z.array(z.string().min(1)).max(100).optional()
+  recentPaths: z.array(z.string().min(1)).max(100).optional(),
+  includeHidden: z.boolean().optional(),
+  includeArchived: z.boolean().optional(),
+  navigation: navigationLibrarySchema.optional()
 }).strict()
 const projectNavigateCommandSchema = z.object({
   type: z.literal('project:navigate'),

@@ -87,6 +87,29 @@ export class SessionWorkerPool {
     return this.selection && { ...this.selection }
   }
 
+  get selectionEpoch(): number { return this.epoch }
+
+  clearSelection(expected: SelectedSessionScope | null): number {
+    this.validateSelected(expected)
+    this.selection = null
+    return ++this.epoch
+  }
+
+  /** Hiding navigation must never conceal in-flight work, approval or uncertain receipts. */
+  navigationMutationReason(cwd: string, path?: string): string | null {
+    if (this.admissions) return '正在打开会话，请稍后重试'
+    for (const owner of this.residents.values()) {
+      if (owner.cwd !== cwd || (path && owner.path !== path)) continue
+      const s = owner.snapshot
+      if (!s || owner.disposing || owner.pending || !s.ready) return '会话正在处理操作，请稍后重试'
+      if (s.busy || s.status === 'running' || s.queuedCount || s.followUp.length) return '项目仍有运行或排队中的任务，请先停止或等待完成'
+      if (s.approvals.length || s.status === 'awaiting-approval') return '项目仍有待确认操作，请先处理'
+      if (s.edit?.pending || s.loginPrompt || !['idle', 'success', 'error'].includes(s.login.phase)) return '请先完成编辑或登录'
+      if (owner.safety.receipts !== 'settled' || owner.unreconciledRequest) return '操作结果尚未确认，请先完成恢复'
+    }
+    return null
+  }
+
   validateSelected(scope: SelectedSessionScope | null): void {
     if (!sameSelectedScope(scope, this.selection)) throw new Error('Stale selection')
   }

@@ -1,3 +1,4 @@
+import { useNavigationLibrary } from '../store/navigation-library'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Command } from 'cmdk'
@@ -46,6 +47,8 @@ export default function GlobalCommandPalette({
   onChooseProject,
   onSearchFiles
 }: Props): React.JSX.Element {
+  const [includeRemoved, setIncludeRemoved] = useState(false)
+  const libraryRevision = useNavigationLibrary((state) => state.library.revision)
   const [mode, setMode] = useState<'sessions' | 'projects'>('sessions')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState('')
@@ -67,7 +70,7 @@ export default function GlobalCommandPalette({
   const identity = identityOf(snapshot)
   const source = useRef(identity)
   source.current = identity
-  const key = JSON.stringify([mode, query, identity, retry])
+  const key = JSON.stringify([mode, query, identity, retry, includeRemoved, libraryRevision])
   const current = result?.key === key ? result : null
   const navigationReason = disabledReason ?? projectNavigationReason(snapshot)
   const initialIdentity = useRef(identity)
@@ -86,8 +89,8 @@ export default function GlobalCommandPalette({
       () => {
         const command =
           mode === 'sessions'
-            ? ({ type: 'session:search', query, limit: 50 } as const)
-            : ({ type: 'project:search', query, limit: 50 } as const)
+            ? ({ type: 'session:search', query, limit: 50, includeHidden: includeRemoved, includeArchived: includeRemoved } as const)
+            : ({ type: 'project:search', query, limit: 50, includeHidden: includeRemoved, includeArchived: includeRemoved } as const)
         void window.pi
           .send(command)
           .then((response) => {
@@ -243,6 +246,8 @@ export default function GlobalCommandPalette({
           <Dialog.Description id="command-description" className="command-sr-only">
             搜索所有项目中的会话标题。上下键选择，回车打开，Escape 关闭。
           </Dialog.Description>
+          <label className="command-include-removed"><input type="checkbox" checked={includeRemoved}
+            onChange={(event) => { epoch.current.invalidate(); setIncludeRemoved(event.target.checked) }} />包含已移除项目与归档会话</label>
           <Command
             shouldFilter={false}
             loop

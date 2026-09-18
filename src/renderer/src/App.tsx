@@ -1,3 +1,6 @@
+import { useNavigationLibrary } from './store/navigation-library'
+import NavigationFeedback from './components/navigation/NavigationFeedback'
+import './assets/navigation.css'
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
 import { PanelRight } from 'lucide-react'
@@ -95,6 +98,8 @@ export default function App(): React.JSX.Element {
   const workbenchRevision = useRef(-1)
   const availableWorkbenchViews = useRef<readonly string[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  useEffect(() => { void useNavigationLibrary.getState().hydrate() }, [])
+  useEffect(() => { if (!snapshot.project) setWorkbenchOpen(false) }, [snapshot.project?.path])
   const desktopSettings = useDesktopSettings((state) => state.settings)
   useEffect(() => {
     if (!useDesktopSettings.getState().hasLoaded) void useDesktopSettings.getState().hydrate()
@@ -139,6 +144,7 @@ export default function App(): React.JSX.Element {
       }
       if (event.event === 'disconnected') disconnect(event.data.message)
       if (event.event === 'sessions') usePiStore.getState().setLiveSessions(event.data)
+      if (event.event === 'navigation-library') useNavigationLibrary.getState().accept(event.data)
       if (event.event === 'snapshot') setSnapshot(event.data)
       if (event.event === 'patch' && applyPatch(event.data) === 'needsSnapshot') {
         void window.pi
@@ -500,6 +506,7 @@ export default function App(): React.JSX.Element {
           }}
         />
       )}
+      <NavigationFeedback />
       <SettingsDialog
         skillsContent={
           <SkillsSettings

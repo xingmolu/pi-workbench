@@ -6,6 +6,7 @@ import type { LiveSessionSummary } from '../../../shared/session-runtime'
 export type LiveSessionRow = Omit<SessionSummary, 'path'> & {
   path: string | null
   workerId?: string
+  pinned?: boolean
   sessionTask?: LiveSessionSummary['sessionTask']
 }
 export type LiveProject = Omit<CatalogProject, 'sessions'> & { sessions: LiveSessionRow[] }
@@ -67,7 +68,7 @@ export function liveProjects(
     if (!project) {
       project = {
         path: resident.cwd,
-        name: resident.cwd.split('/').filter(Boolean).at(-1) ?? resident.cwd,
+        name: resident.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? resident.cwd,
         sessions: [],
         totalSessions: 0,
         nextOffset: null

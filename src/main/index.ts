@@ -1,3 +1,5 @@
+import { NAVIGATION_LIBRARY_CHANNEL, projectIsHidden } from '../shared/navigation-library'
+import { NavigationLibrary } from './navigation-library'
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
 import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
 import { SessionWorkerController } from './session-worker-controller'
@@ -306,6 +308,7 @@ const workbenchPanelIpc = createWorkbenchPanelIpcRouter({
 
 type Preferences = {
   desktopSettings?: import('../shared/desktop-settings').DesktopSettings
+  navigationLibrary?: import('../shared/navigation-library').NavigationLibraryState
   recentProjects?: string[]
   lastProjectPath?: string
   workbenchDesktopEnabled?: Record<string, boolean>
@@ -355,6 +358,10 @@ function updateWorkbenchContext(): void {
 }
 
 function forwardEvent(event: DesktopEvent): void {
+  if (!sessionWorkers.hasSelection) {
+    if (event.event === 'snapshot') event = { ...event, data: { ...event.data, desktopEpoch: sessionWorkers.selectionEpoch } }
+    if (event.event === 'patch') event = { ...event, data: { ...event.data, meta: { ...event.data.meta, desktopEpoch: sessionWorkers.selectionEpoch } } }
+  }
   if (event.event === 'snapshot' || event.event === 'patch') {
     const nextIdentity = {
       sessionId: event.data.sessionId,
@@ -598,6 +605,8 @@ async function callLobby(command: HostCommand): Promise<HostResult> {
 
 async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnapshot> {
   const result = await callHost(command)
+  if (result.kind === 'snapshot' && !sessionWorkers.hasSelection)
+    result.snapshot = { ...result.snapshot, desktopEpoch: sessionWorkers.selectionEpoch }
   if (result.kind !== 'snapshot') {
     throw new Error(`Agent Host 未返回状态快照：${command.type}`)
   }
@@ -624,14 +633,75 @@ function preferenceStore(): ElectronStore<Preferences> {
   return preferences
 }
 
+let nativeNavigationLibrary: NavigationLibrary | null = null
+function navigationLibrary(): NavigationLibrary {
+  return nativeNavigationLibrary ??= new NavigationLibrary({
+    store: preferenceStore(),
+    mutationReason: (cwd, path) => {
+      if (globalConfiguration.busy) return '配置正在更新，请稍后重试'
+      if (activeProjectPath === cwd && (!path || activeSessionPath === path) && !lobbySnapshot?.ready)
+        return '工作区首页尚未就绪，请稍后重试'
+      for (const worker of sessionWorkers.getLiveSummaries())
+        if (worker.cwd === cwd && (!path || worker.sessionPath === path)) refreshWorkerSafety(worker.workerId)
+      return sessionWorkers.navigationMutationReason(cwd, path)
+    },
+    renamedSession: async (cwd, path, name) => {
+      if (globalConfiguration.busy) throw new Error('配置正在更新，请稍后重试')
+      const { workerId, snapshot } = await sessionWorkers.openBackground({ cwd, path })
+      const reason = sessionWorkers.navigationMutationReason(cwd, path)
+      if (reason) throw new Error(reason)
+      if (!snapshot.sessionId) throw new Error('会话尚未保存，不能重命名')
+      await sessionWorkers.requestWorker(workerId, {
+        type: 'session:rename', sessionId: snapshot.sessionId, generation: snapshot.generation, name
+      }, { sessionId: snapshot.sessionId, generation: snapshot.generation })
+    },
+    hiddenProject: (cwd) => {
+      const store = preferenceStore()
+      store.set('recentProjects', (store.get('recentProjects') ?? []).filter((path) => path !== cwd))
+      if (store.get('lastProjectPath') === cwd) store.delete('lastProjectPath')
+      closeWorkspaceForNavigation(cwd)
+    },
+    archivedSession: (cwd, path) => closeWorkspaceForNavigation(cwd, path),
+    reveal: async (cwd) => {
+      const canonical = await resolveExistingProjectPath(cwd)
+      if (!canonical) throw new Error('项目目录不存在或不可访问；可以从侧栏移除后重新添加')
+      const error = await shell.openPath(canonical)
+      if (error) throw new Error('无法打开项目目录：' + error)
+    },
+    copyPath: (cwd) => clipboard.writeText(cwd),
+    changed: (data) => forwardEvent({ type: 'event', event: 'navigation-library', data })
+  })
+}
+
+/** Detach the foreground only; resident workers, drafts and on-disk history are retained. */
+function closeWorkspaceForNavigation(cwd: string, path?: string): void {
+  const scope = sessionWorkers.selectedScope
+  const selected = scope ? sessionWorkers.tryGetSnapshot(scope.workerId) : null
+  const selectedCwd = selected?.project?.path ?? (!scope ? recoveryTarget?.project : null)
+  const selectedPath = selected?.activeSessionPath ?? (!scope ? recoveryTarget?.session : null)
+  if (selectedCwd !== cwd || (path && selectedPath !== path)) return
+  if (!lobbySnapshot?.ready) throw new Error('工作区首页尚未就绪')
+  const desktopEpoch = sessionWorkers.clearSelection(scope)
+  selectedWorkerId = null
+  lastSelectionEpoch = desktopEpoch
+  recoveryTarget = null
+  browserManager?.abortAgent()
+  nativePaletteFocus.invalidate()
+  packageRootsLifecycle.hostExited()
+  packageRootsLifecycle.hostStarted()
+  preferenceStore().delete('lastProjectPath')
+  forwardEvent({ type: 'event', event: 'snapshot', data: { ...lobbySnapshot, desktopEpoch } })
+}
+
 async function openCanonicalProject(canonicalPath: string, expected = sessionWorkers.pool.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
-  const catalog = await callLobby({ type: 'project:catalog', cwd: canonicalPath })
+  const catalog = await callLobby({ type: 'project:catalog', cwd: canonicalPath, includeHidden: true, navigation: navigationLibrary().read() })
   sessionWorkers.pool.validateSelected(expected)
   if (catalog.kind !== 'project-catalog') throw new Error('项目会话目录不可读取')
   const path = catalog.catalog.projects.find(project => project.path === canonicalPath)?.sessions[0]?.path
   const snapshot = await openWorker({ cwd: canonicalPath, ...(path ? { path } : {}) }, expected, undefined, origin)
   const persistedPath = pathToPersistAfterOpen(canonicalPath, snapshot)
   if (!persistedPath) throw new Error('Agent Host 未确认所选工作区')
+  navigationLibrary().restoreAfterOpen(persistedPath, snapshot.activeSessionPath)
   preferenceStore().set('lastProjectPath', persistedPath)
   preferenceStore().set('recentProjects', mergeRecentProjects(preferenceStore().get('recentProjects'), persistedPath))
   return snapshot
@@ -768,6 +838,12 @@ async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
     return null
   }
 
+  // A legacy recent-project entry can be a symlink spelling of a hidden directory.
+  if (projectIsHidden(navigationLibrary().read(), canonicalPath)) {
+    store.delete('lastProjectPath')
+    return null
+  }
+
   try {
     return await openCanonicalProject(canonicalPath)
   } catch (error) {
@@ -871,6 +947,10 @@ function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(NAVIGATION_LIBRARY_CHANNEL, (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    return navigationLibrary().dispatch(command)
+  })
   ipcMain.handle(DESKTOP_SETTINGS_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     const settings = handleDesktopSettings(preferenceStore(), command)
@@ -1117,9 +1197,14 @@ function registerIpc(): void {
     try { resident = !!sessionWorkers.pool.getSnapshot(workerId) } catch { /* A crashed saved session can be explicitly reopened. */ }
     if (!resident) {
       const failed = sessionWorkers.pool.getLiveSummaries().find(worker => worker.workerId === workerId)
-      if (failed?.sessionPath) return openWorker({ cwd: failed.cwd, path: failed.sessionPath }, captured, undefined, origin)
+      if (failed?.sessionPath) return openWorker({ cwd: failed.cwd, path: failed.sessionPath }, captured, undefined, origin).then((snapshot) => {
+        if (snapshot.project) navigationLibrary().restoreAfterOpen(snapshot.project.path, snapshot.activeSessionPath)
+        return snapshot
+      })
     }
-    return sessionWorkers.select(workerId, origin)
+    const selected = sessionWorkers.select(workerId, origin)
+    if (selected.project) navigationLibrary().restoreAfterOpen(selected.project.path, selected.activeSessionPath)
+    return selected
   })
   ipcMain.handle('pi:command', async (event, command: HostCommand, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)
@@ -1136,7 +1221,7 @@ function registerIpc(): void {
       return { kind: 'snapshot', snapshot } satisfies HostResult
     }
     if (parsed.data.type === 'project:catalog' || parsed.data.type === 'session:search' || parsed.data.type === 'project:search') {
-      return callLobby({...parsed.data,recentPaths:mergeRecentProjects(preferenceStore().get('recentProjects'),preferenceStore().get('lastProjectPath'))})
+      return callLobby({...parsed.data, navigation: navigationLibrary().read(), recentPaths:mergeRecentProjects(preferenceStore().get('recentProjects'),preferenceStore().get('lastProjectPath'))})
     }
     if (parsed.data.type === 'project:navigate') {
       const command = parsed.data
@@ -1145,6 +1230,7 @@ function registerIpc(): void {
         if (!cwd) throw new Error('所选项目目录不可用，请重试')
         const snapshot = await openWorker({ cwd, ...(command.sessionPath ? { path: command.sessionPath } : {}) }, captured, undefined, origin)
         if (snapshot.project?.path === cwd) {
+          navigationLibrary().restoreAfterOpen(cwd, snapshot.activeSessionPath)
           preferenceStore().set('lastProjectPath',cwd)
           preferenceStore().set('recentProjects',mergeRecentProjects(preferenceStore().get('recentProjects'),cwd))
         }
@@ -1229,7 +1315,7 @@ function registerIpc(): void {
 
 function updateWindowBackgrounds(): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#fafaf9')
+    if (!window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#181818' : '#ffffff')
   }
 }
 function createWindow(): void {
@@ -1242,7 +1328,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     title: 'Pi Desktop',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#fafaf9',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#181818' : '#ffffff',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -1401,6 +1487,7 @@ app.whenReady().then(async () => {
   preferences = new Store<Preferences>({
     name: 'pi-desktop-preferences',
     schema: {
+      navigationLibrary: { type: 'object' },
       lastProjectPath: { type: 'string' },
       recentProjects: { type: 'array', items: {type:'string'}, maxItems:100 },
       workbenchDesktopEnabled: {

@@ -101,6 +101,11 @@ export const usePiStore = create<PiStore>((set) => ({
       const current = state.snapshot
       const incoming = snapshot.desktopScope
       const selected = current.desktopScope
+      const currentEpoch = selected?.selectionEpoch ?? current.desktopEpoch ?? 0
+      const incomingEpoch = incoming?.selectionEpoch ?? snapshot.desktopEpoch ?? 0
+      if (incomingEpoch < currentEpoch) return state
+      if (snapshot.desktopEpoch !== undefined && !incoming && incomingEpoch > currentEpoch)
+        return { snapshot, disconnected: false, loading: false, clientError: null }
       if (
         state.disconnected &&
         !(
@@ -137,6 +142,10 @@ export const usePiStore = create<PiStore>((set) => ({
       if (state.disconnected) return state
       const selected = state.snapshot.desktopScope
       const incoming = patch.meta.desktopScope
+      const currentEpoch = selected?.selectionEpoch ?? state.snapshot.desktopEpoch ?? 0
+      const incomingEpoch = incoming?.selectionEpoch ?? patch.meta.desktopEpoch ?? 0
+      if (incomingEpoch < currentEpoch) return state
+      if (incomingEpoch > currentEpoch) { status = 'needsSnapshot'; return state }
       if (selected && !sameSelectedScope(selected, incoming ?? null)) {
         status =
           incoming && incoming.selectionEpoch > selected.selectionEpoch
