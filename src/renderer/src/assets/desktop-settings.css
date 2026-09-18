@@ -1,19 +1,19 @@
 .desktop-preferences h2 {
-  margin: 0 0 8px;
-  font-size: 20px;
+  margin: 0 0 6px;
+  font-size: 18px;
 }
 .desktop-preferences fieldset {
   border: 0;
   padding: 0;
-  margin: 22px 0;
+  margin: 12px 0;
   min-width: 0;
 }
 .desktop-preference-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 28px;
-  padding: 20px 0;
+  gap: 20px;
+  padding: 14px 0;
   border-bottom: 1px solid var(--line);
 }
 .desktop-preference-row strong {
@@ -23,15 +23,15 @@
 }
 .desktop-preference-row small {
   display: block;
-  margin-top: 7px;
+  margin-top: 4px;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.5;
   font-size: 12px;
 }
 .desktop-preference-row select {
   max-width: 200px;
   flex-shrink: 0;
-  padding: 8px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   background: var(--composer);
   color: var(--text);
@@ -48,13 +48,14 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  padding-top: 2px;
   color: var(--muted);
   font-size: 12px;
 }
 .desktop-preferences button {
   display: inline-flex;
-  min-height: 31px;
+  min-height: 30px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -110,14 +111,14 @@
   margin: 0;
 }
 .settings-card {
-  margin: 0 0 16px;
-  padding: 2px 16px 10px;
+  margin: 0 0 12px;
+  padding: 2px 14px 8px;
   background: var(--canvas);
   border: 1px solid var(--line);
   border-radius: 12px;
 }
 .settings-card > .desktop-preference-row {
-  padding: 16px 0 12px;
+  padding: 13px 0 10px;
   border-bottom: 0;
 }
 .settings-card-body {
@@ -276,19 +277,14 @@
   font-size: 12px;
 }
 .desktop-reading-preview {
-  padding: 16px 20px;
-  margin-top: 24px;
+  padding: 14px 16px;
+  margin-top: 18px;
   background: var(--canvas);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 .desktop-reading-preview pre {
   overflow: auto;
-}
-.settings-navigation .settings-group-label {
-  margin: 12px;
-  color: var(--muted);
-  font-size: 11px;
 }
 .conversation-scroll .assistant-node,
 .conversation-scroll .user-node,

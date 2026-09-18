@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Check, Copy, LoaderCircle, ShieldQuestion } from 'lucide-react'
+import { Check, Copy, LoaderCircle } from 'lucide-react'
 import type { ApprovalRequest } from '../../../shared/contracts'
 import { approvalSummary } from '../store/conversation-presentation'
 import { approvalPreview } from '../store/approval-presentation'
@@ -7,7 +7,7 @@ import '../assets/approval.css'
 
 export type ApprovalHandler = (id: string, allow: boolean) => Promise<boolean> | void
 
-/** One decision surface per request. An acknowledgement is not execution success. */
+/** One compact decision surface per request. An acknowledgement is not execution success. */
 export default function ApprovalCard({
   request,
   projectPath,
@@ -26,12 +26,14 @@ export default function ApprovalCard({
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const preview = approvalPreview(request)
+
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
     }
   }, [])
+
   useEffect(() => {
     if (!copied) return
     const timeout = setTimeout(() => setCopied(false), 1800)
@@ -56,6 +58,7 @@ export default function ApprovalCard({
       }
     }
   }
+
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(preview.text)
@@ -72,58 +75,45 @@ export default function ApprovalCard({
       tabIndex={-1}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      aria-busy={decision !== null || undefined}
+      aria-busy={decision !== null ? true : undefined}
     >
       <header className="approval-heading">
-        <span className="approval-symbol" aria-hidden="true">
-          <ShieldQuestion size={18} />
-        </span>
-        <div className="approval-heading-copy">
-          <div className="approval-kicker">需要你的确认</div>
-          <h3 id={titleId}>{approvalSummary(request)}</h3>
-        </div>
-        <span className="approval-scope">仅本次操作</span>
+        <h3 id={titleId}>{approvalSummary(request)}</h3>
       </header>
-      <p className="approval-description" id={descriptionId}>
-        Pi 已暂停此操作，确认后才会执行。
+      <p className="sr-only" id={descriptionId}>
+        仅本次操作。Pi 已暂停此操作，确认后才会执行。
+        {projectPath ? <> 会话目录：{projectPath}。</> : null}
       </p>
       <div className="approval-preview">
-        <div className="approval-preview-header">
-          <span>{preview.label}</span>
-          <span className="approval-tool-name">{request.toolName}</span>
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="复制操作内容"
-            onClick={() => void copy()}
-          >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-          </button>
-          <span className="sr-only" role="status">
-            {copied ? '已复制操作内容' : ''}
-          </span>
-        </div>
         <pre tabIndex={0} aria-label={preview.label}>
           {preview.text}
         </pre>
+        <button
+          type="button"
+          className="icon-btn approval-copy"
+          aria-label="复制操作内容"
+          onClick={() => void copy()}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+        <span className="sr-only" role="status">
+          {copied ? '已复制操作内容' : ''}
+        </span>
       </div>
-      {preview.parameters !== null && (
-        <details className="approval-parameters" open>
+      {preview.parameters !== null ? (
+        <details className="approval-parameters">
           <summary>完整操作参数</summary>
           <pre tabIndex={0} aria-label="完整操作参数">
             {preview.parameters}
           </pre>
         </details>
-      )}
-      {error && (
+      ) : null}
+      {error ? (
         <p className="approval-error" role="alert">
           {error}
         </p>
-      )}
+      ) : null}
       <footer className="approval-footer">
-        <span className="approval-project" title={projectPath}>
-          {projectPath ? `会话目录 · ${projectPath}` : '本次确认不会更改默认权限'}
-        </span>
         <div className="approval-actions" data-approval-actions={request.id}>
           <button
             type="button"
@@ -132,7 +122,7 @@ export default function ApprovalCard({
             onClick={() => void respond(false)}
           >
             {decision === 'deny' && !submitted ? (
-              <LoaderCircle className="approval-spinner" size={14} aria-hidden="true" />
+              <LoaderCircle className="approval-spinner" size={13} aria-hidden="true" />
             ) : null}
             拒绝
           </button>
@@ -143,7 +133,7 @@ export default function ApprovalCard({
             onClick={() => void respond(true)}
           >
             {decision === 'allow' && !submitted ? (
-              <LoaderCircle className="approval-spinner" size={14} aria-hidden="true" />
+              <LoaderCircle className="approval-spinner" size={13} aria-hidden="true" />
             ) : null}
             允许一次
           </button>

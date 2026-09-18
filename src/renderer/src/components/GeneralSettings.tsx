@@ -1,4 +1,8 @@
 import type { ReactNode } from 'react'
+import {
+  DEFAULT_DESKTOP_SETTINGS,
+  type DesktopSettings
+} from '../../../shared/desktop-settings'
 import { useDesktopSettings } from '../store/desktop-settings'
 import '../assets/desktop-settings.css'
 
@@ -21,18 +25,21 @@ export function PreferenceRow({
     </label>
   )
 }
+
 export function PreferencesFrame({
   title,
+  resetPatch,
   children
 }: {
   title: string
+  resetPatch: Partial<DesktopSettings>
   children: ReactNode
 }): React.JSX.Element {
-  const { status, error, hydrate, reset } = useDesktopSettings()
+  const { status, error, hydrate, save } = useDesktopSettings()
   return (
     <section className="desktop-preferences">
       <h2>{title}</h2>
-      <p className="inline-hint">仅影响 Pi Desktop；保存后立即生效。</p>
+      <p className="inline-hint">仅影响 Pi Desktop；修改后立即保存并生效。</p>
       {error ? (
         <div role="alert">
           偏好读取或保存失败：{error}
@@ -50,19 +57,31 @@ export function PreferencesFrame({
                 ? '已与本机保存的设置同步'
                 : '未确认保存，请重新读取'}
         </span>
-        <button disabled={status !== 'ready'} onClick={() => void reset()}>
-          恢复 Desktop 默认设置
+        <button
+          className="secondary-button"
+          disabled={status !== 'ready'}
+          onClick={() => void save(resetPatch)}
+        >
+          恢复默认
         </button>
       </footer>
     </section>
   )
 }
+
+const generalDefaults: Partial<DesktopSettings> = {
+  sendShortcut: DEFAULT_DESKTOP_SETTINGS.sendShortcut,
+  workDetails: DEFAULT_DESKTOP_SETTINGS.workDetails,
+  showUsage: DEFAULT_DESKTOP_SETTINGS.showUsage
+}
+
 export default function GeneralSettings(): React.JSX.Element {
   const { settings, save } = useDesktopSettings()
   return (
-    <PreferencesFrame title="常规">
+    <PreferencesFrame title="常规" resetPatch={generalDefaults}>
       <PreferenceRow label="发送快捷键" description="Shift + Enter 始终换行；输入法选词不会发送。">
         <select
+          aria-label="发送快捷键"
           value={settings.sendShortcut}
           onChange={(e) =>
             void save({ sendShortcut: e.target.value as 'enter' | 'modifier-enter' })
@@ -74,6 +93,7 @@ export default function GeneralSettings(): React.JSX.Element {
       </PreferenceRow>
       <PreferenceRow label="工作详情" description="工作过程的默认展开方式；单独展开或收起的选择优先。">
         <select
+          aria-label="工作详情"
           value={settings.workDetails}
           onChange={(e) => void save({ workDetails: e.target.value as 'compact' | 'expanded' })}
         >
@@ -86,6 +106,7 @@ export default function GeneralSettings(): React.JSX.Element {
         description="在输入框下方显示用量；不影响统计收集和 Context。"
       >
         <input
+          aria-label="显示用量统计"
           type="checkbox"
           checked={settings.showUsage}
           onChange={(e) => void save({ showUsage: e.target.checked })}

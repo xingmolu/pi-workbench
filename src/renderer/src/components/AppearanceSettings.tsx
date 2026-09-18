@@ -1,12 +1,23 @@
+import {
+  DEFAULT_DESKTOP_SETTINGS,
+  type DesktopSettings
+} from '../../../shared/desktop-settings'
 import { useDesktopSettings } from '../store/desktop-settings'
 import { PreferenceRow, PreferencesFrame } from './GeneralSettings'
-import type { DesktopSettings } from '../../../shared/desktop-settings'
 import { HighlightedCode } from './HighlightedCode'
+
+const appearanceDefaults: Partial<DesktopSettings> = {
+  theme: DEFAULT_DESKTOP_SETTINGS.theme,
+  messageFontSize: DEFAULT_DESKTOP_SETTINGS.messageFontSize,
+  codeFontSize: DEFAULT_DESKTOP_SETTINGS.codeFontSize,
+  codeWrap: DEFAULT_DESKTOP_SETTINGS.codeWrap,
+  reducedMotion: DEFAULT_DESKTOP_SETTINGS.reducedMotion
+}
 
 export default function AppearanceSettings(): React.JSX.Element {
   const { settings, save } = useDesktopSettings()
   return (
-    <PreferencesFrame title="外观">
+    <PreferencesFrame title="外观" resetPatch={appearanceDefaults}>
       <PreferenceRow label="主题" description="深色、浅色或实时跟随系统外观；不会修改系统设置。">
         <select
           aria-label="主题"
@@ -20,6 +31,7 @@ export default function AppearanceSettings(): React.JSX.Element {
       </PreferenceRow>
       <PreferenceRow label="消息字号" description="调整对话正文，不改变窗口或其他面板字号。">
         <select
+          aria-label="消息字号"
           value={settings.messageFontSize}
           onChange={(e) => void save({ messageFontSize: Number(e.target.value) })}
         >
@@ -32,6 +44,7 @@ export default function AppearanceSettings(): React.JSX.Element {
       </PreferenceRow>
       <PreferenceRow label="代码字号" description="调整对话中的代码阅读大小。">
         <select
+          aria-label="代码字号"
           value={settings.codeFontSize}
           onChange={(e) => void save({ codeFontSize: Number(e.target.value) })}
         >
@@ -44,6 +57,7 @@ export default function AppearanceSettings(): React.JSX.Element {
       </PreferenceRow>
       <PreferenceRow label="代码默认换行" description="长代码默认自动换行；每个代码块可独立切换。">
         <input
+          aria-label="代码默认换行"
           type="checkbox"
           checked={settings.codeWrap}
           onChange={(e) => void save({ codeWrap: e.target.checked })}
@@ -54,6 +68,7 @@ export default function AppearanceSettings(): React.JSX.Element {
         description="减少界面动画与过渡；同时尊重系统的减少动态效果设置。"
       >
         <input
+          aria-label="减少动态效果"
           type="checkbox"
           checked={settings.reducedMotion}
           onChange={(e) => void save({ reducedMotion: e.target.checked })}

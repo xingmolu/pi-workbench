@@ -8,6 +8,7 @@ import {
   type McpSummary
 } from '../../../shared/mcp'
 import { projectNavigationReason } from '../../../shared/project-catalog'
+import { confirmDiscardSettingsDraft, useSettingsDraft } from './SettingsDraftContext'
 import '../assets/mcp-settings.css'
 
 type Form = {
@@ -67,6 +68,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
   const [confirm, setConfirm] = useState<McpSummary | null>(null)
   const epoch = useRef(0)
   const lock = useRef(false)
+  const baseline = useRef<Form | null>(null)
   const identity = { sessionId: snapshot.sessionId, generation: snapshot.generation }
   const blocked =
     projectNavigationReason(snapshot) ?? (snapshot.edit?.pending ? '请先完成编辑' : null)
@@ -82,6 +84,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       setCatalog(response.result)
       setUnknown(false)
       if (command.type !== 'mcp:list') {
+        baseline.current = null
         setForm(null)
         setConfirm(null)
       }
@@ -107,8 +110,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       lock.current = false
     }
   }, [])
-  const edit = (server: McpSummary) =>
-    setForm({
+  const edit = (server: McpSummary): void => {
+    const next: Form = {
       id: server.id,
       create: false,
       transport: server.transport === 'http' ? 'http' : 'stdio',
@@ -119,7 +122,12 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       secrets: '',
       enabled: server.enabled,
       confirmed: false
-    })
+    }
+    baseline.current = next
+    setForm(next)
+  }
+  const dirty = Boolean(form && JSON.stringify(form) !== JSON.stringify(baseline.current))
+  useSettingsDraft('mcp', dirty)
   const save = () => {
     if (!form || !catalog || lock.current) return
     try {
@@ -164,7 +172,12 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
         <button
           className="secondary-button"
           disabled={pending}
-          onClick={() => void run({ type: 'mcp:list' })}
+          onClick={() => {
+            if (!confirmDiscardSettingsDraft(dirty)) return
+            baseline.current = null
+            setForm(null)
+            void run({ type: 'mcp:list' })
+          }}
         >
           <RefreshCw size={14} />
           刷新列表
@@ -197,6 +210,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             className="secondary-button"
             disabled={pending}
             onClick={() => {
+              if (!confirmDiscardSettingsDraft(dirty)) return
+              baseline.current = null
               setForm(null)
               setError('')
             }}
@@ -350,7 +365,9 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
               className="secondary-button"
               disabled={pending || unknown || !!blocked || !catalog?.writable}
               onClick={() => {
-                setForm(emptyForm())
+                const next = emptyForm()
+                baseline.current = next
+                setForm(next)
                 setError('')
               }}
             >

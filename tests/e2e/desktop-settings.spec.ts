@@ -96,15 +96,21 @@ test('appearance theme persists, follows system changes, and updates highlighted
   await expect(page.locator('html')).toHaveAttribute('data-theme', expected)
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
-  await page.getByRole('button', { name: '恢复 Desktop 默认设置' }).click()
-  await expect(theme).toHaveValue('dark')
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click()
+  await expect(theme).toHaveValue('system')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', expected)
 })
 
 test('trusted IPC persists across restart, resets only preferences, and shows grouped settings at both widths', async ({}, testInfo) => {
   const defaults = await page.evaluate(() => window.pi.desktopSettings({ type: 'get' }))
-  expect(defaults.messageFontSize).toBe(14)
+  expect(defaults.messageFontSize).toBe(15)
   await page.getByRole('button', { name: '设置', exact: true }).click()
+  const settingsSearch = page.getByRole('searchbox', { name: '搜索设置', exact: true })
+  await expect(settingsSearch).toBeVisible()
+  await settingsSearch.fill('MCP')
+  await expect(page.getByRole('button', { name: 'MCP 服务器', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '外观', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '清空设置搜索', exact: true }).click()
   await expect(page.getByRole('button', { name: '账号与模型', exact: true })).toHaveAttribute(
     'aria-current',
     'page'
@@ -130,6 +136,12 @@ test('trusted IPC persists across restart, resets only preferences, and shows gr
   }
   await page.getByLabel('发送快捷键').selectOption('modifier-enter')
   await expect(page.getByLabel('发送快捷键')).toBeEnabled()
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click()
+  await expect(page.getByLabel('发送快捷键')).toHaveValue(defaults.sendShortcut)
+  await page.getByRole('button', { name: '外观', exact: true }).click()
+  await expect(page.getByLabel('消息字号')).toHaveValue('18')
+  await page.getByRole('button', { name: '常规', exact: true }).click()
+  await page.getByLabel('发送快捷键').selectOption('modifier-enter')
   await app.close()
   await launch()
   expect(await page.evaluate(() => window.pi.desktopSettings({ type: 'get' }))).toEqual({

@@ -24,13 +24,14 @@ it('shows scope, exact operation preview and both decisions without an extra exp
   expect(html).not.toContain('<details')
   expect(html).not.toContain('始终允许')
 })
-it('leaves complete parameters expanded when a tool supplies additional fields', () => {
+it('keeps complete parameters available without expanding the card by default', () => {
   const html = renderToStaticMarkup(
     <ApprovalCard
       request={{ ...request, detail: '{"command":"ls","cwd":"/outside"}' }}
       onApproval={async () => true}
     />
   )
-  expect(html).toContain('<details class="approval-parameters" open=""')
+  expect(html).toContain('<details class="approval-parameters">')
+  expect(html).not.toContain('<details class="approval-parameters" open=""')
   expect(html).toContain('/outside')
 })

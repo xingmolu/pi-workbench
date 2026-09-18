@@ -10,70 +10,166 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(1060px, calc(100vw - 64px));
-  height: min(780px, calc(100vh - 64px));
+  width: min(980px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 40px));
   background: var(--raised);
   color: var(--text, #ecebea);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 28px 100px var(--popup-shadow);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px var(--popup-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .settings-dialog-header {
+  min-height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px;
+  gap: 16px;
+  padding: 0 15px 0 18px;
   border-bottom: 1px solid var(--line);
+}
+.settings-dialog-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .settings-dialog-header h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
+}
+.settings-unsaved-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  font-size: 10px;
+  line-height: 1.5;
 }
 .settings-dialog-body {
   display: grid;
-  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-columns: 206px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
 .settings-navigation {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 18px 10px;
+  padding: 10px 8px 12px;
   border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-subtle) 72%, transparent);
 }
-.settings-navigation button {
-  width: 100%;
+.settings-search {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 11px 12px;
+  margin: 0 2px 8px;
+  color: var(--text-tertiary);
+}
+.settings-search > svg {
+  position: absolute;
+  left: 9px;
+  pointer-events: none;
+}
+.settings-search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 30px 0 29px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.settings-search input::placeholder {
+  color: var(--text-tertiary);
+}
+.settings-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 0;
   border-radius: 6px;
-  color: inherit;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.settings-search-clear:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+.settings-navigation-list {
+  min-height: 0;
+  overflow: auto;
+}
+.settings-navigation .settings-group-label {
+  margin: 11px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.settings-navigation-list button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-secondary);
   background: transparent;
   text-align: left;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
 }
-.settings-navigation button:hover,
-.settings-navigation button[aria-current] {
-  background: rgb(150 150 150 / 14%);
+.settings-navigation-list button > span:not(.settings-unsaved-dot) {
+  min-width: 0;
+  flex: 1;
 }
-.settings-navigation small {
-  margin: auto 12px 0;
-  opacity: 0.5;
+.settings-navigation-list button:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+.settings-navigation-list button[aria-current='page'] {
+  background: var(--surface-floating);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+.settings-unsaved-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--warning-text);
+}
+.settings-search-empty {
+  margin: 20px 10px;
+  color: var(--text-tertiary);
   font-size: 11px;
+}
+.settings-product-name {
+  margin: auto 10px 0;
+  opacity: 0.45;
+  font-size: 10px;
 }
 .settings-content {
   min-width: 0;
   overflow: auto;
-  padding: 26px 30px;
+  padding: 22px 28px 30px;
 }
 .settings-content .settings-panel,
 .settings-content .settings-scroll {
@@ -82,43 +178,48 @@
   padding: 0;
 }
 .settings-content .settings-section {
-  margin-bottom: 28px;
+  margin-bottom: 22px;
 }
 .settings-content .account-card {
   background: transparent;
 }
 .settings-content .section-kicker {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .endpoint-form-title {
   margin: 0 0 12px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 .account-provider-nav {
   display: flex;
-  gap: 8px;
-  margin-bottom: 26px;
+  gap: 6px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
 }
 .account-provider-nav button {
   flex: 1;
   min-width: 130px;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   text-align: left;
-  padding: 12px;
+  padding: 10px;
   cursor: pointer;
 }
+.account-provider-nav button:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
 .account-provider-nav button[aria-pressed='true'] {
-  background: rgb(150 150 150 / 12%);
-  border-color: #85838c;
+  background: var(--surface-floating);
+  border-color: var(--line);
+  color: var(--text);
 }
 .account-provider-nav small {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   opacity: 0.65;
 }
 .settings-sr-only {
@@ -130,21 +231,24 @@
 }
 .settings-dialog :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 @media (max-width: 760px) {
   .settings-dialog {
-    width: calc(100vw - 24px);
-    height: calc(100vh - 24px);
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
   }
   .settings-dialog-body {
-    grid-template-columns: 145px minmax(0, 1fr);
+    grid-template-columns: 164px minmax(0, 1fr);
   }
   .settings-content {
     padding: 18px;
   }
-  .settings-navigation button {
-    font-size: 12px;
-    padding: 10px 7px;
+  .settings-navigation {
+    padding-inline: 6px;
+  }
+  .settings-navigation-list button {
+    font-size: 11px;
+    padding-inline: 7px;
   }
 }
