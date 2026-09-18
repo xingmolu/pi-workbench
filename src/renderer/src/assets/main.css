@@ -1547,7 +1547,41 @@ button.send:disabled {
   background: var(--success);
 }
 
+.composer-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.context-control {
+  display: inline-flex;
+  min-width: 0;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.context-control:hover,
+.context-control[data-state='open'] {
+  border-color: var(--surface-selected);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
 .context-meter {
+  display: block;
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
@@ -1566,8 +1600,8 @@ button.send:disabled {
     conic-gradient(var(--border-focus) 0deg, var(--border-focus) 360deg);
 }
 
-.context-meter:hover,
-.context-meter[data-state='open'] {
+.context-control:hover .context-meter,
+.context-control[data-state='open'] .context-meter {
   filter: brightness(1.22);
 }
 
