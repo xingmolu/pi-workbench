@@ -50,12 +50,18 @@ test.afterEach(async () => {
 
 test('appearance theme persists, follows system changes, and updates highlighted preview', async () => {
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  const initialTheme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  )
+  await expect(page.locator('html')).toHaveAttribute('data-theme', initialTheme)
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
   let theme = page.getByLabel('主题', { exact: true })
+  await expect(theme).toHaveValue('system')
   const preview = page.locator('.desktop-reading-preview .highlighted-code')
   await expect(preview).toHaveAttribute('data-highlighted', 'true')
+  await theme.selectOption('dark')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   const darkColor = await preview.locator('span[style]').first().evaluate(el => getComputedStyle(el).color)
   await theme.selectOption('light')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
@@ -223,7 +229,8 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
       messageFontSize: 18,
       codeFontSize: 16,
       codeWrap: true,
-      workDetails: 'expanded'
+      workDetails: 'expanded',
+      showUsage: true
     })
   )
   await expect

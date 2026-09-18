@@ -413,10 +413,9 @@ test('pending approvals stay visible and cannot be removed through the project m
   await page.evaluate(() => document.documentElement.dataset.theme = 'dark')
   await page.screenshot({ path: join(artifacts, 'awaiting-approval-dark.png'), animations: 'disabled' })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 720))
-  // Resizing while not following the tail retains the reading position; the jump remains reachable.
-  await expect(page.locator('.approval-jump')).toBeVisible()
-  await page.locator('.approval-jump').click()
+  // The compact card keeps its decisions in view at this size; the dedicated offscreen test covers the jump hint.
   await expect(approval.getByRole('button', { name: '允许一次', exact: true })).toBeInViewport()
+  await expect(page.locator('.approval-jump')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: join(artifacts, 'awaiting-approval-narrow.png'), animations: 'disabled' })
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
