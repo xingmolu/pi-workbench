@@ -1134,10 +1134,12 @@ class PiDesktopHost {
         this.accounts,
         this.models
       )
+      // Extension registration refreshes availability asynchronously. Resolve the exact
+      // historical pin against fresh availability rather than an intermediate snapshot.
       const selected = selectedOverride
         ? selectedOverride.runtimeModel
         : projected.identity
-          ? fixedModelRuntime.getAvailableSnapshot().find((model) => {
+          ? (await fixedModelRuntime.getAvailable()).find((model) => {
               return (
                 model.provider === projected.identity?.providerId &&
                 model.id === projected.identity.modelId
