@@ -9,6 +9,8 @@ import MessageActions from './MessageActions'
 import SkillPicker, { type SkillPickerHandle, type SkillMenuState } from './SkillPicker'
 import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../store/skill-draft'
 import WorkSummary from './WorkSummary'
+import ApprovalCard, { type ApprovalHandler } from './ApprovalCard'
+import { useOffscreenApproval } from '../store/use-approval-visibility'
 import { groupConversationWork } from '../store/conversation-work-groups'
 import { parseTextContext } from '../../../shared/text-attachments'
 import {
@@ -21,6 +23,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
+  ArrowRightLeft,
+  Archive,
   Brain,
   Check,
   ChevronDown,
@@ -81,7 +85,7 @@ type ConversationProps = {
   onChooseModel: (providerId: string, modelId: string) => void
   onLogin: () => void
   onOpenSettings: () => void
-  onApproval: (id: string, allow: boolean) => void
+  onApproval: ApprovalHandler
 }
 
 const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
@@ -128,11 +132,13 @@ const ThinkNode = memo(function ThinkNode({
 const ToolNode = memo(function ToolNode({
   node,
   activeApproval,
+  projectPath,
   onApproval
 }: {
   node: Extract<ConversationNode, { type: 'tool' }>
   activeApproval: ApprovalRequest | null
-  onApproval: (id: string, allow: boolean) => void
+  projectPath?: string
+  onApproval: ApprovalHandler
 }): React.JSX.Element {
   const [open, setOpen] = useState<boolean | null>(null)
   const Icon = TOOL_ICON[node.intent]
@@ -143,7 +149,7 @@ const ToolNode = memo(function ToolNode({
       open={Boolean(activeApproval) || (open ?? (node.status === 'error' || node.status === 'blocked'))}
       onOpenChange={setOpen}
     >
-      <Collapsible.Trigger className="tool-trigger">
+      {!activeApproval && <Collapsible.Trigger className="tool-trigger">
         <Icon size={15} />
         <span className="tool-title">{node.title}</span>
         <span className="tool-status">{STATUS_LABEL[node.status]}</span>
@@ -153,35 +159,18 @@ const ToolNode = memo(function ToolNode({
           </span>
         ))}
         <ChevronRight className="tool-chevron" size={14} />
-      </Collapsible.Trigger>
+      </Collapsible.Trigger>}
       <Collapsible.Content className="tool-detail">
         {activeApproval ? (
-          <div className="approval-card" data-approval-id={activeApproval.id} tabIndex={-1}>
-            <div>
-              <strong>{approvalSummary(activeApproval)}</strong>
-              <p>需要你的确认才会执行，只允许本次操作。</p>
-            </div>
-            <details>
-              <summary>查看操作详情</summary>
-              <pre>{activeApproval.detail}</pre>
-            </details>
-            <div className="approval-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => onApproval(activeApproval.id, false)}
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => onApproval(activeApproval.id, true)}
-              >
-                允许一次
-              </button>
-            </div>
-          </div>
+          <ApprovalCard
+            key={`${activeApproval.generation}:${activeApproval.id}`}
+            request={activeApproval}
+            projectPath={projectPath}
+            onApproval={(id, allow) => {
+              setOpen(true)
+              return onApproval(id, allow)
+            }}
+          />
         ) : (
           <>
             {node.detail ? <pre>{node.detail}</pre> : null}
@@ -224,7 +213,7 @@ function NodeFlow({
   nodes: ConversationNode[]
   snapshot: AgentSnapshot
   approvals: ApprovalRequest[]
-  onApproval: (id: string, allow: boolean) => void
+  onApproval: ApprovalHandler
 }): React.JSX.Element {
   const edit = useSessionEdit()
   const lastReplyBlocks = useMemo(() => {
@@ -247,7 +236,7 @@ function NodeFlow({
             {group.nodes.map((node) => node.type === 'think' ?
               <ThinkNode key={node.presentationIdentity ?? node.id} node={node} /> :
               <ToolNode key={node.presentationIdentity ?? node.id} node={node}
-                activeApproval={currentToolApproval(node, approvals)} onApproval={onApproval} />)}
+                activeApproval={currentToolApproval(node, approvals)} projectPath={snapshot.project?.path} onApproval={onApproval} />)}
           </WorkSummary>
         )
         const node = group.node
@@ -279,16 +268,20 @@ function NodeFlow({
         }
         if (node.type === 'think') return <ThinkNode key={key} node={node} />
         if (node.type === 'model') {
+          // Keep initial metadata in canonical history; it is not a conversation divider.
+          if (node.initial) return null
           return (
-            <div className="history-note" key={key}>
-              {node.initial ? '模型' : '模型切换'} · {node.provider} / {node.modelId}
+            <div className="history-note is-model-switch" key={key} role="note">
+              <ArrowRightLeft size={13} aria-hidden="true" />
+              <span>模型切换 · {node.provider} / {node.modelId}</span>
             </div>
           )
         }
         if (node.type === 'compaction') {
           return (
-            <div className="history-note" key={key}>
-              上下文已压缩，历史消息仍保留
+            <div className="history-note is-compaction" key={key} role="note">
+              <Archive size={13} aria-hidden="true" />
+              <span>上下文已压缩，历史消息仍保留</span>
             </div>
           )
         }
@@ -299,6 +292,7 @@ function NodeFlow({
               key={key}
               node={node}
               activeApproval={activeApproval}
+              projectPath={snapshot.project?.path}
               onApproval={onApproval}
             />
           )
@@ -834,7 +828,7 @@ function Composer({
 
 export default function Conversation(props: ConversationProps): React.JSX.Element {
   const { snapshot, approvals, loading, error, onApproval, onChooseProject } = props
-  const hasNodes = snapshot.nodes.length > 0
+  const hasNodes = snapshot.nodes.some((node) => node.type !== 'model' || !node.initial)
   const lastNode = snapshot.nodes.at(-1)
   const visibleError =
     error && !(lastNode?.type === 'error' && lastNode.message === error) ? error : null
@@ -850,6 +844,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   const navigationFrame = useRef<number | null>(null)
   const [awayFromBottom, setAwayFromBottom] = useState(false)
   const scrollIdentity = JSON.stringify([snapshot.project?.path, snapshot.sessionId])
+  const offscreenApproval = useOffscreenApproval(scrollContainer, approvals, scrollIdentity)
   const streamKey = useMemo(
     () =>
       snapshot.nodes.map((node) => ('markdown' in node ? node.markdown.length : node.id)).join(':'),
@@ -1006,19 +1001,36 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
       </div>
 
       <div className="composer-axis">
-        {approvals.length > 0 ? (
+        {offscreenApproval ? (
           <button
+            type="button"
             className="approval-jump"
             onClick={() => {
               const card = Array.from(
                 scrollContainer.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []
-              ).find((element) => element.dataset.approvalId === approvals[0].id)
-              card?.scrollIntoView({ block: 'center', behavior: 'auto' })
+              ).find((element) => element.dataset.approvalId === offscreenApproval.id)
+              following.current = false
+              navigationScroll.current = true
+              const target = card?.querySelector('[data-approval-actions]') ?? card
+              target?.scrollIntoView({ block: 'center', behavior: 'auto' })
               card?.focus({ preventScroll: true })
+              if (navigationFrame.current !== null) window.cancelAnimationFrame(navigationFrame.current)
+              navigationFrame.current = window.requestAnimationFrame(() => {
+                navigationFrame.current = window.requestAnimationFrame(() => {
+                  navigationScroll.current = false
+                  navigationFrame.current = null
+                  const element = scrollContainer.current
+                  if (!element) return
+                  const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+                  following.current = nearBottom
+                  setAwayFromBottom(!nearBottom)
+                })
+              })
             }}
           >
-            <CircleAlert size={14} /> 查看待确认操作（{approvals.length}）·{' '}
-            {approvalSummary(approvals[0])}
+            <CircleAlert size={14} aria-hidden="true" />
+            <span>有 {approvals.length} 项操作需要确认 · {approvalSummary(offscreenApproval)}</span>
+            <span className="approval-jump-action">查看 <ChevronRight size={13} aria-hidden="true" /></span>
           </button>
         ) : null}
         {!snapshot.ready && !loading ? (

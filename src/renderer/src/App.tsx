@@ -398,8 +398,8 @@ export default function App(): React.JSX.Element {
   )
 
   const respondToApproval = useCallback(
-    (id: string, allow: boolean): void => {
-      void send({ type: 'permission:respond', approvalId: id, allow })
+    (id: string, allow: boolean): Promise<boolean> => {
+      return send({ type: 'permission:respond', approvalId: id, allow })
     },
     [send]
   )

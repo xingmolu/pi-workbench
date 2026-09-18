@@ -1,0 +1,36 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { expect, it } from 'vitest'
+import ApprovalCard from './ApprovalCard'
+import type { ApprovalRequest } from '../../../shared/contracts'
+const request: ApprovalRequest = {
+  id: 'a',
+  generation: 1,
+  toolCallId: 'call',
+  toolName: 'bash',
+  intent: 'terminal',
+  title: 'Run',
+  detail: JSON.stringify({ command: 'echo <test>\nprintf second' })
+}
+it('shows scope, exact operation preview and both decisions without an extra expansion', () => {
+  const html = renderToStaticMarkup(
+    <ApprovalCard request={request} projectPath="/test" onApproval={async () => true} />
+  )
+  expect(html).toContain('仅本次操作')
+  expect(html).toContain('data-approval-actions="a"')
+  expect(html).toContain('echo &lt;test&gt;\nprintf second')
+  expect(html).toContain('允许一次')
+  expect(html).toContain('拒绝')
+  expect(html).not.toContain('autofocus')
+  expect(html).not.toContain('<details')
+  expect(html).not.toContain('始终允许')
+})
+it('leaves complete parameters expanded when a tool supplies additional fields', () => {
+  const html = renderToStaticMarkup(
+    <ApprovalCard
+      request={{ ...request, detail: '{"command":"ls","cwd":"/outside"}' }}
+      onApproval={async () => true}
+    />
+  )
+  expect(html).toContain('<details class="approval-parameters" open=""')
+  expect(html).toContain('/outside')
+})

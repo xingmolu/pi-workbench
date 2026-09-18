@@ -775,14 +775,20 @@ button.send:disabled {
 
 .history-note {
   min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding-block: 3px;
+  border: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.65;
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.history-note > svg { flex: 0 0 auto; margin-top: 3px; }
+.history-note > span { min-width: 0; overflow-wrap: anywhere; }
 
 .user-row {
   flex-wrap: wrap;
@@ -1100,40 +1106,6 @@ button.send:disabled {
   color: var(--muted);
   font-size: 12px;
 }
-.approval-jump {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--warning-border);
-  border-radius: 10px;
-  background: var(--warning-bg);
-  color: var(--warning-text);
-  text-align: left;
-  cursor: pointer;
-}
-.approval-jump svg {
-  flex-shrink: 0;
-}
-.approval-card {
-  scroll-margin-block: 24px;
-}
-.approval-card summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-  margin-block: 10px;
-}
-.approval-card details pre {
-  max-height: 160px;
-}
-.approval-card > div:first-child {
-  flex-wrap: wrap;
-}
-.approval-jump:focus-visible,
-.approval-card:focus-visible,
 .markdown-table:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -1359,23 +1331,6 @@ button.send:disabled {
   text-transform: uppercase;
 }
 
-.approval-card > div:first-child {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.approval-card strong {
-  color: var(--text);
-}
-
-.approval-card p {
-  margin: 0;
-  color: var(--muted-2);
-}
-
-.approval-actions,
 .login-actions {
   display: flex;
   justify-content: flex-end;

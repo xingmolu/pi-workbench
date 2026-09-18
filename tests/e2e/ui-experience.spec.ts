@@ -5,6 +5,7 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
+import { build } from 'esbuild'
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -402,7 +403,22 @@ test('pending approvals stay visible and cannot be removed through the project m
   await clickProjectMenu(a)
   await expect(page.getByRole('menuitem', { name: /从侧栏移除/ })).toBeDisabled()
   await page.keyboard.press('Escape')
+  const approval = page.locator('.approval-card')
+  await expect(approval.getByLabel('将执行的命令', { exact: true })).toHaveText('echo approved')
+  await expect(approval).toContainText('仅本次操作')
+  await expect(approval.locator('details')).toHaveCount(0)
+  await expect(page.locator('.approval-jump')).toHaveCount(0)
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('已暂停')
   await page.screenshot({ path: join(artifacts, 'awaiting-approval.png') })
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark')
+  await page.screenshot({ path: join(artifacts, 'awaiting-approval-dark.png'), animations: 'disabled' })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 720))
+  // Resizing while not following the tail retains the reading position; the jump remains reachable.
+  await expect(page.locator('.approval-jump')).toBeVisible()
+  await page.locator('.approval-jump').click()
+  await expect(approval.getByRole('button', { name: '允许一次', exact: true })).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: join(artifacts, 'awaiting-approval-narrow.png'), animations: 'disabled' })
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
 })
@@ -434,4 +450,100 @@ test('archiving the selected conversation preserves bytes and defaults search to
   expect(results).toEqual({ visible: 0, archived: 1 })
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   await expect(group(a).getByText('导航体验与布局', { exact: true })).toBeVisible()
+})
+
+
+test('header owns the divider and initial model metadata does not produce a false section break', async () => {
+  const original = await readFile(pa, 'utf8')
+  expect((await page.evaluate(() => window.pi.getState())).nodes.some(node => node.type === 'model' && node.initial)).toBe(true)
+  await expect(page.locator('.history-note')).toHaveCount(0)
+  await expect(page.locator('.conversation-head')).toHaveCSS('border-bottom-width', '1px')
+  await expect(page.locator('.conversation-head')).toHaveCSS('border-bottom-style', 'solid')
+  await page.evaluate(() => window.pi.send({ type: 'model:set', providerId: 'ui-fixture', modelId: 'offline' }))
+  await expect(page.locator('.history-note')).toHaveCount(1)
+  await expect(page.locator('.history-note')).toHaveText('模型切换 · ui-fixture / offline')
+  await expect(page.locator('.history-note')).toHaveCSS('border-top-width', '0px')
+  await page.screenshot({ path: join(artifacts, 'header-and-model-event.png') })
+  expect(await readFile(pa, 'utf8')).toContain(original.trim())
+  await page.getByRole('button', { name: '收起侧栏（⌘B）', exact: true }).click()
+  await page.screenshot({ path: join(artifacts, 'header-collapsed-sidebar.png') })
+})
+
+test('offscreen approval hint appears only while its controls are outside the reading viewport', async () => {
+  await app.close()
+  const entries = (await readFile(pa, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  entries.find(entry => entry.message?.role === 'assistant').message.content[0].text =
+    Array.from({ length: 55 }, (_, i) => `${i + 1}. 正在检查项目里的布局和操作体验。`).join('\n\n')
+  await writeFile(pa, entries.map(entry => JSON.stringify(entry)).join('\n') + '\n')
+  await launchApplication()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId)).toBe('a-main')
+  await page.evaluate(() => window.pi.send({ type: 'model:set', providerId: 'ui-fixture', modelId: 'offline' }))
+  await page.locator('.composer-input').fill('UI_APPROVAL 确认前先回看历史')
+  await page.getByRole('button', { name: '发送任务', exact: true }).click()
+  const approval = page.locator('.approval-card')
+  await expect(approval).toBeVisible()
+  await page.locator('.conversation-scroll').evaluate(el => { el.scrollTop = el.scrollHeight })
+  await expect(approval.getByRole('button', { name: '允许一次', exact: true })).toBeInViewport()
+  await expect(page.locator('.approval-jump')).toHaveCount(0)
+  const top = await page.locator('.conversation-head').evaluate(el => el.getBoundingClientRect().top)
+  await page.locator('.conversation-scroll').evaluate(el => { el.scrollTop = 0 })
+  await expect(page.locator('.approval-jump')).toBeVisible()
+  expect(await page.locator('.conversation-head').evaluate(el => el.getBoundingClientRect().top)).toBe(top)
+  await page.locator('.approval-jump').click()
+  await expect(approval).toBeFocused()
+  await expect(approval.getByRole('button', { name: '允许一次', exact: true })).toBeInViewport()
+  await expect(page.locator('.approval-jump')).toHaveCount(0)
+  await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
+  await expect(approval).toHaveCount(0)
+  await expect(page.locator('.approval-jump')).toHaveCount(0)
+})
+
+test('approval submission locks both choices, supports retry and never applies a reply to a new request', async () => {
+  const windowReady = app.waitForEvent('window')
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false } })
+    void win.loadURL('about:blank')
+  })
+  const harness = await windowReady
+  const bundle = await build({
+    stdin: { loader: 'tsx', resolveDir: resolve('.'), contents: `
+      import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
+      import ApprovalCard from ${JSON.stringify(resolve('src/renderer/src/components/ApprovalCard.tsx'))};
+      window.calls=[]; window.resolvers=[];
+      const request={id:'first',generation:1,toolCallId:'call',toolName:'bash',intent:'terminal',title:'Run',detail:JSON.stringify({command:'echo pending'})};
+      function Harness(){ const [id,setId]=useState('first');window.newRequest=()=>setId('second');return <main className="conversation"><ApprovalCard key={id} request={{...request,id}} projectPath="/isolated" onApproval={(id,allow)=>{window.calls.push({id,allow});return new Promise(resolve=>window.resolvers.push(resolve))}}/></main> }
+      createRoot(document.getElementById('root')).render(<Harness/>);
+    ` },
+    bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
+    define: { 'process.env.NODE_ENV': '"development"' }, loader: { '.css': 'empty' }
+  })
+  await harness.setContent('<div id="root"></div>')
+  for (const file of ['main.css', 'theme.css', 'approval.css'])
+    await harness.addStyleTag({ content: await readFile(resolve('src/renderer/src/assets', file), 'utf8') })
+  await harness.addScriptTag({ content: bundle.outputFiles[0].text })
+  const allow = harness.getByRole('button', { name: '允许一次', exact: true })
+  const deny = harness.getByRole('button', { name: '拒绝', exact: true })
+  await expect(allow).toBeVisible()
+  await harness.getByLabel('将执行的命令', { exact: true }).focus()
+  await harness.keyboard.press('Enter')
+  expect(await harness.evaluate(() => (window as any).calls)).toEqual([])
+  await allow.evaluate((button: HTMLButtonElement) => { button.click(); button.click() })
+  expect(await harness.evaluate(() => (window as any).calls)).toEqual([{ id: 'first', allow: true }])
+  await expect(allow).toBeDisabled()
+  await expect(deny).toBeDisabled()
+  await harness.evaluate(() => (window as any).resolvers[0](false))
+  await expect(harness.getByRole('alert')).toHaveText('确认未能提交，请重试。')
+  await expect(allow).toBeEnabled()
+  await allow.click()
+  await harness.evaluate(() => (window as any).newRequest())
+  await expect(allow).toBeEnabled()
+  await harness.evaluate(() => (window as any).resolvers[1](true))
+  await expect(allow).toBeEnabled()
+  await deny.click()
+  await harness.evaluate(() => (window as any).resolvers[2](true))
+  await expect(deny).toBeDisabled()
+  await expect(harness.getByRole('status').last()).toHaveText('已提交，等待操作状态更新…')
+  expect(await harness.evaluate(() => (window as any).calls)).toEqual([
+    { id: 'first', allow: true }, { id: 'first', allow: true }, { id: 'second', allow: false }
+  ])
 })

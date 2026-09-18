@@ -83,3 +83,25 @@ it('keeps code and table copy controls inside intermediate assistant content', (
   expect(html).toContain('aria-label="复制表格"')
   expect(html).not.toContain('aria-label="回复操作"')
 })
+
+
+it('omits initial model metadata without removing subsequent model and compaction events', () => {
+  const nodes: ConversationNode[] = [
+    { type: 'model', id: 'initial', provider: 'first', modelId: 'original', initial: true },
+    { type: 'user', id: 'u', text: 'Hello' },
+    { type: 'model', id: 'switch', provider: 'other', modelId: 'new', initial: false },
+    { type: 'compaction', id: 'compact', tokensBefore: 1000 }
+  ]
+  const html = renderConversation(nodes)
+  expect(html).not.toContain('first / original')
+  expect(html).toContain('模型切换 · other / new')
+  expect(html).toContain('上下文已压缩，历史消息仍保留')
+  expect(html.match(/class="history-note/g)).toHaveLength(2)
+  expect(nodes).toHaveLength(4)
+})
+
+it('shows the empty state when only initial model metadata is present', () => {
+  expect(renderConversation([
+    { type: 'model', id: 'initial', provider: 'first', modelId: 'original', initial: true }
+  ])).toContain('从一个项目开始。')
+})

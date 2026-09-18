@@ -1,0 +1,241 @@
+/* A pending approval is a decision card, not a warning banner or another tool log. */
+.conversation .approval-card {
+  min-width: 0;
+  width: 100%;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-floating);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: normal;
+  scroll-margin-block: 24px;
+}
+.conversation .approval-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.approval-symbol {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.approval-heading-copy {
+  flex: 1;
+  min-width: 0;
+}
+.approval-kicker {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.conversation .approval-heading h3 {
+  margin: 1px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.approval-scope {
+  align-self: flex-start;
+  color: var(--text-secondary);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.conversation .approval-description {
+  margin: 12px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.approval-preview {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-subtle);
+}
+.approval-preview-header {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+  padding: 2px 8px 2px 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.approval-tool-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-tertiary);
+}
+.approval-preview-header .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+.conversation .approval-card pre {
+  margin: 0;
+  max-width: 100%;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font:
+    12px/1.7 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    'Noto Sans Mono',
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  unicode-bidi: plaintext;
+  user-select: text;
+}
+.approval-parameters {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.approval-parameters summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.conversation .approval-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-top: 14px;
+}
+.approval-project {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation .approval-actions {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 0 0 auto;
+}
+.approval-actions button {
+  min-height: 34px;
+  padding: 6px 13px;
+  font-size: 12px;
+}
+.approval-actions .secondary-button {
+  background: transparent;
+}
+.conversation .approval-error {
+  color: var(--danger-text);
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.approval-submit-status {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.approval-submit-status:empty {
+  display: none;
+}
+.approval-spinner {
+  animation: approval-spin 900ms linear infinite;
+}
+@keyframes approval-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.conversation .tool-node:has(.approval-card) {
+  border: 0;
+  background: transparent;
+}
+.conversation .tool-node:has(.approval-card) > .tool-detail {
+  border: 0;
+  padding: 0;
+}
+.conversation .work-summary:has(.approval-card) > .work-summary-content {
+  padding-left: 0;
+}
+.conversation .approval-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-floating);
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.approval-jump > svg {
+  flex-shrink: 0;
+  color: var(--warning-text);
+}
+.approval-jump > span:first-of-type {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-jump-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--text);
+}
+.conversation .approval-jump:hover {
+  background: var(--surface-subtle);
+}
+.conversation .approval-card:focus-visible,
+.conversation .approval-card pre:focus-visible,
+.conversation .approval-card summary:focus-visible,
+.conversation .approval-jump:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 720px) {
+  .conversation .approval-card {
+    padding: 14px;
+  }
+  .approval-scope {
+    padding: 2px 5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-spinner {
+    animation: none;
+  }
+}
+:root[data-reduced-motion='true'] .approval-spinner {
+  animation: none;
+}

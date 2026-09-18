@@ -108,3 +108,10 @@ it('preserves model, compaction, user, stop and error boundaries in order', () =
     'e'
   ])
 })
+
+
+it('does not claim to be working when an approval is blocking the run', () => {
+  expect(workPresentation([tool('pending', 'awaiting-approval')], true)).toEqual({
+    label: '已暂停 · 等待确认', requiresAttention: true
+  })
+})
