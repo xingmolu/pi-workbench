@@ -18,14 +18,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Archive tracked source and test dependencies (no credentials or Git metadata)
-        run: |
-          git archive HEAD | gzip > /tmp/pi-ui-source.tar.gz
-          tar -czf /tmp/pi-ui-dependencies.tar.gz node_modules
+      - run: node node_modules/electron/install.js
+      - name: Archive Electron test runtime only
+        run: tar -czf /tmp/pi-electron-runtime.tar.gz node_modules/electron/dist node_modules/electron/path.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: pi-ui-workspace
-          path: |
-            /tmp/pi-ui-source.tar.gz
-            /tmp/pi-ui-dependencies.tar.gz
+          name: pi-electron-runtime
+          path: /tmp/pi-electron-runtime.tar.gz
           retention-days: 1
