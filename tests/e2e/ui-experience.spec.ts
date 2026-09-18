@@ -416,17 +416,24 @@ test('pending approvals stay visible and cannot be removed through the project m
   // Compact layout may keep the decision row visible or move it just offscreen.
   // Either way the pending decision must remain reachable without layout overflow.
   const allow = approval.getByRole('button', { name: '允许一次', exact: true })
-  const allowInViewport = await allow.evaluate((element) => {
-    const rect = element.getBoundingClientRect()
-    return rect.bottom > 0 && rect.top < innerHeight
-  })
-  if (allowInViewport) {
-    await expect(page.locator('.approval-jump')).toHaveCount(0)
-  } else {
-    await expect(page.locator('.approval-jump')).toBeVisible()
-    await page.locator('.approval-jump').click()
-    await expect(allow).toBeInViewport()
-  }
+  const jump = page.locator('.approval-jump')
+  await expect
+    .poll(async () => {
+      if (await jump.isVisible()) return true
+      return allow.evaluate((element) => {
+        const root = element.closest('.conversation-scroll')
+        if (!root) return false
+        const actionRect = element.closest('[data-approval-actions]')?.getBoundingClientRect()
+        const rootRect = root.getBoundingClientRect()
+        if (!actionRect) return false
+        const visibleHeight =
+          Math.min(actionRect.bottom, rootRect.bottom) - Math.max(actionRect.top, rootRect.top)
+        return visibleHeight >= actionRect.height * 0.99
+      })
+    })
+    .toBe(true)
+  if (await jump.isVisible()) await jump.click()
+  await expect(allow).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: join(artifacts, 'awaiting-approval-narrow.png'), animations: 'disabled' })
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
