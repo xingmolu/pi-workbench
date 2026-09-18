@@ -76,6 +76,8 @@ jobs:
           tests/e2e/multi-session.spec.ts
           tests/e2e/session-task.spec.ts
           tests/e2e/ui-experience.spec.ts
+          tests/e2e/session-history.spec.ts
+          tests/e2e/work-summary.spec.ts
           --reporter=line
 
       - name: Upload E2E diagnostics
