@@ -17,17 +17,32 @@ import {
   type DesktopControlResult,
   type MediaAccessStatus
 } from '../shared/desktop-control'
+import {
+  COMPUTER_USE_LIMITS,
+  computerUseVisualFrameSchema,
+  type ComputerUseFrameRect,
+  type ComputerUseVisualFrame
+} from '../shared/computer-use'
 
 export type DesktopCapturerThumbnail = {
   isEmpty?: () => boolean
   getSize?: () => { width: number; height: number }
   resize?: (size: { width: number; height: number }) => DesktopCapturerThumbnail
   toDataURL: () => string
+  toPNG?: () => Buffer
+}
+
+export type DesktopDisplayMetrics = {
+  id: string
+  bounds: ComputerUseFrameRect
+  scaleFactor: number
+  primary: boolean
 }
 
 export type DesktopCapturerSourceInput = {
   id: string
   name: string
+  display_id?: string
   thumbnail: DesktopCapturerThumbnail
 }
 
@@ -39,6 +54,7 @@ export type DesktopCaptureDeps = {
     thumbnailSize: { width: number; height: number }
     fetchWindowIcons: boolean
   }) => Promise<readonly DesktopCapturerSourceInput[]>
+  getDisplays?: () => readonly DesktopDisplayMetrics[]
   openExternal: (url: string) => Promise<void>
 }
 
@@ -88,6 +104,43 @@ function toSource(input: DesktopCapturerSourceInput): CaptureSource | null {
     thumbnailDataUrl: boundThumbnail(input.thumbnail)
   })
   return parsed.success ? parsed.data : null
+}
+
+function overlapArea(left: ComputerUseFrameRect, right: ComputerUseFrameRect): number {
+  const x = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x))
+  const y = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y))
+  return x * y
+}
+
+function chooseDisplay(
+  displays: readonly DesktopDisplayMetrics[],
+  preferredBounds?: ComputerUseFrameRect
+): DesktopDisplayMetrics | null {
+  if (!displays.length) return null
+  if (preferredBounds) {
+    const ranked = displays
+      .map((display) => ({ display, area: overlapArea(display.bounds, preferredBounds) }))
+      .sort((left, right) => right.area - left.area)
+    if (ranked[0]?.area) return ranked[0].display
+  }
+  return displays.find((display) => display.primary) ?? displays[0] ?? null
+}
+
+function targetImageSize(bounds: ComputerUseFrameRect): { width: number; height: number } {
+  const largest = Math.max(bounds.width, bounds.height)
+  const scale = Math.min(1, COMPUTER_USE_LIMITS.maxImageDimension / largest)
+  return {
+    width: Math.max(1, Math.round(bounds.width * scale)),
+    height: Math.max(1, Math.round(bounds.height * scale))
+  }
+}
+
+function pngBase64(image: DesktopCapturerThumbnail): string {
+  if (image.toPNG) return image.toPNG().toString('base64')
+  const dataUrl = image.toDataURL()
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl)
+  if (!match) throw new Error('桌面截图不是 PNG')
+  return match[1]
 }
 
 /**
@@ -183,6 +236,86 @@ export class DesktopCapture {
         message: '无法读取屏幕或窗口，请确认已授权屏幕录制后重试。'
       })
     }
+  }
+
+  readDisplays(): readonly DesktopDisplayMetrics[] {
+    if (this.deps.platform !== 'darwin' || !this.deps.getDisplays) return []
+    try {
+      return this.deps.getDisplays().filter(
+        (display) =>
+          display.id &&
+          display.bounds.width > 0 &&
+          display.bounds.height > 0 &&
+          Number.isFinite(display.scaleFactor) &&
+          display.scaleFactor > 0
+      )
+    } catch {
+      return []
+    }
+  }
+
+  async captureVisualFrame(
+    preferredBounds?: ComputerUseFrameRect,
+    signal?: AbortSignal
+  ): Promise<ComputerUseVisualFrame> {
+    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    const permission = this.readPermission()
+    if (!permission.platformSupported) throw new Error('视觉 Computer Use 当前仅支持 macOS')
+    if (!permission.canCapture) throw new Error('屏幕录制受系统策略限制，无法读取桌面图像')
+
+    const display = chooseDisplay(this.readDisplays(), preferredBounds)
+    if (!display) throw new Error('无法读取显示器信息')
+    const requestedSize = targetImageSize(display.bounds)
+
+    const sources = await this.deps.getSources({
+      types: ['screen'],
+      thumbnailSize: requestedSize,
+      fetchWindowIcons: false
+    })
+    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+
+    const exact = sources.find(
+      (source) => source.display_id && source.display_id === String(display.id)
+    )
+    const source = exact ?? (sources.length === 1 ? sources[0] : null)
+    if (!source) throw new Error('无法将桌面截图与目标显示器对应，请重新 observe')
+    if (source.thumbnail.isEmpty?.()) {
+      throw new Error('屏幕录制未返回图像，请确认授权后重试')
+    }
+
+    let image = source.thumbnail
+    const initial = image.getSize?.()
+    if (!initial || initial.width <= 0 || initial.height <= 0) {
+      throw new Error('桌面截图尺寸无效')
+    }
+    if (
+      Math.max(initial.width, initial.height) > COMPUTER_USE_LIMITS.maxImageDimension &&
+      image.resize
+    ) {
+      const scale = COMPUTER_USE_LIMITS.maxImageDimension / Math.max(initial.width, initial.height)
+      image = image.resize({
+        width: Math.max(1, Math.round(initial.width * scale)),
+        height: Math.max(1, Math.round(initial.height * scale))
+      })
+    }
+    const size = image.getSize?.() ?? initial
+    const data = pngBase64(image)
+    if (!data || data.length > COMPUTER_USE_LIMITS.maxImageDataLength) {
+      throw new Error('桌面截图超过 Computer Use 图像上限')
+    }
+
+    return computerUseVisualFrameSchema.parse({
+      displayId: display.id,
+      framePoints: display.bounds,
+      scaleFactor: display.scaleFactor,
+      capturedAt: Date.now(),
+      image: {
+        mimeType: 'image/png',
+        data,
+        width: size.width,
+        height: size.height
+      }
+    })
   }
 
   async openScreenRecordingSettings(): Promise<

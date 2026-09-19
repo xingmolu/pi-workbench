@@ -21,6 +21,7 @@ import {
   ipcMain,
   nativeTheme,
   powerSaveBlocker,
+  screen,
   clipboard,
   shell,
   systemPreferences,
@@ -1019,6 +1020,20 @@ function registerIpc(): void {
     platform: process.platform,
     getMediaAccessStatus: (mediaType) => systemPreferences.getMediaAccessStatus(mediaType),
     getSources: (options) => desktopCapturer.getSources(options),
+    getDisplays: () => {
+      const primaryId = screen.getPrimaryDisplay().id
+      return screen.getAllDisplays().map((display) => ({
+        id: String(display.id),
+        bounds: {
+          x: display.bounds.x,
+          y: display.bounds.y,
+          width: display.bounds.width,
+          height: display.bounds.height
+        },
+        scaleFactor: display.scaleFactor,
+        primary: display.id === primaryId
+      }))
+    },
     isTrustedAccessibilityClient: (prompt) =>
       typeof systemPreferences.isTrustedAccessibilityClient === 'function'
         ? systemPreferences.isTrustedAccessibilityClient(prompt)

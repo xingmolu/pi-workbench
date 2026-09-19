@@ -1,18 +1,23 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  computerUseImagePointToScreenPoint,
   computerUseObservationSchema,
   computerUseOperationSchema,
   computerUseResultSchema,
   COMPUTER_USE_LIMITS,
+  type ComputerUseActionTarget,
   type ComputerUseElement,
+  type ComputerUseFrameRect,
   type ComputerUseObservation,
   type ComputerUseOperation,
-  type ComputerUseResult
+  type ComputerUseResult,
+  type ComputerUseVisualFrame
 } from '../shared/computer-use'
 import {
   desktopControlGateMessage,
   type AxDump,
-  type AxNode
+  type AxNode,
+  type DesktopControlPermission
 } from '../shared/desktop-control'
 import { DesktopControlService } from './desktop-control-service'
 
@@ -22,17 +27,37 @@ export type ComputerUseExecutionScope = {
   generation: number
 }
 
-type SemanticState = {
+type RequestedMode = 'semantic' | 'visual' | 'fused'
+
+type ComputerUseState = {
   sessionId: string | null
   generation: number
   stateId: string
-  fingerprint: string
+  requestedMode: RequestedMode
+  semanticFingerprint?: string
+  visualFingerprint?: string
   observation: ComputerUseObservation
   elements: Map<string, ComputerUseElement>
 }
 
-function fingerprint(dump: AxDump): string {
-  return createHash('sha256').update(JSON.stringify(dump)).digest('hex')
+type SemanticContext = {
+  dump: AxDump
+  permission: DesktopControlPermission
+  sessionUnlocked: boolean
+}
+
+type InputContext = {
+  permission: DesktopControlPermission
+  sessionUnlocked: boolean
+  dump: AxDump | null
+}
+
+function fingerprint(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function visualFingerprint(visual: ComputerUseVisualFrame): string {
+  return createHash('sha256').update(visual.image.data).digest('hex')
 }
 
 function flattenElements(dump: AxDump): {
@@ -75,7 +100,7 @@ function elementCenter(element: ComputerUseElement): { x: number; y: number } {
     element.width <= 0 ||
     element.height <= 0
   ) {
-    throw new Error('目标元素没有可操作的屏幕坐标，请重新 observe 或改用其他目标')
+    throw new Error('目标元素没有可操作的屏幕坐标，请重新 observe 或改用视觉坐标')
   }
   return {
     x: Math.round(element.x + element.width / 2),
@@ -83,14 +108,44 @@ function elementCenter(element: ComputerUseElement): { x: number; y: number } {
   }
 }
 
+function preferredVisualBounds(dump: AxDump): ComputerUseFrameRect | undefined {
+  for (const window of dump.windows) {
+    if (
+      window.x !== null &&
+      window.y !== null &&
+      window.width !== null &&
+      window.height !== null &&
+      window.width > 0 &&
+      window.height > 0
+    ) {
+      return {
+        x: window.x,
+        y: window.y,
+        width: window.width,
+        height: window.height
+      }
+    }
+  }
+  return undefined
+}
+
+function sameRect(left: ComputerUseFrameRect, right: ComputerUseFrameRect): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  )
+}
+
 /**
  * Runtime-neutral host Computer Use coordinator.
  *
- * Agent adapters (Pi / Claude Code / Codex) should expose this contract using their own
- * native tool protocol. OS permissions, stale-state validation and input execution stay here.
+ * Agent adapters (Pi / Claude Code / Codex) expose this contract through their native
+ * tool protocol. Observation, OS permissions, stale-state validation and input stay here.
  */
 export class ComputerUseService {
-  private readonly states = new Map<string, SemanticState>()
+  private readonly states = new Map<string, ComputerUseState>()
 
   constructor(private readonly desktop: DesktopControlService) {}
 
@@ -107,10 +162,7 @@ export class ComputerUseService {
     const request: ComputerUseOperation = computerUseOperationSchema.parse(operation)
     switch (request.action) {
       case 'observe':
-        if (request.mode && request.mode !== 'semantic') {
-          throw new Error('visual/fused observation 尚未启用；当前仅支持 semantic')
-        }
-        return this.observeSemantic(scope, signal)
+        return this.observe(scope, request.mode ?? 'fused', signal)
       case 'search':
         return this.search(scope, request.stateId, request.query)
       case 'inspect':
@@ -121,7 +173,7 @@ export class ComputerUseService {
     }
   }
 
-  private requireState(scope: ComputerUseExecutionScope, stateId: string): SemanticState {
+  private requireState(scope: ComputerUseExecutionScope, stateId: string): ComputerUseState {
     const state = this.states.get(this.scopeKey(scope))
     if (
       !state ||
@@ -134,11 +186,7 @@ export class ComputerUseService {
     return state
   }
 
-  private async readCurrentSemantic(signal?: AbortSignal): Promise<{
-    dump: AxDump
-    permission: Awaited<ReturnType<DesktopControlService['accessibility']['dump']>>['permission']
-    sessionUnlocked: boolean
-  }> {
+  private async readCurrentSemantic(signal?: AbortSignal): Promise<SemanticContext> {
     const result = await this.desktop.accessibility.dump(signal)
     const gate = desktopControlGateMessage({
       platformSupported: result.permission.platformSupported,
@@ -154,28 +202,94 @@ export class ComputerUseService {
     }
   }
 
-  private async observeSemantic(
+  private async readInputContext(signal?: AbortSignal): Promise<InputContext> {
+    const result = await this.desktop.accessibility.dump(signal)
+    const gate = desktopControlGateMessage({
+      platformSupported: result.permission.platformSupported,
+      sessionUnlocked: result.sessionUnlocked,
+      accessibilityGranted: result.permission.access === 'granted'
+    })
+    if (gate) throw new Error(gate)
+    return {
+      permission: result.permission,
+      sessionUnlocked: result.sessionUnlocked,
+      dump: result.dump
+    }
+  }
+
+  private async readVisual(
+    preferredBounds: ComputerUseFrameRect | undefined,
+    signal?: AbortSignal
+  ): Promise<ComputerUseVisualFrame> {
+    const unlocked = await this.desktop.accessibility.sessionUnlocked(signal)
+    if (!unlocked) throw new Error('锁屏或锁定会话中拒绝视觉 Computer Use。请解锁后再试。')
+    return this.desktop.capture.captureVisualFrame(preferredBounds, signal)
+  }
+
+  private async observe(
     scope: ComputerUseExecutionScope,
+    requestedMode: RequestedMode,
     signal?: AbortSignal
   ): Promise<ComputerUseObservation> {
-    const current = await this.readCurrentSemantic(signal)
-    const { elements, index } = flattenElements(current.dump)
+    let semantic: SemanticContext | undefined
+    let visual: ComputerUseVisualFrame | undefined
+    let semanticError: unknown
+    let visualError: unknown
+
+    if (requestedMode === 'semantic' || requestedMode === 'fused') {
+      try {
+        semantic = await this.readCurrentSemantic(signal)
+      } catch (error) {
+        semanticError = error
+        if (signal?.aborted) throw error
+        if (requestedMode === 'semantic') throw error
+      }
+    }
+
+    if (requestedMode === 'visual' || requestedMode === 'fused') {
+      try {
+        visual = await this.readVisual(
+          semantic ? preferredVisualBounds(semantic.dump) : undefined,
+          signal
+        )
+      } catch (error) {
+        visualError = error
+        if (signal?.aborted) throw error
+        if (requestedMode === 'visual') throw error
+      }
+    }
+
+    if (!semantic && !visual) {
+      const semanticMessage =
+        semanticError instanceof Error ? semanticError.message : '语义观察不可用'
+      const visualMessage = visualError instanceof Error ? visualError.message : '视觉观察不可用'
+      throw new Error(`无法观察桌面：${semanticMessage}；${visualMessage}`)
+    }
+
+    const flattened = semantic
+      ? flattenElements(semantic.dump)
+      : { elements: [] as ComputerUseElement[], index: new Map<string, ComputerUseElement>() }
+    const actualMode: RequestedMode = semantic && visual ? 'fused' : visual ? 'visual' : 'semantic'
     const observation = computerUseObservationSchema.parse({
       kind: 'observation',
       stateId: randomUUID(),
-      mode: 'semantic',
-      app: current.dump.app,
-      bundleId: current.dump.bundleId,
-      truncated: current.dump.truncated,
-      elements
+      mode: actualMode,
+      app: semantic?.dump.app ?? '',
+      bundleId: semantic?.dump.bundleId ?? '',
+      truncated: semantic?.dump.truncated ?? false,
+      elements: flattened.elements,
+      ...(visual ? { visual } : {})
     })
+
     this.states.set(this.scopeKey(scope), {
       sessionId: scope.sessionId,
       generation: scope.generation,
       stateId: observation.stateId,
-      fingerprint: fingerprint(current.dump),
+      requestedMode,
+      ...(semantic ? { semanticFingerprint: fingerprint(semantic.dump) } : {}),
+      ...(visual ? { visualFingerprint: visualFingerprint(visual) } : {}),
       observation,
-      elements: index
+      elements: flattened.index
     })
     return observation
   }
@@ -219,33 +333,81 @@ export class ComputerUseService {
     })
   }
 
+  private validateVisualTarget(
+    state: ComputerUseState,
+    target: Extract<ComputerUseActionTarget, { kind: 'point' }>
+  ): { x: number; y: number } {
+    const visual = state.observation.visual
+    if (!visual) throw new Error('当前 stateId 没有视觉截图，请重新 visual/fused observe')
+    if (Date.now() - visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs) {
+      throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+    }
+    const display = this.desktop.capture
+      .readDisplays()
+      .find((candidate) => candidate.id === visual.displayId)
+    if (
+      !display ||
+      !sameRect(display.bounds, visual.framePoints) ||
+      display.scaleFactor !== visual.scaleFactor
+    ) {
+      throw new Error('显示器布局已变化，请重新 observe')
+    }
+    return computerUseImagePointToScreenPoint(visual, target)
+  }
+
   private async act(
     scope: ComputerUseExecutionScope,
     request: Extract<ComputerUseOperation, { action: 'act' }>,
     signal?: AbortSignal
   ): Promise<ComputerUseResult> {
     const state = this.requireState(scope, request.stateId)
-    const element = state.elements.get(request.ref)
-    if (!element) throw new Error('Computer Use 元素引用无效，请重新 observe')
+    let point: { x: number; y: number }
+    let inputContext: InputContext
 
-    const current = await this.readCurrentSemantic(signal)
-    if (fingerprint(current.dump) !== state.fingerprint) {
-      this.states.delete(this.scopeKey(scope))
-      throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
+    if (request.target.kind === 'ref') {
+      const element = state.elements.get(request.target.ref)
+      if (!element || !state.semanticFingerprint) {
+        throw new Error('当前 stateId 不包含这个语义元素，请重新 semantic/fused observe')
+      }
+      const current = await this.readCurrentSemantic(signal)
+      if (fingerprint(current.dump) !== state.semanticFingerprint) {
+        this.states.delete(this.scopeKey(scope))
+        throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
+      }
+      point = elementCenter(element)
+      inputContext = {
+        permission: current.permission,
+        sessionUnlocked: current.sessionUnlocked,
+        dump: current.dump
+      }
+    } else {
+      point = this.validateVisualTarget(state, request.target)
+      if (state.semanticFingerprint) {
+        const current = await this.readCurrentSemantic(signal)
+        if (fingerprint(current.dump) !== state.semanticFingerprint) {
+          this.states.delete(this.scopeKey(scope))
+          throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
+        }
+        inputContext = {
+          permission: current.permission,
+          sessionUnlocked: current.sessionUnlocked,
+          dump: current.dump
+        }
+      } else {
+        inputContext = await this.readInputContext(signal)
+      }
     }
 
-    const point = elementCenter(element)
     const screen = this.desktop.capture.readPermission()
-
     if (request.intent === 'press') {
       const result = await this.desktop.input.click({
         x: point.x,
         y: point.y,
         confirmed: true,
         screen,
-        accessibility: current.permission,
-        sessionUnlocked: current.sessionUnlocked,
-        dump: current.dump,
+        accessibility: inputContext.permission,
+        sessionUnlocked: inputContext.sessionUnlocked,
+        dump: inputContext.dump,
         signal
       })
       if (!result.executed) throw new Error(result.message ?? '无法执行桌面点击')
@@ -257,9 +419,9 @@ export class ComputerUseService {
         y: point.y,
         confirmed: true,
         screen,
-        accessibility: current.permission,
-        sessionUnlocked: current.sessionUnlocked,
-        dump: current.dump,
+        accessibility: inputContext.permission,
+        sessionUnlocked: inputContext.sessionUnlocked,
+        dump: inputContext.dump,
         signal
       })
       if (!focused.executed) throw new Error(focused.message ?? '无法聚焦输入目标')
@@ -267,22 +429,38 @@ export class ComputerUseService {
     }
 
     this.states.delete(this.scopeKey(scope))
-    const observation = await this.observeSemantic(scope, signal)
+    const observation = await this.observe(scope, state.requestedMode, signal)
     const successor = this.requireState(scope, observation.stateId)
+    const semanticChanged =
+      Boolean(state.semanticFingerprint) &&
+      Boolean(successor.semanticFingerprint) &&
+      successor.semanticFingerprint !== state.semanticFingerprint
+    const visualChanged =
+      Boolean(state.visualFingerprint) &&
+      Boolean(successor.visualFingerprint) &&
+      successor.visualFingerprint !== state.visualFingerprint
+    const verification = semanticChanged
+      ? 'semantic-change'
+      : visualChanged
+        ? 'visual-change'
+        : 'delivered-only'
+    const changed = semanticChanged || visualChanged
+
     return computerUseResultSchema.parse({
       kind: 'action',
       previousStateId: request.stateId,
-      ref: request.ref,
+      target: request.target,
       action: request.intent,
       delivered: true,
-      changed: successor.fingerprint !== state.fingerprint,
+      changed,
+      verification,
       observation,
       message:
-        request.intent === 'move'
-          ? '已移动指针并刷新界面状态。'
-          : successor.fingerprint !== state.fingerprint
-            ? '操作已发送，并观察到界面状态变化。'
-            : '操作已发送，但未观察到语义结构变化；请根据新状态继续确认。'
+        verification === 'semantic-change'
+          ? '操作已发送，并观察到语义界面状态变化。'
+          : verification === 'visual-change'
+            ? '操作已发送，并观察到视觉变化；这不单独证明业务动作成功，请依据新截图继续确认。'
+            : '操作已发送，但未观察到可验证变化；请依据新状态继续确认。'
     })
   }
 }

@@ -198,6 +198,116 @@ describe('DesktopCapture', () => {
     expect(getSources).toHaveBeenCalledOnce()
   })
 
+  it('captures the display containing the target window and records actual image geometry', async () => {
+    const resized = {
+      isEmpty: () => false,
+      getSize: () => ({ width: 1600, height: 900 }),
+      toDataURL: () => 'data:image/png;base64,ZXh0ZXJuYWw=',
+      toPNG: () => Buffer.from('external')
+    }
+    const resize = vi.fn(() => resized)
+    const getSources = vi.fn(async () => [
+      {
+        id: 'screen:1:0',
+        name: 'Primary',
+        display_id: '1',
+        thumbnail: {
+          isEmpty: () => false,
+          getSize: () => ({ width: 1440, height: 900 }),
+          toDataURL: () => 'data:image/png;base64,cHJpbWFyeQ==',
+          toPNG: () => Buffer.from('primary')
+        }
+      },
+      {
+        id: 'screen:2:0',
+        name: 'External',
+        display_id: '2',
+        thumbnail: {
+          isEmpty: () => false,
+          getSize: () => ({ width: 3200, height: 1800 }),
+          resize,
+          toDataURL: () => 'data:image/png;base64,ZXh0ZXJuYWw=',
+          toPNG: () => Buffer.from('external-large')
+        }
+      }
+    ])
+    const api = new DesktopCapture({
+      platform: 'darwin',
+      getMediaAccessStatus: () => 'granted',
+      getSources,
+      getDisplays: () => [
+        {
+          id: '1',
+          bounds: { x: 0, y: 0, width: 1440, height: 900 },
+          scaleFactor: 2,
+          primary: true
+        },
+        {
+          id: '2',
+          bounds: { x: -1920, y: 0, width: 1920, height: 1080 },
+          scaleFactor: 1,
+          primary: false
+        }
+      ],
+      openExternal: async () => undefined
+    })
+
+    const frame = await api.captureVisualFrame({
+      x: -1800,
+      y: 100,
+      width: 800,
+      height: 600
+    })
+
+    expect(getSources).toHaveBeenCalledExactlyOnceWith({
+      types: ['screen'],
+      thumbnailSize: { width: 1600, height: 900 },
+      fetchWindowIcons: false
+    })
+    expect(resize).toHaveBeenCalledWith({ width: 1600, height: 900 })
+    expect(frame).toMatchObject({
+      displayId: '2',
+      framePoints: { x: -1920, y: 0, width: 1920, height: 1080 },
+      scaleFactor: 1,
+      image: {
+        mimeType: 'image/png',
+        data: Buffer.from('external').toString('base64'),
+        width: 1600,
+        height: 900
+      }
+    })
+  })
+
+  it('fails closed when multiple screen sources cannot be mapped to the target display', async () => {
+    const makeScreen = (id: string, displayId: string): DesktopCapturerSourceInput => ({
+      id,
+      name: id,
+      display_id: displayId,
+      thumbnail: {
+        isEmpty: () => false,
+        getSize: () => ({ width: 800, height: 600 }),
+        toDataURL: () => 'data:image/png;base64,aW1hZ2U=',
+        toPNG: () => Buffer.from('image')
+      }
+    })
+    const api = new DesktopCapture({
+      platform: 'darwin',
+      getMediaAccessStatus: () => 'granted',
+      getSources: async () => [makeScreen('screen:1:0', '1'), makeScreen('screen:2:0', '2')],
+      getDisplays: () => [
+        {
+          id: '3',
+          bounds: { x: 0, y: 0, width: 1200, height: 800 },
+          scaleFactor: 1,
+          primary: true
+        }
+      ],
+      openExternal: async () => undefined
+    })
+
+    await expect(api.captureVisualFrame()).rejects.toThrow(/对应/)
+  })
+
   it('opens the Sequoia-compatible privacy pane and falls back', async () => {
     const first = capture({
       openExternal: async (url) => {

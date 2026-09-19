@@ -43,6 +43,7 @@ export class DesktopControlService {
       platform: deps.platform,
       getMediaAccessStatus: deps.getMediaAccessStatus,
       getSources: deps.getSources,
+      getDisplays: deps.getDisplays,
       openExternal: deps.openExternal
     })
     this.accessibility = new DesktopAccessibility({

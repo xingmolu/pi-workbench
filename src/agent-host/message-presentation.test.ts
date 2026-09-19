@@ -25,6 +25,7 @@ it.each([
   ['grep', { pattern: 'foo' }, 'search', '搜索 foo'],
   ['find', { query: 'bar' }, 'search', '搜索 bar'],
   ['browser', { action: 'open' }, 'web', '浏览器 · open'],
+  ['computer', { action: 'act' }, 'desktop', 'Computer Use · act'],
   ['custom-browser', {}, 'web', 'custom-browser'],
   ['web', {}, 'web', 'web'],
   ['desktop', { action: 'click', x: 1, y: 2 }, 'desktop', '桌面 · click'],
