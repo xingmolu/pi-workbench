@@ -7,12 +7,11 @@ import {
   type DesktopControlPermission,
   type DesktopControlResult
 } from '../shared/desktop-control'
-import { jxaClick, jxaMove, jxaType, runJxa, type JxaExec } from './desktop-control-jxa'
+import { MacComputerUseBridge } from './desktop-control-native'
 
 export type DesktopInputDeps = {
   platform: string
-  runJxa?: typeof runJxa
-  exec: JxaExec
+  bridge: MacComputerUseBridge
 }
 
 export function inputGateMessage(input: {
@@ -28,10 +27,6 @@ export function inputGateMessage(input: {
 
 export class DesktopInput {
   constructor(private readonly deps: DesktopInputDeps) {}
-
-  private invokeJxa(source: string, signal?: AbortSignal): Promise<unknown> {
-    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source, signal)
-  }
 
   preview(input: {
     x: number
@@ -73,7 +68,7 @@ export class DesktopInput {
     dump: AxDump | null
     signal?: AbortSignal
   }): Promise<Extract<DesktopControlResult, { type: 'input-click' }>> {
-    if (input.signal?.aborted) throw new Error('桌面控制操作已停止')
+    if (input.signal?.aborted) throw new Error('Computer Use 操作已停止')
     const preview = this.preview(input)
     if (!preview.allowed) {
       return desktopControlInputClickResultSchema.parse({
@@ -89,7 +84,15 @@ export class DesktopInput {
       })
     }
     try {
-      await this.invokeJxa(jxaClick(input.x, input.y, input.button ?? 'left'), input.signal)
+      await this.deps.bridge.call(
+        {
+          action: 'click',
+          x: input.x,
+          y: input.y,
+          button: input.button ?? 'left'
+        },
+        input.signal
+      )
       return desktopControlInputClickResultSchema.parse({
         type: 'input-click',
         executed: true,
@@ -102,7 +105,7 @@ export class DesktopInput {
         message: '已在确认坐标发送点击。'
       })
     } catch {
-      if (input.signal?.aborted) throw new Error('桌面控制操作已停止')
+      if (input.signal?.aborted) throw new Error('Computer Use 操作已停止')
       return desktopControlInputClickResultSchema.parse({
         type: 'input-click',
         executed: false,
@@ -118,10 +121,10 @@ export class DesktopInput {
   }
 
   async move(x: number, y: number, signal?: AbortSignal): Promise<void> {
-    await this.invokeJxa(jxaMove(x, y), signal)
+    await this.deps.bridge.call({ action: 'move', x, y }, signal)
   }
 
   async typeText(text: string, signal?: AbortSignal): Promise<void> {
-    await this.invokeJxa(jxaType(text), signal)
+    await this.deps.bridge.call({ action: 'type', text }, signal)
   }
 }

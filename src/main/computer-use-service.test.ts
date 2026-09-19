@@ -18,18 +18,18 @@ function harness(options: { visual?: boolean } = {}) {
   })
   const getSources = vi.fn(async () => (options.visual ? [visualSource()] : []))
   const exec = vi.fn(async (_file: string, args: readonly string[]) => {
-    const script = String(args[3] ?? '')
-    if (script.includes('CGSSessionScreenIsLocked')) {
+    const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+    if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: false }) }
     }
-    if (script.includes('kCGEventLeftMouseDown')) {
+    if (command.action === 'click') {
       buttonTitle = 'Done'
-      return { stdout: JSON.stringify({ ok: true, x: 200, y: 100 }) }
+      return { stdout: JSON.stringify({ ok: true, x: command.x, y: command.y }) }
     }
-    if (script.includes('kCGEventMouseMoved')) {
-      return { stdout: JSON.stringify({ ok: true, x: 200, y: 100 }) }
+    if (command.action === 'move') {
+      return { stdout: JSON.stringify({ ok: true, x: command.x, y: command.y }) }
     }
-    if (script.includes('keystroke')) {
+    if (command.action === 'type') {
       return { stdout: JSON.stringify({ ok: true }) }
     }
     return {
@@ -84,7 +84,8 @@ function harness(options: { visual?: boolean } = {}) {
           ]
         : [],
     isTrustedAccessibilityClient: () => true,
-    exec,
+    nativeHelperPath: '/test/pi-computer-use-helper',
+    nativeExec: exec,
     openExternal: async () => undefined
   })
 
@@ -197,12 +198,8 @@ describe('ComputerUseService', () => {
     })
     expect(
       exec.mock.calls.some((call) => {
-        const script = String(call[1]?.[3] ?? '')
-        return (
-          script.includes('kCGEventLeftMouseDown') &&
-          script.includes('var x=200') &&
-          script.includes('var y=100')
-        )
+        const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
+        return command.action === 'click' && command.x === 200 && command.y === 100
       })
     ).toBe(true)
   })
@@ -225,7 +222,10 @@ describe('ComputerUseService', () => {
       ).rejects.toThrow(/状态已过期/)
 
       expect(
-        exec.mock.calls.some((call) => String(call[1]?.[3]).includes('kCGEventLeftMouseDown'))
+        exec.mock.calls.some((call) => {
+          const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
+          return command.action === 'click'
+        })
       ).toBe(false)
     } finally {
       clock.mockRestore()

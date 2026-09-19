@@ -9,13 +9,12 @@ import {
   type DesktopControlPermission,
   type DesktopControlResult
 } from '../shared/desktop-control'
-import { JXA_AX_DUMP, JXA_SESSION_LOCK, runJxa, type JxaExec } from './desktop-control-jxa'
+import { MacComputerUseBridge } from './desktop-control-native'
 
 export type DesktopAccessibilityDeps = {
   platform: string
   isTrustedAccessibilityClient?: (prompt: boolean) => boolean
-  runJxa?: typeof runJxa
-  exec: JxaExec
+  bridge: MacComputerUseBridge
   openExternal: (url: string) => Promise<void>
 }
 
@@ -27,10 +26,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 export class DesktopAccessibility {
   constructor(private readonly deps: DesktopAccessibilityDeps) {}
-
-  private invokeJxa(source: string, signal?: AbortSignal): Promise<unknown> {
-    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source, signal)
-  }
 
   readPermission(): DesktopControlPermission {
     const platformSupported = this.deps.platform === 'darwin'
@@ -65,13 +60,13 @@ export class DesktopAccessibility {
 
   async sessionUnlocked(signal?: AbortSignal): Promise<boolean> {
     if (this.deps.platform !== 'darwin') return false
-    if (signal?.aborted) throw new Error('桌面控制操作已停止')
+    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
     try {
-      const raw = asRecord(await this.invokeJxa(JXA_SESSION_LOCK, signal))
+      const raw = asRecord(await this.deps.bridge.call({ action: 'session-lock' }, signal))
       if (!raw || raw.ok !== true) return false
       return raw.locked !== true
     } catch {
-      if (signal?.aborted) throw new Error('桌面控制操作已停止')
+      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
       return false
     }
   }
@@ -94,7 +89,7 @@ export class DesktopAccessibility {
       })
     }
     try {
-      const raw = asRecord(await this.invokeJxa(JXA_AX_DUMP, signal))
+      const raw = asRecord(await this.deps.bridge.call({ action: 'ax-dump' }, signal))
       if (!raw || raw.ok !== true) {
         return desktopControlAccessibilityDumpResultSchema.parse({
           type: 'accessibility-dump',
@@ -141,7 +136,7 @@ export class DesktopAccessibility {
             : undefined
       })
     } catch {
-      if (signal?.aborted) throw new Error('桌面控制操作已停止')
+      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
         permission: this.readPermission(),

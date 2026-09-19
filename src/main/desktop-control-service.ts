@@ -1,5 +1,3 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import {
   axNodeToHitTarget,
   desktopControlAccessibilityPermissionResultSchema,
@@ -15,22 +13,20 @@ import {
 import { DesktopAccessibility } from './desktop-control-accessibility'
 import { DesktopCapture, type DesktopCaptureDeps } from './desktop-control-capture'
 import { DesktopInput, inputGateMessage } from './desktop-control-input'
-import { type JxaExec } from './desktop-control-jxa'
-
-const execFileAsync = promisify(execFile)
-
-export function defaultJxaExec(): JxaExec {
-  return (file, args, options) => execFileAsync(file, [...args], options)
-}
+import {
+  MacComputerUseBridge,
+  type NativeComputerUseExec
+} from './desktop-control-native'
 
 export type DesktopControlServiceDeps = DesktopCaptureDeps & {
   isTrustedAccessibilityClient?: (prompt: boolean) => boolean
-  exec?: JxaExec
+  nativeHelperPath: string
+  nativeExec?: NativeComputerUseExec
 }
 
 /**
- * Main-owned Computer Use facade. Capture, AX, and CGEvent/JXA stay out of the renderer.
- * nut-js is intentionally not used: Electron 44 + ad-hoc codesign would need a native rebuild.
+ * Main-owned Computer Use facade. Capture and native AX/CGEvent stay out of the renderer.
+ * macOS automation is provided by the packaged Swift helper; no Apple Events/JXA path remains.
  */
 export class DesktopControlService {
   readonly capture: DesktopCapture
@@ -38,7 +34,7 @@ export class DesktopControlService {
   readonly input: DesktopInput
 
   constructor(deps: DesktopControlServiceDeps) {
-    const exec = deps.exec ?? defaultJxaExec()
+    const bridge = new MacComputerUseBridge(deps.nativeHelperPath, deps.nativeExec)
     this.capture = new DesktopCapture({
       platform: deps.platform,
       getMediaAccessStatus: deps.getMediaAccessStatus,
@@ -49,12 +45,12 @@ export class DesktopControlService {
     this.accessibility = new DesktopAccessibility({
       platform: deps.platform,
       isTrustedAccessibilityClient: deps.isTrustedAccessibilityClient,
-      exec,
+      bridge,
       openExternal: deps.openExternal
     })
     this.input = new DesktopInput({
       platform: deps.platform,
-      exec
+      bridge
     })
   }
 

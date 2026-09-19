@@ -7,7 +7,6 @@ files:
   - resources/**
   - package.json
 asarUnpack:
-  - resources/**
   - node_modules/node-pty/**
 win:
   executableName: pi-desktop
@@ -16,13 +15,15 @@ nsis:
   shortcutName: ${productName}
 mac:
   identity: "-"
+  extraResources:
+    - from: resources/native/pi-computer-use-helper
+      to: native/pi-computer-use-helper
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
     - NSScreenCaptureUsageDescription: Pi Desktop 需要屏幕录制权限，用于截取屏幕与窗口（Computer Use）。Screen Recording is required to capture displays and windows.
-    - NSAppleEventsUsageDescription: Pi Desktop 需要通过系统事件读取窗口结构并发送确认后的键盘输入（Computer Use）。Apple Events are used to inspect UI structure and type after approval.
   notarize: false
 linux:
   target:

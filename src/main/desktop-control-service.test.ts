@@ -59,7 +59,7 @@ function service(options: {
   trusted?: boolean
   sources?: DesktopCapturerSourceInput[]
   locked?: boolean
-  execImpl?: (source: string) => Promise<{ stdout: string }>
+  execImpl?: (command: Record<string, unknown>) => Promise<{ stdout: string }>
 }): {
   getSources: ReturnType<typeof vi.fn>
   exec: ReturnType<typeof vi.fn>
@@ -67,15 +67,15 @@ function service(options: {
 } {
   const getSources = vi.fn(async () => options.sources ?? [source('screen:0:0', 'Display')])
   const exec = vi.fn(async (_file: string, args: readonly string[]) => {
-    const script = String(args[3] ?? '')
-    if (options.execImpl) return options.execImpl(script)
-    if (script.includes('CGSSessionScreenIsLocked')) {
+    const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+    if (options.execImpl) return options.execImpl(command)
+    if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: options.locked === true }) }
     }
-    if (script.includes('kCGEventLeftMouseDown') || script.includes('kCGEventMouseMoved')) {
-      return { stdout: JSON.stringify({ ok: true, x: 12, y: 12 }) }
+    if (command.action === 'click' || command.action === 'move') {
+      return { stdout: JSON.stringify({ ok: true, x: command.x ?? 12, y: command.y ?? 12 }) }
     }
-    if (script.includes('keystroke')) return { stdout: JSON.stringify({ ok: true }) }
+    if (command.action === 'type') return { stdout: JSON.stringify({ ok: true }) }
     return { stdout: JSON.stringify(dumpPayload) }
   })
   return {
@@ -86,14 +86,15 @@ function service(options: {
       getMediaAccessStatus: () => options.status ?? 'granted',
       getSources,
       isTrustedAccessibilityClient: () => options.trusted ?? true,
-      exec,
+      nativeHelperPath: '/test/pi-computer-use-helper',
+      nativeExec: exec,
       openExternal: async () => undefined
     })
   }
 }
 
 describe('DesktopControlService', () => {
-  it('keeps Linux unsupported and never calls capturer or osascript', async () => {
+  it('keeps Linux unsupported and never calls capturer or native helper', async () => {
     const { api, getSources, exec } = service({ platform: 'linux' })
     expect(await api.dispatch({ type: 'permission' })).toMatchObject({
       permission: { access: 'unsupported' }
@@ -129,9 +130,12 @@ describe('DesktopControlService', () => {
   it('refuses agent input on a locked session even when TCC looks granted', async () => {
     const { api, exec } = service({ locked: true })
     await expect(api.executeAgent({ action: 'click', x: 12, y: 12 })).rejects.toThrow(/锁定/)
-    expect(exec.mock.calls.some((call) => String(call[1]?.[3]).includes('kCGEventLeftMouseDown'))).toBe(
-      false
-    )
+    expect(
+      exec.mock.calls.some((call) => {
+        const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
+        return command.action === 'click'
+      })
+    ).toBe(false)
   })
 
   it('dispatches a confirmed settings click using accessibility without capture probing', async () => {

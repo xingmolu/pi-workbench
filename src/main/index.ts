@@ -1016,8 +1016,12 @@ function registerIpc(): void {
     if (!mobileGateway) throw new Error('手机网关尚未就绪')
     return mobileGateway.dispatch(command)
   })
+  const nativeComputerUseHelperPath = app.isPackaged
+    ? join(process.resourcesPath, 'native', 'pi-computer-use-helper')
+    : join(app.getAppPath(), 'resources', 'native', 'pi-computer-use-helper')
   desktopControl = new DesktopControlService({
     platform: process.platform,
+    nativeHelperPath: nativeComputerUseHelperPath,
     getMediaAccessStatus: (mediaType) => systemPreferences.getMediaAccessStatus(mediaType),
     getSources: (options) => desktopCapturer.getSources(options),
     getDisplays: () => {

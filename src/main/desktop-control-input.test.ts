@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DesktopInput, inputGateMessage } from './desktop-control-input'
 import type { AxDump, DesktopControlPermission } from '../shared/desktop-control'
+import {
+  MacComputerUseBridge,
+  type NativeComputerUseExec
+} from './desktop-control-native'
 
 const granted: DesktopControlPermission = {
   platformSupported: true,
@@ -42,10 +46,16 @@ const dump: AxDump = {
   ]
 }
 
+function bridge(
+  exec = vi.fn<NativeComputerUseExec>(async () => ({ stdout: JSON.stringify({ ok: true }) }))
+) {
+  return { exec, bridge: new MacComputerUseBridge('/test/pi-computer-use-helper', exec) }
+}
+
 describe('DesktopInput', () => {
-  it('refuses non-darwin, locked, and ungranted sessions without JXA', async () => {
-    const exec = vi.fn()
-    const linux = new DesktopInput({ platform: 'linux', exec })
+  it('refuses non-darwin, locked, and ungranted sessions without native calls', async () => {
+    const native = bridge()
+    const linux = new DesktopInput({ platform: 'linux', bridge: native.bridge })
     const preview = linux.preview({
       x: 12,
       y: 12,
@@ -69,7 +79,7 @@ describe('DesktopInput', () => {
         })
       ).executed
     ).toBe(false)
-    expect(exec).not.toHaveBeenCalled()
+    expect(native.exec).not.toHaveBeenCalled()
     expect(
       inputGateMessage({
         platformSupported: true,
@@ -79,9 +89,9 @@ describe('DesktopInput', () => {
     ).toContain('锁定')
   })
 
-  it('hit-tests before a confirmed click and posts CGEvent JXA', async () => {
-    const exec = vi.fn(async () => ({ stdout: JSON.stringify({ ok: true, x: 12, y: 12 }) }))
-    const api = new DesktopInput({ platform: 'darwin', exec })
+  it('hit-tests before a confirmed click and calls the native helper', async () => {
+    const native = bridge()
+    const api = new DesktopInput({ platform: 'darwin', bridge: native.bridge })
     const preview = api.preview({
       x: 12,
       y: 12,
@@ -104,13 +114,14 @@ describe('DesktopInput', () => {
       dump
     })
     expect(clicked.executed).toBe(true)
-    expect(JSON.stringify(exec.mock.calls)).toContain('kCGEventLeftMouseDown')
-    expect(JSON.stringify(exec.mock.calls)).toContain('12')
+    expect(native.exec).toHaveBeenCalledOnce()
+    const command = JSON.parse(String(native.exec.mock.calls[0]?.[1]?.[0] ?? '{}'))
+    expect(command).toEqual({ action: 'click', x: 12, y: 12, button: 'left' })
   })
 
   it('does not require screen recording for input but still requires accessibility', async () => {
-    const exec = vi.fn(async () => ({ stdout: JSON.stringify({ ok: true, x: 1, y: 1 }) }))
-    const api = new DesktopInput({ platform: 'darwin', exec })
+    const native = bridge()
+    const api = new DesktopInput({ platform: 'darwin', bridge: native.bridge })
     const denied: DesktopControlPermission = { ...granted, access: 'denied', canCapture: false }
     expect(
       api.preview({
@@ -135,6 +146,6 @@ describe('DesktopInput', () => {
         })
       ).executed
     ).toBe(false)
-    expect(exec).not.toHaveBeenCalled()
+    expect(native.exec).not.toHaveBeenCalled()
   })
 })

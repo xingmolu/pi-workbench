@@ -15,7 +15,8 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "dev:renderer": "electron-vite dev --rendererOnly",
-    "start": "electron-vite preview"
+    "start": "electron-vite preview",
+    "build:native:mac": "node scripts/build-macos-computer-use-helper.cjs"
   },
   "homepage": "https://github.com/xingmolu/pi-desktop",
   "dependencies": {
