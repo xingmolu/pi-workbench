@@ -1,6 +1,11 @@
 import { z } from 'zod'
+import { navigationLibrarySchema } from './navigation-library'
 
-const searchShape = { query: z.string().max(200), limit: z.number().int().min(1).max(50) }
+const searchShape = {
+  query: z.string().max(200), limit: z.number().int().min(1).max(50),
+  includeHidden: z.boolean().optional(), includeArchived: z.boolean().optional(),
+  navigation: navigationLibrarySchema.optional()
+}
 export const sessionSearchCommandSchema = z
   .object({ type: z.literal('session:search'), ...searchShape })
   .strict()

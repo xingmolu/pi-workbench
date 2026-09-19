@@ -1,3 +1,4 @@
+import { NAVIGATION_LIBRARY_CHANNEL, navigationLibraryCommandSchema, navigationLibrarySchema } from '../shared/navigation-library'
 import { contextBridge, ipcRenderer } from 'electron'
 import { SessionOriginTracker } from './session-origin'
 import {
@@ -73,7 +74,7 @@ const origins = new SessionOriginTracker()
 ipcRenderer.on('pi:event', (_event, value: DesktopEvent) => {
   if (value.event === 'snapshot') origins.accept(value.data)
   if (value.event === 'patch')
-    origins.accept({ ...value.data, desktopScope: value.data.meta.desktopScope })
+    origins.accept({ ...value.data, desktopScope: value.data.meta.desktopScope, desktopEpoch: value.data.meta.desktopEpoch })
 })
 const originFor = (origin?: DesktopCommandOrigin): DesktopCommandOrigin | undefined => {
   const captured = origin ?? origins.capture()
@@ -85,6 +86,9 @@ const acceptSnapshot = (snapshot: AgentSnapshot): AgentSnapshot => {
 }
 
 const api: PiDesktopAPI = {
+  navigationLibrary: async (command) => navigationLibrarySchema.parse(
+    await ipcRenderer.invoke(NAVIGATION_LIBRARY_CHANNEL, navigationLibraryCommandSchema.parse(command))
+  ),
   nativePaletteFocus: (command) =>
     ipcRenderer.invoke(NATIVE_PALETTE_FOCUS_CHANNEL, nativePaletteFocusSchema.parse(command)),
   desktopSettings: async (command) =>
@@ -144,6 +148,9 @@ const api: PiDesktopAPI = {
     const handler = (_event: Electron.IpcRendererEvent, value: DesktopEvent): void => {
       if (value.event === 'sessions') {
         const parsed = liveSessionSummarySchema.array().max(8).safeParse(value.data)
+        if (parsed.success) listener({ ...value, data: parsed.data })
+      } else if (value.event === 'navigation-library') {
+        const parsed = navigationLibrarySchema.safeParse(value.data)
         if (parsed.success) listener({ ...value, data: parsed.data })
       } else if (value.event === 'mobile-gateway') {
         const parsed = mobileGatewayStateSchema.safeParse(value.data)

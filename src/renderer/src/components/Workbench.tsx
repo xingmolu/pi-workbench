@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { CircleAlert, MonitorCog } from 'lucide-react'
 import WorkbenchTabs, { WorkbenchLauncher } from './WorkbenchTabs'
 import type {
@@ -113,6 +113,16 @@ export default function Workbench({
   onWorkbenchCommand,
   onWorkbenchError
 }: WorkbenchProps): React.JSX.Element {
+  const [domOverlayOpen, setDomOverlayOpen] = useState(false)
+  useEffect(() => {
+    const update = (): void => setDomOverlayOpen(Boolean(document.querySelector(
+      '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"], [data-native-suspend="true"]'
+    )))
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state', 'data-native-suspend'] })
+    update()
+    return () => observer.disconnect()
+  }, [])
   const resizing = useWorkspaceResizing()
   const [menuOpen, setMenuOpen] = useState(false)
   // A registry prune can unmount the dropdown without firing onOpenChange.
@@ -168,7 +178,7 @@ export default function Workbench({
               projectReady={Boolean(agentSnapshot.project)}
               gitReady={agentSnapshot.ready}
               projectPath={agentSnapshot.project?.path ?? null}
-              visible={!collapsed && !settingsOpen && !resizing && !menuOpen}
+              visible={!collapsed && !settingsOpen && !resizing && !menuOpen && !domOverlayOpen}
               onCommand={onWorkbenchCommand}
               onError={onWorkbenchError}
             />

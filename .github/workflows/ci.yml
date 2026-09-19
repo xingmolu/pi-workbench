@@ -83,14 +83,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install fonts for Chinese UI screenshots
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-match 'Noto Sans CJK SC'
+
       - name: Build
         run: npm run build
 
-      - name: Electron architecture smoke
+      - name: Install Electron test runtime
+        run: node node_modules/electron/install.js
+
+      - name: Electron architecture and UI smoke
         run: >-
           xvfb-run -a npx playwright test
           tests/e2e/multi-session.spec.ts
           tests/e2e/session-task.spec.ts
+          tests/e2e/desktop-settings.spec.ts
+          tests/e2e/ui-experience.spec.ts
+          tests/e2e/session-history.spec.ts
+          tests/e2e/work-summary.spec.ts
           --reporter=line
 
       - name: Upload E2E diagnostics
@@ -104,6 +117,75 @@ jobs:
             test-results/
             playwright-report/
             artifacts/e2e/
+
+      - name: Upload UI previews
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-experience-previews-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: artifacts/e2e/ui-experience/
+
+  package-pr:
+    needs: e2e-smoke
+    if: github.event_name == 'pull_request'
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Package macOS ARM64 preview
+        env:
+          # electron-builder skips all signing on pull_request events unless this is explicit.
+          # This preview uses only the configured ad-hoc identity ("-"); no signing secret is exposed.
+          CSC_FOR_PULL_REQUEST: "true"
+        run: npx electron-builder --mac dmg zip --publish never
+
+      - name: Verify preview code signature
+        run: codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Pi Desktop.app"
+
+      - name: Add PR preview instructions
+        run: |
+          cat > "dist/PR-PREVIEW-README.txt" <<'EOF'
+          Pi Desktop PR preview
+          =====================
+
+          This build is ARM64 and ad-hoc signed for pull-request testing.
+          It is NOT Apple-notarized, so macOS Gatekeeper may still block it
+          after downloading it from GitHub.
+
+          If you trust this repository and this exact CI artifact, drag
+          Pi Desktop.app to /Applications, then run:
+
+            xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+            open "/Applications/Pi Desktop.app"
+
+          A normal distributable build requires a Developer ID Application
+          certificate plus Apple notarization.
+          EOF
+
+      - name: Upload PR installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: pi-desktop-macos-arm64-pr-${{ github.event.pull_request.number }}-adhoc-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/*
 
   package:
     needs: e2e-smoke

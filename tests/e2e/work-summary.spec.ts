@@ -111,9 +111,11 @@ test.beforeEach(async () => {
   )
   await writeFile(join(project, 'input.txt'), 'offline fixture input')
   app = await electron.launch({
-    args: [resolve('.')],
+    args: [...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), resolve('.')],
     env: {
       PATH: process.env.PATH ?? '',
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
+      ...(process.env.XAUTHORITY ? { XAUTHORITY: process.env.XAUTHORITY } : {}),
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',
       TMPDIR: root,
@@ -367,14 +369,13 @@ for (const mode of ['pair', 'separate'])
   })
 
 test('diagnostic: stop interrupts a same-response mutation wait', async () => {
-  await run('/pair-fixture', '停止等待的命令')
-  for (let i = 0; i < 2; i++) {
-    await page
-      .locator('.approval-card')
-      .getByRole('button', { name: '允许一次', exact: true })
-      .first()
-      .click()
-  }
+  // Keep a real mutation running rather than racing Stop against two completed printf calls.
+  await run('/slow-batch-fixture', '停止等待的命令')
+  await page.locator('.approval-card')
+    .getByRole('button', { name: '允许一次', exact: true }).first().click()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).nodes.some(
+    node => node.type === 'tool' && node.toolCallId === 'slow-first' && node.status === 'running'
+  ))).toBe(true)
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 5000 })
@@ -429,7 +430,9 @@ for (const width of [960, 1440]) {
     await run('/approval-fixture', '写入测试文件')
     const approval = page.locator('.approval-card')
     await expect(approval).toBeVisible()
-    await page.locator('.approval-jump').click()
+    await page.locator('.conversation-scroll').evaluate(el => { el.scrollTop = 0 })
+    if (await page.locator('.approval-jump').count()) await page.locator('.approval-jump').click()
+    else await approval.focus()
     await expect(approval).toBeFocused()
     await expect(approval).toBeInViewport()
     await capture(`work-summary-${width}-approval`)

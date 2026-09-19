@@ -1,5 +1,10 @@
+import { useEffect, useRef, useState } from 'react'
+import LibraryManager from './navigation/LibraryManager'
+import { useNavigationLibrary } from '../store/navigation-library'
+import { performNavigationAction } from '../store/navigation-feedback'
 import {
   ChevronsLeft,
+  ArchiveRestore,
   FolderOpen,
   MessageSquarePlus,
   PanelLeft,
@@ -41,6 +46,34 @@ export default function Sidebar({
   onOpenSettings,
   onOpenSearch
 }: SidebarProps): React.JSX.Element {
+  const [managerOpen, setManagerOpen] = useState(false)
+  const savedWidth = useNavigationLibrary((state) => state.library.layout.sidebarWidth ?? 248)
+  const [width, setWidth] = useState(savedWidth)
+  const drag = useRef<{ x: number; width: number } | null>(null)
+  const currentWidth = useRef(width)
+  useEffect(() => { setWidth(savedWidth); currentWidth.current = savedWidth }, [savedWidth])
+  useEffect(() => {
+    const finish = (): void => {
+      if (!drag.current) return
+      drag.current = null
+      document.body.classList.remove('is-sidebar-resizing')
+      void performNavigationAction({ type: 'layout:save', layout: { sidebarWidth: currentWidth.current } })
+    }
+    const move = (event: PointerEvent): void => {
+      if (!drag.current) return
+      const next = Math.round(Math.min(360, Math.max(208, drag.current.width + event.clientX - drag.current.x)))
+      currentWidth.current = next; setWidth(next)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    window.addEventListener('blur', finish)
+    return () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish); window.removeEventListener('blur', finish)
+      document.body.classList.remove('is-sidebar-resizing')
+    }
+  }, [])
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
   const reason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
   const pendingOnly = (pending && !blockReason) || undefined
@@ -78,25 +111,12 @@ export default function Sidebar({
           >
             <MessageSquarePlus size={17} />
           </button>
-          {snapshot.project ? (
-            <button
-              className="icon-btn"
-              type="button"
-              onClick={onChooseProject}
-              title={reason ?? '添加项目'}
-              aria-label="添加项目"
-              data-navigation-pending={pendingOnly}
-              disabled={Boolean(reason)}
-            >
-              <FolderOpen size={17} />
-            </button>
-          ) : (
-            <span className="rail-static" title="尚未选择工作区" aria-label="尚未选择工作区">
-              <FolderOpen size={17} />
-            </span>
-          )}
+          <button className="icon-btn" type="button" onClick={onChooseProject} title={reason ?? '添加项目'}
+            aria-label="添加项目" disabled={Boolean(reason)}><FolderOpen size={17} /></button>
         </div>
         <div className="rail-spacer" />
+        <button className="icon-btn" type="button" aria-label="管理项目与归档" title="管理项目与归档" onClick={() => setManagerOpen(true)}><ArchiveRestore size={17} /></button>
+        {managerOpen && <LibraryManager onClose={() => setManagerOpen(false)} />}
         <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} title="Agent Host" />
         <button className="icon-btn" type="button" onClick={onOpenSettings} title="设置">
           <Settings2 size={17} />
@@ -106,7 +126,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="sidebar" aria-label="项目和会话">
+    <aside className="sidebar" aria-label="项目和会话" style={{ width, flexBasis: width }}>
       <div className="sidebar-head">
         <div className="brand">
           <span className="brand-mark">π</span>
@@ -161,11 +181,26 @@ export default function Sidebar({
         <span>{snapshot.ready ? 'Pi 引擎已就绪' : 'Pi 引擎未连接'}</span>
       </div>
       <div className="sidebar-foot">
+        <button type="button" onClick={() => setManagerOpen(true)}><ArchiveRestore size={15} />管理项目与归档</button>
         <button type="button" onClick={onOpenSettings}>
           <Settings2 size={15} />
           设置
         </button>
       </div>
+      {managerOpen && <LibraryManager onClose={() => setManagerOpen(false)} />}
+      <div className="sidebar-resize-handle" role="separator" tabIndex={0} aria-label="调整侧栏宽度"
+        aria-orientation="vertical" aria-valuemin={208} aria-valuemax={360} aria-valuenow={width}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault(); drag.current = { x: event.clientX, width }
+          document.body.classList.add('is-sidebar-resizing')
+        }} onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const next = event.key === 'Home' ? 208 : event.key === 'End' ? 360 : Math.min(360, Math.max(208, width + (event.key === 'ArrowLeft' ? -8 : 8)))
+          setWidth(next); currentWidth.current = next
+          void performNavigationAction({ type: 'layout:save', layout: { sidebarWidth: next } })
+        }} />
     </aside>
   )
 }

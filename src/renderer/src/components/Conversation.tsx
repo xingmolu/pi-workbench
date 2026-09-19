@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
@@ -9,6 +9,8 @@ import MessageActions from './MessageActions'
 import SkillPicker, { type SkillPickerHandle, type SkillMenuState } from './SkillPicker'
 import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../store/skill-draft'
 import WorkSummary from './WorkSummary'
+import ApprovalCard, { type ApprovalHandler } from './ApprovalCard'
+import { useOffscreenApproval } from '../store/use-approval-visibility'
 import { groupConversationWork } from '../store/conversation-work-groups'
 import { parseTextContext } from '../../../shared/text-attachments'
 import {
@@ -21,7 +23,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
-  Bot,
+  ArrowRightLeft,
+  Archive,
   Brain,
   Check,
   ChevronDown,
@@ -36,7 +39,6 @@ import {
   Monitor,
   Plus,
   Search,
-  Settings2,
   Square,
   TerminalSquare,
   Wrench
@@ -56,11 +58,7 @@ import UserMessageEdit from './UserMessageEdit'
 import { useSessionEdit } from '../store/session-edit'
 import { usePiStore } from '../store/pi-store'
 import QuestionNavigation from './QuestionNavigation'
-import {
-  composerModelSelectionReducer,
-  initialComposerModelSelection,
-  sessionHasTranscript
-} from '../store/composer-model-selection'
+import ModelPicker from './ModelPicker'
 import {
   composerStatsDisplay,
   approvalSummary,
@@ -87,7 +85,7 @@ type ConversationProps = {
   onChooseModel: (providerId: string, modelId: string) => void
   onLogin: () => void
   onOpenSettings: () => void
-  onApproval: (id: string, allow: boolean) => void
+  onApproval: ApprovalHandler
 }
 
 const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
@@ -134,11 +132,13 @@ const ThinkNode = memo(function ThinkNode({
 const ToolNode = memo(function ToolNode({
   node,
   activeApproval,
+  projectPath,
   onApproval
 }: {
   node: Extract<ConversationNode, { type: 'tool' }>
   activeApproval: ApprovalRequest | null
-  onApproval: (id: string, allow: boolean) => void
+  projectPath?: string
+  onApproval: ApprovalHandler
 }): React.JSX.Element {
   const [open, setOpen] = useState<boolean | null>(null)
   const Icon = TOOL_ICON[node.intent]
@@ -149,7 +149,7 @@ const ToolNode = memo(function ToolNode({
       open={Boolean(activeApproval) || (open ?? (node.status === 'error' || node.status === 'blocked'))}
       onOpenChange={setOpen}
     >
-      <Collapsible.Trigger className="tool-trigger">
+      {!activeApproval && <Collapsible.Trigger className="tool-trigger">
         <Icon size={15} />
         <span className="tool-title">{node.title}</span>
         <span className="tool-status">{STATUS_LABEL[node.status]}</span>
@@ -159,35 +159,18 @@ const ToolNode = memo(function ToolNode({
           </span>
         ))}
         <ChevronRight className="tool-chevron" size={14} />
-      </Collapsible.Trigger>
+      </Collapsible.Trigger>}
       <Collapsible.Content className="tool-detail">
         {activeApproval ? (
-          <div className="approval-card" data-approval-id={activeApproval.id} tabIndex={-1}>
-            <div>
-              <strong>{approvalSummary(activeApproval)}</strong>
-              <p>需要你的确认才会执行，只允许本次操作。</p>
-            </div>
-            <details>
-              <summary>查看操作详情</summary>
-              <pre>{activeApproval.detail}</pre>
-            </details>
-            <div className="approval-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => onApproval(activeApproval.id, false)}
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => onApproval(activeApproval.id, true)}
-              >
-                允许一次
-              </button>
-            </div>
-          </div>
+          <ApprovalCard
+            key={`${activeApproval.generation}:${activeApproval.id}`}
+            request={activeApproval}
+            projectPath={projectPath}
+            onApproval={(id, allow) => {
+              setOpen(true)
+              return onApproval(id, allow)
+            }}
+          />
         ) : (
           <>
             {node.detail ? <pre>{node.detail}</pre> : null}
@@ -230,7 +213,7 @@ function NodeFlow({
   nodes: ConversationNode[]
   snapshot: AgentSnapshot
   approvals: ApprovalRequest[]
-  onApproval: (id: string, allow: boolean) => void
+  onApproval: ApprovalHandler
 }): React.JSX.Element {
   const edit = useSessionEdit()
   const lastReplyBlocks = useMemo(() => {
@@ -253,7 +236,7 @@ function NodeFlow({
             {group.nodes.map((node) => node.type === 'think' ?
               <ThinkNode key={node.presentationIdentity ?? node.id} node={node} /> :
               <ToolNode key={node.presentationIdentity ?? node.id} node={node}
-                activeApproval={currentToolApproval(node, approvals)} onApproval={onApproval} />)}
+                activeApproval={currentToolApproval(node, approvals)} projectPath={snapshot.project?.path} onApproval={onApproval} />)}
           </WorkSummary>
         )
         const node = group.node
@@ -285,16 +268,20 @@ function NodeFlow({
         }
         if (node.type === 'think') return <ThinkNode key={key} node={node} />
         if (node.type === 'model') {
+          // Keep initial metadata in canonical history; it is not a conversation divider.
+          if (node.initial) return null
           return (
-            <div className="history-note" key={key}>
-              {node.initial ? '模型' : '模型切换'} · {node.provider} / {node.modelId}
+            <div className="history-note is-model-switch" key={key} role="note">
+              <ArrowRightLeft size={13} aria-hidden="true" />
+              <span>模型切换 · {node.provider} / {node.modelId}</span>
             </div>
           )
         }
         if (node.type === 'compaction') {
           return (
-            <div className="history-note" key={key}>
-              上下文已压缩，历史消息仍保留
+            <div className="history-note is-compaction" key={key} role="note">
+              <Archive size={13} aria-hidden="true" />
+              <span>上下文已压缩，历史消息仍保留</span>
             </div>
           )
         }
@@ -305,6 +292,7 @@ function NodeFlow({
               key={key}
               node={node}
               activeApproval={activeApproval}
+              projectPath={snapshot.project?.path}
               onApproval={onApproval}
             />
           )
@@ -357,7 +345,7 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
     <Popover.Root>
       <Popover.Trigger asChild>
         <button
-          className={`context-meter${display.percent === null ? ' is-unknown' : ''}`}
+          className="context-control"
           style={
             display.percent === null
               ? undefined
@@ -366,7 +354,9 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
           type="button"
           title="查看上下文与用量"
           aria-label={display.ariaLabel}
-        />
+        ><span className={`context-meter${display.percent === null ? ' is-unknown' : ''}`} aria-hidden="true" />
+          <span>上下文 {display.percent === null ? '未知' : `${Math.round(display.percent)}%`}</span>
+        </button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
@@ -555,31 +545,15 @@ function Composer({
   const pendingKeys = useRef(new Set<string>())
   const [pending, setPending] = useState<string[]>([])
   const submitting = pending.includes(draftKey)
-  const [modelSelection, dispatchModelSelection] = useReducer(
-    composerModelSelectionReducer,
-    snapshot,
-    initialComposerModelSelection
-  )
   const textarea = useRef<HTMLTextAreaElement>(null)
   const skillPicker = useRef<SkillPickerHandle>(null)
   const [skillMenuState, setSkillMenuState] = useState<SkillMenuState>({})
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const activeModel = snapshot.models.find(
-    (item) => item.provider === snapshot.activeProvider && item.id === snapshot.activeModel
-  )
-  const stagedAccount = snapshot.accounts.find((item) => item.id === modelSelection.stagedProvider)
-  const connectedAccounts = snapshot.accounts.filter((item) => item.connected)
-  const providerModels = snapshot.models.filter(
-    (item) => item.provider === modelSelection.stagedProvider
-  )
-  const providerIsStaged = modelSelection.stagedProvider !== snapshot.activeProvider
-  const modelSwitchKeepsSession = sessionHasTranscript(snapshot)
   const canCompose = Boolean(
     snapshot.ready &&
     snapshot.project &&
     snapshot.modelAvailability === 'available' &&
     snapshot.composeBlockReason === null &&
-    !providerIsStaged &&
     !forkPending
   )
   const skillInsertionBlocked = !canCompose || editOpen || submitting || Boolean(attachments.files.length || attachments.staging || attachments.sending || attachments.submission)
@@ -598,14 +572,6 @@ function Composer({
     textarea.current?.focus()
   }, [skillInsertion, skillInsertionBlocked, snapshot, draftKey])
 
-  useEffect(() => {
-    dispatchModelSelection({
-      type: 'snapshot:sync',
-      generation: snapshot.generation,
-      sessionId: snapshot.sessionId,
-      activeProvider: snapshot.activeProvider
-    })
-  }, [snapshot.activeProvider, snapshot.generation, snapshot.sessionId])
 
   useEffect(() => {
     const input = textarea.current
@@ -616,10 +582,6 @@ function Composer({
 
   const submit = (): void => {
     if (useSessionEdit.getState().phase !== 'closed') return
-    if (snapshot.ready && snapshot.busy && (!draft.trim() || attachments.files.length > 0)) {
-      onAbort()
-      return
-    }
     if (skillAttachmentConflict) return
     if (!snapshot.ready || pendingKeys.current.has(draftKey) || usePiStore.getState().forkPending)
       return
@@ -634,10 +596,6 @@ function Composer({
         return
       capturedAttachmentDraft.current = { key: draftKey, version: entry?.version }
       void submitAttachments(false)
-      return
-    }
-    if (snapshot.busy && !draft.trim()) {
-      onAbort()
       return
     }
     if (!canCompose) {
@@ -679,9 +637,7 @@ function Composer({
       ? '端点运行时未同步 · 检查配置并重新保存'
       : snapshot.composeBlockReason === 'endpoint-selection-invalidated'
         ? '模型选择已失效 · 重新选择模型'
-        : providerIsStaged
-          ? '为暂存账号选择模型'
-          : snapshot.composeBlockReason === 'project-required'
+        : snapshot.composeBlockReason === 'project-required'
             ? '先选择一个工作区'
             : snapshot.composeBlockReason === 'login-required'
               ? '登录 Codex'
@@ -690,9 +646,7 @@ function Composer({
                 : snapshot.composeBlockReason === 'model-unavailable'
                   ? '所选模型不可用 · 选择其他模型继续'
                   : '选择模型后才能发送'
-  const lockAction = providerIsStaged
-    ? undefined
-    : snapshot.composeBlockReason === 'login-required'
+  const lockAction = snapshot.composeBlockReason === 'login-required'
       ? onLogin
       : snapshot.composeBlockReason === 'model-unavailable' ||
           snapshot.composeBlockReason === 'endpoint-selection-invalidated' ||
@@ -785,7 +739,8 @@ function Composer({
               submit()
             }
           }}
-          placeholder={!preferencesLoaded ? '发送偏好尚未读取，请使用发送按钮…' : `${snapshot.busy ? '输入可排队到当前任务之后…' : '给 Pi 下达任务…'}（${desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'} 发送，Shift + Enter 换行）`}
+          placeholder={!preferencesLoaded ? '发送偏好尚未读取，请使用发送按钮…' : snapshot.busy ? '补充指令，加入当前任务之后…' : '给 Pi 一个任务，或输入 / 选择技能…'}
+          title={`${desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'} 发送，Shift + Enter 换行`}
           aria-label="给 Pi 的任务"
           aria-controls={skillMenuState.listId}
           aria-activedescendant={skillMenuState.activeId}
@@ -812,6 +767,23 @@ function Composer({
             <Plus size={16} />
           </button>
 
+          <ModelPicker snapshot={snapshot} open={modelMenuOpen} onOpenChange={setModelMenuOpen}
+            onSelect={onChooseModel} onLogin={onLogin} onSettings={onOpenSettings} />
+
+          <span className="composer-spacer" />
+          <QueuePopover followUp={snapshot.followUp} onClear={onClearQueue} />
+          {snapshot.busy && <button className="composer-stop" type="button" title="停止当前运行" aria-label="停止当前运行"
+            disabled={!snapshot.ready} onClick={onAbort}><Square size={12} fill="currentColor" /><span>停止</span></button>}
+          <button className="send" type="button" title={snapshot.busy ? '加入发送队列' : '发送任务'}
+            aria-label={snapshot.busy ? '加入发送队列' : '发送任务'} onClick={submit}
+            disabled={submitting || skillAttachmentConflict || editOpen || attachments.staging || attachments.sending ||
+              Boolean(attachments.submission) || !canCompose || (!draft.trim() && !attachments.files.length) ||
+              (snapshot.busy && attachments.files.length > 0)}>
+            {snapshot.busy ? <ListPlus size={17} /> : <ArrowUp size={18} />}
+          </button>
+        </div>
+      </div>
+      <div className="composer-footer">
           <DropdownMenu.Root>
             <DropdownMenu.Trigger
               className="tool-chip permission-chip"
@@ -819,7 +791,7 @@ function Composer({
             >
               <span className={`permission-dot is-${snapshot.permissionMode}`} />
               <span className="chip-label">
-                {snapshot.permissionMode === 'ask' ? 'Ask' : 'Open'}（本次运行）
+                {snapshot.permissionMode === 'ask' ? '操作需确认' : '工具已开放'}（本次运行）
               </span>
               <ChevronDown size={12} />
             </DropdownMenu.Trigger>
@@ -830,7 +802,7 @@ function Composer({
                 onSelect={() => onPermissionChange('ask')}
               >
                 <span>
-                  <strong>Ask</strong>
+                  <strong>操作需确认</strong>
                   <small>写文件、运行命令和网页交互需要确认</small>
                 </span>
                 {snapshot.permissionMode === 'ask' ? <Check size={14} /> : null}
@@ -840,150 +812,14 @@ function Composer({
                 onSelect={() => onPermissionChange('open')}
               >
                 <span>
-                  <strong>Open</strong>
+                  <strong>本次运行开放工具</strong>
                   <small>本次运行允许 Pi 直接使用工具</small>
                 </span>
                 {snapshot.permissionMode === 'open' ? <Check size={14} /> : null}
               </DropdownMenu.Item>
             </MenuContent>
           </DropdownMenu.Root>
-
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger className="tool-chip account-chip" disabled={!snapshot.project}>
-              <Bot size={14} />
-              <span>
-                {stagedAccount?.name.replace('OpenAI ', '') ?? '账号'}
-                {providerIsStaged ? ' · 待选模型' : ''}
-              </span>
-              <ChevronDown size={12} />
-            </DropdownMenu.Trigger>
-            <MenuContent>
-              <DropdownMenu.Label className="dropdown-label">账号</DropdownMenu.Label>
-              {connectedAccounts.map((item) => (
-                <DropdownMenu.Item
-                  className="dropdown-item"
-                  key={item.id}
-                  onSelect={() =>
-                    dispatchModelSelection({ type: 'provider:stage', providerId: item.id })
-                  }
-                >
-                  <span>
-                    <strong>{item.name}</strong>
-                    <small>
-                      {item.id === 'openai-codex' ? '主账号' : item.id}
-                      {item.id === modelSelection.stagedProvider ? ' · 已暂存' : ''}
-                    </small>
-                  </span>
-                  {item.id === modelSelection.stagedProvider ? <Check size={14} /> : null}
-                </DropdownMenu.Item>
-              ))}
-              {connectedAccounts.length ? (
-                <DropdownMenu.Separator className="dropdown-separator" />
-              ) : null}
-              <DropdownMenu.Item className="dropdown-item compact" onSelect={onLogin}>
-                登录 Codex
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className="dropdown-item compact" onSelect={onOpenSettings}>
-                <Settings2 size={14} /> 管理账号
-              </DropdownMenu.Item>
-            </MenuContent>
-          </DropdownMenu.Root>
-
-          <DropdownMenu.Root open={modelMenuOpen} onOpenChange={setModelMenuOpen}>
-            <DropdownMenu.Trigger
-              className={`tool-chip model-chip${providerIsStaged ? ' is-staged' : ''}`}
-              disabled={!stagedAccount?.connected || snapshot.busy}
-              aria-label="选择模型"
-            >
-              <span>{providerIsStaged ? '选择模型' : (activeModel?.name ?? '选择模型')}</span>
-              <ChevronDown size={12} />
-            </DropdownMenu.Trigger>
-            <MenuContent>
-              <DropdownMenu.Label className="dropdown-label">
-                {stagedAccount?.name ?? '选择账号后选模型'}
-              </DropdownMenu.Label>
-              {stagedAccount?.subscription ? (
-                <p className="model-catalog-note">
-                  Pi
-                  模型目录；账号权限以服务端响应为准。已拒绝的模型本次运行不再尝试，重新登录后可重试。
-                </p>
-              ) : null}
-              {providerModels.map((item) => (
-                <DropdownMenu.Item
-                  className="dropdown-item"
-                  key={item.id}
-                  disabled={Boolean(item.unavailableReason)}
-                  onSelect={() => onChooseModel(item.provider, item.id)}
-                >
-                  <span>
-                    <strong>{item.name}</strong>
-                    <small>
-                      {item.unavailableReason ??
-                        `${modelSwitchKeepsSession ? '在当前会话切换 · ' : ''}${formatTokens(item.contextWindow)} context`}
-                    </small>
-                  </span>
-                  {item.provider === snapshot.activeProvider &&
-                  item.id === snapshot.activeModel &&
-                  !providerIsStaged ? (
-                    <Check size={14} />
-                  ) : null}
-                </DropdownMenu.Item>
-              ))}
-              {providerModels.length === 0 ? (
-                <DropdownMenu.Item className="dropdown-item" disabled>
-                  此账号暂无可用模型
-                </DropdownMenu.Item>
-              ) : null}
-              <DropdownMenu.Separator className="dropdown-separator" />
-              <DropdownMenu.Item className="dropdown-item compact" onSelect={onOpenSettings}>
-                <Settings2 size={14} /> 管理账号与模型
-              </DropdownMenu.Item>
-            </MenuContent>
-          </DropdownMenu.Root>
-
-          <span className="composer-spacer" />
-          <ContextMeter metrics={snapshot.metrics} />
-          <QueuePopover followUp={snapshot.followUp} onClear={onClearQueue} />
-          <button
-            className={`send${snapshot.busy && (!draft.trim() || attachments.files.length > 0) ? ' is-busy' : ''}`}
-            type="button"
-            title={
-              snapshot.busy && (!draft.trim() || attachments.files.length > 0)
-                ? '停止当前运行'
-                : snapshot.busy
-                  ? '加入发送队列'
-                  : '发送任务'
-            }
-            aria-label={
-              snapshot.busy && (!draft.trim() || attachments.files.length > 0)
-                ? '停止当前运行'
-                : snapshot.busy
-                  ? '加入发送队列'
-                  : '发送任务'
-            }
-            onClick={submit}
-            disabled={
-              snapshot.busy && (!draft.trim() || attachments.files.length > 0)
-                ? !snapshot.ready
-                : submitting ||
-                  skillAttachmentConflict ||
-                  editOpen ||
-                  attachments.staging ||
-                  attachments.sending ||
-                  Boolean(attachments.submission) ||
-                  !snapshot.ready ||
-                  (!snapshot.busy && (!canCompose || (!draft.trim() && !attachments.files.length)))
-            }
-          >
-            {snapshot.busy && (!draft.trim() || attachments.files.length > 0) ? (
-              <Square size={12} fill="currentColor" />
-            ) : snapshot.busy ? (
-              <ListPlus size={16} />
-            ) : (
-              <ArrowUp size={17} />
-            )}
-          </button>
-        </div>
+        <ContextMeter metrics={snapshot.metrics} />
       </div>
       {desktopSettings.showUsage ? <Stats metrics={snapshot.metrics} /> : null}
     </div>
@@ -992,7 +828,7 @@ function Composer({
 
 export default function Conversation(props: ConversationProps): React.JSX.Element {
   const { snapshot, approvals, loading, error, onApproval, onChooseProject } = props
-  const hasNodes = snapshot.nodes.length > 0
+  const hasNodes = snapshot.nodes.some((node) => node.type !== 'model' || !node.initial)
   const lastNode = snapshot.nodes.at(-1)
   const visibleError =
     error && !(lastNode?.type === 'error' && lastNode.message === error) ? error : null
@@ -1008,6 +844,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   const navigationFrame = useRef<number | null>(null)
   const [awayFromBottom, setAwayFromBottom] = useState(false)
   const scrollIdentity = JSON.stringify([snapshot.project?.path, snapshot.sessionId])
+  const offscreenApproval = useOffscreenApproval(scrollContainer, approvals, scrollIdentity)
   const streamKey = useMemo(
     () =>
       snapshot.nodes.map((node) => ('markdown' in node ? node.markdown.length : node.id)).join(':'),
@@ -1093,11 +930,6 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
             />
           </div>
           <span className="conversation-head-meta">
-            <small
-              title={`${snapshot.activeProvider ?? '未选择账号'} / ${snapshot.activeModel ?? '未选择模型'}`}
-            >
-              {snapshot.activeModel ?? '未选择模型'}
-            </small>
             <span className={`conversation-status is-${sessionHeader.status.tone}`}>
               <i
                 className={`session-status-dot is-${sessionHeader.status.tone}`}
@@ -1105,9 +937,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               />
               {sessionHeader.status.label}
             </span>
-            <span className={`runtime-permission is-${snapshot.permissionMode}`}>
-              {snapshot.permissionMode === 'ask' ? 'Ask' : 'Open'}（本次运行）
-            </span>
+
           </span>
         </header>
       ) : null}
@@ -1135,12 +965,12 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
         <div className="content-axis">
           {!hasNodes ? (
             <div className="hero-copy">
-              <h1>{snapshot.project ? '从一句指令开始。' : '让项目在这里开口。'}</h1>
+              <h1>{snapshot.project ? '今天，我们完成什么？' : '从一个项目开始。'}</h1>
               <p>
                 {loading
                   ? '正在连接本机 Pi 引擎…'
                   : snapshot.project
-                    ? '对话在中，证据在右。会话与 Pi CLI 共用同一份记录。'
+                    ? '描述你的目标，Pi 会协助你探索、实现与验证。'
                     : '选择一个文件夹作为 Pi 的工作目录。'}
               </p>
               {!snapshot.project ? (
@@ -1171,19 +1001,36 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
       </div>
 
       <div className="composer-axis">
-        {approvals.length > 0 ? (
+        {offscreenApproval ? (
           <button
+            type="button"
             className="approval-jump"
             onClick={() => {
               const card = Array.from(
                 scrollContainer.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []
-              ).find((element) => element.dataset.approvalId === approvals[0].id)
-              card?.scrollIntoView({ block: 'center', behavior: 'auto' })
+              ).find((element) => element.dataset.approvalId === offscreenApproval.id)
+              following.current = false
+              navigationScroll.current = true
+              const target = card?.querySelector('[data-approval-actions]') ?? card
+              target?.scrollIntoView({ block: 'center', behavior: 'auto' })
               card?.focus({ preventScroll: true })
+              if (navigationFrame.current !== null) window.cancelAnimationFrame(navigationFrame.current)
+              navigationFrame.current = window.requestAnimationFrame(() => {
+                navigationFrame.current = window.requestAnimationFrame(() => {
+                  navigationScroll.current = false
+                  navigationFrame.current = null
+                  const element = scrollContainer.current
+                  if (!element) return
+                  const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+                  following.current = nearBottom
+                  setAwayFromBottom(!nearBottom)
+                })
+              })
             }}
           >
-            <CircleAlert size={14} /> 查看待确认操作（{approvals.length}）·{' '}
-            {approvalSummary(approvals[0])}
+            <CircleAlert size={14} aria-hidden="true" />
+            <span>有 {approvals.length} 项操作需要确认 · {approvalSummary(offscreenApproval)}</span>
+            <span className="approval-jump-action">查看 <ChevronRight size={13} aria-hidden="true" /></span>
           </button>
         ) : null}
         {!snapshot.ready && !loading ? (

@@ -30,6 +30,7 @@ export function sidebarSessions(sessions: LiveSessionRow[], expanded: boolean): 
   return sessions.filter(
     (session, index) =>
       index < RECENT_SESSION_LIMIT ||
+      session.pinned ||
       session.active ||
       Boolean(session.sessionTask) ||
       Boolean(session.workerId && taskParents.has(session.workerId)) ||

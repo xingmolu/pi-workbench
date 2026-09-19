@@ -1,3 +1,4 @@
+import { comparePinned, projectDisplayName, projectIsHidden, sessionIsArchived, type NavigationLibraryState } from '../shared/navigation-library'
 import { basename, isAbsolute, resolve } from 'node:path'
 import { canonicalProjectDirectory, discoverProjectSessions } from './project-catalog'
 import {
@@ -13,6 +14,9 @@ type SearchOptions = Parameters<typeof discoverProjectSessions>[0] & {
   query: string
   limit: number
   normalize?: (path: string) => Promise<string | null>
+  navigation?: NavigationLibraryState
+  includeHidden?: boolean
+  includeArchived?: boolean
 }
 const compareIdentity = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -45,14 +49,15 @@ export async function searchProjects(
       skippedEntries++
       continue
     }
+    if (!options.includeHidden && projectIsHidden(options.navigation, cwd)) continue
     projects.set(cwd, {
       cwd,
-      projectName: (basename(cwd) || cwd).slice(0, 200),
+      projectName: projectDisplayName(options.navigation, cwd, basename(cwd) || cwd).slice(0, 200),
       available: canonical !== null
     })
   }
   const term = query.trim().toLocaleLowerCase()
-  const matching = [...projects.values()].filter(
+  const matching = [...projects.values()].sort((a, b) => comparePinned(options.navigation?.projects[a.cwd], options.navigation?.projects[b.cwd])).filter(
     (project) =>
       project.cwd.toLocaleLowerCase().includes(term) ||
       project.projectName.toLocaleLowerCase().includes(term)
@@ -82,6 +87,8 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
   })
   const items = new Map<string, SessionSearchResult['items'][number]>()
   const term = query.trim().toLocaleLowerCase()
+  const canonicalPaths = new Map<string, Promise<string | null>>()
+  const normalize = options.normalize ?? canonicalProjectDirectory
   for (const session of sessions) {
     if (
       !isAbsolute(session.cwd) ||
@@ -91,8 +98,12 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
       skippedEntries++
       continue
     }
-    // Keep the SDK's source cwd; Main revalidates/canonicalizes it when opening.
-    const cwd = resolve(session.cwd)
+    if (!canonicalPaths.has(session.cwd)) canonicalPaths.set(session.cwd, normalize(session.cwd))
+    const canonicalCwd = (await canonicalPaths.get(session.cwd)) ?? resolve(session.cwd)
+    // The SDK owns session cwd identity; canonicalization is for presentation filtering only.
+    const cwd = session.cwd
+    if (!options.includeHidden && projectIsHidden(options.navigation, canonicalCwd)) continue
+    if (!options.includeArchived && sessionIsArchived(options.navigation, session.path)) continue
     const sourceTitle =
       session.name?.trim() ||
       session.firstMessage?.trim().replace(/\s+/g, ' ').slice(0, 80) ||
@@ -103,7 +114,7 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
       title,
       sessionPath: session.path,
       cwd,
-      projectName: (basename(cwd) || cwd).slice(0, 200),
+      projectName: projectDisplayName(options.navigation, canonicalCwd, basename(cwd) || cwd).slice(0, 200),
       modified: session.modified.toISOString()
     })
     if (!item.success) {
@@ -115,6 +126,7 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
   }
   const sorted = [...items.values()].sort(
     (a, b) =>
+      comparePinned(options.navigation?.sessions[a.sessionPath], options.navigation?.sessions[b.sessionPath]) ||
       Date.parse(b.modified) - Date.parse(a.modified) ||
       compareIdentity(a.cwd, b.cwd) ||
       compareIdentity(a.sessionPath, b.sessionPath) ||

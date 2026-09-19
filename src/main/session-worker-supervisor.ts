@@ -140,6 +140,19 @@ export class SessionWorkerSupervisor {
     return this.pool.selectedScope
   }
 
+  get selectionEpoch(): number { return this.pool.selectionEpoch }
+
+  clearSelection(expected: SelectedSessionScope | null): number {
+    const epoch = this.pool.clearSelection(expected)
+    this.lastForeground = null
+    this.summaries()
+    return epoch
+  }
+
+  navigationMutationReason(cwd: string, path?: string): string | null {
+    return this.pool.navigationMutationReason(cwd, path)
+  }
+
   get hasSelection(): boolean {
     return this.pool.selectedScope !== null
   }

@@ -35,3 +35,15 @@ it('retains native identity updates within a selection and ignores earlier gener
   tracker.accept(initial)
   expect(tracker.capture()?.sessionId).toBe('fork')
 })
+
+it('clears command ownership at an explicit workspace-close epoch and rejects delayed resident replies', () => {
+  const tracker = new SessionOriginTracker()
+  const original = { desktopScope: { workerId: 'a', selectionEpoch: 4 }, sessionId: 'a', generation: 2 }
+  tracker.accept(original)
+  tracker.accept({ desktopEpoch: 5, sessionId: null, generation: 1 })
+  expect(tracker.capture()).toBeUndefined()
+  tracker.accept({ ...original, generation: 99 })
+  expect(tracker.capture()).toBeUndefined()
+  tracker.accept({ ...original, desktopScope: { workerId: 'a', selectionEpoch: 6 } })
+  expect(tracker.capture()?.scope.selectionEpoch).toBe(6)
+})

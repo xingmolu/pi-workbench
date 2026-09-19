@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { AgentSnapshot, LoginMethod, LoginPrompt } from '../../../shared/contracts'
 import CustomEndpoints from './CustomEndpoints'
+import { confirmDiscardSettingsDraft, useSettingsDraftController } from './SettingsDraftContext'
 
 function LoginState({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Element | null {
   const login = snapshot.login
@@ -166,7 +167,14 @@ export default function SettingsAccounts({
 }): React.JSX.Element {
   const [addingAlias, setAddingAlias] = useState(false)
   const [alias, setAlias] = useState('')
-  const [provider, setProvider] = useState('codex')
+  const [provider, setProvider] = useState<'codex' | 'endpoints' | 'claude'>('codex')
+  const settingsDraft = useSettingsDraftController()
+  const chooseProvider = (next: 'codex' | 'endpoints' | 'claude'): void => {
+    if (next === provider) return
+    if (!confirmDiscardSettingsDraft(Boolean(settingsDraft?.dirty))) return
+    settingsDraft?.clear()
+    setProvider(next)
+  }
   const mainAccount = agentSnapshot.accounts.find((account) => account.id === 'openai-codex')
   const aliasAccounts = agentSnapshot.accounts.filter((account) => account.alias)
 
@@ -176,21 +184,21 @@ export default function SettingsAccounts({
         <button
           type="button"
           aria-pressed={provider === 'codex'}
-          onClick={() => setProvider('codex')}
+          onClick={() => chooseProvider('codex')}
         >
           OpenAI Codex <small>编程套餐 / 订阅</small>
         </button>
         <button
           type="button"
           aria-pressed={provider === 'endpoints'}
-          onClick={() => setProvider('endpoints')}
+          onClick={() => chooseProvider('endpoints')}
         >
           自定义端点 <small>API Key · 兼容服务</small>
         </button>
         <button
           type="button"
           aria-pressed={provider === 'claude'}
-          onClick={() => setProvider('claude')}
+          onClick={() => chooseProvider('claude')}
         >
           Anthropic <small>连接方式说明</small>
         </button>

@@ -9,6 +9,7 @@ import {
   type CustomEndpointSaveResult
 } from '../../../shared/custom-endpoints'
 import { endpointContext } from '../store/pi-store'
+import { confirmDiscardSettingsDraft, useSettingsDraft } from './SettingsDraftContext'
 
 const protocols: Record<CustomEndpointApi, string> = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -49,6 +50,7 @@ export default function CustomEndpoints({
   const epoch = useRef(0)
   const mounted = useRef(false)
   const submitting = useRef(false)
+  const baseline = useRef<Form | null>(null)
   const context = endpointContext(snapshot)
   const identity = JSON.stringify(context)
   const currentIdentity = useRef(identity)
@@ -58,6 +60,7 @@ export default function CustomEndpoints({
 
   const refresh = async (): Promise<void> => {
     const operation = ++epoch.current
+    baseline.current = null
     setForm(null)
     setKey('')
     setError('')
@@ -96,21 +99,22 @@ export default function CustomEndpoints({
     setErrorField(null)
     setOutcome(null)
     setConfirmedRemoval(false)
-    setForm(
-      endpoint
-        ? {
-            id: endpoint.id,
-            label: endpoint.label,
-            api: endpoint.api!,
-            baseUrl: endpoint.baseUrl!,
-            modelIds: endpoint.modelIds.join('\n'),
-            originalIds: endpoint.modelIds
-          }
-        : emptyForm()
-    )
+    const next = endpoint
+      ? {
+          id: endpoint.id,
+          label: endpoint.label,
+          api: endpoint.api!,
+          baseUrl: endpoint.baseUrl!,
+          modelIds: endpoint.modelIds.join('\n'),
+          originalIds: endpoint.modelIds
+        }
+      : emptyForm()
+    baseline.current = next
+    setForm(next)
   }
   const cancel = (): void => {
     epoch.current += 1
+    baseline.current = null
     setForm(null)
     setKey('')
     setError('')
@@ -128,6 +132,10 @@ export default function CustomEndpoints({
       .map((value) => value.trim())
       .filter(Boolean) ?? []
   const removed = form?.originalIds.filter((id) => !ids.includes(id)) ?? []
+  const dirty = Boolean(
+    form && (key !== '' || JSON.stringify(form) !== JSON.stringify(baseline.current))
+  )
+  useSettingsDraft('custom-endpoints', dirty)
 
   const save = async (): Promise<void> => {
     if (!form || !catalog || disabled || submitting.current) return
@@ -183,13 +191,17 @@ export default function CustomEndpoints({
       setOutcome(response.result)
       if (response.result.snapshot) setCatalog(response.result.snapshot)
       // Partial writes are durable too. Reopen the saved identity before another edit.
-      if (response.result.metadata === 'saved') setForm(null)
+      if (response.result.metadata === 'saved') {
+        baseline.current = null
+        setForm(null)
+      }
     } catch {
       if (
         mounted.current &&
         operation === epoch.current &&
         capturedIdentity === currentIdentity.current
       ) {
+        baseline.current = null
         setForm(null)
         setError('保存结果未知，端点可能已写入。请刷新列表核对后再编辑；密钥已清空，不会自动重试。')
       }
@@ -210,7 +222,11 @@ export default function CustomEndpoints({
           type="button"
           className="plugin-reload-button"
           disabled={pending || loading || !snapshot.ready}
-          onClick={() => void refresh()}
+          onClick={() => {
+            if (!confirmDiscardSettingsDraft(dirty)) return
+            baseline.current = null
+            void refresh()
+          }}
         >
           刷新列表
         </button>

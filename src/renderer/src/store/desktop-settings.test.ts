@@ -54,6 +54,6 @@ it('does not apply a theme when its save fails', async () => {
   const store = createDesktopSettingsStore(invoke)
   await store.getState().hydrate()
   await store.getState().save({ theme: 'light' })
-  expect(store.getState().settings.theme).toBe('dark')
+  expect(store.getState().settings.theme).toBe(defaults.theme)
   expect(store.getState().status).toBe('error')
 })

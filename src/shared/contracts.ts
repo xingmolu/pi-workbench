@@ -386,6 +386,8 @@ export type DesktopControlCapabilityResponse =
 export type AgentSnapshot = {
   /** Main-only foreground epoch; never persisted in Pi history. */
   desktopScope?: SelectedSessionScope
+  /** Monotonic desktop barrier for a deliberately closed workspace (no selected worker). */
+  desktopEpoch?: number
   sessionId: string | null
   generation: number
   revision: number
@@ -569,6 +571,7 @@ export type HostMessage = HostResponse | HostEvent
 export type DesktopEvent =
   | HostEvent
   | { type: 'event'; event: 'sessions'; data: LiveSessionSummary[] }
+  | { type: 'event'; event: 'navigation-library'; data: import('./navigation-library').NavigationLibraryState }
   | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
   | { type: 'event'; event: 'mobile-gateway'; data: import('./mobile-gateway').MobileGatewayState }
   | {
@@ -578,6 +581,7 @@ export type DesktopEvent =
     }
 
 export type PiDesktopAPI = {
+  navigationLibrary: (command: import('./navigation-library').NavigationLibraryCommand) => Promise<import('./navigation-library').NavigationLibraryState>
   nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>
   mobileGateway: (command: import('./mobile-gateway').MobileGatewayCommand) => Promise<import('./mobile-gateway').MobileGatewayState>

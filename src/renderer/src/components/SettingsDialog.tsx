@@ -1,6 +1,17 @@
-import { useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { KeyRound, Monitor, Puzzle, Server, Smartphone, Sparkles, X, Settings, Palette } from 'lucide-react'
+import {
+  KeyRound,
+  Monitor,
+  Palette,
+  Puzzle,
+  Search,
+  Server,
+  Settings,
+  Smartphone,
+  Sparkles,
+  X
+} from 'lucide-react'
 import GeneralSettings from './GeneralSettings'
 import AppearanceSettings from './AppearanceSettings'
 import MobileGatewaySettings from './MobileGatewaySettings'
@@ -13,6 +24,11 @@ import type {
 } from '../../../shared/contracts'
 import SettingsAccounts from './SettingsAccounts'
 import PluginSettings from './PluginSettings'
+import {
+  SettingsDraftProvider,
+  confirmDiscardSettingsDraft,
+  useSettingsDraftController
+} from './SettingsDraftContext'
 import '../assets/settings.css'
 
 export type SettingsDialogProps = {
@@ -30,7 +46,76 @@ export type SettingsDialogProps = {
   renderAccountQuota?: (account: AgentSnapshot['accounts'][number]) => ReactNode
 }
 
-export default function SettingsDialog({
+const sections = [
+  {
+    id: 'general',
+    label: '常规',
+    group: '基础设置',
+    icon: Settings,
+    keywords: '发送 快捷键 工作详情 用量 enter'
+  },
+  {
+    id: 'appearance',
+    label: '外观',
+    group: '基础设置',
+    icon: Palette,
+    keywords: '主题 深色 浅色 系统 字号 代码 换行 动效'
+  },
+  {
+    id: 'mobile',
+    label: '手机',
+    group: '连接',
+    icon: Smartphone,
+    keywords: '远程 配对 二维码 tailscale gateway'
+  },
+  {
+    id: 'accounts',
+    label: '账号与模型',
+    group: '连接',
+    icon: KeyRound,
+    keywords: 'openai codex anthropic api key 自定义端点 登录 模型'
+  },
+  {
+    id: 'skills',
+    label: 'Skills 技能',
+    group: 'Agent 能力',
+    icon: Sparkles,
+    keywords: 'skill 技能 agent'
+  },
+  {
+    id: 'mcp',
+    label: 'MCP 服务器',
+    group: 'Agent 能力',
+    icon: Server,
+    keywords: 'mcp server 工具 本地命令 http'
+  },
+  {
+    id: 'plugins',
+    label: 'Desktop 插件',
+    group: 'Agent 能力',
+    icon: Puzzle,
+    keywords: 'plugin 插件 desktop workbench'
+  },
+  {
+    id: 'desktop-control',
+    label: '桌面控制',
+    group: 'Agent 能力',
+    icon: Monitor,
+    keywords: 'computer use 屏幕录制 辅助功能 点击 capture accessibility'
+  }
+] as const
+
+type SettingsSection = (typeof sections)[number]['id']
+
+export default function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
+  return (
+    <SettingsDraftProvider>
+      <SettingsDialogContent {...props} />
+    </SettingsDraftProvider>
+  )
+}
+
+function SettingsDialogContent({
   open,
   returnFocusRef,
   onOpenChange,
@@ -38,19 +123,41 @@ export default function SettingsDialog({
   skillsContent,
   ...props
 }: SettingsDialogProps): React.JSX.Element {
-  const [section, setSection] = useState('accounts')
-  const sections = [
-    { id: 'general', label: '常规', icon: Settings },
-    { id: 'appearance', label: '外观', icon: Palette },
-    { id: 'mobile', label: '手机', icon: Smartphone },
-    { id: 'accounts', label: '账号与模型', icon: KeyRound },
-    { id: 'skills', label: 'Skills 技能', icon: Sparkles },
-    { id: 'mcp', label: 'MCP 服务器', icon: Server },
-    { id: 'plugins', label: 'Desktop 插件', icon: Puzzle },
-    { id: 'desktop-control', label: '桌面控制', icon: Monitor }
-  ]
+  const [section, setSection] = useState<SettingsSection>('accounts')
+  const [query, setQuery] = useState('')
+  const draft = useSettingsDraftController()
+
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
+
+  const visibleSections = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase()
+    if (!needle) return sections
+    return sections.filter((item) =>
+      (item.label + ' ' + item.group + ' ' + item.keywords).toLocaleLowerCase().includes(needle)
+    )
+  }, [query])
+
+  const discardDraft = (): boolean => {
+    if (!confirmDiscardSettingsDraft(Boolean(draft?.dirty))) return false
+    draft?.clear()
+    return true
+  }
+
+  const chooseSection = (next: SettingsSection): void => {
+    if (next === section) return
+    if (!discardDraft()) return
+    setSection(next)
+  }
+
+  const handleOpenChange = (nextOpen: boolean): void => {
+    if (!nextOpen && !discardDraft()) return
+    onOpenChange(nextOpen)
+  }
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="settings-overlay" />
         <Dialog.Content
@@ -61,37 +168,68 @@ export default function SettingsDialog({
           }}
         >
           <header className="settings-dialog-header">
-            <Dialog.Title>设置</Dialog.Title>
+            <div className="settings-dialog-title">
+              <Dialog.Title>设置</Dialog.Title>
+              {draft?.dirty ? <span className="settings-unsaved-badge">有未保存修改</span> : null}
+            </div>
             <Dialog.Close className="icon-btn" aria-label="关闭设置" title="关闭设置">
-              <X size={18} />
+              <X size={17} />
             </Dialog.Close>
           </header>
           <Dialog.Description className="settings-sr-only">
-            管理 Pi 账号、模型端点、手机网关、MCP 服务器、Desktop 插件与桌面控制。
+            管理 Pi Desktop 的常规、外观、账号、Agent 能力与桌面控制设置。
           </Dialog.Description>
           <div className="settings-dialog-body">
             <nav className="settings-navigation" aria-label="设置分类">
-              {sections.map(({ id, label, icon: Icon }) => (
-                <div key={id}>
-                  {id === 'general' || id === 'skills' ? (
-                    <p className="settings-group-label">
-                      {id === 'general' ? '基础设置' : 'Agent 能力'}
-                    </p>
-                  ) : null}
+              <label className="settings-search">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={query}
+                  aria-label="搜索设置"
+                  placeholder="搜索设置"
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                {query ? (
                   <button
                     type="button"
-                    key={id}
-                    aria-current={section === id ? 'page' : undefined}
-                    onClick={() => setSection(id)}
+                    className="settings-search-clear"
+                    aria-label="清空设置搜索"
+                    onClick={() => setQuery('')}
                   >
-                    <Icon size={16} />
-                    {label}
+                    <X size={13} />
                   </button>
-                </div>
-              ))}
-              <small>Pi Desktop</small>
+                ) : null}
+              </label>
+              <div className="settings-navigation-list">
+                {visibleSections.map(({ id, label, group, icon: Icon }, index) => {
+                  const previous = visibleSections[index - 1]
+                  return (
+                    <div key={id}>
+                      {!previous || previous.group !== group ? (
+                        <p className="settings-group-label">{group}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-current={section === id ? 'page' : undefined}
+                        onClick={() => chooseSection(id)}
+                      >
+                        <Icon size={15} />
+                        <span>{label}</span>
+                        {draft?.dirty && section === id ? (
+                          <span className="settings-unsaved-dot" title="有未保存修改" />
+                        ) : null}
+                      </button>
+                    </div>
+                  )
+                })}
+                {visibleSections.length === 0 ? (
+                  <p className="settings-search-empty">没有匹配的设置</p>
+                ) : null}
+              </div>
+              <small className="settings-product-name">Pi Desktop</small>
             </nav>
-            <div className="settings-content">
+            <div className="settings-content" data-settings-section={section}>
               {section === 'general' ? (
                 <GeneralSettings />
               ) : section === 'appearance' ? (

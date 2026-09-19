@@ -59,3 +59,18 @@ it('does not let an unscoped old snapshot replace a scoped foreground', () => {
   usePiStore.getState().setSnapshot({ ...EMPTY_SNAPSHOT, generation: 100 })
   expect(usePiStore.getState().snapshot.sessionId).toBe('b')
 })
+
+it('an explicit close epoch returns to the lobby and rejects stale snapshots and patches', () => {
+  const a = snapshot('a', 4, 8)
+  usePiStore.getState().setSnapshot(a)
+  usePiStore.getState().setSnapshot({ ...EMPTY_SNAPSHOT, ready: true, desktopEpoch: 5 })
+  expect(usePiStore.getState().snapshot.desktopScope).toBeUndefined()
+  expect(usePiStore.getState().snapshot.sessionId).toBeNull()
+  usePiStore.getState().setSnapshot({ ...a, revision: 999 })
+  const late = diffState(a, { ...a, revision: 2, busy: true })
+  late.meta.desktopScope = a.desktopScope
+  expect(usePiStore.getState().applyPatch(late)).toBe('ignored')
+  expect(usePiStore.getState().snapshot.project).toBeNull()
+  usePiStore.getState().setSnapshot(snapshot('b', 6, 1))
+  expect(usePiStore.getState().snapshot.sessionId).toBe('b')
+})
