@@ -1,6 +1,7 @@
 import { utilityProcess } from 'electron'
 import type {
   AgentRuntime,
+  AgentRuntimeProviderDescriptor,
   AgentRuntimeSession,
   AgentRuntimeSessionOptions
 } from './agent-runtime'
@@ -8,6 +9,7 @@ import { HostResponseBroker } from './host-response-broker'
 
 export type UtilityProcessAgentRuntimeOptions = {
   script: string
+  provider?: AgentRuntimeProviderDescriptor
   env?: Record<string, string | undefined>
   onMessage(
     worker: AgentRuntimeSessionOptions,
@@ -21,7 +23,18 @@ export type UtilityProcessAgentRuntimeOptions = {
  * Session orchestration does not depend on Electron or Pi-specific process details.
  */
 export class UtilityProcessAgentRuntime implements AgentRuntime {
-  constructor(private readonly options: UtilityProcessAgentRuntimeOptions) {}
+  readonly provider: AgentRuntimeProviderDescriptor
+
+  constructor(private readonly options: UtilityProcessAgentRuntimeOptions) {
+    this.provider =
+      options.provider ??
+      ({
+        id: 'pi',
+        label: 'Pi',
+        hostCapabilities: true,
+        residentSessions: true
+      } satisfies AgentRuntimeProviderDescriptor)
+  }
 
   createSession(options: AgentRuntimeSessionOptions): Promise<AgentRuntimeSession> {
     return createUtilitySessionWorker({

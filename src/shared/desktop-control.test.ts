@@ -133,12 +133,11 @@ describe('desktop control DTOs', () => {
     expect(desktopControlAskDecision({ action: 'screenshot' })).toMatchObject({ kind: 'block' })
   })
 
-  it('maps hard gates without touching TCC', () => {
+  it('maps semantic hard gates independently from Screen Recording', () => {
     expect(
       desktopControlGateMessage({
         platformSupported: false,
         sessionUnlocked: true,
-        screenGranted: true,
         accessibilityGranted: true
       })
     ).toContain('macOS')
@@ -146,7 +145,6 @@ describe('desktop control DTOs', () => {
       desktopControlGateMessage({
         platformSupported: true,
         sessionUnlocked: false,
-        screenGranted: true,
         accessibilityGranted: true
       })
     ).toContain('锁定')
@@ -154,15 +152,6 @@ describe('desktop control DTOs', () => {
       desktopControlGateMessage({
         platformSupported: true,
         sessionUnlocked: true,
-        screenGranted: false,
-        accessibilityGranted: true
-      })
-    ).toContain('屏幕录制')
-    expect(
-      desktopControlGateMessage({
-        platformSupported: true,
-        sessionUnlocked: true,
-        screenGranted: true,
         accessibilityGranted: false
       })
     ).toContain('辅助功能')
@@ -170,7 +159,6 @@ describe('desktop control DTOs', () => {
       desktopControlGateMessage({
         platformSupported: true,
         sessionUnlocked: true,
-        screenGranted: true,
         accessibilityGranted: true
       })
     ).toBeNull()

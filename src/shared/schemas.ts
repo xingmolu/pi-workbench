@@ -34,6 +34,9 @@ import type {
   BrowserCommand,
   BrowserEvent,
   BrowserOperation,
+  ComputerUseCapabilityCancel,
+  ComputerUseCapabilityRequest,
+  ComputerUseCapabilityResponse,
   DesktopControlCapabilityCancel,
   DesktopControlCapabilityRequest,
   DesktopControlCapabilityResponse,
@@ -48,6 +51,10 @@ import {
   desktopControlAgentOperationSchema,
   desktopControlAgentResultSchema
 } from './desktop-control'
+import {
+  computerUseOperationSchema,
+  computerUseResultSchema
+} from './computer-use'
 
 const nonNegativeInteger = z.number().int().nonnegative()
 const permissionModeSchema = z.enum(['open', 'ask'])
@@ -401,6 +408,47 @@ export const browserCapabilityResponseSchema: z.ZodType<BrowserCapabilityRespons
       .object({
         type: z.literal('capability-response'),
         capability: z.literal('browser'),
+        requestId: z.string().min(1),
+        ok: z.literal(false),
+        error: z.string()
+      })
+      .strict()
+  ])
+
+export const computerUseCapabilityRequestSchema: z.ZodType<ComputerUseCapabilityRequest> = z
+  .object({
+    type: z.literal('capability-request'),
+    capability: z.literal('computer-use'),
+    requestId: z.string().min(1),
+    sessionId: z.string().nullable(),
+    generation: nonNegativeInteger,
+    operation: computerUseOperationSchema
+  })
+  .strict()
+
+export const computerUseCapabilityCancelSchema: z.ZodType<ComputerUseCapabilityCancel> = z
+  .object({
+    type: z.literal('capability-cancel'),
+    capability: z.literal('computer-use'),
+    requestId: z.string().min(1)
+  })
+  .strict()
+
+export const computerUseCapabilityResponseSchema: z.ZodType<ComputerUseCapabilityResponse> =
+  z.discriminatedUnion('ok', [
+    z
+      .object({
+        type: z.literal('capability-response'),
+        capability: z.literal('computer-use'),
+        requestId: z.string().min(1),
+        ok: z.literal(true),
+        data: computerUseResultSchema
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal('capability-response'),
+        capability: z.literal('computer-use'),
         requestId: z.string().min(1),
         ok: z.literal(false),
         error: z.string()

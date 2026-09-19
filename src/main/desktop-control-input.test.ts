@@ -74,7 +74,6 @@ describe('DesktopInput', () => {
       inputGateMessage({
         platformSupported: true,
         sessionUnlocked: false,
-        screenGranted: true,
         accessibilityGranted: true
       })
     ).toContain('锁定')
@@ -109,23 +108,20 @@ describe('DesktopInput', () => {
     expect(JSON.stringify(exec.mock.calls)).toContain('12')
   })
 
-  it('does not click when screen or accessibility is not granted', async () => {
-    const exec = vi.fn()
+  it('does not require screen recording for input but still requires accessibility', async () => {
+    const exec = vi.fn(async () => ({ stdout: JSON.stringify({ ok: true, x: 1, y: 1 }) }))
     const api = new DesktopInput({ platform: 'darwin', exec })
     const denied: DesktopControlPermission = { ...granted, access: 'denied', canCapture: false }
     expect(
-      (
-        await api.click({
-          x: 1,
-          y: 1,
-          confirmed: true,
-          screen: denied,
-          accessibility: granted,
-          sessionUnlocked: true,
-          dump
-        })
-      ).executed
-    ).toBe(false)
+      api.preview({
+        x: 1,
+        y: 1,
+        screen: denied,
+        accessibility: granted,
+        sessionUnlocked: true,
+        dump
+      }).allowed
+    ).toBe(true)
     expect(
       (
         await api.click({

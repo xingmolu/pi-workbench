@@ -28,8 +28,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export class DesktopAccessibility {
   constructor(private readonly deps: DesktopAccessibilityDeps) {}
 
-  private invokeJxa(source: string): Promise<unknown> {
-    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source)
+  private invokeJxa(source: string, signal?: AbortSignal): Promise<unknown> {
+    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source, signal)
   }
 
   readPermission(): DesktopControlPermission {
@@ -63,20 +63,24 @@ export class DesktopAccessibility {
     })
   }
 
-  async sessionUnlocked(): Promise<boolean> {
+  async sessionUnlocked(signal?: AbortSignal): Promise<boolean> {
     if (this.deps.platform !== 'darwin') return false
+    if (signal?.aborted) throw new Error('桌面控制操作已停止')
     try {
-      const raw = asRecord(await this.invokeJxa(JXA_SESSION_LOCK))
+      const raw = asRecord(await this.invokeJxa(JXA_SESSION_LOCK, signal))
       if (!raw || raw.ok !== true) return false
       return raw.locked !== true
     } catch {
+      if (signal?.aborted) throw new Error('桌面控制操作已停止')
       return false
     }
   }
 
-  async dump(): Promise<Extract<DesktopControlResult, { type: 'accessibility-dump' }>> {
+  async dump(
+    signal?: AbortSignal
+  ): Promise<Extract<DesktopControlResult, { type: 'accessibility-dump' }>> {
     const permission = this.readPermission()
-    const sessionUnlocked = await this.sessionUnlocked()
+    const sessionUnlocked = await this.sessionUnlocked(signal)
     if (!permission.canCapture) {
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
@@ -90,7 +94,7 @@ export class DesktopAccessibility {
       })
     }
     try {
-      const raw = asRecord(await this.invokeJxa(JXA_AX_DUMP))
+      const raw = asRecord(await this.invokeJxa(JXA_AX_DUMP, signal))
       if (!raw || raw.ok !== true) {
         return desktopControlAccessibilityDumpResultSchema.parse({
           type: 'accessibility-dump',
@@ -137,6 +141,7 @@ export class DesktopAccessibility {
             : undefined
       })
     } catch {
+      if (signal?.aborted) throw new Error('桌面控制操作已停止')
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
         permission: this.readPermission(),

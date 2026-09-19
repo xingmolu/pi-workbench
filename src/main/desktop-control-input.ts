@@ -18,12 +18,10 @@ export type DesktopInputDeps = {
 export function inputGateMessage(input: {
   platformSupported: boolean
   sessionUnlocked: boolean
-  screenGranted: boolean
   accessibilityGranted: boolean
 }): string | null {
   if (!input.platformSupported) return '桌面输入仅在 macOS 上可用。'
   if (!input.sessionUnlocked) return '锁屏或锁定会话中拒绝桌面输入。请解锁后再试。'
-  if (!input.screenGranted) return '尚未确认屏幕录制授权，拒绝桌面输入。'
   if (!input.accessibilityGranted) return '尚未确认辅助功能授权，拒绝桌面输入。'
   return null
 }
@@ -31,8 +29,8 @@ export function inputGateMessage(input: {
 export class DesktopInput {
   constructor(private readonly deps: DesktopInputDeps) {}
 
-  private invokeJxa(source: string): Promise<unknown> {
-    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source)
+  private invokeJxa(source: string, signal?: AbortSignal): Promise<unknown> {
+    return (this.deps.runJxa ?? runJxa)(this.deps.exec, source, signal)
   }
 
   preview(input: {
@@ -44,12 +42,10 @@ export class DesktopInput {
     dump: AxDump | null
   }): Extract<DesktopControlResult, { type: 'input-preview' }> {
     const platformSupported = this.deps.platform === 'darwin'
-    const screenGranted = input.screen.access === 'granted'
     const accessibilityGranted = input.accessibility.access === 'granted'
     const message = inputGateMessage({
       platformSupported,
       sessionUnlocked: input.sessionUnlocked,
-      screenGranted,
       accessibilityGranted
     })
     const hit = input.dump ? hitTestAxNodes(input.dump.windows, input.x, input.y) : null
@@ -75,7 +71,9 @@ export class DesktopInput {
     accessibility: DesktopControlPermission
     sessionUnlocked: boolean
     dump: AxDump | null
+    signal?: AbortSignal
   }): Promise<Extract<DesktopControlResult, { type: 'input-click' }>> {
+    if (input.signal?.aborted) throw new Error('桌面控制操作已停止')
     const preview = this.preview(input)
     if (!preview.allowed) {
       return desktopControlInputClickResultSchema.parse({
@@ -91,7 +89,7 @@ export class DesktopInput {
       })
     }
     try {
-      await this.invokeJxa(jxaClick(input.x, input.y, input.button ?? 'left'))
+      await this.invokeJxa(jxaClick(input.x, input.y, input.button ?? 'left'), input.signal)
       return desktopControlInputClickResultSchema.parse({
         type: 'input-click',
         executed: true,
@@ -104,6 +102,7 @@ export class DesktopInput {
         message: '已在确认坐标发送点击。'
       })
     } catch {
+      if (input.signal?.aborted) throw new Error('桌面控制操作已停止')
       return desktopControlInputClickResultSchema.parse({
         type: 'input-click',
         executed: false,
@@ -118,11 +117,11 @@ export class DesktopInput {
     }
   }
 
-  async move(x: number, y: number): Promise<void> {
-    await this.invokeJxa(jxaMove(x, y))
+  async move(x: number, y: number, signal?: AbortSignal): Promise<void> {
+    await this.invokeJxa(jxaMove(x, y), signal)
   }
 
-  async typeText(text: string): Promise<void> {
-    await this.invokeJxa(jxaType(text))
+  async typeText(text: string, signal?: AbortSignal): Promise<void> {
+    await this.invokeJxa(jxaType(text), signal)
   }
 }

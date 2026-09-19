@@ -28,6 +28,7 @@ import type {
   DesktopControlAgentOperation,
   DesktopControlAgentResult
 } from './desktop-control'
+import type { ComputerUseOperation, ComputerUseResult } from './computer-use'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
@@ -315,6 +316,37 @@ export type BrowserCapabilityResponse =
   | {
       type: 'capability-response'
       capability: 'browser'
+      requestId: string
+      ok: false
+      error: string
+    }
+
+export type ComputerUseCapabilityRequest = {
+  type: 'capability-request'
+  capability: 'computer-use'
+  requestId: string
+  sessionId: string | null
+  generation: number
+  operation: ComputerUseOperation
+}
+
+export type ComputerUseCapabilityCancel = {
+  type: 'capability-cancel'
+  capability: 'computer-use'
+  requestId: string
+}
+
+export type ComputerUseCapabilityResponse =
+  | {
+      type: 'capability-response'
+      capability: 'computer-use'
+      requestId: string
+      ok: true
+      data: ComputerUseResult
+    }
+  | {
+      type: 'capability-response'
+      capability: 'computer-use'
       requestId: string
       ok: false
       error: string

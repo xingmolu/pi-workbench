@@ -1,5 +1,16 @@
 import type { AgentSnapshot, HostCommand, HostEvent, HostResult } from '../shared/contracts'
 
+export type AgentRuntimeProviderId = 'pi' | 'claude-code' | 'codex' | (string & {})
+
+export type AgentRuntimeProviderDescriptor = {
+  id: AgentRuntimeProviderId
+  label: string
+  /** Runtime can expose host-owned capabilities such as browser/computer-use through an adapter. */
+  hostCapabilities: boolean
+  /** Runtime can keep one durable session per desktop worker. */
+  residentSessions: boolean
+}
+
 /** Stable identity used to fence stale commands and responses across session transitions. */
 export type AgentRuntimeIdentity = {
   sessionId: string | null
@@ -37,7 +48,42 @@ export type AgentRuntimeSessionOptions = {
  * runtime implementation.
  */
 export interface AgentRuntime {
+  /**
+   * Runtime identity is deliberately independent from model provider identity.
+   * Example: Claude models may run through Pi today and Claude Code later.
+   */
+  readonly provider?: AgentRuntimeProviderDescriptor
   createSession(options: AgentRuntimeSessionOptions): Promise<AgentRuntimeSession>
+}
+
+/**
+ * Registry for interchangeable Agent backends. Main/session orchestration depends only on
+ * AgentRuntime; Pi, Claude Code and Codex adapters translate their native protocols into the
+ * same HostCommand/HostEvent and host-capability contracts.
+ */
+export class AgentRuntimeProviderRegistry {
+  private readonly providers = new Map<AgentRuntimeProviderId, AgentRuntime>()
+
+  register(runtime: AgentRuntime): void {
+    const descriptor = runtime.provider
+    if (!descriptor) throw new Error('Agent runtime provider descriptor is required')
+    if (this.providers.has(descriptor.id)) {
+      throw new Error(`Agent runtime provider already registered: ${descriptor.id}`)
+    }
+    this.providers.set(descriptor.id, runtime)
+  }
+
+  get(id: AgentRuntimeProviderId): AgentRuntime {
+    const runtime = this.providers.get(id)
+    if (!runtime) throw new Error(`Agent runtime provider is not registered: ${id}`)
+    return runtime
+  }
+
+  list(): AgentRuntimeProviderDescriptor[] {
+    return [...this.providers.values()]
+      .map((runtime) => runtime.provider!)
+      .map((descriptor) => ({ ...descriptor }))
+  }
 }
 
 export type PrepareAgentRuntimeSession = (

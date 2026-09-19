@@ -78,15 +78,13 @@ export class DesktopControlService {
     if (request.type === 'open-accessibility-settings') {
       return this.accessibility.openSettings()
     }
-    const [sources, dump] = await Promise.all([
-      this.capture.listSources(),
-      this.accessibility.dump()
-    ])
+    const screen = this.capture.readPermission()
+    const dump = await this.accessibility.dump()
     if (request.type === 'input-preview') {
       return this.input.preview({
         x: request.x,
         y: request.y,
-        screen: sources.permission,
+        screen,
         accessibility: dump.permission,
         sessionUnlocked: dump.sessionUnlocked,
         dump: dump.dump
@@ -97,24 +95,25 @@ export class DesktopControlService {
       y: request.y,
       button: request.button,
       confirmed: true,
-      screen: sources.permission,
+      screen,
       accessibility: dump.permission,
       sessionUnlocked: dump.sessionUnlocked,
       dump: dump.dump
     })
   }
 
-  async executeAgent(operation: unknown): Promise<DesktopControlAgentResult> {
+  async executeAgent(
+    operation: unknown,
+    signal?: AbortSignal
+  ): Promise<DesktopControlAgentResult> {
+    if (signal?.aborted) throw new Error('桌面控制操作已停止')
     const request: DesktopControlAgentOperation = desktopControlAgentOperationSchema.parse(operation)
-    const platformSupported = this.capture.readPermission().platformSupported
-    const [sources, dump] = await Promise.all([
-      this.capture.listSources(),
-      this.accessibility.dump()
-    ])
+    const screen = this.capture.readPermission()
+    const platformSupported = screen.platformSupported
+    const dump = await this.accessibility.dump(signal)
     const gate = desktopControlGateMessage({
       platformSupported,
       sessionUnlocked: dump.sessionUnlocked,
-      screenGranted: sources.permission.access === 'granted',
       accessibilityGranted: dump.permission.access === 'granted'
     })
     if (gate) throw new Error(gate)
@@ -138,7 +137,6 @@ export class DesktopControlService {
     const inputGate = inputGateMessage({
       platformSupported,
       sessionUnlocked: dump.sessionUnlocked,
-      screenGranted: sources.permission.access === 'granted',
       accessibilityGranted: dump.permission.access === 'granted'
     })
     if (inputGate) throw new Error(inputGate)
@@ -148,10 +146,11 @@ export class DesktopControlService {
         y: request.y,
         button: request.button,
         confirmed: true,
-        screen: sources.permission,
+        screen,
         accessibility: dump.permission,
         sessionUnlocked: dump.sessionUnlocked,
-        dump: dump.dump
+        dump: dump.dump,
+        signal
       })
       if (!clicked.executed) throw new Error(clicked.message ?? '无法发送点击。')
       return desktopControlAgentResultSchema.parse({
@@ -163,7 +162,7 @@ export class DesktopControlService {
       })
     }
     if (request.action === 'move') {
-      await this.input.move(request.x, request.y)
+      await this.input.move(request.x, request.y, signal)
       return desktopControlAgentResultSchema.parse({
         kind: 'action',
         action: 'move',
@@ -172,7 +171,7 @@ export class DesktopControlService {
         y: request.y
       })
     }
-    await this.input.typeText(request.text)
+    await this.input.typeText(request.text, signal)
     return desktopControlAgentResultSchema.parse({
       kind: 'action',
       action: 'type',

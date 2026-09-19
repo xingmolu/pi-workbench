@@ -1,0 +1,193 @@
+import { describe, expect, it, vi } from 'vitest'
+import { ComputerUseService } from './computer-use-service'
+import { DesktopControlService } from './desktop-control-service'
+
+function harness() {
+  let buttonTitle = 'OK'
+  const getSources = vi.fn(async () => [])
+  const exec = vi.fn(async (_file: string, args: readonly string[]) => {
+    const script = String(args[3] ?? '')
+    if (script.includes('CGSSessionScreenIsLocked')) {
+      return { stdout: JSON.stringify({ ok: true, locked: false }) }
+    }
+    if (script.includes('kCGEventLeftMouseDown')) {
+      buttonTitle = 'Done'
+      return { stdout: JSON.stringify({ ok: true, x: 30, y: 20 }) }
+    }
+    if (script.includes('kCGEventMouseMoved')) {
+      return { stdout: JSON.stringify({ ok: true, x: 30, y: 20 }) }
+    }
+    if (script.includes('keystroke')) {
+      return { stdout: JSON.stringify({ ok: true }) }
+    }
+    return {
+      stdout: JSON.stringify({
+        ok: true,
+        app: 'Finder',
+        bundleId: 'com.apple.finder',
+        windows: [
+          {
+            role: 'window',
+            title: 'Desktop',
+            value: '',
+            description: '',
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 200,
+            children: [
+              {
+                role: 'button',
+                title: buttonTitle,
+                value: '',
+                description: 'confirmation',
+                x: 10,
+                y: 10,
+                width: 40,
+                height: 20,
+                children: []
+              }
+            ]
+          }
+        ],
+        nodeCount: 2,
+        truncated: false
+      })
+    }
+  })
+
+  const desktop = new DesktopControlService({
+    platform: 'darwin',
+    getMediaAccessStatus: () => 'denied',
+    getSources,
+    isTrustedAccessibilityClient: () => true,
+    exec,
+    openExternal: async () => undefined
+  })
+
+  const service = new ComputerUseService(desktop)
+  const scope = { ownerId: 'test-runtime', sessionId: 'session-a', generation: 1 }
+  return {
+    api: {
+      execute(operation: unknown, signal?: AbortSignal) {
+        return service.execute(operation, scope, signal)
+      }
+    },
+    service,
+    exec,
+    getSources,
+    changeTitle(value: string) {
+      buttonTitle = value
+    }
+  }
+}
+
+describe('ComputerUseService', () => {
+  it('creates immutable semantic state with stable refs and searchable elements', async () => {
+    const { api, getSources } = harness()
+    const observation = await api.execute({ action: 'observe', mode: 'semantic' })
+    expect(observation).toMatchObject({
+      kind: 'observation',
+      mode: 'semantic',
+      app: 'Finder'
+    })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    expect(observation.elements.map((element) => element.ref)).toEqual(['@e1', '@e2'])
+
+    const search = await api.execute({
+      action: 'search',
+      stateId: observation.stateId,
+      query: 'confirmation'
+    })
+    expect(search).toMatchObject({
+      kind: 'search',
+      matches: [{ ref: '@e2', title: 'OK' }]
+    })
+
+    const inspect = await api.execute({
+      action: 'inspect',
+      stateId: observation.stateId,
+      ref: '@e2'
+    })
+    expect(inspect).toMatchObject({
+      kind: 'inspect',
+      element: { ref: '@e2', role: 'button', title: 'OK' }
+    })
+    expect(getSources).not.toHaveBeenCalled()
+  })
+
+  it('rejects stale state before delivering input', async () => {
+    const { api, exec, changeTitle } = harness()
+    const observation = await api.execute({ action: 'observe' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    changeTitle('Changed externally')
+
+    await expect(
+      api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        ref: '@e2',
+        intent: 'press'
+      })
+    ).rejects.toThrow(/状态已变化/)
+
+    expect(
+      exec.mock.calls.some((call) => String(call[1]?.[3]).includes('kCGEventLeftMouseDown'))
+    ).toBe(false)
+  })
+
+  it('returns a successor state after an action and reports observed change', async () => {
+    const { api } = harness()
+    const observation = await api.execute({ action: 'observe' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+
+    const result = await api.execute({
+      action: 'act',
+      stateId: observation.stateId,
+      ref: '@e2',
+      intent: 'press'
+    })
+    expect(result).toMatchObject({
+      kind: 'action',
+      previousStateId: observation.stateId,
+      ref: '@e2',
+      action: 'press',
+      delivered: true,
+      changed: true,
+      observation: {
+        kind: 'observation',
+        elements: [
+          { ref: '@e1' },
+          { ref: '@e2', title: 'Done' }
+        ]
+      }
+    })
+    if (result.kind !== 'action') throw new Error('expected action')
+    expect(result.observation.stateId).not.toBe(observation.stateId)
+
+    await expect(
+      api.execute({ action: 'inspect', stateId: observation.stateId, ref: '@e2' })
+    ).rejects.toThrow(/状态已过期/)
+  })
+
+  it('does not allow one runtime session to consume another session state', async () => {
+    const { service } = harness()
+    const firstScope = { ownerId: 'pi:worker-1', sessionId: 'session-a', generation: 1 }
+    const secondScope = { ownerId: 'codex:worker-2', sessionId: 'session-b', generation: 1 }
+    const observation = await service.execute({ action: 'observe' }, firstScope)
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+
+    await expect(
+      service.execute(
+        { action: 'inspect', stateId: observation.stateId, ref: '@e2' },
+        secondScope
+      )
+    ).rejects.toThrow(/状态已过期/)
+  })
+
+  it('fails closed for visual/fused until screenshot grounding is implemented', async () => {
+    const { api } = harness()
+    await expect(api.execute({ action: 'observe', mode: 'visual' })).rejects.toThrow(/尚未启用/)
+    await expect(api.execute({ action: 'observe', mode: 'fused' })).rejects.toThrow(/尚未启用/)
+  })
+})

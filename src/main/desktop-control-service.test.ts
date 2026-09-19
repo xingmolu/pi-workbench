@@ -113,11 +113,12 @@ describe('DesktopControlService', () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
-  it('returns AX dump to the agent without screenshot bytes', async () => {
-    const { api } = service({})
+  it('returns AX dump without probing screen capture or sending screenshot bytes', async () => {
+    const { api, getSources } = service({ status: 'denied' })
     const result = await api.executeAgent({ action: 'dump' })
     expect(result).toMatchObject({ kind: 'dump', dump: { app: 'Finder' } })
     expect(JSON.stringify(result)).not.toContain('data:image')
+    expect(getSources).not.toHaveBeenCalled()
     const hit = await api.executeAgent({ action: 'hit_test', x: 12, y: 12 })
     expect(hit).toMatchObject({
       kind: 'hit-test',
@@ -133,7 +134,7 @@ describe('DesktopControlService', () => {
     )
   })
 
-  it('dispatches a confirmed settings click after probing both permissions', async () => {
+  it('dispatches a confirmed settings click using accessibility without capture probing', async () => {
     const { api } = service({})
     const clicked = await api.dispatch({
       type: 'input-click',
@@ -143,6 +144,18 @@ describe('DesktopControlService', () => {
     })
     expect(clicked).toMatchObject({ type: 'input-click', executed: true, x: 12, y: 12 })
     await expect(api.dispatch({ type: 'input-click', x: 12, y: 12 } as never)).rejects.toThrow()
+  })
+
+  it('rejects a cancelled agent operation before touching native automation', async () => {
+    const { api, exec, getSources } = service({})
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      api.executeAgent({ action: 'dump' }, controller.signal)
+    ).rejects.toThrow(/停止/)
+    expect(exec).not.toHaveBeenCalled()
+    expect(getSources).not.toHaveBeenCalled()
   })
 
   it('types after the same hard gates as click', async () => {

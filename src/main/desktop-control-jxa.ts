@@ -1,17 +1,23 @@
 export type JxaExec = (
   file: string,
   args: readonly string[],
-  options?: { timeout?: number; maxBuffer?: number }
+  options?: { timeout?: number; maxBuffer?: number; signal?: AbortSignal }
 ) => Promise<{ stdout: string | Buffer; stderr?: string | Buffer }>
 
 export function stdoutText(value: string | Buffer): string {
   return typeof value === 'string' ? value : value.toString('utf8')
 }
 
-export async function runJxa(exec: JxaExec, source: string): Promise<unknown> {
+export async function runJxa(
+  exec: JxaExec,
+  source: string,
+  signal?: AbortSignal
+): Promise<unknown> {
+  if (signal?.aborted) throw new Error('桌面控制操作已停止')
   const { stdout } = await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', source], {
     timeout: 8000,
-    maxBuffer: 512 * 1024
+    maxBuffer: 512 * 1024,
+    ...(signal ? { signal } : {})
   })
   const text = stdoutText(stdout).trim()
   return JSON.parse(text) as unknown

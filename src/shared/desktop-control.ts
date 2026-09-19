@@ -30,15 +30,19 @@ export function desktopControlActionRequiresAsk(action: string): boolean {
   return (DESKTOP_CONTROL_INPUT_ACTIONS as readonly string[]).includes(action)
 }
 
+/**
+ * Gate semantic desktop control independently from visual capture.
+ *
+ * AX inspection and CGEvent/System Events input require Accessibility, but they do not
+ * require Screen Recording. Visual observation has its own capture permission gate.
+ */
 export function desktopControlGateMessage(input: {
   platformSupported: boolean
   sessionUnlocked: boolean
-  screenGranted: boolean
   accessibilityGranted: boolean
 }): string | null {
   if (!input.platformSupported) return '桌面控制仅在 macOS 上可用。'
   if (!input.sessionUnlocked) return '锁屏或锁定会话中拒绝桌面控制。请解锁后再试。'
-  if (!input.screenGranted) return '尚未确认屏幕录制授权，拒绝桌面控制。'
   if (!input.accessibilityGranted) return '尚未确认辅助功能授权，拒绝桌面控制。'
   return null
 }

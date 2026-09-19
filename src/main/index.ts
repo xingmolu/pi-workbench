@@ -1,7 +1,8 @@
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
 import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
 import { SessionWorkerController } from './session-worker-controller'
-import { createUtilitySessionWorker } from './utility-session-worker'
+import { UtilityProcessAgentRuntime } from './utility-session-worker'
+import { AgentRuntimeProviderRegistry } from './agent-runtime'
 import { WorkerMutationCapabilities } from './worker-mutation-capabilities'
 import { desktopCommandOriginSchema, type DesktopCommandOrigin, type SelectedSessionScope } from '../shared/session-runtime'
 import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
@@ -48,6 +49,7 @@ import type {
   AgentSnapshot,
   BrowserCapabilityResponse,
   BrowserCommand,
+  ComputerUseCapabilityResponse,
   DesktopControlCapabilityResponse,
   HostCommand,
   DesktopEvent,
@@ -66,6 +68,8 @@ import {
   browserCapabilityCancelSchema,
   browserCapabilityRequestSchema,
   browserCommandSchema,
+  computerUseCapabilityCancelSchema,
+  computerUseCapabilityRequestSchema,
   desktopControlCapabilityCancelSchema,
   desktopControlCapabilityRequestSchema,
   hostCommandSchema
@@ -78,6 +82,7 @@ import { GitReview } from './git-review'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
 import { BrowserManager } from './browser-manager'
+import { ComputerUseService } from './computer-use-service'
 import { HostResponseBroker } from './host-response-broker'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
 import { loadElectronStoreConstructor } from './electron-store-interop'
@@ -123,6 +128,26 @@ let preferences: ElectronStore<Preferences> | null = null
 let browserManager: BrowserManager | null = null
 let browserOwner: BrowserWindowType | null = null
 let desktopControl: DesktopControlService | null = null
+let computerUse: ComputerUseService | null = null
+const desktopControlExecutions = new Map<string, AbortController>()
+
+function beginDesktopControlExecution(requestId: string): AbortController {
+  desktopControlExecutions.get(requestId)?.abort()
+  const controller = new AbortController()
+  desktopControlExecutions.set(requestId, controller)
+  return controller
+}
+
+function finishDesktopControlExecution(requestId: string, controller: AbortController): void {
+  if (desktopControlExecutions.get(requestId) === controller) {
+    desktopControlExecutions.delete(requestId)
+  }
+}
+
+function cancelDesktopControlExecution(requestId: string): void {
+  desktopControlExecutions.get(requestId)?.abort()
+}
+
 const nativePaletteFocus = new NativePaletteFocus()
 const paletteSourceIdentity = (): string => JSON.stringify([activeProjectPath, activeHostIdentity.sessionId, activeHostIdentity.generation])
 let workbenchHost: WorkbenchHost | null = null
@@ -236,12 +261,20 @@ function publishMobileWorker(workerId: string, snapshot: AgentSnapshot | null): 
   for (const listener of mobileSessionListeners)
     listener({ workerId, snapshot: mobile, runFinished })
 }
+const runtimeProviders = new AgentRuntimeProviderRegistry()
+runtimeProviders.register(
+  new UtilityProcessAgentRuntime({
+    script: join(__dirname, 'agent-host.js'),
+    ...(e2eAgentDir
+      ? { env: { ...process.env, PI_DESKTOP_E2E: '1', PI_DESKTOP_E2E_AGENT_DIR: e2eAgentDir } }
+      : {}),
+    onMessage: (worker, message, reply) =>
+      handleWorkerCapability(worker.workerId, worker.cwd, message, reply)
+  })
+)
+
 const sessionWorkers = new SessionWorkerController({
-  createWorker: options => createUtilitySessionWorker({
-    ...options, script: join(__dirname, 'agent-host.js'),
-    ...(e2eAgentDir ? { env: { ...process.env, PI_DESKTOP_E2E: '1', PI_DESKTOP_E2E_AGENT_DIR: e2eAgentDir } } : {}),
-    onMessage: (message, reply) => handleWorkerCapability(options.workerId, options.cwd, message, reply)
-  }),
+  runtime: runtimeProviders.get('pi'),
   publish: forwardEvent,
   receiptsSettled: workerReceiptsSettled,
   selected: snapshot => {
@@ -457,6 +490,55 @@ function handleHostMessage(message: unknown): void {
     browserManager?.abortAgent(capabilityCancel.data.requestId)
     return
   }
+  const computerRequest = computerUseCapabilityRequestSchema.safeParse(message)
+  if (computerRequest.success) {
+    const request = computerRequest.data
+    const fail = (error: string): void => {
+      agentHost?.postMessage({
+        type: 'capability-response',
+        capability: 'computer-use',
+        requestId: request.requestId,
+        ok: false,
+        error
+      } satisfies ComputerUseCapabilityResponse)
+    }
+    if (
+      request.generation !== activeHostIdentity.generation ||
+      request.sessionId !== activeHostIdentity.sessionId
+    ) {
+      fail('会话已切换，Computer Use 操作已取消')
+      return
+    }
+    const service = computerUse
+    if (!service) {
+      fail('Computer Use 尚未就绪')
+      return
+    }
+    const controller = beginDesktopControlExecution(request.requestId)
+    void service
+      .execute(
+        request.operation,
+        { ownerId: 'lobby', sessionId: request.sessionId, generation: request.generation },
+        controller.signal
+      )
+      .then((data) => {
+        agentHost?.postMessage({
+          type: 'capability-response',
+          capability: 'computer-use',
+          requestId: request.requestId,
+          ok: true,
+          data
+        } satisfies ComputerUseCapabilityResponse)
+      })
+      .catch((error) => fail(errorMessage(error)))
+      .finally(() => finishDesktopControlExecution(request.requestId, controller))
+    return
+  }
+  const computerCancel = computerUseCapabilityCancelSchema.safeParse(message)
+  if (computerCancel.success) {
+    cancelDesktopControlExecution(computerCancel.data.requestId)
+    return
+  }
   const desktopRequest = desktopControlCapabilityRequestSchema.safeParse(message)
   if (desktopRequest.success) {
     const request = desktopRequest.data
@@ -481,8 +563,9 @@ function handleHostMessage(message: unknown): void {
       fail('桌面控制尚未就绪')
       return
     }
+    const controller = beginDesktopControlExecution(request.requestId)
     void service
-      .executeAgent(request.operation)
+      .executeAgent(request.operation, controller.signal)
       .then((data) => {
         agentHost?.postMessage({
           type: 'capability-response',
@@ -493,10 +576,12 @@ function handleHostMessage(message: unknown): void {
         } satisfies DesktopControlCapabilityResponse)
       })
       .catch((error) => fail(errorMessage(error)))
+      .finally(() => finishDesktopControlExecution(request.requestId, controller))
     return
   }
   const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
   if (desktopCancel.success) {
+    cancelDesktopControlExecution(desktopCancel.data.requestId)
     return
   }
   const event = responseBroker.accept(message)
@@ -539,8 +624,53 @@ function handleWorkerCapability(workerId: string, cwd: string, message: unknown,
     }).catch(error => respond(false, undefined, errorMessage(error)))
     return true
   }
+  const computerCancel = computerUseCapabilityCancelSchema.safeParse(message)
+  if (computerCancel.success) {
+    cancelDesktopControlExecution(computerCancel.data.requestId)
+    return true
+  }
+  const computerParsed = computerUseCapabilityRequestSchema.safeParse(message)
+  if (computerParsed.success) {
+    const request = computerParsed.data
+    const respond = (ok: boolean, data?: unknown, error?: string) =>
+      reply({
+        type: 'capability-response',
+        capability: 'computer-use',
+        requestId: request.requestId,
+        ok,
+        ...(ok ? { data } : { error })
+      })
+    const selected = sessionWorkers.pool.selectedScope
+    if (
+      selected?.workerId !== workerId ||
+      request.sessionId !== snapshot?.sessionId ||
+      request.generation !== snapshot?.generation ||
+      !computerUse
+    ) {
+      respond(false, undefined, '当前会话未选中，Computer Use 操作已取消')
+      return true
+    }
+    const controller = beginDesktopControlExecution(request.requestId)
+    void computerUse
+      .execute(
+        request.operation,
+        { ownerId: workerId, sessionId: request.sessionId, generation: request.generation },
+        controller.signal
+      )
+      .then((data) => {
+        if (sessionWorkers.pool.selectedScope?.selectionEpoch !== selected.selectionEpoch) {
+          respond(false, undefined, '会话已切换，Computer Use 操作已取消')
+        } else respond(true, data)
+      })
+      .catch((error) => respond(false, undefined, errorMessage(error)))
+      .finally(() => finishDesktopControlExecution(request.requestId, controller))
+    return true
+  }
   const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
-  if (desktopCancel.success) return true
+  if (desktopCancel.success) {
+    cancelDesktopControlExecution(desktopCancel.data.requestId)
+    return true
+  }
   const desktopParsed = desktopControlCapabilityRequestSchema.safeParse(message)
   if (!desktopParsed.success) return false
   const desktop = desktopParsed.data
@@ -562,14 +692,16 @@ function handleWorkerCapability(workerId: string, cwd: string, message: unknown,
     respondDesktop(false, undefined, '当前会话未选中，桌面控制操作已取消')
     return true
   }
+  const controller = beginDesktopControlExecution(desktop.requestId)
   void desktopControl
-    .executeAgent(desktop.operation)
+    .executeAgent(desktop.operation, controller.signal)
     .then((data) => {
       if (sessionWorkers.pool.selectedScope?.selectionEpoch !== selected.selectionEpoch) {
         respondDesktop(false, undefined, '会话已切换，桌面控制操作已取消')
       } else respondDesktop(true, data)
     })
     .catch((error) => respondDesktop(false, undefined, errorMessage(error)))
+    .finally(() => finishDesktopControlExecution(desktop.requestId, controller))
   return true
 }
 
@@ -893,6 +1025,7 @@ function registerIpc(): void {
         : false,
     openExternal: (url) => shell.openExternal(url)
   })
+  computerUse = new ComputerUseService(desktopControl)
   ipcMain.handle(DESKTOP_CONTROL_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     return desktopControl!.dispatch(command)

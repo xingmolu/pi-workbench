@@ -15,4 +15,15 @@ describe('desktop-control JXA helpers', () => {
     expect(jxaClick(1, 2, 'left')).not.toContain('rm -rf')
     expect(jxaType('say "hi"')).toContain(JSON.stringify('say "hi"'))
   })
+
+  it('does not start osascript when Computer Use was already cancelled', async () => {
+    const exec = vi.fn(async () => ({ stdout: JSON.stringify({ ok: true }) }))
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      runJxa(exec, 'function run(){return 1}', controller.signal)
+    ).rejects.toThrow(/停止/)
+    expect(exec).not.toHaveBeenCalled()
+  })
 })
