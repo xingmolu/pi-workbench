@@ -4,6 +4,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 export type NativeComputerUseCommand =
+  | { action: 'accessibility-permission'; prompt: boolean }
   | { action: 'session-lock' }
   | { action: 'ax-dump' }
   | { action: 'move'; x: number; y: number }

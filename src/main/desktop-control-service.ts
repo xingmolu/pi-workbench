@@ -19,7 +19,6 @@ import {
 } from './desktop-control-native'
 
 export type DesktopControlServiceDeps = DesktopCaptureDeps & {
-  isTrustedAccessibilityClient?: (prompt: boolean) => boolean
   nativeHelperPath: string
   nativeExec?: NativeComputerUseExec
 }
@@ -44,7 +43,6 @@ export class DesktopControlService {
     })
     this.accessibility = new DesktopAccessibility({
       platform: deps.platform,
-      isTrustedAccessibilityClient: deps.isTrustedAccessibilityClient,
       bridge,
       openExternal: deps.openExternal
     })
@@ -66,7 +64,7 @@ export class DesktopControlService {
     if (request.type === 'accessibility-permission') {
       return desktopControlAccessibilityPermissionResultSchema.parse({
         type: 'accessibility-permission',
-        permission: this.accessibility.readPermission()
+        permission: await this.accessibility.probePermission(false)
       })
     }
     if (request.type === 'accessibility-dump') {

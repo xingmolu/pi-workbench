@@ -19,6 +19,9 @@ function harness(options: { visual?: boolean } = {}) {
   const getSources = vi.fn(async () => (options.visual ? [visualSource()] : []))
   const exec = vi.fn(async (_file: string, args: readonly string[]) => {
     const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+    if (command.action === 'accessibility-permission') {
+      return { stdout: JSON.stringify({ ok: true, trusted: true }) }
+    }
     if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: false }) }
     }
@@ -83,7 +86,6 @@ function harness(options: { visual?: boolean } = {}) {
             }
           ]
         : [],
-    isTrustedAccessibilityClient: () => true,
     nativeHelperPath: '/test/pi-computer-use-helper',
     nativeExec: exec,
     openExternal: async () => undefined

@@ -8,6 +8,7 @@ struct Command: Decodable {
     let y: Double?
     let button: String?
     let text: String?
+    let prompt: Bool?
 }
 
 struct Json {
@@ -102,6 +103,15 @@ func walk(_ element: AXUIElement, depth: Int, count: inout Int, truncated: inout
     ]
 }
 
+func accessibilityTrusted(prompt: Bool) -> Bool {
+    if !prompt {
+        return AXIsProcessTrusted()
+    }
+    let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+    let options = [key: true] as CFDictionary
+    return AXIsProcessTrustedWithOptions(options)
+}
+
 func isSessionLocked() -> Bool {
     guard let dictionary = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
     return (dictionary["CGSSessionScreenIsLocked"] as? Bool) == true
@@ -193,6 +203,11 @@ do {
 }
 
 switch command.action {
+case "accessibility-permission":
+    Json.write([
+        "ok": true,
+        "trusted": accessibilityTrusted(prompt: command.prompt == true)
+    ])
 case "session-lock":
     Json.write(["ok": true, "locked": isSessionLocked()])
 case "ax-dump":

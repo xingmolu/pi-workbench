@@ -15,9 +15,11 @@ nsis:
   shortcutName: ${productName}
 mac:
   identity: "-"
-  extraResources:
+  extraFiles:
     - from: resources/native/pi-computer-use-helper
-      to: native/pi-computer-use-helper
+      to: Helpers/pi-computer-use-helper
+  binaries:
+    - Contents/Helpers/pi-computer-use-helper
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
   extendInfo:

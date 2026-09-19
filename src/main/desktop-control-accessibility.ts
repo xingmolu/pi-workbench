@@ -1,6 +1,5 @@
 import {
   ACCESSIBILITY_SETTINGS_URLS,
-  accessAfterCaptureProbe,
   axDumpSchema,
   desktopControlAccessibilityDumpResultSchema,
   desktopControlOpenSettingsResultSchema,
@@ -13,7 +12,6 @@ import { MacComputerUseBridge } from './desktop-control-native'
 
 export type DesktopAccessibilityDeps = {
   platform: string
-  isTrustedAccessibilityClient?: (prompt: boolean) => boolean
   bridge: MacComputerUseBridge
   openExternal: (url: string) => Promise<void>
 }
@@ -25,6 +23,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export class DesktopAccessibility {
+  private helperTrusted: boolean | null = null
+
   constructor(private readonly deps: DesktopAccessibilityDeps) {}
 
   readPermission(): DesktopControlPermission {
@@ -38,16 +38,13 @@ export class DesktopAccessibility {
         canOpenSettings: false
       })
     }
-    let trusted: boolean | null = null
-    if (this.deps.isTrustedAccessibilityClient) {
-      try {
-        trusted = this.deps.isTrustedAccessibilityClient(false)
-      } catch {
-        trusted = null
-      }
-    }
+
     const mediaAccessStatus =
-      trusted === true ? 'granted' : trusted === false ? 'not-determined' : 'unavailable'
+      this.helperTrusted === true
+        ? 'granted'
+        : this.helperTrusted === false
+          ? 'not-determined'
+          : 'unavailable'
     const access = mapScreenRecordingAccess(this.deps.platform, mediaAccessStatus)
     return desktopControlPermissionSchema.parse({
       platformSupported: true,
@@ -56,6 +53,27 @@ export class DesktopAccessibility {
       canCapture: access !== 'restricted',
       canOpenSettings: true
     })
+  }
+
+  async probePermission(
+    prompt = false,
+    signal?: AbortSignal
+  ): Promise<DesktopControlPermission> {
+    if (this.deps.platform !== 'darwin') return this.readPermission()
+    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    try {
+      const raw = asRecord(
+        await this.deps.bridge.call(
+          { action: 'accessibility-permission', prompt },
+          signal
+        )
+      )
+      this.helperTrusted = raw?.ok === true && raw.trusted === true
+    } catch {
+      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+      this.helperTrusted = false
+    }
+    return this.readPermission()
   }
 
   async sessionUnlocked(signal?: AbortSignal): Promise<boolean> {
@@ -74,30 +92,49 @@ export class DesktopAccessibility {
   async dump(
     signal?: AbortSignal
   ): Promise<Extract<DesktopControlResult, { type: 'accessibility-dump' }>> {
-    const permission = this.readPermission()
+    let permission = await this.probePermission(false, signal)
     const sessionUnlocked = await this.sessionUnlocked(signal)
-    if (!permission.canCapture) {
+
+    if (!permission.platformSupported) {
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
         permission,
         dump: null,
         probed: false,
         sessionUnlocked,
-        message: permission.platformSupported
-          ? '辅助功能受系统策略限制，无法读取窗口结构。'
-          : '辅助功能探测仅在 macOS 上可用。'
+        message: '辅助功能探测仅在 macOS 上可用。'
       })
     }
+
+    if (permission.access !== 'granted') {
+      permission = await this.probePermission(true, signal)
+      if (permission.access !== 'granted') {
+        return desktopControlAccessibilityDumpResultSchema.parse({
+          type: 'accessibility-dump',
+          permission,
+          dump: null,
+          probed: true,
+          sessionUnlocked,
+          message:
+            'Pi Desktop 已请求 macOS 辅助功能授权。请在「隐私与安全性 → 辅助功能」打开 Pi Desktop；若已打开，请先移除旧的 Pi Desktop 条目，再重新添加当前 /Applications/Pi Desktop.app，然后完全退出并重新打开。'
+        })
+      }
+    }
+
     try {
       const raw = asRecord(await this.deps.bridge.call({ action: 'ax-dump' }, signal))
       if (!raw || raw.ok !== true) {
+        this.helperTrusted = raw?.error === 'accessibility-not-trusted' ? false : this.helperTrusted
         return desktopControlAccessibilityDumpResultSchema.parse({
           type: 'accessibility-dump',
           permission: this.readPermission(),
           dump: null,
           probed: true,
           sessionUnlocked,
-          message: '无法读取前台应用的辅助功能树。请确认已授权辅助功能后重试。'
+          message:
+            raw?.error === 'accessibility-not-trusted'
+              ? '当前 Computer Use helper 未获得辅助功能权限。请重新授权当前安装的 Pi Desktop 后完全退出并打开。'
+              : '无法读取前台应用的辅助功能树。'
         })
       }
       const parsed = axDumpSchema.safeParse({
@@ -117,15 +154,10 @@ export class DesktopAccessibility {
           message: '辅助功能树超出边界或格式无效。'
         })
       }
-      const nextPermission = accessAfterCaptureProbe(
-        this.readPermission(),
-        parsed.data.windows.length > 0 || parsed.data.nodeCount > 0
-          ? [{ id: 'ax:1', name: parsed.data.app || 'app', type: 'window', thumbnailDataUrl: '' }]
-          : []
-      )
+      this.helperTrusted = true
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
-        permission: nextPermission,
+        permission: this.readPermission(),
         dump: parsed.data,
         probed: true,
         sessionUnlocked,
@@ -143,7 +175,7 @@ export class DesktopAccessibility {
         dump: null,
         probed: true,
         sessionUnlocked,
-        message: '无法读取窗口结构，请确认已授权辅助功能后完全退出（Cmd+Q）再打开。'
+        message: 'Native Computer Use helper 无法读取窗口结构。请完全退出 Pi Desktop 后重试。'
       })
     }
   }

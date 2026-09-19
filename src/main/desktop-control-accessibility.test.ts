@@ -29,19 +29,26 @@ const dumpPayload = {
 
 function accessibility(options: {
   platform?: string
-  trusted?: boolean | (() => boolean)
+  trusted?: boolean
   exec?: NativeComputerUseExec
   openExternal?: (url: string) => Promise<void>
 }): {
   exec: ReturnType<typeof vi.fn<NativeComputerUseExec>>
   openExternal: ReturnType<typeof vi.fn>
-  isTrustedAccessibilityClient: ReturnType<typeof vi.fn>
   api: DesktopAccessibility
 } {
   const exec = vi.fn<NativeComputerUseExec>(
     options.exec ??
       (async (_file, args) => {
-        const command = JSON.parse(String(args[0] ?? '{}')) as { action?: string }
+        const command = JSON.parse(String(args[0] ?? '{}')) as {
+          action?: string
+          prompt?: boolean
+        }
+        if (command.action === 'accessibility-permission') {
+          return {
+            stdout: JSON.stringify({ ok: true, trusted: options.trusted ?? true })
+          }
+        }
         if (command.action === 'session-lock') {
           return { stdout: JSON.stringify({ ok: true, locked: false }) }
         }
@@ -49,16 +56,11 @@ function accessibility(options: {
       })
   )
   const openExternal = vi.fn(options.openExternal ?? (async () => undefined))
-  const isTrustedAccessibilityClient = vi.fn(() =>
-    typeof options.trusted === 'function' ? options.trusted() : (options.trusted ?? true)
-  )
   return {
     exec,
     openExternal,
-    isTrustedAccessibilityClient,
     api: new DesktopAccessibility({
       platform: options.platform ?? 'darwin',
-      isTrustedAccessibilityClient,
       bridge: new MacComputerUseBridge('/test/pi-computer-use-helper', exec),
       openExternal
     })
@@ -67,7 +69,7 @@ function accessibility(options: {
 
 describe('DesktopAccessibility', () => {
   it('reports unsupported on non-macOS and never runs the native helper or opens settings', async () => {
-    const { api, exec, openExternal, isTrustedAccessibilityClient } = accessibility({
+    const { api, exec, openExternal } = accessibility({
       platform: 'linux',
       trusted: true
     })
@@ -77,7 +79,6 @@ describe('DesktopAccessibility', () => {
       canCapture: false,
       canOpenSettings: false
     })
-    expect(isTrustedAccessibilityClient).not.toHaveBeenCalled()
     expect(await api.dump()).toMatchObject({
       type: 'accessibility-dump',
       dump: null,
@@ -89,28 +90,69 @@ describe('DesktopAccessibility', () => {
     expect(openExternal).not.toHaveBeenCalled()
   })
 
-  it('maps trusted clients to granted and untrusted to pending before probing', () => {
-    expect(accessibility({ trusted: true }).api.readPermission()).toMatchObject({
+  it('uses the native helper as the source of truth for Accessibility permission', async () => {
+    const granted = accessibility({ trusted: true })
+    expect(await granted.api.probePermission(false)).toMatchObject({
       access: 'granted',
-      mediaAccessStatus: 'granted',
-      canCapture: true
+      mediaAccessStatus: 'granted'
     })
-    expect(accessibility({ trusted: false }).api.readPermission()).toMatchObject({
+
+    const pending = accessibility({ trusted: false })
+    expect(await pending.api.probePermission(false)).toMatchObject({
       access: 'pending',
-      mediaAccessStatus: 'not-determined',
-      canCapture: true
+      mediaAccessStatus: 'not-determined'
     })
+    expect(
+      pending.exec.mock.calls.some((call) => {
+        const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
+        return command.action === 'accessibility-permission' && command.prompt === false
+      })
+    ).toBe(true)
   })
 
-  it('probes the native AX tree and upgrades pending TCC when nodes exist', async () => {
-    const { api, exec } = accessibility({ trusted: false })
+  it('requests the native Accessibility prompt when permission is missing', async () => {
+    const exec = vi.fn<NativeComputerUseExec>(async (_file, args) => {
+      const command = JSON.parse(String(args[0] ?? '{}')) as {
+        action?: string
+        prompt?: boolean
+      }
+      if (command.action === 'accessibility-permission') {
+        return {
+          stdout: JSON.stringify({
+            ok: true,
+            trusted: command.prompt === true
+          })
+        }
+      }
+      if (command.action === 'session-lock') {
+        return { stdout: JSON.stringify({ ok: true, locked: false }) }
+      }
+      return { stdout: JSON.stringify(dumpPayload) }
+    })
+    const { api } = accessibility({ exec })
     const result = await api.dump()
-    expect(exec).toHaveBeenCalled()
     expect(result).toMatchObject({
       type: 'accessibility-dump',
       probed: true,
-      permission: { access: 'granted', mediaAccessStatus: 'not-determined' },
+      permission: { access: 'granted' },
       dump: { app: 'Finder', nodeCount: 1 }
+    })
+    expect(
+      exec.mock.calls.some((call) => {
+        const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
+        return command.action === 'accessibility-permission' && command.prompt === true
+      })
+    ).toBe(true)
+  })
+
+  it('keeps permission pending when the native helper remains untrusted', async () => {
+    const { api } = accessibility({ trusted: false })
+    expect(await api.dump()).toMatchObject({
+      type: 'accessibility-dump',
+      dump: null,
+      probed: true,
+      permission: { access: 'pending' },
+      message: expect.stringContaining('Pi Desktop 已请求')
     })
   })
 

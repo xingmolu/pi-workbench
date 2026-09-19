@@ -1097,7 +1097,7 @@ function registerIpc(): void {
     return mobileGateway.dispatch(command)
   })
   const nativeComputerUseHelperPath = app.isPackaged
-    ? join(process.resourcesPath, 'native', 'pi-computer-use-helper')
+    ? join(process.resourcesPath, '..', 'Helpers', 'pi-computer-use-helper')
     : join(app.getAppPath(), 'resources', 'native', 'pi-computer-use-helper')
   desktopControl = new DesktopControlService({
     platform: process.platform,
@@ -1118,10 +1118,6 @@ function registerIpc(): void {
         primary: display.id === primaryId
       }))
     },
-    isTrustedAccessibilityClient: (prompt) =>
-      typeof systemPreferences.isTrustedAccessibilityClient === 'function'
-        ? systemPreferences.isTrustedAccessibilityClient(prompt)
-        : false,
     openExternal: (url) => shell.openExternal(url)
   })
   computerUse = new ComputerUseService(desktopControl)

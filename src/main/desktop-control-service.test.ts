@@ -69,6 +69,9 @@ function service(options: {
   const exec = vi.fn(async (_file: string, args: readonly string[]) => {
     const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
     if (options.execImpl) return options.execImpl(command)
+    if (command.action === 'accessibility-permission') {
+      return { stdout: JSON.stringify({ ok: true, trusted: options.trusted ?? true }) }
+    }
     if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: options.locked === true }) }
     }
@@ -85,7 +88,6 @@ function service(options: {
       platform: options.platform ?? 'darwin',
       getMediaAccessStatus: () => options.status ?? 'granted',
       getSources,
-      isTrustedAccessibilityClient: () => options.trusted ?? true,
       nativeHelperPath: '/test/pi-computer-use-helper',
       nativeExec: exec,
       openExternal: async () => undefined

@@ -149,6 +149,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build macOS Computer Use helper
+        run: npm run build:native:mac
+
       - name: Package macOS ARM64 preview
         env:
           # electron-builder skips all signing on pull_request events unless this is explicit.
@@ -157,7 +160,10 @@ jobs:
         run: npx electron-builder --mac dmg zip --publish never
 
       - name: Verify preview code signature
-        run: codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Pi Desktop.app"
+        run: |
+          test -x "dist/mac-arm64/Pi Desktop.app/Contents/Helpers/pi-computer-use-helper"
+          codesign --verify --strict --verbose=2 "dist/mac-arm64/Pi Desktop.app/Contents/Helpers/pi-computer-use-helper"
+          codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Pi Desktop.app"
 
       - name: Add PR preview instructions
         run: |
@@ -232,6 +238,15 @@ jobs:
 
       - name: Package installer
         run: ${{ matrix.command }}
+
+      - name: Verify packaged Computer Use helper
+        if: startsWith(matrix.name, 'macos-')
+        shell: bash
+        run: |
+          app_path="$(find dist -maxdepth 2 -type d -name 'Pi Desktop.app' -print -quit)"
+          test -n "$app_path"
+          test -x "$app_path/Contents/Helpers/pi-computer-use-helper"
+          codesign --verify --strict --verbose=2 "$app_path/Contents/Helpers/pi-computer-use-helper"
 
       - name: Upload installer
         uses: actions/upload-artifact@v7
