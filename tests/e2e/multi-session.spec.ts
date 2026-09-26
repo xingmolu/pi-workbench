@@ -14,8 +14,17 @@ let app: ElectronApplication
 let page: Page
 let root: string
 let project: string
+type PerfRecord = {
+  residentSessions: number
+  workers: Array<{ workerId: string; pid: number | null }>
+  processes: Array<{ pid: number; coreCpuPercent: number | null; electronCpuPercent: number }>
+}
+let perfRecords: PerfRecord[]
 
-test.beforeEach(async () => {
+test.beforeEach(async ({}, testInfo) => {
+  const diagnostics =
+    testInfo.title === 'opt-in diagnostics correlate resident workers with actual process metrics'
+  perfRecords = []
   root = await realpath(await mkdtemp(join(tmpdir(), 'pi-multi-session-')))
   project = join(root, 'project')
   for (const directory of ['home', 'agent/extensions', 'data', 'project'])
@@ -36,6 +45,12 @@ test.beforeEach(async () => {
       const faux = fauxProvider({ provider: 'fixture', api: 'fixture-api', models: [{id:'offline'}], tokensPerSecond:40, tokenSize:{min:4,max:4} });
       const respond = async (context) => {
         const user = context.messages.filter(m => m.role === 'user').at(-1);
+        if (JSON.stringify(user?.content).includes('TOOL_CATALOG')) {
+          return fauxAssistantMessage(JSON.stringify({
+            registered: pi.getAllTools().map(tool => tool.name),
+            active: (context.tools ?? []).map(tool => tool.name)
+          }));
+        }
         const tag = JSON.stringify(user?.content).includes('TEST_B') ? 'TEST_B' : 'TEST_A';
         if (JSON.stringify(user?.content).includes('OVERLAP')) {
           for (let n = 0; n < 300 && !existsSync(${JSON.stringify(join(root, 'release-overlap'))}); n++) await new Promise(resolve => setTimeout(resolve, 100));
@@ -69,10 +84,23 @@ test.beforeEach(async () => {
         ? { DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS }
         : {}),
       PI_DESKTOP_E2E: '1',
+      PI_DESKTOP_PERF_LOG: diagnostics ? '1' : '0',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'data')
     }
   })
+  if (diagnostics) {
+    let buffered = ''
+    app.process().stdout?.on('data', (chunk) => {
+      buffered += String(chunk)
+      const lines = buffered.split('\n')
+      buffered = lines.pop() ?? ''
+      for (const line of lines) {
+        const start = line.indexOf('[perf] ')
+        if (start >= 0) perfRecords.push(JSON.parse(line.slice(start + 7)) as PerfRecord)
+      }
+    })
+  }
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
@@ -108,6 +136,64 @@ async function select(state: AgentSnapshot): Promise<void> {
     .poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId))
     .toBe(state.sessionId)
 }
+
+test('only the current Computer Use tool is registered and exposed to the model', async () => {
+  await prompt('TOOL_CATALOG')
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  const snapshot = await page.evaluate(() => window.pi.getState())
+  const assistant = snapshot.nodes.findLast((node) => node.type === 'assistant')
+  if (assistant?.type !== 'assistant') throw new Error('Fixture did not return the tool catalog')
+  const catalog = JSON.parse(assistant.markdown) as { registered: string[]; active: string[] }
+  for (const tools of [catalog.registered, catalog.active]) {
+    expect(tools).toContain('computer')
+    expect(tools).not.toContain('desktop')
+  }
+})
+
+test('opt-in diagnostics correlate resident workers with actual process metrics', async () => {
+  const snapshot = await page.evaluate(() => window.pi.getState())
+  const workerId = snapshot.desktopScope?.workerId
+  expect(workerId).toBeTruthy()
+  await expect
+    .poll(
+      () =>
+        perfRecords.some((record) => {
+          const worker = record.workers.find((entry) => entry.workerId === workerId)
+          return (
+            !!worker?.pid &&
+            record.processes.some(
+              (process) => process.pid === worker.pid && process.coreCpuPercent !== null
+            )
+          )
+        }),
+      { timeout: 16000 }
+    )
+    .toBe(true)
+  const record = perfRecords.findLast((entry) =>
+    entry.workers.some((worker) => worker.workerId === workerId)
+  )!
+  const worker = record.workers.find((entry) => entry.workerId === workerId)!
+  const process = record.processes.find((entry) => entry.pid === worker.pid)!
+  const actual = await app.evaluate(
+    ({ app }, id) =>
+      app
+        .getAppMetrics()
+        .find(
+          (metric) =>
+            metric.name === `Pi Session Host ${id}` ||
+            metric.serviceName === `Pi Session Host ${id}`
+        )?.pid,
+    workerId
+  )
+  expect(worker.pid).toBe(actual)
+  expect(record.residentSessions).toBe(record.workers.length)
+  expect(Number.isFinite(process.coreCpuPercent)).toBe(true)
+  expect(Number.isFinite(process.electronCpuPercent)).toBe(true)
+  const serialized = JSON.stringify(record)
+  expect(serialized).not.toContain(project)
+  expect(serialized).not.toContain('offline-only')
+  expect(serialized).not.toContain('"nodes"')
+})
 
 test('two real Pi workers overlap, preserve histories and remain independently selectable', async () => {
   test.setTimeout(60000)
@@ -194,11 +280,22 @@ test('approvals belong to each conversation and same-project tools execute seria
   await select(b)
   await expect(page.getByRole('button', { name: '允许一次', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '允许一次', exact: true }).click()
-  await expect.poll(() => page.evaluate(async () =>
-    (await window.pi.getState()).nodes.some(node => node.type === 'tool' && node.status === 'waiting-resource' && node.durationMs === undefined)
-  )).toBe(true)
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.pi.getState()).nodes.some(
+          (node) =>
+            node.type === 'tool' &&
+            node.status === 'waiting-resource' &&
+            node.durationMs === undefined
+        )
+      )
+    )
+    .toBe(true)
   await expect(page.locator('.work-summary-trigger').last()).toContainText('等待项目资源')
-  await expect(page.locator('.work-summary-trigger').last()).toContainText('正在工作', { timeout: 6000 })
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('正在工作', {
+    timeout: 6000
+  })
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).busy), { timeout: 20000 })
     .toBe(false)

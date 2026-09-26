@@ -17,6 +17,13 @@ export type AgentRuntimeIdentity = {
   generation: number
 }
 
+export type AgentRuntimeDiagnostics = Readonly<{
+  pid: number | null
+  pendingRequests: number
+  disposing: boolean
+  exited: boolean
+}>
+
 /**
  * One resident Agent runtime bound to a desktop session worker.
  *
@@ -25,6 +32,8 @@ export type AgentRuntimeIdentity = {
  * remote or backed by another Agent implementation later.
  */
 export interface AgentRuntimeSession {
+  /** Optional, read-only local process projection; contains no session content. */
+  getDiagnostics?(): AgentRuntimeDiagnostics
   request(command: HostCommand, expectedIdentity?: AgentRuntimeIdentity): Promise<HostResult>
   /** Resolves only after this runtime cannot execute further work. */
   dispose(): Promise<void>

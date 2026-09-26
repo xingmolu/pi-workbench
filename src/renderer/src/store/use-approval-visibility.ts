@@ -45,8 +45,20 @@ export function useOffscreenApproval(
       }
     }
     scan()
-    // Approvals and their transcript nodes can arrive in separate patches.
-    const mutations = new MutationObserver(scan)
+    // Approvals and their transcript nodes can arrive in separate patches. Ignore unrelated
+    // streaming Markdown mutations so a pending approval does not rescan the whole transcript.
+    const selector = '[data-approval-actions]'
+    const touchesApprovalActions = (node: Node): boolean =>
+      node instanceof Element &&
+      (node.matches(selector) || Boolean(node.querySelector(selector)))
+    const mutations = new MutationObserver((records) => {
+      if (
+        records.some((record) =>
+          [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(touchesApprovalActions)
+        )
+      )
+        scan()
+    })
     mutations.observe(root, { subtree: true, childList: true })
     return () => {
       mutations.disconnect()

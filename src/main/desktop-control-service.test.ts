@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ComputerUseService } from './computer-use-service'
 import { DesktopControlService } from './desktop-control-service'
 import type { DesktopCapturerSourceInput } from './desktop-control-capture'
 import { DESKTOP_CONTROL_LIMITS } from '../shared/desktop-control'
+
+const scope = { ownerId: 'test', sessionId: 'session', generation: 1 }
 
 const PNG = 'data:image/png;base64,AAAA'
 
@@ -24,9 +27,17 @@ const dumpPayload = {
   ok: true,
   app: 'Finder',
   bundleId: 'com.apple.finder',
+  target: {
+    pid: 42,
+    windowId: 77,
+    app: 'Finder',
+    bundleId: 'com.apple.finder',
+    frame: { x: 0, y: 0, width: 200, height: 200 }
+  },
   windows: [
     {
       role: 'window',
+      windowId: 77,
       title: 'Desktop',
       value: '',
       description: '',
@@ -75,6 +86,9 @@ function service(options: {
     if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: options.locked === true }) }
     }
+    if (command.action === 'foreground-window') {
+      return { stdout: JSON.stringify({ ok: true, target: dumpPayload.target }) }
+    }
     if (command.action === 'click' || command.action === 'move') {
       return { stdout: JSON.stringify({ ok: true, x: command.x ?? 12, y: command.y ?? 12 }) }
     }
@@ -89,6 +103,7 @@ function service(options: {
       getMediaAccessStatus: () => options.status ?? 'granted',
       getSources,
       nativeHelperPath: '/test/pi-computer-use-helper',
+      appBundlePath: '/test/Pi Desktop.app',
       nativeExec: exec,
       openExternal: async () => undefined
     })
@@ -111,27 +126,31 @@ describe('DesktopControlService', () => {
     expect(await api.dispatch({ type: 'input-preview', x: 1, y: 1 })).toMatchObject({
       allowed: false
     })
-    await expect(api.executeAgent({ action: 'dump' })).rejects.toThrow(/macOS/)
+    await expect(
+      new ComputerUseService(api).execute({ action: 'observe', mode: 'semantic' }, scope)
+    ).rejects.toThrow(/macOS/)
     expect(getSources).not.toHaveBeenCalled()
     expect(exec).not.toHaveBeenCalled()
   })
 
   it('returns AX dump without probing screen capture or sending screenshot bytes', async () => {
     const { api, getSources } = service({ status: 'denied' })
-    const result = await api.executeAgent({ action: 'dump' })
-    expect(result).toMatchObject({ kind: 'dump', dump: { app: 'Finder' } })
+    const result = await api.dispatch({ type: 'accessibility-dump' })
+    expect(result).toMatchObject({ type: 'accessibility-dump', dump: { app: 'Finder' } })
     expect(JSON.stringify(result)).not.toContain('data:image')
     expect(getSources).not.toHaveBeenCalled()
-    const hit = await api.executeAgent({ action: 'hit_test', x: 12, y: 12 })
+    const hit = await api.dispatch({ type: 'input-preview', x: 12, y: 12 })
     expect(hit).toMatchObject({
-      kind: 'hit-test',
+      type: 'input-preview',
       target: { role: 'button', title: 'OK' }
     })
   })
 
-  it('refuses agent input on a locked session even when TCC looks granted', async () => {
+  it('refuses settings input on a locked session even when TCC looks granted', async () => {
     const { api, exec } = service({ locked: true })
-    await expect(api.executeAgent({ action: 'click', x: 12, y: 12 })).rejects.toThrow(/锁定/)
+    expect(
+      await api.dispatch({ type: 'input-click', x: 12, y: 12, confirmed: true })
+    ).toMatchObject({ executed: false })
     expect(
       exec.mock.calls.some((call) => {
         const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
@@ -158,17 +177,32 @@ describe('DesktopControlService', () => {
     controller.abort()
 
     await expect(
-      api.executeAgent({ action: 'dump' }, controller.signal)
-    ).rejects.toThrow(/停止/)
+      new ComputerUseService(api).execute(
+        { action: 'observe', mode: 'semantic' },
+        scope,
+        controller.signal
+      )
+    ).rejects.toThrow()
     expect(exec).not.toHaveBeenCalled()
     expect(getSources).not.toHaveBeenCalled()
   })
 
   it('types after the same hard gates as click', async () => {
     const { api } = service({})
-    await expect(api.executeAgent({ action: 'type', text: 'hello' })).resolves.toMatchObject({
-      kind: 'action',
-      action: 'type'
-    })
+    const computer = new ComputerUseService(api)
+    const observation = await computer.execute({ action: 'observe', mode: 'semantic' }, scope)
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    await expect(
+      computer.execute(
+        {
+          action: 'act',
+          stateId: observation.stateId,
+          target: { kind: 'ref', ref: '@e2' },
+          intent: 'type',
+          text: 'hello'
+        },
+        scope
+      )
+    ).resolves.toMatchObject({ kind: 'action', action: 'type' })
   })
 })

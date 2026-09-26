@@ -84,6 +84,10 @@ export const Markdown = memo(function Markdown({
   identity?: string
   streaming?: boolean
 }): React.JSX.Element {
+  // Bound repeated GFM parsing while the source is still growing. Parse the
+  // complete document once on completion so references and fences stay correct.
+  if (streaming && children.length > 8 * 1024)
+    return <pre className="markdown-plain-fallback markdown-streaming-preview">{children}</pre>
   if (children.length > 200 * 1024 || new TextEncoder().encode(children).byteLength > 200 * 1024)
     return (
       <div>

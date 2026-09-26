@@ -158,7 +158,10 @@ describe('Main browser page ownership', () => {
   it('scope invalidation revokes refs as well as prepared intents', async () => {
     const first = await snapshotRef()
     manager.prepare(scope, { action: 'tabs' })
+    const pages = manager.getState().pages
     manager.invalidateAgentScope(scope.owner)
+    expect(manager.getState().pages).toEqual(pages)
+    expect(fixture.views[0].webContents.destroyed).toBe(false)
     expect(() => manager.prepare(scope, { action: 'click', ref: first.ref })).toThrow()
   })
   it('detects a view bounds change and reversal during locate', async () => {

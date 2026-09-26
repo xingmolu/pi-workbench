@@ -4,16 +4,23 @@ import {
   desktopControlAccessibilityDumpResultSchema,
   desktopControlOpenSettingsResultSchema,
   desktopControlPermissionSchema,
+  desktopWindowTargetSchema,
   mapScreenRecordingAccess,
   type DesktopControlPermission,
-  type DesktopControlResult
+  type DesktopControlResult,
+  type DesktopWindowTarget
 } from '../shared/desktop-control'
 import { MacComputerUseBridge } from './desktop-control-native'
 
 export type DesktopAccessibilityDeps = {
   platform: string
   bridge: MacComputerUseBridge
+  appBundlePath: string
   openExternal: (url: string) => Promise<void>
+}
+
+export function accessibilityGrantMessage(appBundlePath: string): string {
+  return `当前运行的 Pi Desktop 尚未通过辅助功能权限检查。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加并开启这份应用：${appBundlePath}。若同名旧条目已开启，请移除旧条目后添加此路径，再完全退出并打开 Pi Desktop。`
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -43,35 +50,33 @@ export class DesktopAccessibility {
       this.helperTrusted === true
         ? 'granted'
         : this.helperTrusted === false
-          ? 'not-determined'
+          ? 'denied'
           : 'unavailable'
     const access = mapScreenRecordingAccess(this.deps.platform, mediaAccessStatus)
     return desktopControlPermissionSchema.parse({
       platformSupported: true,
       mediaAccessStatus,
       access,
-      canCapture: access !== 'restricted',
+      canCapture: access === 'granted',
       canOpenSettings: true
     })
   }
 
-  async probePermission(
-    prompt = false,
-    signal?: AbortSignal
-  ): Promise<DesktopControlPermission> {
+  async probePermission(prompt = false, signal?: AbortSignal): Promise<DesktopControlPermission> {
     if (this.deps.platform !== 'darwin') return this.readPermission()
     if (signal?.aborted) throw new Error('Computer Use 操作已停止')
     try {
       const raw = asRecord(
-        await this.deps.bridge.call(
-          { action: 'accessibility-permission', prompt },
-          signal
-        )
+        await this.deps.bridge.call({ action: 'accessibility-permission', prompt }, signal)
       )
-      this.helperTrusted = raw?.ok === true && raw.trusted === true
-    } catch {
-      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
-      this.helperTrusted = false
+      if (raw?.ok !== true || typeof raw.trusted !== 'boolean') {
+        throw new Error('Computer Use 原生助手返回了无效的权限状态。')
+      }
+      this.helperTrusted = raw.trusted
+    } catch (error) {
+      this.helperTrusted = null
+      signal?.throwIfAborted()
+      throw error
     }
     return this.readPermission()
   }
@@ -79,14 +84,22 @@ export class DesktopAccessibility {
   async sessionUnlocked(signal?: AbortSignal): Promise<boolean> {
     if (this.deps.platform !== 'darwin') return false
     if (signal?.aborted) throw new Error('Computer Use 操作已停止')
-    try {
-      const raw = asRecord(await this.deps.bridge.call({ action: 'session-lock' }, signal))
-      if (!raw || raw.ok !== true) return false
-      return raw.locked !== true
-    } catch {
-      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
-      return false
+    const raw = asRecord(await this.deps.bridge.call({ action: 'session-lock' }, signal))
+    if (raw?.ok !== true || typeof raw.locked !== 'boolean') {
+      throw new Error('Computer Use 原生助手返回了无效的锁屏状态。')
     }
+    return !raw.locked
+  }
+
+  async foregroundWindow(signal?: AbortSignal): Promise<DesktopWindowTarget> {
+    if (this.deps.platform !== 'darwin') throw new Error('目标窗口识别仅支持 macOS')
+    signal?.throwIfAborted()
+    const raw = asRecord(await this.deps.bridge.call({ action: 'foreground-window' }, signal))
+    const parsed = desktopWindowTargetSchema.safeParse(raw?.target)
+    if (raw?.ok !== true || !parsed.success) {
+      throw new Error('无法唯一识别当前目标窗口，请将目标窗口置于前台后重试')
+    }
+    return parsed.data
   }
 
   async dump(
@@ -115,8 +128,7 @@ export class DesktopAccessibility {
           dump: null,
           probed: true,
           sessionUnlocked,
-          message:
-            'Pi Desktop 已请求 macOS 辅助功能授权。请在「隐私与安全性 → 辅助功能」打开 Pi Desktop；若已打开，请先移除旧的 Pi Desktop 条目，再重新添加当前 /Applications/Pi Desktop.app，然后完全退出并重新打开。'
+          message: accessibilityGrantMessage(this.deps.appBundlePath)
         })
       }
     }
@@ -140,6 +152,7 @@ export class DesktopAccessibility {
       const parsed = axDumpSchema.safeParse({
         app: raw.app ?? '',
         bundleId: raw.bundleId ?? '',
+        ...(raw.target ? { target: raw.target } : {}),
         windows: raw.windows ?? [],
         nodeCount: raw.nodeCount ?? 0,
         truncated: raw.truncated === true

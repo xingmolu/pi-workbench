@@ -20,6 +20,25 @@ export type SessionWorker = AgentRuntimeSession
 export type PrepareSessionWorker = PrepareAgentRuntimeSession
 export type SessionWorkerFactoryOptions = AgentRuntimeSessionOptions
 
+export type SessionWorkerDiagnostics = Readonly<{
+  selectedWorkerId: string | null
+  residentSessions: number
+  workers: ReadonlyArray<
+    Readonly<{
+      workerId: string
+      pid: number | null
+      sessionId: string | null
+      generation: number | null
+      status: AgentSnapshot['status'] | null
+      busy: boolean | null
+      residentPendingRequests: number
+      runtimePendingRequests: number | null
+      disposing: boolean
+      exited: boolean | null
+    }>
+  >
+}>
+
 export type BackgroundSessionAdmission = {
   workerId: string
   snapshot: AgentSnapshot
@@ -81,6 +100,29 @@ export class SessionWorkerPool {
     if (!Number.isInteger(this.capacity) || this.capacity < 1 || this.capacity > 8)
       throw new Error('Worker capacity must be between 1 and 8')
     this.runtime = resolveRuntime(options)
+  }
+
+  getDiagnostics(): SessionWorkerDiagnostics {
+    const workers = [...this.residents.values()].map((owner) => {
+      const runtime = owner.worker.getDiagnostics?.()
+      return {
+        workerId: owner.workerId,
+        pid: runtime?.pid ?? null,
+        sessionId: owner.snapshot?.sessionId ?? null,
+        generation: owner.snapshot?.generation ?? null,
+        status: owner.snapshot?.status ?? null,
+        busy: owner.snapshot?.busy ?? null,
+        residentPendingRequests: owner.pending,
+        runtimePendingRequests: runtime?.pendingRequests ?? null,
+        disposing: owner.disposing || (runtime?.disposing ?? false),
+        exited: runtime?.exited ?? null
+      }
+    })
+    return {
+      selectedWorkerId: this.selection?.workerId ?? null,
+      residentSessions: workers.length,
+      workers
+    }
   }
 
   get selectedScope(): SelectedSessionScope | null {

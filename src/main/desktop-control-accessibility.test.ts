@@ -1,18 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DesktopAccessibility } from './desktop-control-accessibility'
 import { ACCESSIBILITY_SETTINGS_URLS } from '../shared/desktop-control'
-import {
-  MacComputerUseBridge,
-  type NativeComputerUseExec
-} from './desktop-control-native'
+import { MacComputerUseBridge, type NativeComputerUseExec } from './desktop-control-native'
 
 const dumpPayload = {
   ok: true,
   app: 'Finder',
   bundleId: 'com.apple.finder',
+  target: {
+    pid: 42,
+    windowId: 77,
+    app: 'Finder',
+    bundleId: 'com.apple.finder',
+    frame: { x: 0, y: 0, width: 100, height: 80 }
+  },
   windows: [
     {
       role: 'window',
+      windowId: 77,
       title: 'Desktop',
       value: '',
       description: '',
@@ -52,6 +57,9 @@ function accessibility(options: {
         if (command.action === 'session-lock') {
           return { stdout: JSON.stringify({ ok: true, locked: false }) }
         }
+        if (command.action === 'foreground-window') {
+          return { stdout: JSON.stringify({ ok: true, target: dumpPayload.target }) }
+        }
         return { stdout: JSON.stringify(dumpPayload) }
       })
   )
@@ -62,12 +70,43 @@ function accessibility(options: {
     api: new DesktopAccessibility({
       platform: options.platform ?? 'darwin',
       bridge: new MacComputerUseBridge('/test/pi-computer-use-helper', exec),
+      appBundlePath: '/test/Pi Desktop.app',
       openExternal
     })
   }
 }
 
 describe('DesktopAccessibility', () => {
+  it('reads and validates the foreground window identity independently from AX', async () => {
+    const { api, exec } = accessibility({ trusted: false })
+    await expect(api.foregroundWindow()).resolves.toEqual(dumpPayload.target)
+    expect(exec.mock.calls).toHaveLength(1)
+    exec.mockResolvedValueOnce({ stdout: JSON.stringify({ ok: true, target: { windowId: 0 } }) })
+    await expect(api.foregroundWindow()).rejects.toThrow('目标窗口')
+  })
+
+  it('attaches the focused native window identity to the AX dump', async () => {
+    const { api } = accessibility({ trusted: true })
+    expect(await api.dump()).toMatchObject({
+      dump: { target: dumpPayload.target, windows: [{ windowId: 77, title: 'Desktop' }] }
+    })
+  })
+
+  it('accepts a foreground process without bundle metadata', async () => {
+    const { api, exec } = accessibility({ trusted: true })
+    exec.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        ok: true,
+        target: {
+          ...dumpPayload.target,
+          app: '',
+          bundleId: ''
+        }
+      })
+    })
+    await expect(api.foregroundWindow()).resolves.toMatchObject({ bundleId: '' })
+  })
+
   it('reports unsupported on non-macOS and never runs the native helper or opens settings', async () => {
     const { api, exec, openExternal } = accessibility({
       platform: 'linux',
@@ -97,13 +136,13 @@ describe('DesktopAccessibility', () => {
       mediaAccessStatus: 'granted'
     })
 
-    const pending = accessibility({ trusted: false })
-    expect(await pending.api.probePermission(false)).toMatchObject({
-      access: 'pending',
-      mediaAccessStatus: 'not-determined'
+    const untrusted = accessibility({ trusted: false })
+    expect(await untrusted.api.probePermission(false)).toMatchObject({
+      access: 'denied',
+      mediaAccessStatus: 'denied'
     })
     expect(
-      pending.exec.mock.calls.some((call) => {
+      untrusted.exec.mock.calls.some((call) => {
         const command = JSON.parse(String(call[1]?.[0] ?? '{}'))
         return command.action === 'accessibility-permission' && command.prompt === false
       })
@@ -145,14 +184,14 @@ describe('DesktopAccessibility', () => {
     ).toBe(true)
   })
 
-  it('keeps permission pending when the native helper remains untrusted', async () => {
+  it('reports untrusted permission with the actual running bundle path', async () => {
     const { api } = accessibility({ trusted: false })
     expect(await api.dump()).toMatchObject({
       type: 'accessibility-dump',
       dump: null,
       probed: true,
-      permission: { access: 'pending' },
-      message: expect.stringContaining('Pi Desktop 已请求')
+      permission: { access: 'denied' },
+      message: expect.stringContaining('/test/Pi Desktop.app')
     })
   })
 
@@ -162,12 +201,21 @@ describe('DesktopAccessibility', () => {
         throw new Error('native helper missing')
       })
     })
-    expect(await api.sessionUnlocked()).toBe(false)
-    expect(await api.dump()).toMatchObject({
-      probed: true,
-      dump: null,
-      sessionUnlocked: false
-    })
+    await expect(api.sessionUnlocked()).rejects.toThrow('原生助手执行失败')
+    await expect(api.dump()).rejects.toThrow('原生助手执行失败')
+  })
+
+  it('clears previous trust and surfaces malformed permission responses', async () => {
+    const { api, exec } = accessibility({ trusted: true })
+    expect((await api.probePermission()).access).toBe('granted')
+    exec.mockResolvedValueOnce({ stdout: JSON.stringify({ ok: true }) })
+    await expect(api.probePermission()).rejects.toThrow('无效的权限状态')
+    expect(api.readPermission().access).not.toBe('granted')
+  })
+
+  it('never treats a missing lock field as an unlocked desktop', async () => {
+    const { api } = accessibility({ exec: async () => ({ stdout: '{"ok":true}' }) })
+    await expect(api.sessionUnlocked()).rejects.toThrow('无效的锁屏状态')
   })
 
   it('opens the Accessibility privacy pane and falls back', async () => {

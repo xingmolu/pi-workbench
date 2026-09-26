@@ -3,10 +3,18 @@ import { ComputerUseService } from './computer-use-service'
 import { DesktopControlService } from './desktop-control-service'
 import type { DesktopCapturerSourceInput } from './desktop-control-capture'
 
-function harness(options: { visual?: boolean } = {}) {
+function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
   let buttonTitle = 'OK'
+  let targetWindowId = 77
+  const target = () => ({
+    pid: 42,
+    windowId: targetWindowId,
+    app: 'Finder',
+    bundleId: 'com.apple.finder',
+    frame: { x: 100, y: 50, width: 400, height: 200 }
+  })
   const visualSource = (): DesktopCapturerSourceInput => ({
-    id: 'screen:7:0',
+    id: 'window:77:0',
     name: 'External Display',
     display_id: '7',
     thumbnail: {
@@ -25,6 +33,9 @@ function harness(options: { visual?: boolean } = {}) {
     if (command.action === 'session-lock') {
       return { stdout: JSON.stringify({ ok: true, locked: false }) }
     }
+    if (command.action === 'foreground-window') {
+      return { stdout: JSON.stringify({ ok: true, target: target() }) }
+    }
     if (command.action === 'click') {
       buttonTitle = 'Done'
       return { stdout: JSON.stringify({ ok: true, x: command.x, y: command.y }) }
@@ -40,9 +51,11 @@ function harness(options: { visual?: boolean } = {}) {
         ok: true,
         app: 'Finder',
         bundleId: 'com.apple.finder',
+        target: target(),
         windows: [
           {
             role: 'window',
+            windowId: 77,
             title: 'Desktop',
             value: '',
             description: '',
@@ -63,7 +76,35 @@ function harness(options: { visual?: boolean } = {}) {
                 children: []
               }
             ]
-          }
+          },
+          ...(options.extraWindow
+            ? [
+                {
+                  role: 'window',
+                  windowId: 78,
+                  title: 'Other window',
+                  value: '',
+                  description: '',
+                  x: 600,
+                  y: 50,
+                  width: 400,
+                  height: 200,
+                  children: [
+                    {
+                      role: 'button',
+                      title: 'Wrong window',
+                      value: '',
+                      description: '',
+                      x: 610,
+                      y: 60,
+                      width: 40,
+                      height: 20,
+                      children: []
+                    }
+                  ]
+                }
+              ]
+            : [])
         ],
         nodeCount: 2,
         truncated: false
@@ -87,6 +128,7 @@ function harness(options: { visual?: boolean } = {}) {
           ]
         : [],
     nativeHelperPath: '/test/pi-computer-use-helper',
+    appBundlePath: '/test/Pi Desktop.app',
     nativeExec: exec,
     openExternal: async () => undefined
   })
@@ -100,15 +142,38 @@ function harness(options: { visual?: boolean } = {}) {
       }
     },
     service,
+    desktop,
     exec,
     getSources,
     changeTitle(value: string) {
       buttonTitle = value
+    },
+    changeTarget(windowId: number) {
+      targetWindowId = windowId
     }
   }
 }
 
 describe('ComputerUseService', () => {
+  it('reports a missing native helper instead of claiming the desktop is locked', async () => {
+    const { api, exec, service } = harness()
+    exec.mockRejectedValue(Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }))
+    await expect(api.execute({ action: 'observe', mode: 'semantic' })).rejects.toThrow(
+      '原生助手缺失'
+    )
+    expect(service.stateCount).toBe(0)
+    expect(exec).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a failed lock probe without manufacturing a locked desktop', async () => {
+    const { api, exec } = harness()
+    exec.mockResolvedValueOnce({ stdout: JSON.stringify({ ok: true, trusted: true }) })
+    exec.mockRejectedValueOnce(Object.assign(new Error('timeout'), { killed: true }))
+    await expect(api.execute({ action: 'observe', mode: 'semantic' })).rejects.toThrow(
+      '原生助手调用超时'
+    )
+  })
+
   it('creates immutable semantic state with stable refs and searchable elements', async () => {
     const { api, getSources } = harness()
     const observation = await api.execute({ action: 'observe', mode: 'semantic' })
@@ -152,7 +217,7 @@ describe('ComputerUseService', () => {
     })
   })
 
-  it('returns fused refs plus a display-aware screenshot when both paths are available', async () => {
+  it('returns fused refs plus a window screenshot when both paths are available', async () => {
     const { api } = harness({ visual: true })
     const observation = await api.execute({ action: 'observe', mode: 'fused' })
     expect(observation).toMatchObject({
@@ -161,12 +226,146 @@ describe('ComputerUseService', () => {
       app: 'Finder',
       elements: [{ ref: '@e1' }, { ref: '@e2' }],
       visual: {
+        scope: 'window',
+        sourceId: 'window:77:0',
         displayId: '7',
         framePoints: { x: 100, y: 50, width: 400, height: 200 },
         scaleFactor: 2,
         image: { mimeType: 'image/png', width: 200, height: 100 }
       }
     })
+  })
+
+  it('excludes refs belonging to another window of the same application', async () => {
+    const { api } = harness({ visual: true, extraWindow: true })
+    const observation = await api.execute({ action: 'observe', mode: 'fused' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    expect(observation.elements.map((element) => element.title)).toEqual(['Desktop', 'OK'])
+  })
+
+  it('rejects a semantic tree whose window ID does not match the focused target', async () => {
+    const h = harness()
+    h.changeTarget(78)
+    await expect(h.api.execute({ action: 'observe', mode: 'semantic' })).rejects.toThrow(
+      '辅助功能窗口身份不一致'
+    )
+    expect(h.service.stateCount).toBe(0)
+  })
+
+  it('scopes semantic-only refs to the focused window before protected input', async () => {
+    const h = harness({ extraWindow: true })
+    const observation = await h.api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    expect(observation.elements.map((element) => element.title)).toEqual(['Desktop', 'OK'])
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        target: { kind: 'ref', ref: '@e2' },
+        intent: 'press'
+      })
+    ).resolves.toMatchObject({
+      kind: 'action',
+      delivered: true
+    })
+    const click = h.exec.mock.calls.find(
+      (call) => JSON.parse(String(call[1]?.[0] ?? '{}')).action === 'click'
+    )
+    expect(JSON.parse(String(click?.[1]?.[0] ?? '{}')).expectedTarget).toMatchObject({
+      windowId: 77
+    })
+  })
+
+  it('rejects a foreground window change during capture without creating a fused state', async () => {
+    const h = harness({ visual: true })
+    h.getSources.mockImplementationOnce(async () => {
+      h.changeTarget(78)
+      return [
+        {
+          id: 'window:77:0',
+          name: 'old',
+          thumbnail: {
+            getSize: () => ({ width: 200, height: 100 }),
+            toDataURL: () => 'data:image/png;base64,aW1hZ2U='
+          }
+        }
+      ]
+    })
+    await expect(h.api.execute({ action: 'observe', mode: 'fused' })).rejects.toThrow(/窗口已变化/)
+    expect(h.service.stateCount).toBe(0)
+  })
+
+  it('rejects a window switch after AX reading before requesting screenshots', async () => {
+    const h = harness({ visual: true })
+    const original = h.exec.getMockImplementation()!
+    h.exec.mockImplementation(async (file, args) => {
+      const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+      const result = await original(file, args)
+      if (command.action === 'ax-dump') h.changeTarget(78)
+      return result
+    })
+    await expect(h.api.execute({ action: 'observe', mode: 'fused' })).rejects.toThrow(
+      /目标窗口不一致/
+    )
+    expect(h.getSources).not.toHaveBeenCalled()
+    expect(h.service.stateCount).toBe(0)
+  })
+
+  it('does not silently downgrade fused mode when the foreground window is ambiguous', async () => {
+    const h = harness({ visual: true })
+    const original = h.exec.getMockImplementation()!
+    h.exec.mockImplementation(async (file, args) => {
+      const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+      return command.action === 'foreground-window'
+        ? { stdout: JSON.stringify({ ok: false, error: 'ambiguous-foreground-window' }) }
+        : original(file, args)
+    })
+    await expect(h.api.execute({ action: 'observe', mode: 'fused' })).rejects.toThrow(/唯一识别/)
+    expect(h.getSources).not.toHaveBeenCalled()
+    expect(h.service.stateCount).toBe(0)
+  })
+
+  it('rejects a stale window before a visual point click', async () => {
+    const h = harness({ visual: true })
+    const observation = await h.api.execute({ action: 'observe', mode: 'visual' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    h.changeTarget(78)
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        target: { kind: 'point', x: 50, y: 25 },
+        intent: 'press'
+      })
+    ).rejects.toThrow(/窗口已变化/)
+    expect(
+      h.exec.mock.calls.some((call) => JSON.parse(String(call[1]?.[0] ?? '{}')).action === 'click')
+    ).toBe(false)
+  })
+
+  it('surfaces native target rejection at the final delivery boundary', async () => {
+    const h = harness({ visual: true })
+    const observation = await h.api.execute({ action: 'observe', mode: 'visual' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    const original = h.exec.getMockImplementation()!
+    h.exec.mockImplementation(async (file, args) => {
+      const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+      if (command.action === 'click') {
+        expect(command.expectedTarget).toMatchObject({ windowId: 77 })
+        throw Object.assign(new Error('native rejected'), {
+          stdout: JSON.stringify({ ok: false, error: 'target-changed' })
+        })
+      }
+      return original(file, args)
+    })
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        target: { kind: 'point', x: 50, y: 25 },
+        intent: 'press'
+      })
+    ).rejects.toThrow(/目标窗口已变化/)
   })
 
   it('supports visual-only observation and maps screenshot pixels back to global screen points', async () => {
@@ -234,6 +433,37 @@ describe('ComputerUseService', () => {
     }
   })
 
+  it('rechecks visual expiry after the AX input probe', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    try {
+      const h = harness({ visual: true })
+      const observation = await h.api.execute({ action: 'observe', mode: 'visual' })
+      if (observation.kind !== 'observation') throw new Error('expected observation')
+      const original = h.exec.getMockImplementation()!
+      h.exec.mockImplementation(async (file, args) => {
+        const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+        const result = await original(file, args)
+        if (command.action === 'ax-dump') clock.mockReturnValue(31_001)
+        return result
+      })
+      await expect(
+        h.api.execute({
+          action: 'act',
+          stateId: observation.stateId,
+          target: { kind: 'point', x: 50, y: 25 },
+          intent: 'press'
+        })
+      ).rejects.toThrow(/状态已过期/)
+      expect(
+        h.exec.mock.calls.some(
+          (call) => JSON.parse(String(call[1]?.[0] ?? '{}')).action === 'click'
+        )
+      ).toBe(false)
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('rejects stale semantic state before delivering ref input', async () => {
     const { api, exec, changeTitle } = harness()
     const observation = await api.execute({ action: 'observe', mode: 'semantic' })
@@ -275,10 +505,7 @@ describe('ComputerUseService', () => {
       verification: 'semantic-change',
       observation: {
         kind: 'observation',
-        elements: [
-          { ref: '@e1' },
-          { ref: '@e2', title: 'Done' }
-        ]
+        elements: [{ ref: '@e1' }, { ref: '@e2', title: 'Done' }]
       }
     })
     if (result.kind !== 'action') throw new Error('expected action')
@@ -297,10 +524,48 @@ describe('ComputerUseService', () => {
     if (observation.kind !== 'observation') throw new Error('expected observation')
 
     await expect(
-      service.execute(
-        { action: 'inspect', stateId: observation.stateId, ref: '@e2' },
-        secondScope
-      )
+      service.execute({ action: 'inspect', stateId: observation.stateId, ref: '@e2' }, secondScope)
     ).rejects.toThrow(/状态已过期/)
+  })
+})
+
+describe('Computer Use owner retirement', () => {
+  it('releases cached state and rejects a late observe even when the platform ignores abort', async () => {
+    const { service, desktop, api } = harness()
+    const first = await api.execute({ action: 'observe', mode: 'semantic' })
+    expect(service.stateCount).toBe(1)
+    const semantic = await desktop.accessibility.dump()
+    let complete!: (result: typeof semantic) => void
+    vi.spyOn(desktop.accessibility, 'dump').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        })
+    )
+    const late = api.execute({ action: 'observe', mode: 'semantic' })
+    const rejected = expect(late).rejects.toThrow()
+    service.releaseOwner('test-runtime')
+    service.releaseOwner('test-runtime')
+    expect(service.stateCount).toBe(0)
+    const successor = await api.execute({ action: 'observe', mode: 'semantic' })
+    complete(semantic)
+    await rejected
+    expect(service.stateCount).toBe(1)
+    await expect(
+      api.execute({
+        action: 'search',
+        stateId: successor.kind === 'observation' ? successor.stateId : '',
+        query: 'OK'
+      })
+    ).resolves.toMatchObject({ kind: 'search' })
+    await expect(
+      api.execute({
+        action: 'search',
+        stateId: first.kind === 'observation' ? first.stateId : '',
+        query: 'OK'
+      })
+    ).rejects.toThrow('过期')
+    await api.execute({ action: 'observe', mode: 'semantic' })
+    expect(service.stateCount).toBe(1)
   })
 })

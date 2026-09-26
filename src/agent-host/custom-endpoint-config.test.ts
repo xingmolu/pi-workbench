@@ -51,11 +51,85 @@ describe('custom endpoint config', () => {
     expect(saved.endpoints.find((item) => item.id === 'custom-fixture')).toEqual({
       id: 'custom-fixture',
       ...endpoint,
+      imageModelIds: [],
       editable: true,
       unsupportedReason: null
     })
     expect(JSON.stringify(saved)).not.toContain('fixture-secret')
   })
+
+  it('reads image-capable models and creates mixed model input declarations', async () => {
+    const { file, config } = await fixture(
+      document({
+        ...provider,
+        models: [{ id: 'model-a', input: ['text', 'image'] }, { id: 'model-b' }]
+      })
+    )
+    const before = await config.read()
+    expect(before.endpoints[0]).toMatchObject({
+      editable: true,
+      modelIds: ['model-a', 'model-b'],
+      imageModelIds: ['model-a']
+    })
+    const saved = await config.create({
+      id: 'custom-other',
+      expectedRevision: before.revision,
+      endpoint: { ...endpoint, modelIds: ['text-only', 'vision'], imageModelIds: ['vision'] }
+    })
+    expect(saved.endpoints.find((item) => item.id === 'custom-other')?.imageModelIds).toEqual([
+      'vision'
+    ])
+    expect(JSON.parse(await readFile(file, 'utf8')).providers['custom-other'].models).toEqual([
+      { id: 'text-only' },
+      { id: 'vision', input: ['text', 'image'] }
+    ])
+  })
+
+  it('turns image input off with a targeted edit while retaining model details and comments', async () => {
+    const source = `{ "providers": { "custom-fixture": { "name":"Gateway", "api":"openai-completions", "baseUrl":"https://example.com/v1", "models": [ { "id":"model-a", /* keep */ "name":"A", "input":["text","image"], "contextWindow":1234 } ] } } }`
+    const { file, config } = await fixture(source)
+    const before = await config.read()
+    await config.update({
+      id: 'custom-fixture',
+      expectedRevision: before.revision,
+      endpoint: { ...endpoint, imageModelIds: [] }
+    })
+    const bytes = await readFile(file, 'utf8')
+    expect(bytes).toContain('/* keep */ "name":"A"')
+    expect(bytes).toContain('"contextWindow":1234')
+    expect(
+      JSON.parse(bytes.replace(/\/\* keep \*\//, '')).providers['custom-fixture'].models[0].input
+    ).toEqual(['text'])
+  })
+
+  it('preserves image input when an older caller omits imageModelIds', async () => {
+    const source = document({ ...provider, models: [{ id: 'model-a', input: ['text', 'image'] }] })
+    const { file, config } = await fixture(source)
+    const before = await config.read()
+    const saved = await config.update({
+      id: 'custom-fixture',
+      expectedRevision: before.revision,
+      endpoint: { ...endpoint, label: 'Renamed' }
+    })
+    expect(saved.endpoints[0].imageModelIds).toEqual(['model-a'])
+    expect(
+      JSON.parse(await readFile(file, 'utf8')).providers['custom-fixture'].models[0].input
+    ).toEqual(['text', 'image'])
+  })
+
+  it.each([['image'], ['text', 'image', 'audio'], 'text', null, []])(
+    'treats unsupported input shape as read-only (%#)',
+    async (input) => {
+      const source = document({ ...provider, models: [{ id: 'model-a', input }] })
+      const { file, config } = await fixture(source)
+      const before = await config.read()
+      expect(before.endpoints[0].editable).toBe(false)
+      await expect(
+        config.update({ id: 'custom-fixture', expectedRevision: before.revision, endpoint })
+      ).rejects.toMatchObject({ code: 'read-only' })
+      expect(await readFile(file, 'utf8')).toBe(source)
+    }
+  )
 
   it('preserves surviving model details and comments and removes only explicitly removed IDs', async () => {
     const source = `{ "extra": {"__proto__": {"preserved": true}}, "providers": {
@@ -167,6 +241,7 @@ describe('custom endpoint config', () => {
       'baseUrl',
       'editable',
       'id',
+      'imageModelIds',
       'label',
       'modelIds',
       'unsupportedReason'

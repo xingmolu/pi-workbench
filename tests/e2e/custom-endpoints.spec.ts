@@ -233,6 +233,47 @@ test('creates all three protocols through canonical Pi files without selecting a
   await expect(reopened.getByLabel('API Key', { exact: true })).toHaveValue('')
 })
 
+test('declares image input per model and restores the selection when editing', async () => {
+  const section = page.getByRole('region', { name: '自定义端点' })
+  await section.getByRole('button', { name: '编辑 未登录端点', exact: true }).click()
+  await section.getByLabel('模型 ID', { exact: true }).fill('old-model\ntext-only')
+  await section.getByLabel('API Key', { exact: true }).fill('fixture-image-key')
+  await expect(section.getByLabel('支持图片输入：old-model')).not.toBeChecked()
+  await section.getByLabel('支持图片输入：old-model').check()
+  await expect(section.getByLabel('支持图片输入：text-only')).not.toBeChecked()
+  await section.getByRole('button', { name: '保存端点', exact: true }).click()
+  await expect(section.getByRole('status')).toContainText('端点已保存')
+  const models = JSON.parse(await readFile(join(agentDir, 'models.json'), 'utf8')).providers[
+    'custom-existing'
+  ].models
+  expect(models).toEqual([{ id: 'old-model', input: ['text', 'image'] }, { id: 'text-only' }])
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), join(root, 'project'))
+  await page.evaluate(() =>
+    window.pi.send({ type: 'model:set', providerId: 'custom-existing', modelId: 'old-model' })
+  )
+  const active = await page.evaluate(() => window.pi.getState())
+  expect(active.activeModel).toBe('old-model')
+  expect(
+    active.models.find((model) => model.provider === 'custom-existing' && model.id === 'old-model')
+      ?.input
+  ).toEqual(['text', 'image'])
+  await section.getByRole('button', { name: '编辑 未登录端点', exact: true }).click()
+  await expect(section.getByLabel('支持图片输入：old-model')).toBeChecked()
+  await expect(section.getByLabel('支持图片输入：text-only')).not.toBeChecked()
+  await section.getByLabel('模型 ID', { exact: true }).fill('text-only')
+  await expect(section.getByLabel('支持图片输入：old-model')).toHaveCount(0)
+  await section.getByLabel('模型 ID', { exact: true }).fill('old-model\ntext-only')
+  await expect(section.getByLabel('支持图片输入：old-model')).not.toBeChecked()
+  await section.getByLabel('支持图片输入：old-model').check()
+  await section.getByLabel('支持图片输入：old-model').uncheck()
+  await section.getByRole('button', { name: '保存端点', exact: true }).click()
+  await expect(section.getByRole('status')).toContainText('端点已保存')
+  expect(
+    JSON.parse(await readFile(join(agentDir, 'models.json'), 'utf8')).providers['custom-existing']
+      .models[0].input
+  ).toEqual(['text'])
+})
+
 test('UI-only unknown transport outcome never retries and credential-unknown partial status is explicit', async () => {
   const catalog = await page.evaluate(() => window.pi.send({ type: 'endpoint:list' }))
   await app.evaluate(({ ipcMain }, catalog) => {

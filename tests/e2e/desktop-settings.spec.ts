@@ -387,7 +387,7 @@ test('desktop control settings exposes permission without requiring a TCC grant'
     new RegExp(`^(${['已授权', '未授权', '受限', '待确认', '不支持'].join('|')})$`)
   )
   await expect(page.getByText('Computer Use：屏幕捕获、辅助功能与确认后输入', { exact: true })).toBeVisible()
-  await expect(page.getByText(/adhoc/)).toBeVisible()
+  await expect(page.getByText(/授权新安装包后，请完全退出/)).toBeVisible()
   const openSettings = page.getByRole('button', { name: '打开系统设置（屏幕录制）' })
   if (permission.permission.canOpenSettings) await expect(openSettings).toBeEnabled()
   else await expect(openSettings).toBeDisabled()
@@ -399,25 +399,38 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   const openAccessibility = page.getByRole('button', { name: '打开系统设置（辅助功能）' })
   if (axPerm.permission.canOpenSettings) await expect(openAccessibility).toBeEnabled()
   else await expect(openAccessibility).toBeDisabled()
-  await page.getByRole('button', { name: '刷新 / 试截取' }).click()
-  await expect(page.getByRole('button', { name: '刷新 / 试截取' })).toBeEnabled()
+  await page.getByRole('button', { name: '重新检测权限' }).click()
+  await expect(page.getByRole('button', { name: '重新检测权限' })).toBeEnabled()
   const ax = await page.evaluate(() => window.pi.desktopControl({ type: 'accessibility-dump' }))
   expect(ax.type).toBe('accessibility-dump')
   if (ax.type === 'accessibility-dump') {
-    expect(ax.permission.access).toBe('unsupported')
-    expect(ax.probed).toBe(false)
-    expect(ax.dump).toBeNull()
+    // The test process can inherit a different TCC identity from a normal app launch.
+    const supported = process.platform === 'darwin'
+    expect(ax.permission.platformSupported).toBe(supported)
+    if (supported) expect(['granted', 'denied', 'pending']).toContain(ax.permission.access)
+    else expect(ax.permission.access).toBe('unsupported')
+    expect(ax.probed).toBe(supported)
+    if (ax.permission.access !== 'granted') expect(ax.dump).toBeNull()
   }
   const preview = await page.evaluate(() =>
     window.pi.desktopControl({ type: 'input-preview', x: 12, y: 40 })
   )
   expect(preview.type).toBe('input-preview')
-  if (preview.type === 'input-preview') expect(preview.allowed).toBe(false)
+  if (preview.type === 'input-preview') {
+    expect(preview.allowed).toBe(
+      process.platform === 'darwin' &&
+        preview.accessibility.access === 'granted' &&
+        preview.sessionUnlocked
+    )
+  }
   await expect(
     page.evaluate(() => window.pi.desktopControl({ type: 'input-click', x: 12, y: 40 } as never))
   ).rejects.toBeTruthy()
   await page.getByRole('button', { name: '读取窗口结构' }).click()
   await expect(page.getByTestId('ax-dump')).toBeVisible()
+  if (ax.type === 'accessibility-dump' && ax.permission.access === 'denied') {
+    await expect(page.getByTestId('ax-dump')).toContainText('当前运行的 Pi Desktop')
+  }
   await expect(page.getByRole('button', { name: '确认点击' })).toBeDisabled()
   await page.screenshot({ path: 'artifacts/e2e/desktop-control-settings.png' })
 })

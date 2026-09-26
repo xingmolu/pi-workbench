@@ -1,3 +1,4 @@
+import { createMobileLiveSubscriber } from './mobile-live-subscriber'
 import { composeBlockChip, composerShouldSend } from '../shared/mobile-composer'
 import { MOBILE_KEEP_AWAKE_COPY, MOBILE_SECURITY_COPY } from '../shared/mobile-gateway'
 import { renderMobileMarkdown } from '../shared/mobile-markdown'
@@ -19,7 +20,16 @@ let token = localStorage.getItem(TOKEN_KEY) || "";
 let route = location.hash.slice(1) || "/";
 let groups = [];
 let snapshot = null;
-let events = null;
+let livePaused = false;
+const createMobileLiveSubscriber = ${createMobileLiveSubscriber.toString()};
+const live = createMobileLiveSubscriber({
+  source: function (workerId) { return new EventSource("/api/sessions/" + encodeURIComponent(workerId) + "/events"); },
+  fetch: function (workerId) { return api("/api/sessions/" + encodeURIComponent(workerId)); },
+  snapshot: function (value) { snapshot = value; error = ""; render(); },
+  finished: function () { if (navigator.vibrate) navigator.vibrate(40); },
+  paused: function (value) { livePaused = value; if (value) render(); },
+  error: function (err) { error = err.message || String(err); render(); }
+});
 let error = "";
 let hostName = location.hostname;
 let query = "";
@@ -129,15 +139,18 @@ async function api(path, options) {
   return data;
 }
 function go(path) {
+  if (route !== path) live.stop();
   route = path;
   if (location.hash.slice(1) !== path) location.hash = path;
   render();
 }
 window.addEventListener("hashchange", function () {
-  route = location.hash.slice(1) || "/";
+  const next = location.hash.slice(1) || "/";
+  if (route !== next) { live.stop(); snapshot = null; }
+  route = next;
   render();
   if (route.startsWith("/s/")) watch(route.slice(3));
-  else if (events) { events.close(); events = null; }
+  else live.stop();
 });
 window.addEventListener("keydown", function (event) {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -174,33 +187,21 @@ async function loadList() {
 }
 
 async function openSession(cwd, sessionPath, workerId) {
-  if (workerId) {
-    snapshot = await api("/api/sessions/" + encodeURIComponent(workerId));
-    go("/s/" + snapshot.workerId);
-    watch(snapshot.workerId);
-    return;
-  }
-  const data = await api("/api/sessions/open", {
-    method: "POST",
-    body: JSON.stringify({ cwd: cwd, sessionPath: sessionPath })
+  await live.navigate(function () {
+    return workerId
+      ? api("/api/sessions/" + encodeURIComponent(workerId))
+      : api("/api/sessions/open", {
+        method: "POST", body: JSON.stringify({ cwd: cwd, sessionPath: sessionPath })
+      });
+  }, function (data) {
+    snapshot = data;
+    error = "";
+    go("/s/" + data.workerId);
+    watch(data.workerId);
   });
-  go("/s/" + data.workerId);
-  snapshot = data;
-  watch(data.workerId);
 }
 
-function watch(workerId) {
-  if (events) events.close();
-  events = new EventSource("/api/sessions/" + encodeURIComponent(workerId) + "/events");
-  events.addEventListener("snapshot", function (event) {
-    snapshot = JSON.parse(event.data);
-    render();
-  });
-  events.addEventListener("run-finished", function () {
-    if (navigator.vibrate) navigator.vibrate(40);
-  });
-  events.onerror = function () {};
-}
+function watch(workerId) { live.watch(workerId); }
 
 async function send(text) {
   if (!snapshot || !snapshot.sessionId) throw new Error("会话尚未就绪");
@@ -427,6 +428,9 @@ function listPaneHtml() {
     '<div class="list-scroll" id="list-scroll">' + (cards || '<p class="empty">没有匹配的会话</p>') + "</div>";
 }
 
+function pausedNoticeHtml() {
+  return livePaused ? '<p class="notice" role="status">内容较大，实时更新已暂停。<button id="refresh-snapshot" type="button">刷新完整内容</button></p>' : '';
+}
 function chatPaneHtml() {
   if (!snapshot) {
     if (!route.startsWith("/s/")) {
@@ -434,7 +438,9 @@ function chatPaneHtml() {
         '<div class="wide-empty">从左侧选择一个会话，继续同一条桌面对话。</div>';
     }
     return '<header class="top"><button class="icon-btn back-btn" id="back" aria-label="返回">' + icon("back") +
-      '</button><h1>会话</h1></header><p class="empty">正在读取…</p>';
+      '</button><h1>会话</h1></header>' + pausedNoticeHtml() +
+      (error ? '<p class="notice" role="alert">' + esc(error) + '</p>' : '') +
+      '<p class="empty">正在读取…</p>';
   }
   const mark = badge(snapshot.status);
   const approvals = (snapshot.approvals || []).map(function (item) {
@@ -451,6 +457,7 @@ function chatPaneHtml() {
     '<div class="subhead"><strong>' + esc(snapshot.title) + '</strong><span class="pill ' + mark.kind + '">' +
     esc(mark.label) + '</span></div>' +
     (error ? '<p class="notice" role="alert">' + esc(error) + '</p>' : '') +
+    pausedNoticeHtml() +
     '<main class="chat-scroll" id="chat-scroll">' + (function () {
       const nodes = snapshot.nodes || [];
       const last = lastSpeakIndex(nodes);
@@ -479,7 +486,7 @@ function bindList(root) {
       const workerId = el.getAttribute("data-worker");
       const cwd = el.getAttribute("data-cwd");
       const sessionPath = el.getAttribute("data-path") || undefined;
-      openSession(cwd, sessionPath, workerId || undefined).catch(function (err) { error = err.message; render(); });
+      void openSession(cwd, sessionPath, workerId || undefined);
     });
   });
   ;["filter", "filter-wide"].forEach(function (id) {
@@ -507,6 +514,8 @@ function bindList(root) {
 }
 
 function bindChat(root) {
+  const refreshSnapshot = root.querySelector("#refresh-snapshot");
+  if (refreshSnapshot) refreshSnapshot.onclick = function () { void live.refresh(); };
   const back = root.querySelector("#back");
   if (back) back.onclick = function () { go("/"); };
   const draftEl = root.querySelector("#draft");
@@ -611,8 +620,8 @@ function render() {
     await pairIfNeeded();
     if (token) await loadList();
     if (route.startsWith("/s/")) {
-      snapshot = await api("/api/sessions/" + encodeURIComponent(route.slice(3)));
       watch(route.slice(3));
+      await live.refresh();
     }
   } catch (err) {
     error = err.message;

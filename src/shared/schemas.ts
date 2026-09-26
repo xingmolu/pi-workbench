@@ -38,9 +38,6 @@ import type {
   ComputerUseCapabilityCancel,
   ComputerUseCapabilityRequest,
   ComputerUseCapabilityResponse,
-  DesktopControlCapabilityCancel,
-  DesktopControlCapabilityRequest,
-  DesktopControlCapabilityResponse,
   HostCommand,
   HostEvent,
   HostMessage,
@@ -48,10 +45,6 @@ import type {
   HostResponse,
   HostResult
 } from './contracts'
-import {
-  desktopControlAgentOperationSchema,
-  desktopControlAgentResultSchema
-} from './desktop-control'
 import {
   computerUseOperationSchema,
   computerUseResultSchema
@@ -172,6 +165,7 @@ const modelSummarySchema = z
     name: z.string(),
     contextWindow: nonNegativeInteger,
     reasoning: z.boolean(),
+    input: z.array(z.enum(['text', 'image'])).optional(),
     unavailableReason: z.string().optional()
   })
   .strict()
@@ -450,47 +444,6 @@ export const computerUseCapabilityResponseSchema: z.ZodType<ComputerUseCapabilit
       .object({
         type: z.literal('capability-response'),
         capability: z.literal('computer-use'),
-        requestId: z.string().min(1),
-        ok: z.literal(false),
-        error: z.string()
-      })
-      .strict()
-  ])
-
-export const desktopControlCapabilityRequestSchema: z.ZodType<DesktopControlCapabilityRequest> = z
-  .object({
-    type: z.literal('capability-request'),
-    capability: z.literal('desktop-control'),
-    requestId: z.string().min(1),
-    sessionId: z.string().nullable(),
-    generation: nonNegativeInteger,
-    operation: desktopControlAgentOperationSchema
-  })
-  .strict()
-
-export const desktopControlCapabilityCancelSchema: z.ZodType<DesktopControlCapabilityCancel> = z
-  .object({
-    type: z.literal('capability-cancel'),
-    capability: z.literal('desktop-control'),
-    requestId: z.string().min(1)
-  })
-  .strict()
-
-export const desktopControlCapabilityResponseSchema: z.ZodType<DesktopControlCapabilityResponse> =
-  z.discriminatedUnion('ok', [
-    z
-      .object({
-        type: z.literal('capability-response'),
-        capability: z.literal('desktop-control'),
-        requestId: z.string().min(1),
-        ok: z.literal(true),
-        data: desktopControlAgentResultSchema
-      })
-      .strict(),
-    z
-      .object({
-        type: z.literal('capability-response'),
-        capability: z.literal('desktop-control'),
         requestId: z.string().min(1),
         ok: z.literal(false),
         error: z.string()

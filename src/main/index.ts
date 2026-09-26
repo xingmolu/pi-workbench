@@ -1,10 +1,12 @@
+import { ProcessCpuSampler } from './process-cpu-sampler'
 import { NAVIGATION_LIBRARY_CHANNEL, projectIsHidden } from '../shared/navigation-library'
 import { NavigationLibrary } from './navigation-library'
 import { DESKTOP_SETTINGS_CHANNEL } from '../shared/desktop-settings'
 import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
-import { SessionWorkerController } from './session-worker-controller'
+import { SessionWorkerSupervisor } from './session-worker-supervisor'
 import { UtilityProcessAgentRuntime } from './utility-session-worker'
 import { AgentRuntimeProviderRegistry } from './agent-runtime'
+import { ForegroundCapabilityRouter } from './foreground-capability-router'
 import { WorkerMutationCapabilities } from './worker-mutation-capabilities'
 import { desktopCommandOriginSchema, type DesktopCommandOrigin, type SelectedSessionScope } from '../shared/session-runtime'
 import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
@@ -50,10 +52,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type ElectronStore from 'electron-store'
 import type {
   AgentSnapshot,
-  BrowserCapabilityResponse,
   BrowserCommand,
-  ComputerUseCapabilityResponse,
-  DesktopControlCapabilityResponse,
   HostCommand,
   DesktopEvent,
   HostRequest,
@@ -68,13 +67,7 @@ import {
   WORKBENCH_PANEL_CHANNEL
 } from '../shared/workbench-contracts'
 import {
-  browserCapabilityCancelSchema,
-  browserCapabilityRequestSchema,
   browserCommandSchema,
-  computerUseCapabilityCancelSchema,
-  computerUseCapabilityRequestSchema,
-  desktopControlCapabilityCancelSchema,
-  desktopControlCapabilityRequestSchema,
   hostCommandSchema
 } from '../shared/schemas'
 import { workbenchCommandSchema } from '../shared/workbench-schemas'
@@ -132,24 +125,38 @@ let browserManager: BrowserManager | null = null
 let browserOwner: BrowserWindowType | null = null
 let desktopControl: DesktopControlService | null = null
 let computerUse: ComputerUseService | null = null
-const desktopControlExecutions = new Map<string, AbortController>()
-
-function beginDesktopControlExecution(requestId: string): AbortController {
-  desktopControlExecutions.get(requestId)?.abort()
-  const controller = new AbortController()
-  desktopControlExecutions.set(requestId, controller)
-  return controller
-}
-
-function finishDesktopControlExecution(requestId: string, controller: AbortController): void {
-  if (desktopControlExecutions.get(requestId) === controller) {
-    desktopControlExecutions.delete(requestId)
+let lobbyOwnerId: string | null = null
+const browserScopeOwners = new Map<string, object>()
+const foregroundCapabilities = new ForegroundCapabilityRouter({
+  authority: owner => ({
+    selected: !browserOwner || quitInProgress ? null : sessionWorkers.selectedScope ?? (lobbyOwnerId
+      ? { workerId: lobbyOwnerId, selectionEpoch: sessionWorkers.selectionEpoch } : null),
+    identity: owner === lobbyOwnerId ? lobbySnapshot : sessionWorkers.tryGetSnapshot(owner)
+  }),
+  execute: async (request, ownerId, executionId, signal) => {
+    switch (request.capability) {
+      case 'browser': {
+        const manager = browserManager
+        if (!manager) throw new Error('浏览器工作台尚未就绪')
+        browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
+        const owner = browserScopeOwners.get(ownerId) ?? {}
+        browserScopeOwners.set(ownerId, owner)
+        const scope = { owner, projectPath: activeProjectPath ?? '', sessionId: request.sessionId, generation: request.generation }
+        return manager.executePrepared(scope, manager.prepare(scope, request.operation), executionId)
+      }
+      case 'computer-use':
+        if (!computerUse) throw new Error('Computer Use 尚未就绪')
+        return computerUse.execute(request.operation, { ownerId, sessionId: request.sessionId, generation: request.generation }, signal)
+    }
+  },
+  abortBrowser: executionId => browserManager?.abortAgent(executionId),
+  releaseOwner: owner => {
+    computerUse?.releaseOwner(owner)
+    const browserScopeOwner = browserScopeOwners.get(owner)
+    if (browserScopeOwner) browserManager?.invalidateAgentScope(browserScopeOwner)
+    browserScopeOwners.delete(owner)
   }
-}
-
-function cancelDesktopControlExecution(requestId: string): void {
-  desktopControlExecutions.get(requestId)?.abort()
-}
+})
 
 const nativePaletteFocus = new NativePaletteFocus()
 const paletteSourceIdentity = (): string => JSON.stringify([activeProjectPath, activeHostIdentity.sessionId, activeHostIdentity.generation])
@@ -251,7 +258,7 @@ function publishMobileWorker(workerId: string, snapshot: AgentSnapshot | null): 
     mobileWorkerStatus.delete(workerId)
     return
   }
-  const live = sessionWorkers.pool.getLiveSummaries().find((item) => item.workerId === workerId)
+  const live = sessionWorkers.findLiveSummary(workerId)
   const mobile = toMobileSnapshot(workerId, live?.cwd ?? snapshot.project?.path ?? '', snapshot)
   const previous = mobileWorkerStatus.get(workerId)
   mobileWorkerStatus.set(workerId, snapshot.status)
@@ -276,14 +283,14 @@ runtimeProviders.register(
   })
 )
 
-const sessionWorkers = new SessionWorkerController({
+const sessionWorkers = new SessionWorkerSupervisor({
   runtime: runtimeProviders.get('pi'),
   publish: forwardEvent,
   receiptsSettled: workerReceiptsSettled,
   selected: snapshot => {
+    foregroundCapabilities.invalidate()
     const workerId = snapshot.desktopScope!.workerId
     if (selectedWorkerId !== workerId || snapshot.desktopScope!.selectionEpoch !== lastSelectionEpoch) {
-      browserManager?.abortAgent()
       nativePaletteFocus.invalidate()
       packageRootsLifecycle.hostExited()
       packageRootsLifecycle.hostStarted()
@@ -292,21 +299,21 @@ const sessionWorkers = new SessionWorkerController({
     }
   },
   onNeedsSnapshot: workerId => {
-    const scope = sessionWorkers.pool.selectedScope
-    void sessionWorkers.pool.request({ workerId, selectionEpoch: scope?.selectionEpoch ?? 0 }, { type: 'state:get' }).catch(() => {})
+    void sessionWorkers.resyncWorker(workerId).catch(() => {})
   },
-  onWorkerEvent: (workerId, snapshot) => publishMobileWorker(workerId, snapshot),
+  onWorkerEvent: (workerId, snapshot) => { foregroundCapabilities.invalidate(); publishMobileWorker(workerId, snapshot) },
   onExit: (workerId, error) => {
+    foregroundCapabilities.cancelOwner(workerId)
     mutationCapabilities.exit(workerId)
     attachmentSubmissions.retireWorker(workerId)
-    const failed = sessionWorkers.pool.getLiveSummaries().find(worker => worker.workerId === workerId)
+    const failed = sessionWorkers.findLiveSummary(workerId)
     if (failed?.sessionId && failed.generation !== null) attachmentSubmissions.retireScope({ projectPath: failed.cwd, sessionId: failed.sessionId, generation: failed.generation })
     workerRoots.delete(workerId)
     sessionWorkers.summaries()
     if (selectedWorkerId !== workerId || quitInProgress) return
     selectedWorkerId = null
     recoveryTarget = { project: activeProjectPath, session: activeSessionPath }
-    browserManager?.abortAgent()
+    foregroundCapabilities.invalidate()
     packageRootsLifecycle.hostExited()
     workspaceFiles.setProject(null)
     textAttachments.setContext(null)
@@ -315,14 +322,62 @@ const sessionWorkers = new SessionWorkerController({
     forwardEvent({ type: 'event', event: 'disconnected', data: { message: error?.message ?? '当前会话已断开；其他会话仍可继续。重新连接不会自动重发任务。' } })
   }
 })
+
+function startPerformanceDiagnostics(): void {
+  if (process.env.PI_DESKTOP_PERF_LOG !== '1') return
+
+  const cpuSampler = new ProcessCpuSampler()
+  const sample = (): void => {
+    try {
+      const metrics = app.getAppMetrics()
+      const coreCpu = cpuSampler.sample(metrics, performance.now())
+      const processes = metrics
+        .map((metric, index) => ({
+          pid: metric.pid,
+          type: metric.type,
+          name: metric.name,
+          serviceName: metric.serviceName,
+          coreCpuPercent: coreCpu[index] === null ? null : Number(coreCpu[index]!.toFixed(1)),
+          electronCpuPercent: Number(metric.cpu.percentCPUUsage.toFixed(1)),
+          idleWakeupsPerSecond: Number(metric.cpu.idleWakeupsPerSecond.toFixed(1)),
+          workingSetMiB: Number((metric.memory.workingSetSize / 1024).toFixed(1))
+        }))
+        .sort((left, right) => (right.coreCpuPercent ?? -1) - (left.coreCpuPercent ?? -1))
+
+      const browserState = browserManager?.getState()
+      console.log(
+        '[perf]',
+        JSON.stringify({
+          at: new Date().toISOString(),
+          ...sessionWorkers.getDiagnostics(),
+          lobby: { pid: agentHost?.pid ?? null, pendingRequests: responseBroker.pendingCount },
+          foregroundCapabilitiesPending: foregroundCapabilities.pendingCount,
+          computerUseStates: computerUse?.stateCount ?? 0,
+          mobileGateway: mobileGateway?.getDiagnostics() ?? null,
+          browserPages: browserState?.pages.length ?? 0,
+          browserVisible: browserState?.visible ?? false,
+          processes
+        })
+      )
+    } catch (error) {
+      console.warn('[perf] sample failed', errorMessage(error))
+    }
+  }
+
+  sample()
+  const timer = setInterval(sample, 5000)
+  timer.unref()
+  app.once('before-quit', () => clearInterval(timer))
+}
+
 let lastSelectionEpoch = 0
 function workerReceiptsSettled(workerId: string, snapshot: AgentSnapshot): boolean {
   return !snapshot.edit?.pending && !mutationCapabilities.hasPending(workerId) && ![...attachmentSubmissions.values()].some(entry => (entry.workerId === workerId || (entry.scope.sessionId === snapshot.sessionId && entry.scope.generation === snapshot.generation)) && entry.receipt.status === 'uncertain')
 }
 function refreshWorkerSafety(workerId: string): void {
   try {
-    const snapshot = sessionWorkers.pool.getSnapshot(workerId)
-    if (snapshot) sessionWorkers.pool.updateSafety(workerId, { receipts: workerReceiptsSettled(workerId, snapshot) ? 'settled' : 'pending', unsaved: !snapshot.activeSessionPath })
+    const snapshot = sessionWorkers.getSnapshot(workerId)
+    if (snapshot) sessionWorkers.updateSafety(workerId, { receipts: workerReceiptsSettled(workerId, snapshot) ? 'settled' : 'pending', unsaved: !snapshot.activeSessionPath })
   } catch { /* A receipt can settle after its worker has exited. */ }
 }
 let recoveryTarget: { project: string | null; session: string | null } | null = null
@@ -438,283 +493,39 @@ function forwardEvent(event: DesktopEvent): void {
   }
 }
 
-function handleHostMessage(message: unknown): void {
+function handleHostMessage(child: UtilityProcess, owner: string, message: unknown): void {
+  if (agentHost !== child) return
   if (packageRootsLifecycle.handleMessage(message)) return
-  const capabilityRequest = browserCapabilityRequestSchema.safeParse(message)
-  if (capabilityRequest.success) {
-    const request = capabilityRequest.data
-    if (
-      request.generation !== activeHostIdentity.generation ||
-      request.sessionId !== activeHostIdentity.sessionId
-    ) {
-      agentHost?.postMessage({
-        type: 'capability-response',
-        capability: 'browser',
-        requestId: request.requestId,
-        ok: false,
-        error: '会话已切换，浏览器操作已取消'
-      } satisfies BrowserCapabilityResponse)
-      return
-    }
-    const manager = browserManager
-    if (!manager) {
-      agentHost?.postMessage({
-        type: 'capability-response',
-        capability: 'browser',
-        requestId: request.requestId,
-        ok: false,
-        error: '浏览器工作台尚未就绪'
-      } satisfies BrowserCapabilityResponse)
-      return
-    }
-    browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, {
-      type: 'reveal',
-      viewId: BUILTIN_BROWSER_VIEW_ID
-    } satisfies WorkbenchEvent)
-    void manager
-      .executeAgent(request.operation, request.requestId)
-      .then((data) => {
-        agentHost?.postMessage({
-          type: 'capability-response',
-          capability: 'browser',
-          requestId: request.requestId,
-          ok: true,
-          data
-        } satisfies BrowserCapabilityResponse)
-      })
-      .catch((error) => {
-        agentHost?.postMessage({
-          type: 'capability-response',
-          capability: 'browser',
-          requestId: request.requestId,
-          ok: false,
-          error: errorMessage(error)
-        } satisfies BrowserCapabilityResponse)
-      })
-    return
-  }
-  const capabilityCancel = browserCapabilityCancelSchema.safeParse(message)
-  if (capabilityCancel.success) {
-    browserManager?.abortAgent(capabilityCancel.data.requestId)
-    return
-  }
-  const computerRequest = computerUseCapabilityRequestSchema.safeParse(message)
-  if (computerRequest.success) {
-    const request = computerRequest.data
-    const fail = (error: string): void => {
-      agentHost?.postMessage({
-        type: 'capability-response',
-        capability: 'computer-use',
-        requestId: request.requestId,
-        ok: false,
-        error
-      } satisfies ComputerUseCapabilityResponse)
-    }
-    if (
-      request.generation !== activeHostIdentity.generation ||
-      request.sessionId !== activeHostIdentity.sessionId
-    ) {
-      fail('会话已切换，Computer Use 操作已取消')
-      return
-    }
-    const service = computerUse
-    if (!service) {
-      fail('Computer Use 尚未就绪')
-      return
-    }
-    const controller = beginDesktopControlExecution(request.requestId)
-    void service
-      .execute(
-        request.operation,
-        { ownerId: 'lobby', sessionId: request.sessionId, generation: request.generation },
-        controller.signal
-      )
-      .then((data) => {
-        agentHost?.postMessage({
-          type: 'capability-response',
-          capability: 'computer-use',
-          requestId: request.requestId,
-          ok: true,
-          data
-        } satisfies ComputerUseCapabilityResponse)
-      })
-      .catch((error) => fail(errorMessage(error)))
-      .finally(() => finishDesktopControlExecution(request.requestId, controller))
-    return
-  }
-  const computerCancel = computerUseCapabilityCancelSchema.safeParse(message)
-  if (computerCancel.success) {
-    cancelDesktopControlExecution(computerCancel.data.requestId)
-    return
-  }
-  const desktopRequest = desktopControlCapabilityRequestSchema.safeParse(message)
-  if (desktopRequest.success) {
-    const request = desktopRequest.data
-    const fail = (error: string): void => {
-      agentHost?.postMessage({
-        type: 'capability-response',
-        capability: 'desktop-control',
-        requestId: request.requestId,
-        ok: false,
-        error
-      } satisfies DesktopControlCapabilityResponse)
-    }
-    if (
-      request.generation !== activeHostIdentity.generation ||
-      request.sessionId !== activeHostIdentity.sessionId
-    ) {
-      fail('会话已切换，桌面控制操作已取消')
-      return
-    }
-    const service = desktopControl
-    if (!service) {
-      fail('桌面控制尚未就绪')
-      return
-    }
-    const controller = beginDesktopControlExecution(request.requestId)
-    void service
-      .executeAgent(request.operation, controller.signal)
-      .then((data) => {
-        agentHost?.postMessage({
-          type: 'capability-response',
-          capability: 'desktop-control',
-          requestId: request.requestId,
-          ok: true,
-          data
-        } satisfies DesktopControlCapabilityResponse)
-      })
-      .catch((error) => fail(errorMessage(error)))
-      .finally(() => finishDesktopControlExecution(request.requestId, controller))
-    return
-  }
-  const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
-  if (desktopCancel.success) {
-    cancelDesktopControlExecution(desktopCancel.data.requestId)
-    return
-  }
+  if (foregroundCapabilities.handle(owner, message, response => child.postMessage(response))) return
   const event = responseBroker.accept(message)
   if (event?.event === 'snapshot') lobbySnapshot = event.data
   if (event?.event === 'patch' && lobbySnapshot) {
     const applied = applyStatePatch(lobbySnapshot, event.data)
     if (applied.status === 'applied') lobbySnapshot = applied.snapshot
   }
-  if (event && !sessionWorkers.pool.selectedScope) forwardEvent(event)
+  foregroundCapabilities.invalidate()
+  if (event && !sessionWorkers.selectedScope) forwardEvent(event)
 }
 
 function handleWorkerCapability(workerId: string, cwd: string, message: unknown, reply: (message: unknown) => void): boolean {
   let snapshot: AgentSnapshot | null = null
-  try { snapshot = sessionWorkers.pool.getSnapshot(workerId) } catch { /* Child may still be bootstrapping. */ }
+  try { snapshot = sessionWorkers.getSnapshot(workerId) } catch { /* Child may still be bootstrapping. */ }
   if (mutationCapabilities.handle(workerId, cwd, snapshot, message, reply)) return true
   const roots = piPackageRootsMessageSchema.safeParse(message)
   if (roots.success) {
     workerRoots.set(workerId, roots.data)
-    if (sessionWorkers.pool.selectedScope?.workerId === workerId) packageRootsLifecycle.handleMessage(roots.data)
+    if (sessionWorkers.selectedScope?.workerId === workerId) packageRootsLifecycle.handleMessage(roots.data)
     return true
   }
-  const cancel = browserCapabilityCancelSchema.safeParse(message)
-  if (cancel.success) {
-    if (sessionWorkers.pool.selectedScope?.workerId === workerId) browserManager?.abortAgent(cancel.data.requestId)
-    return true
-  }
-  const parsed = browserCapabilityRequestSchema.safeParse(message)
-  if (parsed.success) {
-    const request = parsed.data
-    const respond = (ok: boolean, data?: unknown, error?: string) => reply({ type: 'capability-response', capability: 'browser', requestId: request.requestId, ok, ...(ok ? { data } : { error }) })
-    const scope = sessionWorkers.pool.selectedScope
-    if (scope?.workerId !== workerId || request.sessionId !== snapshot?.sessionId || request.generation !== snapshot?.generation || !browserManager) {
-      respond(false, undefined, '当前会话未选中，浏览器操作已取消')
-      return true
-    }
-    browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
-    void browserManager.executeAgent(request.operation, request.requestId).then(data => {
-      if (sessionWorkers.pool.selectedScope?.selectionEpoch !== scope.selectionEpoch) respond(false, undefined, '会话已切换，浏览器操作已取消')
-      else respond(true, data)
-    }).catch(error => respond(false, undefined, errorMessage(error)))
-    return true
-  }
-  const computerCancel = computerUseCapabilityCancelSchema.safeParse(message)
-  if (computerCancel.success) {
-    cancelDesktopControlExecution(computerCancel.data.requestId)
-    return true
-  }
-  const computerParsed = computerUseCapabilityRequestSchema.safeParse(message)
-  if (computerParsed.success) {
-    const request = computerParsed.data
-    const respond = (ok: boolean, data?: unknown, error?: string) =>
-      reply({
-        type: 'capability-response',
-        capability: 'computer-use',
-        requestId: request.requestId,
-        ok,
-        ...(ok ? { data } : { error })
-      })
-    const selected = sessionWorkers.pool.selectedScope
-    if (
-      selected?.workerId !== workerId ||
-      request.sessionId !== snapshot?.sessionId ||
-      request.generation !== snapshot?.generation ||
-      !computerUse
-    ) {
-      respond(false, undefined, '当前会话未选中，Computer Use 操作已取消')
-      return true
-    }
-    const controller = beginDesktopControlExecution(request.requestId)
-    void computerUse
-      .execute(
-        request.operation,
-        { ownerId: workerId, sessionId: request.sessionId, generation: request.generation },
-        controller.signal
-      )
-      .then((data) => {
-        if (sessionWorkers.pool.selectedScope?.selectionEpoch !== selected.selectionEpoch) {
-          respond(false, undefined, '会话已切换，Computer Use 操作已取消')
-        } else respond(true, data)
-      })
-      .catch((error) => respond(false, undefined, errorMessage(error)))
-      .finally(() => finishDesktopControlExecution(request.requestId, controller))
-    return true
-  }
-  const desktopCancel = desktopControlCapabilityCancelSchema.safeParse(message)
-  if (desktopCancel.success) {
-    cancelDesktopControlExecution(desktopCancel.data.requestId)
-    return true
-  }
-  const desktopParsed = desktopControlCapabilityRequestSchema.safeParse(message)
-  if (!desktopParsed.success) return false
-  const desktop = desktopParsed.data
-  const respondDesktop = (ok: boolean, data?: unknown, error?: string) =>
-    reply({
-      type: 'capability-response',
-      capability: 'desktop-control',
-      requestId: desktop.requestId,
-      ok,
-      ...(ok ? { data } : { error })
-    })
-  const selected = sessionWorkers.pool.selectedScope
-  if (
-    selected?.workerId !== workerId ||
-    desktop.sessionId !== snapshot?.sessionId ||
-    desktop.generation !== snapshot?.generation ||
-    !desktopControl
-  ) {
-    respondDesktop(false, undefined, '当前会话未选中，桌面控制操作已取消')
-    return true
-  }
-  const controller = beginDesktopControlExecution(desktop.requestId)
-  void desktopControl
-    .executeAgent(desktop.operation, controller.signal)
-    .then((data) => {
-      if (sessionWorkers.pool.selectedScope?.selectionEpoch !== selected.selectionEpoch) {
-        respondDesktop(false, undefined, '会话已切换，桌面控制操作已取消')
-      } else respondDesktop(true, data)
-    })
-    .catch((error) => respondDesktop(false, undefined, errorMessage(error)))
-    .finally(() => finishDesktopControlExecution(desktop.requestId, controller))
-  return true
+  return foregroundCapabilities.handle(workerId, message, reply)
 }
 
 async function callHost(command: HostCommand): Promise<HostResult> {
-  if (sessionWorkers.pool.selectedScope) return sessionWorkers.request(command)
+  if (command.type === 'prompt:abort') {
+    const owner = sessionWorkers.selectedScope?.workerId ?? lobbyOwnerId
+    if (owner) foregroundCapabilities.cancelOwner(owner)
+  }
+  if (sessionWorkers.selectedScope) return sessionWorkers.request(command).finally(() => foregroundCapabilities.invalidate())
   return callLobby(command)
 }
 
@@ -732,7 +543,10 @@ async function callLobby(command: HostCommand): Promise<HostResult> {
     if (agentHost === child && hostSpawned && (globalMutations.has(command.type) || command.type === 'runtime:refresh')) globalConfiguration.recordFailure('lobby', error)
     throw error
   })
-  if (result.kind === 'snapshot') lobbySnapshot = result.snapshot
+  if (agentHost === child && result.kind === 'snapshot') {
+    lobbySnapshot = result.snapshot
+    foregroundCapabilities.invalidate()
+  }
   return result
 }
 
@@ -743,7 +557,7 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   if (result.kind !== 'snapshot') {
     throw new Error(`Agent Host 未返回状态快照：${command.type}`)
   }
-  const selected = sessionWorkers.pool.selectedScope
+  const selected = sessionWorkers.selectedScope
   if (result.snapshot.desktopScope
     ? selected?.workerId !== result.snapshot.desktopScope.workerId || selected.selectionEpoch !== result.snapshot.desktopScope.selectionEpoch
     : selected !== null) return result.snapshot
@@ -786,7 +600,7 @@ function navigationLibrary(): NavigationLibrary {
       if (!snapshot.sessionId) throw new Error('会话尚未保存，不能重命名')
       await sessionWorkers.requestWorker(workerId, {
         type: 'session:rename', sessionId: snapshot.sessionId, generation: snapshot.generation, name
-      }, { sessionId: snapshot.sessionId, generation: snapshot.generation })
+      }, { sessionId: snapshot.sessionId, generation: snapshot.generation }).finally(() => foregroundCapabilities.invalidate())
     },
     hiddenProject: (cwd) => {
       const store = preferenceStore()
@@ -818,7 +632,7 @@ function closeWorkspaceForNavigation(cwd: string, path?: string): void {
   selectedWorkerId = null
   lastSelectionEpoch = desktopEpoch
   recoveryTarget = null
-  browserManager?.abortAgent()
+  foregroundCapabilities.invalidate()
   nativePaletteFocus.invalidate()
   packageRootsLifecycle.hostExited()
   packageRootsLifecycle.hostStarted()
@@ -826,9 +640,9 @@ function closeWorkspaceForNavigation(cwd: string, path?: string): void {
   forwardEvent({ type: 'event', event: 'snapshot', data: { ...lobbySnapshot, desktopEpoch } })
 }
 
-async function openCanonicalProject(canonicalPath: string, expected = sessionWorkers.pool.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
+async function openCanonicalProject(canonicalPath: string, expected = sessionWorkers.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
   const catalog = await callLobby({ type: 'project:catalog', cwd: canonicalPath, includeHidden: true, navigation: navigationLibrary().read() })
-  sessionWorkers.pool.validateSelected(expected)
+  sessionWorkers.validateSelected(expected)
   if (catalog.kind !== 'project-catalog') throw new Error('项目会话目录不可读取')
   const path = catalog.catalog.projects.find(project => project.path === canonicalPath)?.sessions[0]?.path
   const snapshot = await openWorker({ cwd: canonicalPath, ...(path ? { path } : {}) }, expected, undefined, origin)
@@ -840,7 +654,7 @@ async function openCanonicalProject(canonicalPath: string, expected = sessionWor
   return snapshot
 }
 
-async function openUserProject(candidatePath: unknown, expected = sessionWorkers.pool.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
+async function openUserProject(candidatePath: unknown, expected = sessionWorkers.selectedScope, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
   const canonicalPath = await resolveExistingProjectPath(candidatePath)
   if (!canonicalPath) throw new Error('所选工作区不存在或不是文件夹')
   return projectOpenCoordinator.runUserOpen(() => openCanonicalProject(canonicalPath, expected, origin))
@@ -848,20 +662,21 @@ async function openUserProject(candidatePath: unknown, expected = sessionWorkers
 
 async function openWorker(target: { cwd: string; path?: string }, expected: SelectedSessionScope | null, explicitModel?: { providerId: string; modelId: string }, origin?: DesktopCommandOrigin): Promise<AgentSnapshot> {
   if (globalConfiguration.busy) throw new Error('配置正在更新，请稍后切换会话')
-  sessionWorkers.pool.validateSelected(expected)
-  const source = expected ? sessionWorkers.pool.getSnapshot(expected.workerId) : null
+  sessionWorkers.validateSelected(expected)
+  const source = expected ? sessionWorkers.getSnapshot(expected.workerId) : null
   const model = explicitModel ?? (source?.activeProvider && source.activeModel ? { providerId: source.activeProvider, modelId: source.activeModel } : undefined)
   return sessionWorkers.open(target, expected, model, origin)
 }
 
-const globalConfiguration = new GlobalConfigurationGate(() => sessionWorkers.pool.quiescent && !mutationCapabilities.pending && ![...attachmentSubmissions.values()].some(entry => entry.receipt.status === 'uncertain') && (!lobbySnapshot || ['idle', 'success', 'error'].includes(lobbySnapshot.login.phase)))
+const globalConfiguration = new GlobalConfigurationGate(() => sessionWorkers.quiescent && !mutationCapabilities.pending && ![...attachmentSubmissions.values()].some(entry => entry.receipt.status === 'uncertain') && (!lobbySnapshot || ['idle', 'success', 'error'].includes(lobbySnapshot.login.phase)))
 let configDirty = false
 const globalMutations = new Set(['account:login', 'account:alias:add', 'endpoint:save', 'mcp:save', 'mcp:toggle', 'mcp:reload'])
 async function refreshWorkers(): Promise<void> {
   await callLobby({ type: 'runtime:refresh' })
-  await Promise.all(sessionWorkers.pool.getLiveSummaries().filter(worker => {
-    try { return !!sessionWorkers.pool.getSnapshot(worker.workerId) } catch { return false }
-  }).map(worker => sessionWorkers.pool.request({ workerId: worker.workerId, selectionEpoch: 0 }, { type: 'runtime:refresh' })))
+  await Promise.all(sessionWorkers.getResidentSummaries().map(worker => {
+    const snapshot = sessionWorkers.getSnapshot(worker.workerId)!
+    return sessionWorkers.requestWorker(worker.workerId, { type: 'runtime:refresh' }, { sessionId: snapshot.sessionId, generation: snapshot.generation }).finally(() => foregroundCapabilities.invalidate())
+  }))
   configDirty = false
 }
 async function preparePromptConfiguration(): Promise<void> {
@@ -872,7 +687,15 @@ function assertPromptConfigurationReady(): void {
   if (globalConfiguration.busy || configDirty) throw new Error('全局配置已改变，请稍后重试发送')
 }
 async function dispatchWorkerCommand(command: HostCommand, origin: DesktopCommandOrigin | undefined, captured: SelectedSessionScope | null): Promise<HostResult> {
-  const request = () => captured ? sessionWorkers.request(command, origin) : callLobby(command)
+  const request = () => {
+    // Validate the renderer's captured selection before Stop can revoke authority.
+    if (command.type === 'prompt:abort') {
+      if (captured) sessionWorkers.capture(origin)
+      const owner = captured?.workerId ?? lobbyOwnerId
+      if (owner) foregroundCapabilities.cancelOwner(owner)
+    }
+    return captured ? sessionWorkers.request(command, origin).finally(() => foregroundCapabilities.invalidate()) : callLobby(command)
+  }
   if (command.type === 'account:login:respond') return request()
   if (globalConfiguration.busy) throw new Error('全局配置正在更新，请稍后重试')
   if (globalMutations.has(command.type)) {
@@ -884,7 +707,7 @@ async function dispatchWorkerCommand(command: HostCommand, origin: DesktopComman
     })
   }
   if (configDirty && ['prompt:send', 'session:edit:send', 'model:set'].includes(command.type)) {
-    if (!sessionWorkers.pool.quiescent) throw new Error('请先完成登录和所有运行，再使用更新后的配置')
+    if (!sessionWorkers.quiescent) throw new Error('请先完成登录和所有运行，再使用更新后的配置')
     await globalConfiguration.run(refreshWorkers)
     sessionWorkers.capture(origin)
   }
@@ -902,10 +725,10 @@ function createMobileSessionBridge(): MobileSessionBridge {
       await preparePromptConfiguration()
       assertPromptConfigurationReady()
     }
-    await sessionWorkers.pool.request({ workerId, selectionEpoch: 0 }, command, identity)
+    await sessionWorkers.requestWorker(workerId, command, identity).finally(() => foregroundCapabilities.invalidate())
   }
   return {
-    listLive: () => liveToMobile(sessionWorkers.pool.getLiveSummaries()),
+    listLive: () => liveToMobile(sessionWorkers.getLiveSummaries()),
     listCatalog: async () => {
       const result = await callLobby({
         type: 'project:catalog',
@@ -928,9 +751,9 @@ function createMobileSessionBridge(): MobileSessionBridge {
     },
     snapshot: (workerId) => {
       try {
-        const snapshot = sessionWorkers.pool.getSnapshot(workerId)
+        const snapshot = sessionWorkers.getSnapshot(workerId)
         if (!snapshot) return null
-        const live = sessionWorkers.pool.getLiveSummaries().find((item) => item.workerId === workerId)
+        const live = sessionWorkers.findLiveSummary(workerId)
         return toMobileSnapshot(workerId, live?.cwd ?? snapshot.project?.path ?? '', snapshot)
       } catch {
         return null
@@ -939,7 +762,7 @@ function createMobileSessionBridge(): MobileSessionBridge {
     open: async (cwd, sessionPath) => {
       const snapshot = await openWorker(
         { cwd, ...(sessionPath ? { path: sessionPath } : {}) },
-        sessionWorkers.pool.selectedScope
+        sessionWorkers.selectedScope
       )
       const workerId = snapshot.desktopScope?.workerId
       if (!workerId) throw new Error('会话未打开')
@@ -947,7 +770,10 @@ function createMobileSessionBridge(): MobileSessionBridge {
     },
     send: (workerId, text, sessionId, generation) =>
       request(workerId, { type: 'prompt:send', text, sessionId, generation }, { sessionId, generation }),
-    abort: (workerId) => request(workerId, { type: 'prompt:abort' }),
+    abort: (workerId) => {
+      foregroundCapabilities.cancelOwner(workerId)
+      return request(workerId, { type: 'prompt:abort' })
+    },
     clearQueue: (workerId) => request(workerId, { type: 'queue:clear' }),
     respond: (workerId, approvalId, allow) =>
       request(workerId, { type: 'permission:respond', approvalId, allow }),
@@ -994,7 +820,7 @@ function startAgentHost(): void {
   })
   void hostReady.catch(() => undefined)
   const script = join(__dirname, 'agent-host.js')
-  agentHost = utilityProcess.fork(script, [], {
+  const child = utilityProcess.fork(script, [], {
     serviceName: 'Pi Agent Host',
     stdio: 'pipe',
     ...(e2eAgentDir
@@ -1008,27 +834,40 @@ function startAgentHost(): void {
       : {})
   })
 
-  agentHost.stdout?.on('data', (chunk) => {
+  agentHost = child
+  const owner = `lobby:${randomUUID()}`
+  lobbyOwnerId = owner
+  lobbySnapshot = null
+  hostSpawned = false
+
+  child.stdout?.on('data', (chunk) => {
     if (is.dev) process.stdout.write(`[agent-host] ${String(chunk)}`)
   })
-  agentHost.stderr?.on('data', (chunk) => {
+  child.stderr?.on('data', (chunk) => {
     process.stderr.write(`[agent-host] ${String(chunk)}`)
   })
-  agentHost.on('spawn', () => {
+  child.on('spawn', () => {
+    if (agentHost !== child) return
     hostSpawned = true
     resolveHostReady?.()
     resolveHostReady = null
     rejectHostReady = null
-    agentHost?.postMessage({ type: 'bootstrap', requestId: randomUUID() } satisfies HostRequest)
+    child.postMessage({ type: 'bootstrap', requestId: randomUUID() } satisfies HostRequest)
   })
-  agentHost.on('error', (error) => {
+  child.on('error', (error) => {
+    foregroundCapabilities.cancelOwner(owner)
+    if (agentHost !== child) return
     packageRootsLifecycle.hostExited()
     console.error('Agent Host 进程错误', errorMessage(error))
   })
-  agentHost.on('message', handleHostMessage)
-  agentHost.on('exit', (code) => {
+  child.on('message', message => handleHostMessage(child, owner, message))
+  child.on('exit', (code) => {
+    foregroundCapabilities.cancelOwner(owner)
+    if (agentHost !== child) return
+    lobbyOwnerId = null
+    lobbySnapshot = null
     globalConfiguration.ownerExited('lobby')
-    if (sessionWorkers.pool.selectedScope) {
+    if (sessionWorkers.selectedScope) {
       hostSpawned = false
       agentHost = null
       hostReady = null
@@ -1045,7 +884,7 @@ function startAgentHost(): void {
     packageRootsLifecycle.hostExited()
     hostSpawned = false
     agentHost = null
-    browserManager?.abortAgent()
+    foregroundCapabilities.invalidate()
     const failure = new Error(`Agent Host 已退出（code ${code}）`)
     if (code !== 0) console.error(failure.message)
     rejectHostReady?.(failure)
@@ -1101,6 +940,7 @@ function registerIpc(): void {
     : join(app.getAppPath(), 'resources', 'native', 'pi-computer-use-helper')
   desktopControl = new DesktopControlService({
     platform: process.platform,
+    appBundlePath: app.isPackaged ? join(process.resourcesPath, '..', '..') : process.execPath,
     nativeHelperPath: nativeComputerUseHelperPath,
     getMediaAccessStatus: (mediaType) => systemPreferences.getMediaAccessStatus(mediaType),
     getSources: (options) => desktopCapturer.getSources(options),
@@ -1139,9 +979,9 @@ function registerIpc(): void {
     const request = parsed.data
     const owner = event.sender.id
     const receiptWorkerId = request.type === 'send' || request.type === 'query' ? attachmentSubmissions.get(request.submissionId)?.workerId : undefined
-    const attachmentWorker = sessionWorkers.pool.getLiveSummaries().find(worker => receiptWorkerId ? worker.workerId === receiptWorkerId : worker.cwd === request.scope.projectPath && worker.sessionId === request.scope.sessionId && worker.generation === request.scope.generation)
+    const attachmentWorker = sessionWorkers.getLiveSummaries().find(worker => receiptWorkerId ? worker.workerId === receiptWorkerId : worker.cwd === request.scope.projectPath && worker.sessionId === request.scope.sessionId && worker.generation === request.scope.generation)
     const callAttachmentHost = (command: HostCommand): Promise<HostResult> => attachmentWorker
-      ? sessionWorkers.pool.request({ workerId: attachmentWorker.workerId, selectionEpoch: 0 }, command, command.type === 'attachment:query' ? undefined : { sessionId: request.scope.sessionId, generation: request.scope.generation })
+      ? sessionWorkers.requestWorker(attachmentWorker.workerId, command, command.type === 'attachment:query' ? undefined : { sessionId: request.scope.sessionId, generation: request.scope.generation }).finally(() => foregroundCapabilities.invalidate())
       : Promise.reject(new Error('附件所属会话已结束'))
     try {
       if (request.type === 'send' || request.type === 'query') {
@@ -1320,7 +1160,7 @@ function registerIpc(): void {
         if (!agentHost) startAgentHost()
         const target = recoveryTarget
         const snapshot = target?.project
-          ? await openWorker({ cwd: target.project, ...(target.session ? { path: target.session } : {}) }, sessionWorkers.pool.selectedScope)
+          ? await openWorker({ cwd: target.project, ...(target.session ? { path: target.session } : {}) }, sessionWorkers.selectedScope)
           : await callHostSnapshot({ type: 'state:get' })
         recoveryTarget = null
         return snapshot
@@ -1342,9 +1182,9 @@ function registerIpc(): void {
     const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
     const captured = sessionWorkers.captureNavigation(origin)
     let resident = false
-    try { resident = !!sessionWorkers.pool.getSnapshot(workerId) } catch { /* A crashed saved session can be explicitly reopened. */ }
+    try { resident = !!sessionWorkers.getSnapshot(workerId) } catch { /* A crashed saved session can be explicitly reopened. */ }
     if (!resident) {
-      const failed = sessionWorkers.pool.getLiveSummaries().find(worker => worker.workerId === workerId)
+      const failed = sessionWorkers.findLiveSummary(workerId)
       if (failed?.sessionPath) return openWorker({ cwd: failed.cwd, path: failed.sessionPath }, captured, undefined, origin).then((snapshot) => {
         if (snapshot.project) navigationLibrary().restoreAfterOpen(snapshot.project.path, snapshot.activeSessionPath)
         return snapshot
@@ -1386,7 +1226,7 @@ function registerIpc(): void {
       }).then(snapshot => ({kind:'snapshot',snapshot} satisfies HostResult))
     }
     if (parsed.data.type === 'session:new' || parsed.data.type === 'session:open') {
-      const cwd = captured ? sessionWorkers.pool.getSnapshot(captured.workerId)?.project?.path : null
+      const cwd = captured ? sessionWorkers.getSnapshot(captured.workerId)?.project?.path : null
       if (!cwd) throw new Error('请先选择项目')
       const request = parsed.data
       const snapshot = await openWorker({ cwd, ...(request.type === 'session:open' ? { path: request.path } : {}) }, captured,
@@ -1567,6 +1407,7 @@ function createWindow(): void {
   })
   mainWindow.on('closed', () => {
     if (browserOwner !== mainWindow) return
+    foregroundCapabilities.cancelAll()
     const host = workbenchHost
     if (host) packageRootsLifecycle.detachHost(host)
     host?.dispose()
@@ -1586,6 +1427,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('works.pi.desktop')
+  startPerformanceDiagnostics()
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   app.on('web-contents-created', (_event, contents) => {
     contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown') nativePaletteFocus.interruptPending() })
@@ -1706,6 +1548,7 @@ app.on('before-quit', (event) => {
     event.preventDefault()
     if (quitInProgress) return
     quitInProgress = true
+    foregroundCapabilities.cancelAll()
     const shutdownMcp = async () => {
       if (!agentHost) return
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -1714,7 +1557,7 @@ app.on('before-quit', (event) => {
     }
     void Promise.allSettled([
       terminalManager.shutdown(),
-      sessionWorkers.pool.shutdown(),
+      sessionWorkers.shutdown(),
       mobileGateway?.shutdown() ?? Promise.resolve(),
       shutdownMcp()
     ]).finally(() => {

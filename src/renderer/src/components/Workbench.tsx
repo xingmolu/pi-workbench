@@ -115,11 +115,28 @@ export default function Workbench({
 }: WorkbenchProps): React.JSX.Element {
   const [domOverlayOpen, setDomOverlayOpen] = useState(false)
   useEffect(() => {
-    const update = (): void => setDomOverlayOpen(Boolean(document.querySelector(
+    const selector =
       '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"], [data-native-suspend="true"]'
-    )))
-    const observer = new MutationObserver(update)
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state', 'data-native-suspend'] })
+    const touchesOverlay = (node: Node): boolean =>
+      node instanceof Element &&
+      (node.matches(selector) || Boolean(node.querySelector(selector)))
+    const update = (): void => {
+      const next = Boolean(document.querySelector(selector))
+      setDomOverlayOpen((current) => (current === next ? current : next))
+    }
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        if (record.type === 'attributes') return true
+        return [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(touchesOverlay)
+      })
+      if (relevant) update()
+    })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'data-native-suspend']
+    })
     update()
     return () => observer.disconnect()
   }, [])

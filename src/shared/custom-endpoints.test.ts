@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createCustomEndpointSchema, customEndpointSchema } from './custom-endpoints'
+import {
+  createCustomEndpointSchema,
+  customEndpointMetadataSchema,
+  customEndpointSchema
+} from './custom-endpoints'
 
 const endpoint = {
   label: ' Gateway ',
@@ -20,6 +24,39 @@ describe('custom endpoint contracts', () => {
       '!$literal'
     )
     expect(customEndpointSchema.safeParse({ ...endpoint, key: '' }).success).toBe(false)
+  })
+
+  it('accepts image model IDs only when they belong to the normalized model list', () => {
+    expect(
+      customEndpointSchema.parse({
+        ...endpoint,
+        modelIds: [' model-a ', 'model-b'],
+        imageModelIds: [' model-a ']
+      })
+    ).toMatchObject({ modelIds: ['model-a', 'model-b'], imageModelIds: ['model-a'] })
+    expect(
+      customEndpointSchema.safeParse({ ...endpoint, imageModelIds: ['foreign-model'] }).success
+    ).toBe(false)
+    expect(
+      customEndpointSchema.safeParse({ ...endpoint, imageModelIds: ['model-a', ' model-a '] })
+        .success
+    ).toBe(false)
+    expect(customEndpointSchema.parse(endpoint)).not.toHaveProperty('imageModelIds')
+  })
+
+  it('rejects metadata that names an image model outside the endpoint', () => {
+    expect(
+      customEndpointMetadataSchema.safeParse({
+        id: 'custom-test',
+        label: 'Gateway',
+        api: 'openai-completions',
+        baseUrl: 'https://example.com/v1',
+        modelIds: ['model-a'],
+        imageModelIds: ['foreign-model'],
+        editable: true,
+        unsupportedReason: null
+      }).success
+    ).toBe(false)
   })
 
   it.each([

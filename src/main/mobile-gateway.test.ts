@@ -57,7 +57,18 @@ function snapshot(workerId: string): MobileConversationSnapshot {
 function fakeSessions(log: string[]): MobileSessionBridge {
   const current = snapshot('worker-1')
   const catalog: MobileCatalogProject[] = [
-    { path: '/project', name: 'project', sessions: [{ path: '/s.jsonl', title: '旧会话2026-09-15T14:40:19.201Z', modified: '2026-09-15T14:40:19.201Z', status: 'idle' }] }
+    {
+      path: '/project',
+      name: 'project',
+      sessions: [
+        {
+          path: '/s.jsonl',
+          title: '旧会话2026-09-15T14:40:19.201Z',
+          modified: '2026-09-15T14:40:19.201Z',
+          status: 'idle'
+        }
+      ]
+    }
   ]
   return {
     listLive: () => [
@@ -112,6 +123,204 @@ describe('mobile gateway http', () => {
   const servers: MobileGatewayServer[] = []
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((server) => server.stop()))
+  })
+
+  it('delivers the initial snapshot and coalesces a burst into the final SSE snapshot', async () => {
+    let devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices = next
+      }
+    })
+    const sessions = fakeSessions([])
+    let publish: Parameters<MobileSessionBridge['subscribe']>[0] | undefined
+    sessions.subscribe = (listener) => {
+      publish = listener
+      return () => {
+        publish = undefined
+      }
+    }
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions,
+      port: 18768,
+      lanAddress: () => null
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const paired = await request(18768, '/api/pair', {
+      method: 'POST',
+      body: { token: pairing.createOffer().token, deviceName: 'test' }
+    })
+    const response = await fetch('http://127.0.0.1:18768/api/sessions/worker-1/events', {
+      headers: { authorization: `Bearer ${paired.data.deviceToken}` }
+    })
+    expect(response.status).toBe(200)
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const readUntil = async (marker: string): Promise<string> => {
+      let text = ''
+      while (!text.includes(marker)) {
+        const chunk = await reader.read()
+        if (chunk.done) throw new Error('SSE ended before expected event')
+        text += decoder.decode(chunk.value, { stream: true })
+      }
+      return text
+    }
+    try {
+      expect(await readUntil('\n\n')).toContain('"revision":4')
+      for (let revision = 5; revision <= 20; revision++)
+        publish!({
+          workerId: 'worker-1',
+          snapshot: { ...snapshot('worker-1'), revision, busy: true, status: 'running' },
+          runFinished: false
+        })
+      publish!({
+        workerId: 'worker-1',
+        snapshot: { ...snapshot('worker-1'), revision: 21 },
+        runFinished: true
+      })
+      const final = await readUntil('event: run-finished')
+      expect(final).toContain('"revision":21')
+      expect(final.match(/event: snapshot/g)).toHaveLength(1)
+      expect(final.indexOf('event: snapshot')).toBeLessThan(final.indexOf('event: run-finished'))
+    } finally {
+      await reader.cancel()
+    }
+  })
+
+  it('rejects unknown workers and capacity excess before SSE headers, then reuses closed slots', async () => {
+    let devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices = next
+      }
+    })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      port: 18770,
+      lanAddress: () => null,
+      maxConnectionsPerDevice: 1,
+      maxConnections: 2
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const grants = [
+      pairing.pair(pairing.createOffer().token, 'one'),
+      pairing.pair(pairing.createOffer().token, 'two'),
+      pairing.pair(pairing.createOffer().token, 'three')
+    ]
+    const connect = (device = 0, worker = 'worker-1') =>
+      fetch(`http://127.0.0.1:18770/api/sessions/${worker}/events`, {
+        headers: { authorization: `Bearer ${grants[device].deviceToken}` }
+      })
+    const missing = await connect(0, 'missing')
+    expect(missing.status).toBe(404)
+    expect(missing.headers.get('content-type')).toContain('application/json')
+    const first = await connect()
+    expect(first.status).toBe(200)
+    const duplicate = await connect()
+    expect(duplicate.status).toBe(429)
+    expect(duplicate.headers.get('content-type')).toContain('application/json')
+    const second = await connect(1)
+    expect(second.status).toBe(200)
+    expect((await connect(2)).status).toBe(429)
+    expect(gateway.getDiagnostics()).toEqual({ connections: 2, blocked: 0, pendingSnapshots: 0 })
+    await first.body!.cancel()
+    for (let i = 0; i < 30 && gateway.getDiagnostics().connections !== 1; i++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    const reused = await connect()
+    expect(reused.status).toBe(200)
+    await Promise.all([second.body!.cancel(), reused.body!.cancel()])
+    await gateway.stop()
+    expect(gateway.getDiagnostics()).toEqual({ connections: 0, blocked: 0, pendingSnapshots: 0 })
+  })
+
+  it('ends oversized SSE with a recovery notice while HTTP retains the complete snapshot', async () => {
+    let devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices = next
+      }
+    })
+    const sessions = fakeSessions([])
+    const large = {
+      ...snapshot('worker-1'),
+      nodes: [{ id: 'u1', type: 'user' as const, text: '界'.repeat(2000) }]
+    }
+    sessions.snapshot = () => large
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions,
+      port: 18771,
+      lanAddress: () => null,
+      snapshotStream: { maxFrameBytes: 1024 }
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const grant = pairing.pair(pairing.createOffer().token, 'oversize')
+    const headers = { authorization: `Bearer ${grant.deviceToken}` }
+    const response = await fetch('http://127.0.0.1:18771/api/sessions/worker-1/events', { headers })
+    expect(await response.text()).toBe('event: resync-required\ndata: {"workerId":"worker-1"}\n\n')
+    const full = await request(18771, '/api/sessions/worker-1', { token: grant.deviceToken })
+    expect(full.data).toEqual(large)
+    await gateway.stop()
+    expect(gateway.getDiagnostics().connections).toBe(0)
+  })
+
+  it('stops promptly with an unread backpressured SSE connection', async () => {
+    let devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices = next
+      }
+    })
+    const sessions = fakeSessions([])
+    sessions.snapshot = () => ({
+      ...snapshot('worker-1'),
+      nodes: [{ id: 'u1', type: 'user', text: 'x'.repeat(4 * 1024 * 1024) }]
+    })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions,
+      port: 18772,
+      lanAddress: () => null
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const grant = pairing.pair(pairing.createOffer().token, 'unread')
+    const client = httpRequest('http://127.0.0.1:18772/api/sessions/worker-1/events', {
+      headers: { authorization: `Bearer ${grant.deviceToken}` }
+    })
+    client.on('error', () => {})
+    const connected = new Promise<void>((resolve) =>
+      client.on('response', (response) => {
+        expect(response.statusCode).toBe(200)
+        response.pause()
+        resolve()
+      })
+    )
+    client.end()
+    await connected
+    const stop = gateway.stop()
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        stop,
+        new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(new Error('stop hung')), 1000)
+        })
+      ])
+      expect(gateway.getDiagnostics()).toEqual({ connections: 0, blocked: 0, pendingSnapshots: 0 })
+    } finally {
+      clearTimeout(deadline)
+      client.destroy()
+    }
   })
 
   it('binds loopback, rejects unpaired session reads, then pairs and drives chat commands', async () => {

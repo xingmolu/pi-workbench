@@ -198,14 +198,7 @@ describe('DesktopCapture', () => {
     expect(getSources).toHaveBeenCalledOnce()
   })
 
-  it('captures the display containing the target window and records actual image geometry', async () => {
-    const resized = {
-      isEmpty: () => false,
-      getSize: () => ({ width: 1600, height: 900 }),
-      toDataURL: () => 'data:image/png;base64,ZXh0ZXJuYWw=',
-      toPNG: () => Buffer.from('external')
-    }
-    const resize = vi.fn(() => resized)
+  it('captures only the exact window on another display', async () => {
     const getSources = vi.fn(async () => [
       {
         id: 'screen:1:0',
@@ -219,13 +212,12 @@ describe('DesktopCapture', () => {
         }
       },
       {
-        id: 'screen:2:0',
+        id: 'window:77:0',
         name: 'External',
         display_id: '2',
         thumbnail: {
           isEmpty: () => false,
-          getSize: () => ({ width: 3200, height: 1800 }),
-          resize,
+          getSize: () => ({ width: 1600, height: 900 }),
           toDataURL: () => 'data:image/png;base64,ZXh0ZXJuYWw=',
           toPNG: () => Buffer.from('external-large')
         }
@@ -253,32 +245,34 @@ describe('DesktopCapture', () => {
     })
 
     const frame = await api.captureVisualFrame({
-      x: -1800,
-      y: 100,
-      width: 800,
-      height: 600
+      pid: 42,
+      windowId: 77,
+      app: 'External',
+      bundleId: 'test.external',
+      frame: { x: -1800, y: 100, width: 800, height: 450 }
     })
 
     expect(getSources).toHaveBeenCalledExactlyOnceWith({
-      types: ['screen'],
-      thumbnailSize: { width: 1600, height: 900 },
+      types: ['window'],
+      thumbnailSize: { width: 800, height: 450 },
       fetchWindowIcons: false
     })
-    expect(resize).toHaveBeenCalledWith({ width: 1600, height: 900 })
     expect(frame).toMatchObject({
+      scope: 'window',
+      sourceId: 'window:77:0',
       displayId: '2',
-      framePoints: { x: -1920, y: 0, width: 1920, height: 1080 },
+      framePoints: { x: -1800, y: 100, width: 800, height: 450 },
       scaleFactor: 1,
       image: {
         mimeType: 'image/png',
-        data: Buffer.from('external').toString('base64'),
+        data: Buffer.from('external-large').toString('base64'),
         width: 1600,
         height: 900
       }
     })
   })
 
-  it('fails closed when multiple screen sources cannot be mapped to the target display', async () => {
+  it('fails closed when no window source matches the target ID', async () => {
     const makeScreen = (id: string, displayId: string): DesktopCapturerSourceInput => ({
       id,
       name: id,
@@ -293,7 +287,7 @@ describe('DesktopCapture', () => {
     const api = new DesktopCapture({
       platform: 'darwin',
       getMediaAccessStatus: () => 'granted',
-      getSources: async () => [makeScreen('screen:1:0', '1'), makeScreen('screen:2:0', '2')],
+      getSources: async () => [makeScreen('screen:1:0', '1'), makeScreen('window:88:0', '2')],
       getDisplays: () => [
         {
           id: '3',
@@ -305,7 +299,54 @@ describe('DesktopCapture', () => {
       openExternal: async () => undefined
     })
 
-    await expect(api.captureVisualFrame()).rejects.toThrow(/对应/)
+    await expect(
+      api.captureVisualFrame({
+        pid: 42,
+        windowId: 77,
+        app: 'External',
+        bundleId: 'test.external',
+        frame: { x: 0, y: 0, width: 800, height: 600 }
+      })
+    ).rejects.toThrow(/匹配/)
+  })
+
+  it('rejects duplicate source IDs and image geometry that cannot map to screen points', async () => {
+    const target = {
+      pid: 42,
+      windowId: 77,
+      app: 'Fixture',
+      bundleId: 'test.fixture',
+      frame: { x: 0, y: 0, width: 800, height: 400 }
+    }
+    const makeWindow = (width: number, height: number): DesktopCapturerSourceInput => ({
+      id: 'window:77:0',
+      name: 'Fixture',
+      thumbnail: {
+        getSize: () => ({ width, height }),
+        toDataURL: () => PNG
+      }
+    })
+    const deps = (sources: DesktopCapturerSourceInput[]) =>
+      new DesktopCapture({
+        platform: 'darwin',
+        getMediaAccessStatus: () => 'granted',
+        getSources: async () => sources,
+        getDisplays: () => [
+          {
+            id: '1',
+            bounds: { x: 0, y: 0, width: 1200, height: 800 },
+            scaleFactor: 2,
+            primary: true
+          }
+        ],
+        openExternal: async () => undefined
+      })
+    await expect(
+      deps([makeWindow(800, 400), makeWindow(800, 400)]).captureVisualFrame(target)
+    ).rejects.toThrow(/唯一匹配/)
+    await expect(deps([makeWindow(800, 600)]).captureVisualFrame(target)).rejects.toThrow(
+      /尺寸不一致/
+    )
   })
 
   it('opens the Sequoia-compatible privacy pane and falls back', async () => {

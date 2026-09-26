@@ -54,6 +54,10 @@ export class MobileGatewayService {
     })
   }
 
+  getDiagnostics(): ReturnType<MobileGatewayServer['getDiagnostics']> {
+    return this.gateway.getDiagnostics()
+  }
+
   snapshot(): MobileGatewayState {
     const offer = this.pairing.currentOffer()
     const remoteUrl = offer
@@ -69,9 +73,10 @@ export class MobileGatewayService {
       loopbackUrl: this.gateway.loopbackUrl(),
       lanUrl: this.gateway.lanUrl(),
       lanAddress: this.gateway.getLanAddress(),
-      pairing: offer && this.gateway.isRunning
-        ? this.gateway.pairingPayload(offer.token, offer.expiresAt, remoteUrl)
-        : null,
+      pairing:
+        offer && this.gateway.isRunning
+          ? this.gateway.pairingPayload(offer.token, offer.expiresAt, remoteUrl)
+          : null,
       devices: this.pairing.list(),
       powerSave: this.blocker !== 0,
       tailscale: this.tailscale,

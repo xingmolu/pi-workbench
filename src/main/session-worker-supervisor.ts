@@ -56,16 +56,15 @@ function resolveRuntime(options: SessionWorkerSupervisorOptions): AgentRuntime {
  * this facade instead of reaching through to SessionWorkerPool directly.
  */
 export class SessionWorkerSupervisor {
-  /**
-   * Transitional escape hatch for existing Main call sites. Do not use from
-   * new code; these accesses are migrated to the facade incrementally.
-   *
-   * @deprecated Use the supervisor methods instead. This property will become
-   * private once Main has finished migrating.
-   */
-  readonly pool: SessionWorkerPool
+  private readonly pool: SessionWorkerPool
   private lastForeground: AgentSnapshot | null = null
+  private publishedSummariesKey: string | null = null
   private readonly lifecycleListeners = new Set<SessionWorkerLifecycleListener>()
+  private readonly recoveries = new Map<
+    string,
+    { dirty: boolean; scope: SelectedSessionScope | null; promise: Promise<void> }
+  >()
+  private stopped = false
   private sessionTaskBridge: SessionTaskMainBridge | null = null
 
   constructor(private readonly options: SessionWorkerSupervisorOptions) {
@@ -82,6 +81,7 @@ export class SessionWorkerSupervisor {
           })
       },
       onExit: (workerId, error) => {
+        this.recoveries.delete(workerId)
         this.sessionTaskBridge?.workerExited(workerId)
         this.notifyLifecycle(workerId, null)
         options.onExit?.(workerId, error)
@@ -105,7 +105,7 @@ export class SessionWorkerSupervisor {
             })
           else options.publish(event)
         }
-        this.summaries()
+        this.summaries({ onlyIfChanged: event.event === 'patch' })
         options.onWorkerEvent?.(workerId, snapshot)
         this.notifyLifecycle(workerId, snapshot)
       }
@@ -136,11 +136,17 @@ export class SessionWorkerSupervisor {
     return bridge.handle(workerId, this.tryGetSnapshot(workerId), message, reply)
   }
 
+  getDiagnostics() {
+    return this.pool.getDiagnostics()
+  }
+
   get selectedScope(): SelectedSessionScope | null {
     return this.pool.selectedScope
   }
 
-  get selectionEpoch(): number { return this.pool.selectionEpoch }
+  get selectionEpoch(): number {
+    return this.pool.selectionEpoch
+  }
 
   clearSelection(expected: SelectedSessionScope | null): number {
     const epoch = this.pool.clearSelection(expected)
@@ -216,6 +222,8 @@ export class SessionWorkerSupervisor {
   }
 
   shutdown(): Promise<void> {
+    this.stopped = true
+    this.recoveries.clear()
     return this.pool.shutdown()
   }
 
@@ -226,6 +234,52 @@ export class SessionWorkerSupervisor {
     expectedIdentity?: { sessionId: string | null; generation: number }
   ): Promise<HostResult> {
     return this.pool.request({ workerId, selectionEpoch: 0 }, command, expectedIdentity)
+  }
+
+  /** Recover a resident's patch gap without granting foreground command authority. */
+  resyncWorker(workerId: string): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    const existing = this.recoveries.get(workerId)
+    if (existing) {
+      existing.dirty = true
+      return existing.promise
+    }
+    const scope = this.selectedScope
+    const entry = { dirty: false, scope, promise: Promise.resolve() }
+    this.recoveries.set(workerId, entry)
+    entry.promise = (async () => {
+      do {
+        entry.dirty = false
+        const requestScope = entry.scope
+        await this.recoverWorker(workerId, requestScope)
+      } while (entry.dirty && this.recoveries.get(workerId) === entry)
+    })().finally(() => {
+      if (this.recoveries.get(workerId) === entry) this.recoveries.delete(workerId)
+    })
+    return entry.promise
+  }
+
+  private async recoverWorker(workerId: string, scope: SelectedSessionScope | null): Promise<void> {
+    const previous = this.getSnapshot(workerId)
+    await this.requestWorker(
+      workerId,
+      { type: 'state:get' },
+      previous ? { sessionId: previous.sessionId, generation: previous.generation } : undefined
+    )
+    // The pool keeps the newest accepted snapshot if another event won the race.
+    const snapshot = this.tryGetSnapshot(workerId)
+    if (!snapshot || this.stopped || !this.recoveries.has(workerId)) return
+    if (this.options.receiptsSettled) {
+      this.updateSafety(workerId, {
+        receipts: this.options.receiptsSettled(workerId, snapshot) ? 'settled' : 'pending',
+        unsaved: !snapshot.activeSessionPath
+      })
+    }
+    // A response cannot acquire authority from a later selection, including A → B → A.
+    if (scope?.workerId === workerId && this.retainsSelection(scope)) this.publish(snapshot, scope)
+    else this.summaries()
+    this.options.onWorkerEvent?.(workerId, snapshot)
+    this.notifyLifecycle(workerId, snapshot)
   }
 
   capture(origin?: DesktopCommandOrigin): SelectedSessionScope | null {
@@ -321,6 +375,12 @@ export class SessionWorkerSupervisor {
     const snapshot = this.pool.getSnapshot(workerId)
     if (!snapshot) throw new Error('会话尚未就绪')
     const scope = this.pool.select(workerId, expected)
+    const recovery = this.recoveries.get(workerId)
+    if (recovery) {
+      // Explicit selection owns a new request; the older request keeps its original scope.
+      recovery.scope = scope
+      recovery.dirty = true
+    }
     return this.publish(snapshot, scope)
   }
 
@@ -333,12 +393,18 @@ export class SessionWorkerSupervisor {
     return decorated
   }
 
-  summaries(): void {
+  summaries(options: { onlyIfChanged?: boolean } = {}): void {
     const summaries = this.pool.getLiveSummaries()
+    const data = this.sessionTaskBridge?.decorateSummaries(summaries) ?? summaries
+    // At most eight small sidebar rows, never transcript bodies. Include task
+    // relations before comparing so parent/child changes remain observable.
+    const key = JSON.stringify(data)
+    if (options.onlyIfChanged && key === this.publishedSummariesKey) return
+    this.publishedSummariesKey = key
     this.options.publish({
       type: 'event',
       event: 'sessions',
-      data: this.sessionTaskBridge?.decorateSummaries(summaries) ?? summaries
+      data
     })
   }
 }

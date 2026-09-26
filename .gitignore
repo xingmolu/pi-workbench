@@ -1,4 +1,5 @@
 node_modules
+resources/native/
 dist
 out
 .env
@@ -8,8 +9,8 @@ Thumbs.db
 desktop.ini
 *.log*
 .eslintcache
-artifacts/e2e/
-artifacts/reference-parity-fixture/
+artifacts/
+docs/
 test-results/
 test-results-quota/
 playwright-report/

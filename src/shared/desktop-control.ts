@@ -15,8 +15,8 @@ export const DESKTOP_CONTROL_LIMITS = {
 } as const
 
 export const DESKTOP_CONTROL_AX_LIMITS = {
-  maxDepth: 6,
-  maxNodes: 80,
+  maxDepth: 24,
+  maxNodes: 160,
   maxWindows: 4,
   maxChildren: 24,
   maxTextLength: 80,
@@ -154,6 +154,7 @@ const clickButtonSchema = z.enum(['left', 'right'])
 
 export type AxNode = {
   role: string
+  windowId?: number
   title: string
   value: string
   description: string
@@ -164,10 +165,29 @@ export type AxNode = {
   children: AxNode[]
 }
 
+export const desktopWindowTargetSchema = z
+  .object({
+    pid: z.number().int().positive().max(2_147_483_647),
+    windowId: z.number().int().positive().max(4_294_967_295),
+    app: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
+    bundleId: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
+    frame: z
+      .object({
+        x: z.number().finite().min(-100_000).max(100_000),
+        y: z.number().finite().min(-100_000).max(100_000),
+        width: z.number().finite().positive().max(100_000),
+        height: z.number().finite().positive().max(100_000)
+      })
+      .strict()
+  })
+  .strict()
+export type DesktopWindowTarget = z.infer<typeof desktopWindowTargetSchema>
+
 export const axNodeSchema: z.ZodType<AxNode> = z.lazy(() =>
   z
     .object({
       role: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
+      windowId: z.number().int().positive().max(4_294_967_295).optional(),
       title: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
       value: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
       description: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
@@ -184,6 +204,7 @@ export const axDumpSchema = z
   .object({
     app: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
     bundleId: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
+    target: desktopWindowTargetSchema.optional(),
     windows: z.array(axNodeSchema).max(DESKTOP_CONTROL_AX_LIMITS.maxWindows),
     nodeCount: z.number().int().nonnegative().max(DESKTOP_CONTROL_AX_LIMITS.maxNodes),
     truncated: z.boolean()
@@ -225,74 +246,6 @@ export const desktopControlCommandSchema = z.discriminatedUnion('type', [
 export type DesktopControlCommand = z.infer<typeof desktopControlCommandSchema>
 
 const messageSchema = z.string().max(DESKTOP_CONTROL_LIMITS.maxMessageLength)
-
-export const desktopControlAgentOperationSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('dump') }).strict(),
-  z.object({ action: z.literal('hit_test'), x: coordSchema, y: coordSchema }).strict(),
-  z
-    .object({
-      action: z.literal('click'),
-      x: coordSchema,
-      y: coordSchema,
-      button: clickButtonSchema.optional()
-    })
-    .strict(),
-  z.object({ action: z.literal('move'), x: coordSchema, y: coordSchema }).strict(),
-  z
-    .object({
-      action: z.literal('type'),
-      text: z.string().min(1).max(DESKTOP_CONTROL_AX_LIMITS.maxTypeLength)
-    })
-    .strict()
-])
-export type DesktopControlAgentOperation = z.infer<typeof desktopControlAgentOperationSchema>
-
-export type DesktopControlAskDecision =
-  | { kind: 'skip'; action: 'dump' | 'hit_test' }
-  | { kind: 'ask'; action: 'click' | 'move' | 'type' }
-  | { kind: 'block'; reason: string }
-
-/** Agent-path Ask: dump/hit_test skip; click/move/type always Ask, even in open mode. */
-export function desktopControlAskDecision(input: unknown): DesktopControlAskDecision {
-  const parsed = desktopControlAgentOperationSchema.safeParse(input)
-  if (!parsed.success) return { kind: 'block', reason: '无效的桌面控制操作' }
-  if (
-    parsed.data.action === 'click' ||
-    parsed.data.action === 'move' ||
-    parsed.data.action === 'type'
-  ) {
-    return { kind: 'ask', action: parsed.data.action }
-  }
-  return { kind: 'skip', action: parsed.data.action }
-}
-
-export const desktopControlAgentResultSchema = z.discriminatedUnion('kind', [
-  z
-    .object({
-      kind: z.literal('dump'),
-      dump: axDumpSchema,
-      sessionUnlocked: z.boolean()
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('hit-test'),
-      app: z.string().max(DESKTOP_CONTROL_AX_LIMITS.maxTextLength),
-      target: axHitTargetSchema.nullable(),
-      sessionUnlocked: z.boolean()
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('action'),
-      action: z.enum(['click', 'move', 'type']),
-      message: messageSchema,
-      x: coordSchema.optional(),
-      y: coordSchema.optional()
-    })
-    .strict()
-])
-export type DesktopControlAgentResult = z.infer<typeof desktopControlAgentResultSchema>
 
 export const desktopControlPermissionResultSchema = z
   .object({

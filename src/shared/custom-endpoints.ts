@@ -62,13 +62,26 @@ export const customEndpointMetadataInputSchema = z
       .array(boundedText(200))
       .min(1)
       .max(100)
+      .refine((ids) => new Set(ids).size === ids.length),
+    imageModelIds: z
+      .array(boundedText(200))
+      .max(100)
       .refine((ids) => new Set(ids).size === ids.length)
+      .optional()
   })
   .strict()
-export const customEndpointSchema = customEndpointMetadataInputSchema.extend({
+  .superRefine(({ modelIds, imageModelIds }, context) => {
+    if (imageModelIds?.some((id) => !modelIds.includes(id)))
+      context.addIssue({
+        code: 'custom',
+        path: ['imageModelIds'],
+        message: 'Image model IDs must belong to this endpoint'
+      })
+  })
+export const customEndpointSchema = customEndpointMetadataInputSchema.safeExtend({
   key: keySchema.optional()
 })
-export const createCustomEndpointSchema = customEndpointSchema.extend({ key: keySchema })
+export const createCustomEndpointSchema = customEndpointSchema.safeExtend({ key: keySchema })
 export type CustomEndpointInput = z.infer<typeof customEndpointSchema>
 export type CustomEndpointMetadataInput = z.infer<typeof customEndpointMetadataInputSchema>
 
@@ -78,6 +91,7 @@ export type CustomEndpointMetadata = {
   api: CustomEndpointApi | null
   baseUrl: string | null
   modelIds: string[]
+  imageModelIds?: string[]
   editable: boolean
   unsupportedReason: '此配置包含不支持的字段或地址，请在 Pi 配置文件中管理' | null
 }
@@ -125,10 +139,19 @@ export const customEndpointMetadataSchema: z.ZodType<CustomEndpointMetadata> = z
     api: customEndpointApiSchema.nullable(),
     baseUrl: z.string().nullable(),
     modelIds: z.array(z.string()),
+    imageModelIds: z.array(z.string()).optional(),
     editable: z.boolean(),
     unsupportedReason: z.literal('此配置包含不支持的字段或地址，请在 Pi 配置文件中管理').nullable()
   })
   .strict()
+  .superRefine(({ modelIds, imageModelIds }, context) => {
+    if (imageModelIds?.some((id) => !modelIds.includes(id)))
+      context.addIssue({
+        code: 'custom',
+        path: ['imageModelIds'],
+        message: 'Image model IDs must belong to this endpoint'
+      })
+  })
 export const customEndpointConfigSnapshotSchema = z
   .object({
     revision: z.string(),

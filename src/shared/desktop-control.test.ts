@@ -3,7 +3,6 @@ import {
   accessAfterCaptureProbe,
   captureSourceSchema,
   captureSourceTypeFromId,
-  desktopControlAskDecision,
   desktopControlCommandSchema,
   desktopControlGateMessage,
   desktopControlResultSchema,
@@ -110,27 +109,6 @@ describe('desktop control DTOs', () => {
     expect(desktopControlCommandSchema.safeParse({ type: 'input-click', x: 1, y: 2 }).success).toBe(
       false
     )
-  })
-
-  it('always Asks for agent clicks and skips dump/hit_test', () => {
-    expect(desktopControlAskDecision({ action: 'dump' })).toEqual({ kind: 'skip', action: 'dump' })
-    expect(desktopControlAskDecision({ action: 'hit_test', x: 1, y: 2 })).toEqual({
-      kind: 'skip',
-      action: 'hit_test'
-    })
-    expect(desktopControlAskDecision({ action: 'click', x: 8, y: 9 })).toEqual({
-      kind: 'ask',
-      action: 'click'
-    })
-    expect(desktopControlAskDecision({ action: 'move', x: 8, y: 9 })).toEqual({
-      kind: 'ask',
-      action: 'move'
-    })
-    expect(desktopControlAskDecision({ action: 'type', text: 'hi' })).toEqual({
-      kind: 'ask',
-      action: 'type'
-    })
-    expect(desktopControlAskDecision({ action: 'screenshot' })).toMatchObject({ kind: 'block' })
   })
 
   it('maps semantic hard gates independently from Screen Recording', () => {

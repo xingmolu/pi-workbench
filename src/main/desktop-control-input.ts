@@ -5,7 +5,8 @@ import {
   hitTestAxNodes,
   type AxDump,
   type DesktopControlPermission,
-  type DesktopControlResult
+  type DesktopControlResult,
+  type DesktopWindowTarget
 } from '../shared/desktop-control'
 import { MacComputerUseBridge } from './desktop-control-native'
 
@@ -66,6 +67,8 @@ export class DesktopInput {
     accessibility: DesktopControlPermission
     sessionUnlocked: boolean
     dump: AxDump | null
+    expectedTarget?: DesktopWindowTarget
+    expiresAt?: number
     signal?: AbortSignal
   }): Promise<Extract<DesktopControlResult, { type: 'input-click' }>> {
     if (input.signal?.aborted) throw new Error('Computer Use 操作已停止')
@@ -89,7 +92,9 @@ export class DesktopInput {
           action: 'click',
           x: input.x,
           y: input.y,
-          button: input.button ?? 'left'
+          button: input.button ?? 'left',
+          ...(input.expectedTarget ? { expectedTarget: input.expectedTarget } : {}),
+          ...(input.expiresAt ? { expiresAt: input.expiresAt } : {})
         },
         input.signal
       )
@@ -104,8 +109,9 @@ export class DesktopInput {
         target: preview.target,
         message: '已在确认坐标发送点击。'
       })
-    } catch {
+    } catch (error) {
       if (input.signal?.aborted) throw new Error('Computer Use 操作已停止')
+      if (input.expectedTarget) throw error
       return desktopControlInputClickResultSchema.parse({
         type: 'input-click',
         executed: false,
@@ -120,11 +126,39 @@ export class DesktopInput {
     }
   }
 
-  async move(x: number, y: number, signal?: AbortSignal): Promise<void> {
-    await this.deps.bridge.call({ action: 'move', x, y }, signal)
+  async move(
+    x: number,
+    y: number,
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'move',
+        x,
+        y,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
   }
 
-  async typeText(text: string, signal?: AbortSignal): Promise<void> {
-    await this.deps.bridge.call({ action: 'type', text }, signal)
+  async typeText(
+    text: string,
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'type',
+        text,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
   }
 }

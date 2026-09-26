@@ -7,6 +7,7 @@ import {
 } from '../shared/contracts'
 import { SessionWorkerPool, type SessionWorkerFactoryOptions } from './session-worker-pool'
 import { diffState } from '../shared/state-patch'
+import type { AgentRuntimeDiagnostics } from './agent-runtime'
 
 function snapshot(path: string | null, overrides: Partial<AgentSnapshot> = {}): AgentSnapshot {
   return {
@@ -42,6 +43,7 @@ function snapshot(path: string | null, overrides: Partial<AgentSnapshot> = {}): 
 function fixture(
   capacity = 8,
   behavior: {
+    getDiagnostics?: () => AgentRuntimeDiagnostics
     failPath?: string
     dispose?: () => Promise<void>
     canonicalize?: (path: string) => Promise<string>
@@ -59,6 +61,7 @@ function fixture(
       const worker = { options, commands: [] as HostCommand[], disposed: false }
       workers.push(worker)
       return {
+        getDiagnostics: behavior.getDiagnostics,
         request: async (command): Promise<HostResult> => {
           worker.commands.push(command)
           if (
@@ -437,4 +440,40 @@ describe('session worker ownership', () => {
     expect(() => pool.validateSelected(a.scope)).toThrow('Stale selection')
     expect(pool.getSnapshot(a.scope.workerId)?.generation).toBe(3)
   })
+})
+
+
+it('projects runtime counts and identity without session content, including disposal until exit', async () => {
+  let release!: () => void
+  const disposal = new Promise<void>(resolve => { release = resolve })
+  const { pool } = fixture(8, {
+    dispose: () => disposal,
+    getDiagnostics: () => ({ pid: 123, pendingRequests: 2, disposing: false, exited: false })
+  })
+  const opened = await pool.open({ cwd: '/private/project', path: '/private/session' })
+  const before = pool.getDiagnostics()
+  expect(before).toEqual({
+    selectedWorkerId: opened.scope.workerId,
+    residentSessions: 1,
+    workers: [{ workerId: opened.scope.workerId, pid: 123, sessionId: '/private/session',
+      generation: 3, status: 'idle', busy: false, residentPendingRequests: 0,
+      runtimePendingRequests: 2, disposing: false, exited: false }]
+  })
+  const shutdown = pool.shutdown()
+  expect(pool.getDiagnostics().workers[0].disposing).toBe(true)
+  expect(pool.getDiagnostics().residentSessions).toBe(1)
+  expect(before.workers[0].disposing).toBe(false)
+  release()
+  await shutdown
+  expect(pool.getDiagnostics().residentSessions).toBe(0)
+})
+
+it('does not count crash summaries as resident processes and supports runtimes without diagnostics', async () => {
+  const { pool, workers } = fixture()
+  await pool.open({ cwd: '/project', path: '/session' })
+  expect(pool.getDiagnostics().workers[0]).toMatchObject({ pid: null, runtimePendingRequests: null, exited: null })
+  workers[0].options.onExit(new Error('crash'))
+  expect(pool.getLiveSummaries()).toHaveLength(1)
+  expect(pool.getDiagnostics().workers).toEqual([])
+  expect(pool.getDiagnostics().residentSessions).toBe(0)
 })

@@ -8,19 +8,13 @@ import {
   type CaptureSource,
   type DesktopControlPermission
 } from '../../../shared/desktop-control'
+import { usePiStore } from '../store/pi-store'
 import '../assets/desktop-control.css'
 
 const SOURCE_TYPE_LABEL = { screen: '屏幕', window: '窗口' } as const
 
 type PendingKind =
-  | 'permission'
-  | 'sources'
-  | 'settings'
-  | 'accessibility'
-  | 'dump'
-  | 'preview'
-  | 'click'
-  | null
+  'permission' | 'sources' | 'settings' | 'accessibility' | 'dump' | 'preview' | 'click' | null
 
 function AxTree({ node }: { node: AxNode }): React.JSX.Element {
   return (
@@ -46,6 +40,7 @@ function PermissionChip({
   permission,
   testId,
   loading,
+  probeFailed,
   supportedHint,
   unsupportedHint
 }: {
@@ -53,10 +48,11 @@ function PermissionChip({
   permission: DesktopControlPermission | null
   testId: string
   loading: boolean
+  probeFailed: boolean
   supportedHint: string
   unsupportedHint: string
 }): React.JSX.Element {
-  const access = permission?.access ?? 'unsupported'
+  const access = permission?.access ?? 'pending'
   return (
     <div className="desktop-control-status">
       <span>
@@ -64,13 +60,25 @@ function PermissionChip({
         <small>
           {loading
             ? '正在读取本机授权状态…'
-            : permission?.platformSupported
-              ? supportedHint
-              : unsupportedHint}
+            : permission === null
+              ? '尚无本机检测结果；可点击“重新检测权限”。'
+              : permission.platformSupported
+                ? supportedHint
+                : unsupportedHint}
         </small>
       </span>
-      <span className={`desktop-control-chip is-${access}`} data-testid={testId} data-access={access}>
-        {loading ? '读取中' : screenRecordingChipLabel(access)}
+      <span
+        className={`desktop-control-chip is-${access}`}
+        data-testid={testId}
+        data-access={access}
+      >
+        {loading
+          ? '检测中'
+          : probeFailed
+            ? '检测失败'
+            : permission
+              ? screenRecordingChipLabel(access)
+              : '待检测'}
       </span>
     </div>
   )
@@ -79,6 +87,9 @@ function PermissionChip({
 export function DesktopControlPanel({
   permission,
   accessibility,
+  screenProbeFailed,
+  accessibilityProbeFailed,
+  activeModel,
   sources,
   truncated,
   probed,
@@ -101,6 +112,9 @@ export function DesktopControlPanel({
 }: {
   permission: DesktopControlPermission | null
   accessibility: DesktopControlPermission | null
+  screenProbeFailed: boolean
+  accessibilityProbeFailed: boolean
+  activeModel: { name: string; acceptsImages: boolean } | null
   sources: readonly CaptureSource[]
   truncated: boolean
   probed: boolean
@@ -123,9 +137,9 @@ export function DesktopControlPanel({
 }): React.JSX.Element {
   const [x, setX] = useState('0')
   const [y, setY] = useState('0')
-  const loadingStatus =
-    permission === null && (pending === 'permission' || pending === 'sources')
-  const loadingAccessibility = accessibility === null && pending === 'accessibility'
+  const loadingStatus = permission === null && (pending === 'permission' || pending === 'sources')
+  const loadingAccessibility =
+    accessibility === null && (pending === 'accessibility' || pending === 'sources')
   return (
     <section className="desktop-control-settings" aria-label="桌面控制">
       <header className="desktop-control-heading">
@@ -138,16 +152,25 @@ export function DesktopControlPanel({
         </div>
       </header>
       <p className="desktop-control-guide">
-        Spike 1 截取屏幕与窗口缩略图；Spike 2 读取有界辅助功能树；Spike 3 可在确认后点击坐标。Agent
-        点击/移动/输入始终先 Ask，不会把整屏截图送给模型。在系统设置中打开屏幕录制或辅助功能后，请完全退出（Cmd+Q）再重新打开。adhoc
-        重建可能显示为 Electron，或出现新的 Pi Desktop 行，需要重新授权。锁屏会话拒绝输入。
+        辅助功能用于读取窗口和操作控件；Computer Use
+        截图只包含当前前台窗口，切换窗口后需重新观察。点击和输入仍需逐次确认。
+        授权新安装包后，请完全退出（Cmd+Q）并重开 Pi Desktop，再点击“重新检测权限”。
       </p>
+      {activeModel ? (
+        <p className="desktop-control-guide" data-testid="computer-use-model-capability">
+          当前模型 {activeModel.name}：
+          {activeModel.acceptsImages
+            ? '已配置图像输入；截图仍需屏幕录制授权。'
+            : '未声明图像输入能力；Computer Use 只能使用辅助功能读取界面，不能看截图。'}
+        </p>
+      ) : null}
       <article className="desktop-control-card">
         <PermissionChip
           label="屏幕录制"
           permission={permission}
           testId="screen-recording-status"
           loading={loadingStatus}
+          probeFailed={screenProbeFailed}
           supportedHint="由截取探测与 macOS TCC 共同确认；授权后可试截取屏幕与窗口缩略图。"
           unsupportedHint="当前仅在 macOS 上探测屏幕录制授权。"
         />
@@ -156,6 +179,7 @@ export function DesktopControlPanel({
           permission={accessibility}
           testId="accessibility-status"
           loading={loadingAccessibility}
+          probeFailed={accessibilityProbeFailed}
           supportedHint="由辅助功能树探测与 macOS TCC 共同确认；授权后可读取前台窗口结构。"
           unsupportedHint="当前仅在 macOS 上探测辅助功能授权。"
         />
@@ -168,7 +192,7 @@ export function DesktopControlPanel({
           <button
             className="primary-button"
             type="button"
-            disabled={!permission?.canOpenSettings || pending === 'settings'}
+            disabled={permission?.canOpenSettings === false || pending === 'settings'}
             onClick={onOpenSettings}
           >
             <Settings size={14} />
@@ -177,7 +201,7 @@ export function DesktopControlPanel({
           <button
             className="secondary-button"
             type="button"
-            disabled={!accessibility?.canOpenSettings || pending === 'settings'}
+            disabled={accessibility?.canOpenSettings === false || pending === 'settings'}
             onClick={onOpenAccessibilitySettings}
           >
             <Settings size={14} />
@@ -190,7 +214,7 @@ export function DesktopControlPanel({
             onClick={onRefresh}
           >
             <RefreshCw size={14} />
-            {pending === 'sources' ? '正在截取…' : '刷新 / 试截取'}
+            {pending === 'sources' ? '正在检测…' : '重新检测权限'}
           </button>
           <button
             className="secondary-button"
@@ -257,7 +281,8 @@ export function DesktopControlPanel({
           坐标点击（需确认）
         </h3>
         <p className="desktop-control-guide">
-          仅用于本机干跑。先预览命中节点，再确认发送一次点击。Agent 路径仍会 Ask，不会走这条设置按钮。
+          仅用于本机干跑。先预览命中节点，再确认发送一次点击。Agent 路径仍会
+          Ask，不会走这条设置按钮。
         </p>
         <div className="desktop-control-point">
           <label>
@@ -311,8 +336,16 @@ export function DesktopControlPanel({
 }
 
 export default function DesktopControlSettings(): React.JSX.Element {
+  const activeModel = usePiStore((state) => {
+    const snapshot = state.snapshot
+    return snapshot.models.find(
+      (item) => item.provider === snapshot.activeProvider && item.id === snapshot.activeModel
+    )
+  })
   const [permission, setPermission] = useState<DesktopControlPermission | null>(null)
   const [accessibility, setAccessibility] = useState<DesktopControlPermission | null>(null)
+  const [screenProbeFailed, setScreenProbeFailed] = useState(false)
+  const [accessibilityProbeFailed, setAccessibilityProbeFailed] = useState(false)
   const [sources, setSources] = useState<CaptureSource[]>([])
   const [truncated, setTruncated] = useState(false)
   const [probed, setProbed] = useState(false)
@@ -336,20 +369,50 @@ export default function DesktopControlSettings(): React.JSX.Element {
     const attempt = ++epoch.current
     setPending('sources')
     setError(null)
+    setPermission(null)
+    setAccessibility(null)
+    setScreenProbeFailed(false)
+    setAccessibilityProbeFailed(false)
+    setSources([])
+    setTruncated(false)
+    setProbed(false)
+    setMessage(null)
+    setDump(null)
+    setDumpProbed(false)
+    setDumpMessage(null)
+    setPreviewTarget(null)
+    setPreviewAllowed(false)
+    setPreviewMessage(null)
     try {
-      const [screen, ax] = await Promise.all([
+      const [screen, ax] = await Promise.allSettled([
         window.pi.desktopControl({ type: 'sources' }),
         window.pi.desktopControl({ type: 'accessibility-permission' })
       ])
       if (attempt !== epoch.current) return
-      if (screen.type === 'sources') {
-        applyScreen(screen.permission)
-        setSources(screen.sources)
-        setTruncated(screen.truncated)
+      const screenReady = screen.status === 'fulfilled' && screen.value.type === 'sources'
+      const accessibilityReady =
+        ax.status === 'fulfilled' && ax.value.type === 'accessibility-permission'
+      if (screen.status === 'fulfilled' && screen.value.type === 'sources') {
+        applyScreen(screen.value.permission)
+        setSources(screen.value.sources)
+        setTruncated(screen.value.truncated)
         setProbed(true)
-        setMessage(screen.message ?? null)
+        setMessage(screen.value.message ?? null)
+      } else {
+        setScreenProbeFailed(true)
+        setSources([])
+        setProbed(false)
       }
-      if (ax.type === 'accessibility-permission') setAccessibility(ax.permission)
+      if (ax.status === 'fulfilled' && ax.value.type === 'accessibility-permission') {
+        setAccessibility(ax.value.permission)
+      } else setAccessibilityProbeFailed(true)
+      if (!screenReady || !accessibilityReady) {
+        const failures = [
+          !screenReady ? '屏幕录制' : null,
+          !accessibilityReady ? '辅助功能' : null
+        ].filter(Boolean)
+        setError(`${failures.join('和')}检测失败。请重新检测；仍失败时检查当前安装包与系统授权。`)
+      }
     } catch (caught) {
       if (attempt !== epoch.current) return
       setError(caught instanceof Error ? caught.message : '桌面控制请求失败，请重试。')
@@ -426,6 +489,13 @@ export default function DesktopControlSettings(): React.JSX.Element {
     <DesktopControlPanel
       permission={permission}
       accessibility={accessibility}
+      screenProbeFailed={screenProbeFailed}
+      accessibilityProbeFailed={accessibilityProbeFailed}
+      activeModel={
+        activeModel
+          ? { name: activeModel.name, acceptsImages: activeModel.input?.includes('image') === true }
+          : null
+      }
       sources={sources}
       truncated={truncated}
       probed={probed}
@@ -445,11 +515,7 @@ export default function DesktopControlSettings(): React.JSX.Element {
       onDump={() => void run({ type: 'accessibility-dump' })}
       onPreview={(nextX, nextY) => void run({ type: 'input-preview', x: nextX, y: nextY })}
       onConfirmClick={(nextX, nextY) => {
-        if (
-          !window.confirm(
-            `将在屏幕坐标 (${nextX}, ${nextY}) 发送一次点击。确认继续？`
-          )
-        ) {
+        if (!window.confirm(`将在屏幕坐标 (${nextX}, ${nextY}) 发送一次点击。确认继续？`)) {
           return
         }
         void run({ type: 'input-click', x: nextX, y: nextY, confirmed: true })

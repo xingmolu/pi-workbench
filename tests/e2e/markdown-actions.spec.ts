@@ -11,6 +11,80 @@ import { join, resolve } from 'node:path'
 import type { AgentSnapshot } from '../../src/shared/contracts'
 import { build as bundleFixture } from 'esbuild'
 let app: ElectronApplication, page: Page, root: string, state: AgentSnapshot
+test('profile long-reply renderer CPU with and without streaming preview', async () => {
+  test.skip(process.env.PI_DESKTOP_PERF_TEST !== '1', 'Opt-in synthetic CPU comparison')
+  const source = '| Name | Value | Code |\n| --- | --- | --- |\n' +
+    '| alpha | **value** | `snippet` |\n'.repeat(500)
+  const results: unknown[] = []
+  for (const mode of ['idle', 'full-markdown', 'streaming-preview'] as const) {
+    await publish(source, mode === 'streaming-preview')
+    // Measure the same growing source at the merged 80 ms cadence. Full-markdown
+    // forces the previous parse path; it is a synthetic comparison, not a model run.
+    const result = await app.evaluate(async ({ app: electronApp, BrowserWindow }, data) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      const rendererPid = contents.getOSProcessId()
+      const before = electronApp.getAppMetrics().find(item => item.pid === rendererPid)
+      const started = Date.now()
+      let updates = 0
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          updates++
+          if (data.mode !== 'idle') contents.send('pi:event', {
+            type: 'event', event: 'snapshot', data: {
+              ...data.state, revision: data.state.revision + updates,
+              nodes: [{ id: 'table', type: 'assistant', markdown: data.source + '\n' + updates,
+                streaming: data.mode === 'streaming-preview' }]
+            }
+          })
+          if (updates === 50) { clearInterval(timer); resolve() }
+        }, 80)
+      })
+      const metric = electronApp.getAppMetrics().find(item => item.pid === rendererPid)
+      const cpuBefore = before?.cpu.cumulativeCPUUsage
+      const cpuAfter = metric?.cpu.cumulativeCPUUsage
+      return { mode: data.mode, updates, elapsedMs: Date.now() - started,
+        cpuSeconds: typeof cpuAfter === 'number' && typeof cpuBefore === 'number' ? cpuAfter - cpuBefore : null,
+        cpu: metric?.cpu, memory: metric?.memory }
+    }, { mode, source, state })
+    state.revision += 100
+    results.push(result)
+  }
+  // Measure after completion so sustained CPU work cannot hide behind the stream.
+  await publish(source, false)
+  await expect(page.locator('.markdown-streaming-preview')).toHaveCount(0)
+  await expect(page.locator('.assistant-node table')).toBeVisible()
+  const afterCompletion = await app.evaluate(async ({ app: electronApp, BrowserWindow }) => {
+    const rendererPid = BrowserWindow.getAllWindows()[0].webContents.getOSProcessId()
+    const before = electronApp.getAppMetrics().find(item => item.pid === rendererPid)
+    await new Promise(resolve => setTimeout(resolve, 4000))
+    const after = electronApp.getAppMetrics().find(item => item.pid === rendererPid)
+    return { mode: 'idle-after-completion',
+      cpuSeconds: typeof before?.cpu.cumulativeCPUUsage === 'number' && typeof after?.cpu.cumulativeCPUUsage === 'number'
+        ? after.cpu.cumulativeCPUUsage - before.cpu.cumulativeCPUUsage : null }
+  })
+  results.push(afterCompletion)
+  console.log('MARKDOWN_PERF', JSON.stringify(results))
+  expect(afterCompletion.cpuSeconds).not.toBeNull()
+  expect(afterCompletion.cpuSeconds!).toBeLessThan(0.4)
+})
+test('long streaming Markdown stays lightweight and restores complete formatting on completion', async () => {
+  const source = '| Name | Value | Code |\n| --- | --- | --- |\n' +
+    '| alpha | **value** | `snippet` |\n'.repeat(500)
+  await publish(source, true)
+  const preview = page.locator('.markdown-streaming-preview')
+  await expect(preview).toHaveText(source)
+  await expect(page.locator('.assistant-node table')).toHaveCount(0)
+  const updated = source + '\n[reference][target]\n\n[target]: https://example.com\n'
+  await publish(updated, true)
+  expect(await preview.textContent()).toBe(updated)
+  await publish(updated)
+  await expect(preview).toHaveCount(0)
+  await expect(page.locator('.assistant-node table')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'reference', exact: true })).toHaveAttribute('href', 'https://example.com')
+  // Replacing a long stream with a short reply must not leave a stale preview.
+  await publish('**short reply**', true)
+  await expect(page.locator('.assistant-node strong')).toHaveText('short reply')
+})
 test('code highlighting finishes after streaming and preserves exact copied source', async () => {
   const code = '\tconst count: number = 42  \n\n'
   await publish('```ts\n' + code + '\n```', true)

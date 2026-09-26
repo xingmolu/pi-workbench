@@ -22,6 +22,7 @@ type Form = {
   api: CustomEndpointApi
   baseUrl: string
   modelIds: string
+  imageModelIds: string[]
   originalIds: string[]
 }
 const emptyForm = (): Form => ({
@@ -29,6 +30,7 @@ const emptyForm = (): Form => ({
   api: 'openai-completions',
   baseUrl: '',
   modelIds: '',
+  imageModelIds: [],
   originalIds: []
 })
 
@@ -106,6 +108,7 @@ export default function CustomEndpoints({
           api: endpoint.api!,
           baseUrl: endpoint.baseUrl!,
           modelIds: endpoint.modelIds.join('\n'),
+          imageModelIds: endpoint.imageModelIds ?? [],
           originalIds: endpoint.modelIds
         }
       : emptyForm()
@@ -121,7 +124,15 @@ export default function CustomEndpoints({
     setConfirmedRemoval(false)
   }
   const update = (value: Partial<Form>): void => {
-    setForm((current) => (current ? { ...current, ...value } : null))
+    setForm((current) => {
+      if (!current) return null
+      const next = { ...current, ...value }
+      if (value.modelIds !== undefined) {
+        const nextIds = new Set(value.modelIds.split('\n').map((id) => id.trim()))
+        next.imageModelIds = next.imageModelIds.filter((id) => nextIds.has(id))
+      }
+      return next
+    })
     setConfirmedRemoval(false)
     setError('')
     setErrorField(null)
@@ -144,6 +155,7 @@ export default function CustomEndpoints({
       api: form.api,
       baseUrl: form.baseUrl,
       modelIds: ids,
+      imageModelIds: form.imageModelIds,
       ...(key !== '' ? { key } : {})
     }
     const parsed = (form.id ? customEndpointSchema : createCustomEndpointSchema).safeParse(input)
@@ -155,9 +167,11 @@ export default function CustomEndpoints({
           ? 'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。'
           : field === 'modelIds'
             ? '模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。'
-            : field === 'key'
-              ? '新端点必须填写 API Key；本地服务也需明确填写占位值。'
-              : '显示名称需为 1–80 个字符，不能包含控制字符。'
+            : field === 'imageModelIds'
+              ? '支持图片输入的模型必须出现在模型 ID 列表中。'
+              : field === 'key'
+                ? '新端点必须填写 API Key；本地服务也需明确填写占位值。'
+                : '显示名称需为 1–80 个字符，不能包含控制字符。'
       )
       return
     }
@@ -275,7 +289,8 @@ export default function CustomEndpoints({
                   <strong>{endpoint.label}</strong>
                   <small>
                     {endpoint.api ? protocols[endpoint.api] : '高级配置'} ·{' '}
-                    {endpoint.modelIds.length} 个模型
+                    {endpoint.modelIds.length} 个模型 · {endpoint.imageModelIds?.length ?? 0}{' '}
+                    个支持图片输入
                   </small>
                 </div>
                 {endpoint.editable ? (
@@ -402,6 +417,28 @@ export default function CustomEndpoints({
             onChange={(event) => update({ modelIds: event.target.value })}
           />
           <small id="endpoint-model-help">每行一个，不重复。使用服务实际支持的模型 ID。</small>
+          {ids.length ? (
+            <div className="endpoint-image-models" role="group" aria-label="模型图片输入能力">
+              <small>只勾选服务确实支持图片输入的模型；此设置不会自动检测服务能力。</small>
+              {[...new Set(ids)].map((id) => (
+                <label key={id} className="endpoint-confirm">
+                  <input
+                    type="checkbox"
+                    checked={form.imageModelIds.includes(id)}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      update({
+                        imageModelIds: event.target.checked
+                          ? [...form.imageModelIds, id]
+                          : form.imageModelIds.filter((selected) => selected !== id)
+                      })
+                    }
+                  />
+                  支持图片输入：{id}
+                </label>
+              ))}
+            </div>
+          ) : null}
           {removed.length ? (
             <div className="endpoint-warning">
               <p>

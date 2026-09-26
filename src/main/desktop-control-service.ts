@@ -1,25 +1,16 @@
 import {
-  axNodeToHitTarget,
   desktopControlAccessibilityPermissionResultSchema,
-  desktopControlAgentOperationSchema,
-  desktopControlAgentResultSchema,
   desktopControlCommandSchema,
-  desktopControlGateMessage,
-  hitTestAxNodes,
-  type DesktopControlAgentOperation,
-  type DesktopControlAgentResult,
   type DesktopControlResult
 } from '../shared/desktop-control'
 import { DesktopAccessibility } from './desktop-control-accessibility'
 import { DesktopCapture, type DesktopCaptureDeps } from './desktop-control-capture'
-import { DesktopInput, inputGateMessage } from './desktop-control-input'
-import {
-  MacComputerUseBridge,
-  type NativeComputerUseExec
-} from './desktop-control-native'
+import { DesktopInput } from './desktop-control-input'
+import { MacComputerUseBridge, type NativeComputerUseExec } from './desktop-control-native'
 
 export type DesktopControlServiceDeps = DesktopCaptureDeps & {
   nativeHelperPath: string
+  appBundlePath: string
   nativeExec?: NativeComputerUseExec
 }
 
@@ -44,6 +35,7 @@ export class DesktopControlService {
     this.accessibility = new DesktopAccessibility({
       platform: deps.platform,
       bridge,
+      appBundlePath: deps.appBundlePath,
       openExternal: deps.openExternal
     })
     this.input = new DesktopInput({
@@ -94,83 +86,6 @@ export class DesktopControlService {
       accessibility: dump.permission,
       sessionUnlocked: dump.sessionUnlocked,
       dump: dump.dump
-    })
-  }
-
-  async executeAgent(
-    operation: unknown,
-    signal?: AbortSignal
-  ): Promise<DesktopControlAgentResult> {
-    if (signal?.aborted) throw new Error('桌面控制操作已停止')
-    const request: DesktopControlAgentOperation = desktopControlAgentOperationSchema.parse(operation)
-    const screen = this.capture.readPermission()
-    const platformSupported = screen.platformSupported
-    const dump = await this.accessibility.dump(signal)
-    const gate = desktopControlGateMessage({
-      platformSupported,
-      sessionUnlocked: dump.sessionUnlocked,
-      accessibilityGranted: dump.permission.access === 'granted'
-    })
-    if (gate) throw new Error(gate)
-    if (request.action === 'dump') {
-      if (!dump.dump) throw new Error(dump.message ?? '无法读取窗口结构。')
-      return desktopControlAgentResultSchema.parse({
-        kind: 'dump',
-        dump: dump.dump,
-        sessionUnlocked: dump.sessionUnlocked
-      })
-    }
-    if (request.action === 'hit_test') {
-      const hit = dump.dump ? hitTestAxNodes(dump.dump.windows, request.x, request.y) : null
-      return desktopControlAgentResultSchema.parse({
-        kind: 'hit-test',
-        app: dump.dump?.app ?? '',
-        target: hit ? axNodeToHitTarget(hit) : null,
-        sessionUnlocked: dump.sessionUnlocked
-      })
-    }
-    const inputGate = inputGateMessage({
-      platformSupported,
-      sessionUnlocked: dump.sessionUnlocked,
-      accessibilityGranted: dump.permission.access === 'granted'
-    })
-    if (inputGate) throw new Error(inputGate)
-    if (request.action === 'click') {
-      const clicked = await this.input.click({
-        x: request.x,
-        y: request.y,
-        button: request.button,
-        confirmed: true,
-        screen,
-        accessibility: dump.permission,
-        sessionUnlocked: dump.sessionUnlocked,
-        dump: dump.dump,
-        signal
-      })
-      if (!clicked.executed) throw new Error(clicked.message ?? '无法发送点击。')
-      return desktopControlAgentResultSchema.parse({
-        kind: 'action',
-        action: 'click',
-        message: clicked.message ?? '已在确认坐标发送点击。',
-        x: request.x,
-        y: request.y
-      })
-    }
-    if (request.action === 'move') {
-      await this.input.move(request.x, request.y, signal)
-      return desktopControlAgentResultSchema.parse({
-        kind: 'action',
-        action: 'move',
-        message: '已移动指针。',
-        x: request.x,
-        y: request.y
-      })
-    }
-    await this.input.typeText(request.text, signal)
-    return desktopControlAgentResultSchema.parse({
-      kind: 'action',
-      action: 'type',
-      message: `已输入 ${request.text.length} 个字符。`
     })
   }
 }

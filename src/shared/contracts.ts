@@ -24,10 +24,6 @@ import type {
   WorkbenchCommandResult,
   WorkbenchEvent
 } from './workbench-contracts'
-import type {
-  DesktopControlAgentOperation,
-  DesktopControlAgentResult
-} from './desktop-control'
 import type { ComputerUseOperation, ComputerUseResult } from './computer-use'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
@@ -129,6 +125,7 @@ export type ModelSummary = {
   name: string
   contextWindow: number
   reasoning: boolean
+  input?: ('text' | 'image')[]
   unavailableReason?: string
 }
 
@@ -347,37 +344,6 @@ export type ComputerUseCapabilityResponse =
   | {
       type: 'capability-response'
       capability: 'computer-use'
-      requestId: string
-      ok: false
-      error: string
-    }
-
-export type DesktopControlCapabilityRequest = {
-  type: 'capability-request'
-  capability: 'desktop-control'
-  requestId: string
-  sessionId: string | null
-  generation: number
-  operation: DesktopControlAgentOperation
-}
-
-export type DesktopControlCapabilityCancel = {
-  type: 'capability-cancel'
-  capability: 'desktop-control'
-  requestId: string
-}
-
-export type DesktopControlCapabilityResponse =
-  | {
-      type: 'capability-response'
-      capability: 'desktop-control'
-      requestId: string
-      ok: true
-      data: DesktopControlAgentResult
-    }
-  | {
-      type: 'capability-response'
-      capability: 'desktop-control'
       requestId: string
       ok: false
       error: string

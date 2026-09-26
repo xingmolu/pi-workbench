@@ -3,14 +3,16 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { MOBILE_GATEWAY_LOOPBACK, MOBILE_GATEWAY_PORT } from '../shared/mobile-gateway'
 import { buildMobileHomeGroups } from '../shared/mobile-list'
 import { encodeQrMatrix, renderQrSvg } from '../shared/qr'
-import {
-  assertGatewayBindAddress,
-  pairingUrl,
-  primaryLanIpv4
-} from './mobile-gateway-net'
+import { assertGatewayBindAddress, pairingUrl, primaryLanIpv4 } from './mobile-gateway-net'
 import type { MobilePairingStore } from './mobile-pairing'
 import type { MobileSessionBridge } from './mobile-session-bridge'
-import { mobileClientScript, mobileManifest, mobilePageCss, mobilePageHtml } from './mobile-web-page'
+import { MobileSnapshotStream, type MobileSnapshotStreamOptions } from './mobile-snapshot-stream'
+import {
+  mobileClientScript,
+  mobileManifest,
+  mobilePageCss,
+  mobilePageHtml
+} from './mobile-web-page'
 
 const BODY_LIMIT = 64 * 1024
 const COOKIE = 'pi_device'
@@ -18,13 +20,21 @@ const COOKIE = 'pi_device'
 export type MobileGatewayOptions = {
   pairing: MobilePairingStore
   sessions: MobileSessionBridge
+  snapshotStream?: MobileSnapshotStreamOptions
+  maxConnectionsPerDevice?: number
+  maxConnections?: number
   port?: number
   lanAddress?: () => string | null
   hostName?: () => string
   listen?: (server: Server, port: number, host: string) => Promise<void>
 }
 
-type SseClient = { workerId: string; response: ServerResponse }
+type SseClient = {
+  deviceId: string
+  workerId: string
+  response: ServerResponse
+  stream: MobileSnapshotStream
+}
 
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -106,6 +116,17 @@ export class MobileGatewayServer {
   private unsubscribe: (() => void) | null = null
   constructor(private readonly options: MobileGatewayOptions) {}
 
+  getDiagnostics(): { connections: number; blocked: number; pendingSnapshots: number } {
+    let blocked = 0
+    let pendingSnapshots = 0
+    for (const client of this.sse) {
+      const state = client.stream.getDiagnostics()
+      if (state.blocked) blocked++
+      if (state.pending) pendingSnapshots++
+    }
+    return { connections: this.sse.size, blocked, pendingSnapshots }
+  }
+
   get isRunning(): boolean {
     return this.running
   }
@@ -136,8 +157,7 @@ export class MobileGatewayServer {
     url: string
     qrSvg: string
   } {
-    const url =
-      withPairToken(remoteUrl, token) ?? this.lanUrl(token) ?? this.loopbackUrl(token)
+    const url = withPairToken(remoteUrl, token) ?? this.lanUrl(token) ?? this.loopbackUrl(token)
     if (!url) throw new Error('网关未启动')
     return {
       token,
@@ -171,10 +191,16 @@ export class MobileGatewayServer {
       }
     }
     this.unsubscribe = this.options.sessions.subscribe((event) => {
+      // Serialize at most once per delivered revision, shared by all devices.
+      let serialized: string | undefined
+      const snapshot = (): string => (serialized ??= JSON.stringify(event.snapshot))
       for (const client of this.sse) {
         if (client.workerId !== event.workerId) continue
-        this.writeSse(client.response, 'snapshot', event.snapshot)
-        if (event.runFinished) this.writeSse(client.response, 'run-finished', { workerId: event.workerId })
+        client.stream.publish(
+          snapshot,
+          event.runFinished || !event.snapshot.busy || event.snapshot.approvals.length > 0,
+          event.runFinished
+        )
       }
     })
   }
@@ -183,7 +209,8 @@ export class MobileGatewayServer {
     this.unsubscribe?.()
     this.unsubscribe = null
     for (const client of this.sse) {
-      client.response.end()
+      client.stream.dispose()
+      client.response.destroy()
     }
     this.sse.clear()
     await Promise.all([this.close(this.loopback), this.close(this.lan)])
@@ -219,11 +246,6 @@ export class MobileGatewayServer {
     const token = this.deviceToken(request, url)
     if (!token) return null
     return this.options.pairing.authenticate(token)
-  }
-
-  private writeSse(response: ServerResponse, event: string, data: unknown): void {
-    if (response.writableEnded) return
-    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -275,13 +297,22 @@ export class MobileGatewayServer {
           token?: string
           deviceName?: string
         }
-        const grant = this.options.pairing.pair(String(body.token ?? ''), String(body.deviceName ?? '手机'))
+        const grant = this.options.pairing.pair(
+          String(body.token ?? ''),
+          String(body.deviceName ?? '手机')
+        )
         response.writeHead(200, {
           'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store',
           'set-cookie': `${COOKIE}=${encodeURIComponent(grant.deviceToken)}; Path=/; SameSite=Lax`
         })
-        response.end(JSON.stringify({ deviceId: grant.deviceId, deviceToken: grant.deviceToken, device: grant.device }))
+        response.end(
+          JSON.stringify({
+            deviceId: grant.deviceId,
+            deviceToken: grant.deviceToken,
+            device: grant.device
+          })
+        )
         return
       }
       const device = this.requireDevice(request, url)
@@ -330,16 +361,40 @@ export class MobileGatewayServer {
           return
         }
         if (request.method === 'GET' && action === 'events') {
+          const current = this.options.sessions.snapshot(workerId)
+          if (!current) {
+            json(response, 404, { error: '会话不在运行' })
+            return
+          }
+          const deviceConnections = [...this.sse].filter(
+            (client) => client.deviceId === device.deviceId
+          ).length
+          if (
+            this.sse.size >= (this.options.maxConnections ?? 32) ||
+            deviceConnections >= (this.options.maxConnectionsPerDevice ?? 8)
+          ) {
+            json(response, 429, { error: '实时连接已达到上限' })
+            return
+          }
           response.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8',
             'cache-control': 'no-store',
             connection: 'keep-alive'
           })
-          const client = { workerId, response }
+          const client = {
+            deviceId: device.deviceId,
+            workerId,
+            response,
+            stream: new MobileSnapshotStream(response, workerId, this.options.snapshotStream)
+          }
           this.sse.add(client)
-          const current = this.options.sessions.snapshot(workerId)
-          if (current) this.writeSse(response, 'snapshot', current)
-          request.on('close', () => this.sse.delete(client))
+          const cleanup = (): void => {
+            client.stream.dispose()
+            this.sse.delete(client)
+          }
+          response.on('close', cleanup)
+          response.on('error', cleanup)
+          client.stream.publish(() => JSON.stringify(current), true)
           return
         }
         const body = JSON.parse((await readBody(request)) || '{}') as Record<string, unknown>
@@ -359,7 +414,11 @@ export class MobileGatewayServer {
           return
         }
         if (request.method === 'POST' && action === 'approval') {
-          await this.options.sessions.respond(workerId, String(body.approvalId ?? ''), body.allow === true)
+          await this.options.sessions.respond(
+            workerId,
+            String(body.approvalId ?? ''),
+            body.allow === true
+          )
           json(response, 200, { ok: true })
           return
         }

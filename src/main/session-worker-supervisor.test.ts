@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest'
-import { AGENT_ENGINE, type AgentSnapshot, type HostCommand } from '../shared/contracts'
+import {
+  AGENT_ENGINE,
+  type AgentSnapshot,
+  type DesktopEvent,
+  type HostCommand
+} from '../shared/contracts'
 import { SessionWorkerController } from './session-worker-controller'
 import { SessionWorkerSupervisor } from './session-worker-supervisor'
 import type { SessionWorkerFactoryOptions } from './session-worker-pool'
@@ -35,33 +40,48 @@ function snapshot(path: string | null, revision = 1): AgentSnapshot {
 }
 
 function fixture() {
+  const published: DesktopEvent[] = []
   const workers: Array<{
     options: SessionWorkerFactoryOptions
     commands: HostCommand[]
+    identities: Array<{ sessionId: string | null; generation: number } | undefined>
+    stateBarrier?: Promise<void>
+    stateRequested?: () => void
     current: AgentSnapshot
     disposed: boolean
   }> = []
+  const resyncs: Promise<void>[] = []
   const supervisor = new SessionWorkerSupervisor({
+    onNeedsSnapshot: (workerId) => {
+      resyncs.push(supervisor.resyncWorker(workerId))
+    },
     canonicalize: async (path) => path,
-    publish: () => {},
+    publish: (event) => {
+      published.push(event)
+    },
     selected: () => {},
     receiptsSettled: () => true,
     createWorker: async (options) => {
-      const worker = {
+      const worker: (typeof workers)[number] = {
         options,
-        commands: [] as HostCommand[],
+        commands: [],
+        identities: [],
         current: snapshot(null),
         disposed: false
       }
       workers.push(worker)
       return {
-        request: async (command) => {
+        request: async (command, identity) => {
           worker.commands.push(command)
+          worker.identities.push(identity)
           if (command.type === 'project:navigate') {
             worker.current = snapshot(command.sessionPath ?? null)
             return { kind: 'snapshot' as const, snapshot: worker.current }
           }
           if (command.type === 'state:get') {
+            const barrier = worker.stateBarrier
+            worker.stateRequested?.()
+            await barrier
             return { kind: 'snapshot' as const, snapshot: worker.current }
           }
           return {
@@ -77,8 +97,66 @@ function fixture() {
       }
     }
   })
-  return { supervisor, workers }
+  return { supervisor, workers, published, resyncs }
 }
+
+it('publishes every transcript patch but only changed sidebar projections during streaming', async () => {
+  const { supervisor, workers, published } = fixture()
+  await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  published.length = 0
+  let lifecycleUpdates = 0
+  const unsubscribe = supervisor.subscribe(() => {
+    lifecycleUpdates++
+  })
+  let revision = 1
+  const patch = (meta = {}) =>
+    workers[0].options.onEvent({
+      type: 'event',
+      event: 'patch',
+      data: {
+        sessionId: '/a',
+        generation: 1,
+        baseRevision: revision,
+        revision: ++revision,
+        nodeUpserts: [
+          { id: 'answer', type: 'assistant', markdown: `Reply ${revision}`, streaming: true }
+        ],
+        removedNodeIds: [],
+        meta
+      }
+    })
+  for (let i = 0; i < 100; i++) patch()
+  expect(published.filter((event) => event.event === 'patch')).toHaveLength(100)
+  expect(lifecycleUpdates).toBe(100)
+  expect(published.filter((event) => event.event === 'sessions')).toHaveLength(0)
+
+  patch({ status: 'awaiting-approval' })
+  expect(published.filter((event) => event.event === 'sessions')).toHaveLength(1)
+  patch({
+    sessions: [
+      {
+        id: '/a',
+        path: '/a',
+        title: 'Renamed',
+        modified: '',
+        messageCount: 1,
+        active: true,
+        status: 'awaiting-approval'
+      }
+    ]
+  })
+  expect(published.filter((event) => event.event === 'sessions')).toHaveLength(2)
+  patch({ status: 'idle' })
+  expect(published.filter((event) => event.event === 'sessions')).toHaveLength(3)
+
+  // Explicit replay must still initialize a new renderer even if nothing changed.
+  supervisor.summaries()
+  expect(published.filter((event) => event.event === 'sessions')).toHaveLength(4)
+  supervisor.clearSelection(supervisor.selectedScope)
+  expect(published.at(-1)).toMatchObject({ event: 'sessions', data: [{ selected: false }] })
+  unsubscribe()
+  await supervisor.shutdown()
+})
 
 it('keeps the old controller name as a compatibility alias', () => {
   expect(SessionWorkerController).toBe(SessionWorkerSupervisor)
@@ -188,3 +266,246 @@ it('detaches an idle foreground with a monotonic epoch without stopping or delet
   expect(b.desktopScope!.selectionEpoch).toBeGreaterThan(epoch)
   await supervisor.shutdown()
 })
+
+it('recovers a background patch gap without publishing it as the foreground', async () => {
+  const { supervisor, workers, published, resyncs } = fixture()
+  const background = await supervisor.openBackground({ cwd: '/project', path: '/background' })
+  const foreground = await supervisor.open({ cwd: '/project', path: '/foreground' }, null)
+  const updates: Array<AgentSnapshot | null> = []
+  supervisor.subscribe((workerId, state) => {
+    if (workerId === background.workerId) updates.push(state)
+  })
+  workers[0].current = { ...snapshot('/background', 4), busy: true, status: 'running' }
+  published.length = 0
+  workers[0].options.onEvent({
+    type: 'event',
+    event: 'patch',
+    data: {
+      sessionId: '/background',
+      generation: 1,
+      baseRevision: 3,
+      revision: 4,
+      nodeUpserts: [],
+      removedNodeIds: [],
+      meta: {}
+    }
+  })
+  await Promise.all(resyncs)
+  expect(resyncs).toHaveLength(1)
+  expect(workers[0].identities.at(-1)).toEqual({ sessionId: '/background', generation: 1 })
+  expect(supervisor.getSnapshot(background.workerId)?.revision).toBe(4)
+  expect(updates.at(-1)?.revision).toBe(4)
+  expect(supervisor.selectedScope).toEqual(foreground.desktopScope)
+  expect(published.every((event) => event.event === 'sessions')).toBe(true)
+  expect(supervisor.findLiveSummary(background.workerId)?.status).toBe('running')
+  await supervisor.shutdown()
+})
+
+it('finishes a foreground resync after selection changes without projecting the old worker', async () => {
+  const { supervisor, workers, published } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  const b = await supervisor.openBackground({ cwd: '/project', path: '/b' })
+  let release!: () => void
+  workers[0].stateBarrier = new Promise((resolve) => {
+    release = resolve
+  })
+  workers[0].current = snapshot('/a', 3)
+  const resync = supervisor.resyncWorker(a.desktopScope!.workerId)
+  const selected = supervisor.select(b.workerId)
+  published.length = 0
+  release()
+  await resync
+  expect(supervisor.selectedScope).toEqual(selected.desktopScope)
+  expect(supervisor.getSnapshot(a.desktopScope!.workerId)?.revision).toBe(3)
+  expect(published.every((event) => event.event === 'sessions')).toBe(true)
+  await supervisor.shutdown()
+})
+
+it('projects a recovered foreground snapshot with its exact selection epoch', async () => {
+  const { supervisor, workers, published } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  workers[0].current = snapshot('/a', 3)
+  published.length = 0
+  await supervisor.resyncWorker(a.desktopScope!.workerId)
+  expect(published.find((event) => event.event === 'snapshot')).toMatchObject({
+    data: { revision: 3, desktopScope: a.desktopScope }
+  })
+  expect(supervisor.selectedScope).toEqual(a.desktopScope)
+  await supervisor.shutdown()
+})
+
+it.each(['background', 'reselected'] as const)(
+  'keeps a %s resync from gaining a new foreground epoch',
+  async (selection) => {
+    const { supervisor, workers, published } = fixture()
+    const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+    const b = await supervisor.openBackground({ cwd: '/project', path: '/b' })
+    if (selection === 'background') supervisor.select(b.workerId)
+    const updates: Array<AgentSnapshot | null> = []
+    supervisor.subscribe((workerId, state) => {
+      if (workerId === a.desktopScope!.workerId) updates.push(state)
+    })
+    let release!: () => void
+    workers[0].stateBarrier = new Promise((resolve) => {
+      release = resolve
+    })
+    workers[0].current = { ...snapshot('/a', 3), busy: true, status: 'running' }
+    const resync = supervisor.resyncWorker(a.desktopScope!.workerId)
+    if (selection === 'reselected') supervisor.select(b.workerId)
+    const selected = supervisor.select(a.desktopScope!.workerId)
+    expect(selected.desktopScope!.selectionEpoch).toBeGreaterThan(a.desktopScope!.selectionEpoch)
+    published.length = 0
+    release()
+    await resync
+    expect(supervisor.selectedScope).toEqual(selected.desktopScope)
+    expect(supervisor.getSnapshot(a.desktopScope!.workerId)?.revision).toBe(3)
+    expect(updates.at(-1)?.revision).toBe(3)
+    // The original response only updates summaries. Explicit reselection owns a fresh trailing request.
+    expect(published.filter((event) => event.event === 'snapshot')).toHaveLength(1)
+    expect(published[0]).toMatchObject({
+      event: 'sessions',
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          workerId: a.desktopScope!.workerId,
+          selected: true,
+          status: 'running'
+        })
+      ])
+    })
+    await supervisor.shutdown()
+  }
+)
+
+it('coalesces 1000 recovery requests into one in-flight request and one trailing recovery', async () => {
+  const { supervisor, workers } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  let release!: () => void
+  workers[0].stateBarrier = new Promise((resolve) => {
+    release = resolve
+  })
+  workers[0].commands.length = 0
+  const recovery = supervisor.resyncWorker(a.desktopScope!.workerId)
+  const burst = Array.from({ length: 1000 }, () =>
+    supervisor.resyncWorker(a.desktopScope!.workerId)
+  )
+  expect(workers[0].commands).toHaveLength(1)
+  workers[0].current = snapshot('/a', 10)
+  release()
+  await Promise.all([recovery, ...burst])
+  expect(workers[0].commands).toHaveLength(2)
+  expect(supervisor.getSnapshot(a.desktopScope!.workerId)?.revision).toBe(10)
+  await supervisor.shutdown()
+})
+
+it.each([false, true])(
+  'fences a new selection-owned trailing recovery when switched again: %s',
+  async (switchAgain) => {
+    const { supervisor, workers, published } = fixture()
+    const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+    const b = await supervisor.openBackground({ cwd: '/project', path: '/b' })
+    let releaseFirst!: () => void
+    let releaseTrailing!: () => void
+    workers[0].stateBarrier = new Promise((resolve) => {
+      releaseFirst = resolve
+    })
+    workers[0].stateRequested = () => {
+      workers[0].stateBarrier = new Promise((resolve) => {
+        releaseTrailing = resolve
+      })
+      workers[0].stateRequested = undefined
+    }
+    const recovery = supervisor.resyncWorker(a.desktopScope!.workerId)
+    supervisor.select(b.workerId)
+    const selected = supervisor.select(a.desktopScope!.workerId)
+    published.length = 0
+    workers[0].current = snapshot('/a', 4)
+    releaseFirst()
+    // Observe the original response while the selection-owned request remains pending.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(published.every((event) => event.event === 'sessions')).toBe(true)
+    workers[0].current = snapshot('/a', 5)
+    if (switchAgain) {
+      supervisor.select(b.workerId)
+      published.length = 0
+    }
+    releaseTrailing()
+    await recovery
+    expect(published.filter((event) => event.event === 'snapshot')).toEqual(
+      switchAgain
+        ? []
+        : [
+            expect.objectContaining({
+              data: expect.objectContaining({ revision: 5, desktopScope: selected.desktopScope })
+            })
+          ]
+    )
+    await supervisor.shutdown()
+  }
+)
+
+it('cleans up failed recovery without automatic retries and allows a later external retry', async () => {
+  const { supervisor, workers } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  let reject!: (error: Error) => void
+  workers[0].stateBarrier = new Promise((_, fail) => {
+    reject = fail
+  })
+  workers[0].commands.length = 0
+  const first = supervisor.resyncWorker(a.desktopScope!.workerId)
+  const burst = supervisor.resyncWorker(a.desktopScope!.workerId)
+  reject(new Error('unavailable'))
+  await expect(first).rejects.toThrow('unavailable')
+  await expect(burst).rejects.toThrow('unavailable')
+  expect(workers[0].commands).toHaveLength(1)
+  workers[0].stateBarrier = undefined
+  await supervisor.resyncWorker(a.desktopScope!.workerId)
+  expect(workers[0].commands).toHaveLength(2)
+  await supervisor.shutdown()
+})
+
+it('keeps the newest accepted generation when a captured recovery returns older native state', async () => {
+  const { supervisor, workers } = fixture()
+  const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+  let release!: () => void
+  workers[0].stateBarrier = new Promise((resolve) => {
+    release = resolve
+  })
+  const recovery = supervisor.resyncWorker(a.desktopScope!.workerId)
+  workers[0].options.onEvent({
+    type: 'event',
+    event: 'snapshot',
+    data: { ...snapshot('/a', 2), generation: 2 }
+  })
+  release()
+  await recovery
+  expect(workers[0].identities.at(-1)).toEqual({ sessionId: '/a', generation: 1 })
+  expect(supervisor.getSnapshot(a.desktopScope!.workerId)).toMatchObject({
+    generation: 2,
+    revision: 2
+  })
+  await supervisor.shutdown()
+})
+
+it.each(['exit', 'shutdown'] as const)(
+  'drops pending trailing recovery on worker %s',
+  async (ending) => {
+    const { supervisor, workers, published } = fixture()
+    const a = await supervisor.open({ cwd: '/project', path: '/a' }, null)
+    let release!: () => void
+    workers[0].stateBarrier = new Promise((resolve) => {
+      release = resolve
+    })
+    workers[0].commands.length = 0
+    const recovery = supervisor.resyncWorker(a.desktopScope!.workerId)
+    const result = recovery.catch(() => undefined)
+    supervisor.resyncWorker(a.desktopScope!.workerId).catch(() => undefined)
+    if (ending === 'exit') workers[0].options.onExit(new Error('exited'))
+    else await supervisor.shutdown()
+    published.length = 0
+    release()
+    await result
+    expect(workers[0].commands).toHaveLength(1)
+    expect(published).toHaveLength(0)
+    await supervisor.shutdown()
+  }
+)

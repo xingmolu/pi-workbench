@@ -120,7 +120,16 @@ export async function createUtilitySessionWorker(
       initial.snapshot.generation !== 0
     )
       throw new Error('会话进程启动状态无效')
-    return { request, dispose }
+    return {
+      request,
+      dispose,
+      getDiagnostics: () => ({
+        pid: child.pid ?? null,
+        pendingRequests: broker.pendingCount,
+        disposing,
+        exited
+      })
+    }
   } catch (error) {
     await dispose()
     throw error

@@ -46,6 +46,14 @@ function fail(code: keyof typeof messages): never {
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
+function supportedInput(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      ((value.length === 1 && value[0] === 'text') ||
+        (value.length === 2 && value.includes('text') && value.includes('image'))))
+  )
+}
 
 function parseDocument(text: string): Record<string, Record<string, unknown>> {
   const scanner = createScanner(text, true)
@@ -103,6 +111,7 @@ function project(
     models.some(
       (model) =>
         !object(model) ||
+        !supportedInput(model.input) ||
         (typeof model.id === 'string' && model.id !== model.id.trim()) ||
         [...routingFields, 'api', 'baseUrl'].some((field) => Object.hasOwn(model, field))
     )
@@ -119,6 +128,17 @@ function project(
     api: api.success ? api.data : null,
     baseUrl: url.success ? url.data : null,
     modelIds: ids.success ? ids.data : [],
+    imageModelIds: ids.success
+      ? models.flatMap((model) =>
+          object(model) &&
+          Array.isArray(model.input) &&
+          model.input.includes('image') &&
+          typeof model.id === 'string' &&
+          ids.data.includes(model.id)
+            ? [model.id]
+            : []
+        )
+      : [],
     editable,
     unsupportedReason: editable ? null : UNSUPPORTED
   }
@@ -258,7 +278,9 @@ export class CustomEndpointConfig {
             name: endpoint.label,
             api: endpoint.api,
             baseUrl: endpoint.baseUrl,
-            models: endpoint.modelIds.map((id) => ({ id }))
+            models: endpoint.modelIds.map((id) =>
+              endpoint.imageModelIds?.includes(id) ? { id, input: ['text', 'image'] } : { id }
+            )
           })
         } else {
           set(['providers', input.id, 'name'], endpoint.label)
@@ -271,7 +293,27 @@ export class CustomEndpointConfig {
           }
           const surviving = new Set(models.map((model) => model.id))
           for (const id of endpoint.modelIds) {
-            if (!surviving.has(id)) set(['providers', input.id, 'models', -1], { id })
+            if (!surviving.has(id))
+              set(
+                ['providers', input.id, 'models', -1],
+                endpoint.imageModelIds?.includes(id) ? { id, input: ['text', 'image'] } : { id }
+              )
+            else if (endpoint.imageModelIds) {
+              const originalIndex = models.findIndex((model) => model.id === id)
+              const model = models[originalIndex]
+              const desired = endpoint.imageModelIds.includes(id) ? ['text', 'image'] : ['text']
+              if (model.input === undefined && desired.length === 1) continue
+              if (JSON.stringify(model.input) !== JSON.stringify(desired)) {
+                // Removed models before this point shift the JSONC array index.
+                const removedBefore = models
+                  .slice(0, originalIndex)
+                  .filter((item) => !endpoint.modelIds.includes(item.id as string)).length
+                set(
+                  ['providers', input.id, 'models', originalIndex - removedBefore, 'input'],
+                  desired
+                )
+              }
+            }
           }
         }
         const bytes = Buffer.from(original.bom + text)

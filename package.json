@@ -11,10 +11,13 @@
     "smoke:electron-store": "npm run build && electron scripts/electron-store-smoke.cjs",
     "smoke:pty": "electron scripts/pty-smoke.cjs",
     "rebuild:pty": "electron-rebuild --force --only node-pty --version 44.1.0 --arch arm64",
+    "predev": "npm run build:native:mac",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "check:architecture": "node scripts/check-architecture.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "dev:renderer": "electron-vite dev --rendererOnly",
+    "prestart": "npm run build:native:mac",
     "start": "electron-vite preview",
     "build:native:mac": "node scripts/build-macos-computer-use-helper.cjs"
   },

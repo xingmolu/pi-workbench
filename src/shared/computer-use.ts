@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { axHitTargetSchema } from './desktop-control'
+import { axHitTargetSchema, DESKTOP_CONTROL_AX_LIMITS } from './desktop-control'
 
 export const COMPUTER_USE_LIMITS = {
   maxStateIdLength: 80,
@@ -36,6 +36,11 @@ export type ComputerUseFrameRect = z.infer<typeof computerUseFrameRectSchema>
 
 export const computerUseVisualFrameSchema = z
   .object({
+    scope: z.literal('window'),
+    sourceId: z
+      .string()
+      .regex(/^window:\d+:\d+$/)
+      .max(128),
     displayId: z.string().min(1).max(128),
     framePoints: computerUseFrameRectSchema,
     scaleFactor: z.number().finite().positive().max(8),
@@ -64,7 +69,7 @@ export const computerUseObservationSchema = z
     app: z.string().max(80),
     bundleId: z.string().max(80),
     truncated: z.boolean(),
-    elements: z.array(computerUseElementSchema).max(80),
+    elements: z.array(computerUseElementSchema).max(DESKTOP_CONTROL_AX_LIMITS.maxNodes),
     visual: computerUseVisualFrameSchema.optional()
   })
   .strict()
@@ -173,13 +178,16 @@ export function computerUseImagePointToScreenPoint(
   visual: ComputerUseVisualFrame,
   point: Extract<ComputerUseActionTarget, { kind: 'point' }>
 ): { x: number; y: number } {
+  const frameRatio = visual.framePoints.width / visual.framePoints.height
+  const imageRatio = visual.image.width / visual.image.height
+  if (Math.abs(frameRatio / imageRatio - 1) > 0.03) {
+    throw new Error('窗口截图与屏幕坐标比例不一致，请重新 observe')
+  }
   if (point.x >= visual.image.width || point.y >= visual.image.height) {
     throw new Error('视觉坐标超出截图范围，请重新 observe')
   }
   return {
-    x: Math.round(
-      visual.framePoints.x + (point.x / visual.image.width) * visual.framePoints.width
-    ),
+    x: Math.round(visual.framePoints.x + (point.x / visual.image.width) * visual.framePoints.width),
     y: Math.round(
       visual.framePoints.y + (point.y / visual.image.height) * visual.framePoints.height
     )

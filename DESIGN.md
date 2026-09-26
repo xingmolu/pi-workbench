@@ -1,85 +1,41 @@
-# Pi Desktop UI 设计（调研稿）
+# Pi Desktop UI 设计
 
-日期：2026-08-31（MVP 覆盖于 2026-09-02 根据竞品调研与 Workbench 插件落地更新）
-前提：新仓库。引擎用 `@earendil-works/pi-coding-agent` SDK。界面学 DSH 对话密度 + Codex 右侧工作台。不 fork DSH，不复用 Cordis slot 实现。
+Pi Desktop 是基于 `@earendil-works/pi-coding-agent` 的本地桌面客户端。界面以对话为主，左侧组织项目与会话，右侧按需展示文件、差异、终端和浏览器。每个区域都应反映真实运行状态，不展示尚未实现的操作入口。
 
----
+## 1. 产品目标
 
-## 1. 两边实际长什么样
-
-### DSH 对话区（要抄的）
-
-以下形态以官方截图和 `ui-conversation` / `ui-tool` 源码为基线；未能独立核验的旧截图细节单独标注：
-
-- 左栏：工作区树，会话挂在文件夹下；「新会话」和设置入口。旧截图中的“插件市场固定在底栏”未能从当前源码独立核验，不纳入 Pi 信息架构。
-- 中栏才是产品：空态 Hero（居中 slogan + 大输入框）→ 进会话后变成顶栏 + 节点流 + 底栏 composer。
-- 对话是文档流，不是 messenger。Pi MVP 选择**没有头像、消息上没有时间戳**（相对时间只在侧栏会话行）；这是自身产品取舍，不再作为当前 DSH 的事实归因。
-- Chat Node：
-  - 用户：右对齐深灰 **胶囊气泡**；steering（中途插入）同款
-  - 助手：**无气泡、贴画布** 的 Markdown，不要做成左右气泡对聊
-  - 结果操作：代码块工具栏复制/换行；表格工具栏复制、保存 CSV、只读预览。预览冻结点击版本并定位焦点，关闭回到原按钮；复制与保存使用独立反馈，不因另一个动作失败遮住结果。默认表格文本保护会给每格加单引号，原始值须显式选择并提示公式风险。整条回复复制保持原 Markdown。复用现有 HAST，不新造解析器；大小限制、纯文本回退与验收边界见 [Markdown 结果操作](docs/MARKDOWN_ACTIONS_ACCEPTANCE_2026-09-11.md)。
-  - 上下文注入：灰 metadata 行（「上下文注入 · @…」）
-  - Think：Pi 将连续思考/工具收为轻量「工作过程 · N 项」，完成默认折叠，展开保留明细与稳定状态；审批、失败、拒绝不能被收起遮住。当前尾段运行时显示真实运行工具，不把 queued 当执行中。不具备准确段级时钟时不展示秒数；旧竞品截图的精确文案不作为事实约束。
-  - 工具：流里的一行卡片（terminal / diff / read / search / web / generic），先 inline 展开；未来证据视图由显式 Inspect 动作打开
-  - 回答脚：复制、所选完成回复分叉、赞/踩统一轻量图标操作；最近用户问题保留编辑入口，代码和表格结果操作也图标化。赞踩仅本地 canonical 元数据、互斥可撤销，不发送服务商；消息分叉使用边界历史与模型，不以顶栏当前路径分叉冒充。两项均已独立审查，助手重试仍未实现。
-- 工具卡片按 intent 分型：`terminal` / `read` / `diff` / `search` / `web` / generic
-- DSH 点工具卡先 inline 展开，展开体里的 Inspect 才进入 trajectory / details。Pi 未来的证据视图也不能与 Workbench 混为一谈
-- 顶栏 Tabs：`对话` | `轨迹`。轨迹是虚拟化时间线 + 右侧 payload 检查器，和对话抢同一块主列
-- 列宽（最初调研时的官方 grid）：sidebar 默认 **280**（264–420，收起 56 rail）；当时 center 最小 **640**，`details` 默认 **0 关闭**（开时 360，300–520）。9/11 第一方源码复核显示 DSH 已改为 center 保护 400、右栏最小 300、默认 45%/最大 70%；详见 [桌面布局调研](docs/DESKTOP_LAYOUT_CAPABILITIES_2026-09-11.md)。这些是版本化参考，不作为 Pi 在 960 窗口强塞三栏的约束。我们的工作台独立设计，不复用 DSH tool inspector。
-- 内容轴：DSH 的 `--dsh-chat-content-width` 默认列宽 64%，夹在 680–920px，并提供拖拽。Pi MVP 目前只有响应式内容轴，用户拖拽宽度明确延期。
-- Composer 是对话列里一张大圆角卡片，不是浮层。工具行：`+` · 权限芯片 · 模型 · **ContextMeter 圆环** · **蓝色圆 Send**。运行中空草稿 → Stop；有字 → Queue Send。DSH 的 Queue / Steer 交互只作为参考；Pi MVP 已实现 follow-up 队列和清空全部，单项 steer 延期。`@` 文件/会话原子芯片与图片粘贴附件也明确延期。
-- Stats 贴在卡片 **下面**：`1轮 · 1步 | LLM 1.7s | 首 token 平均 0.9s · 121 tok/s | 缓存命中 0% | 输入 7.8K tok · 输出 102 tok`。没有的字段就丢掉，不要假造美元费用。
-- 主题：默认深色画布 `#0A0A0A`–`#121212`，composer `#1E1E1E`；外观可选浅色（暖白画布、灰阶层级）或实时跟随系统。两套配色共用语义变量，保持蓝色强调、圆角 8–16、正文 14。Hero slogan 才用衬线。
-
-**DSH 没有 Codex 那种持久右侧工作台。** 文件、终端、diff、浏览器都不占常驻右栏。
-
-### Codex 右侧（要抄的）
-
-参照的是 **ChatGPT 桌面 → Codex 模式**（2026-07-09 并进桌面端），不是 VS Code 扩展。VS Code 里的 Codex 只是聊天 webview，文件/终端/diff 仍是宿主 IDE。
-
-真实形状：**chat-first，证据在右**。中栏永远是对话；右栏是 mode picker + 内部 tabs，一次只显示一种工作台。不是 VS Code 活动栏，也不是 Claude Code 那种自由拼 pane。
-
-- 右栏 mode：Files / Review / Browser / Terminal / Side chat / Sources / Summary
-- 栏内可再开 tab：Review 常驻；`Cmd+P` 打开的文件变成 Review 旁边的 file tab；Browser 有自己的浏览器 tab
-- 文件树可以叠在打开文件的更右侧，不是用户自己拼的分屏
-- Terminal 有两个家：右栏 mode，以及独立底栏抽屉（`Cmd+J`）。**用户 PTY 和 agent 沙箱命令是分开的**——集成终端给用户敲，agent 可以读它，但 agent 自己的 bash 不往这只 PTY 里倒
-- Review 是 **Git 工作台**：Unstaged / Staged / Commit / Branch / **Last turn**，不是「本 session 的 edit 列表」
-- Browser：内嵌 Chromium，独立 profile；Annotating 可对页面元素留评论当指令
-- 跟随产物很克制：跑完打开 deliverable 文件；**不会每次 edit 都强制切到 Review**
-- 快捷键：`Cmd+B` 左栏，`Cmd+Opt+B` 侧栏/Review，`Cmd+Shift+B` 浏览器，`Ctrl+Shift+G` Review，`Ctrl+\`` 终端
-- 反面教材：右缘 36px hover 弹出（#21140）、宽度全局共享（community #1380238）、窄窗口多 pane 互挤。我们：显式开关、宽度按工作区记、无 hover 打开
-
-### 现有 Pi 桌面
-
-NativePi / PiDeck / DLYZZT 都是「自绘 UI + Pi SDK/RPC」，没有一家把 DSH Web UI 嵌进来。DLYZZT 的 Main + Agent Host `utilityProcess` + 自带浏览器 WebContentsView，最接近我们要的进程模型。
-
----
+- 项目与会话是导航和恢复的基本单位；切换会话不会中断其他会话的运行。
+- 对话按用户、助手、思考、工具、审批和错误呈现，保留完整历史与明确的执行状态。
+- 输入区集中显示权限、账号、模型、上下文和发送状态；运行时可 Stop 或排队后续消息。
+- 工作台默认收起，只在用户需要查看证据或操作工具时展开。
+- Renderer 只消费受验证的状态与能力，不直接读取 Pi 凭证、会话文件或系统资源。
 
 ## 2. 产品结构：三栏，不是两栏
 
-- **Sidebar（Project + Session，一等公民）**：学 DSH 左栏。Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
+- **Sidebar（Project + Session）**：Project = 文件夹 = Pi cwd。Session 挂在 project 下（标题 + 相对时间，运行蓝点，待确认琥珀点）。`Cmd+B` 收成 56px rail。文件树不在左栏。
 
 2026-09-15 侧栏可读性：项目／会话主文字 14px，日期和辅助文字 12px；使用侧栏语义颜色 `--sidebar-text` / `--sidebar-secondary`，选中底色 `--sidebar-selected`，不整体提亮对话画布。每项目默认显示最近 5 条；当前会话、运行／待审批／失败的常驻会话额外保留，明确“展开显示／收起历史”，展开后沿用原 50 条分页。运行状态与日期择一显示，避免挤压标题。同名项目显示最短可区分路径后缀，完整路径保留在 tooltip；失效目录保留提示与历史，不因样式调整删除项目或记录。
 
-会话身份以 SDK 的 session cwd 和经校验的项目归属为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径；当前归属检查优先比较 `realpath`，路径不可解析时回退 `resolve`，不回退进程 cwd。全局搜索保留 SDK 来源 cwd 与原 session path，打开时仍由 Main/Host 重新校验归属；项目目录列表对可用目录使用 canonical realpath。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。历史验证见 [验收记录](./docs/SESSION_CWD_ISOLATION_ACCEPTANCE_2026-09-11.md)；其早期 resolve-only 描述不代表当前实现。
+会话身份以 SDK 的 session cwd 和经校验的项目归属为准，不能把 CLI 编码目录等同于项目身份。列表与自动恢复过滤 SDK 公共 `SessionInfo.cwd`，要求绝对路径；当前归属检查优先比较 `realpath`，路径不可解析时回退 `resolve`，不回退进程 cwd。全局搜索保留 SDK 来源 cwd 与原 session path，打开时仍由 Main/Host 重新校验归属；项目目录列表对可用目录使用 canonical realpath。显式打开要求路径属于过滤后的候选，runtime factory 在创建 cwd 相关 services 前核验实际 manager cwd 与 factory cwd 均属于捕获的项目。保持 CLI 目录编码和 SDK 公共 open/create；legacy open 可能先迁移文件，这不是对外部恶意并发修改的 CAS 屏障。
 
-- **Conversation**：学 DSH 节点流。永远在。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
-- **Workbench**：按用户提供的 Codex 截图采用顶部显示/隐藏开关，默认零宽折叠，无常驻 mode rail。展开且没有已打开工具时居中显示纵向 registry 列表；打开后只显示已打开 contribution 的标签及 `+` 纵向菜单。每个 contribution 一个标签，保留浏览器/终端内部多标签；关闭最后一个工具返回空态。隐藏工作台或关闭外层终端标签不结束 PTY，结束仍需显式操作。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 都是真实 surface；不注册占位 Trace/侧边聊天。长列表滚动、长标签省略并保留完整名称。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽、键盘调整及同窗口宽度记忆；拖拽、设置弹窗和 `+` 菜单覆盖时隐藏原生 Browser/plugin view，结束后恢复并同步位置/尺寸，不销毁服务状态。设置打开时忽略后台 reveal。macOS 原生隐藏标题栏，保留红绿灯，三栏顶部 48px；窄对话区图标化既有操作，保留状态并将重复模型/权限信息留给 composer。跨重启、按工作区记宽度和 tab 恢复后做。见 [验收记录](docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
+- **Conversation**：使用文档流节点，始终保留在中栏。MVP 使用响应式内容轴；680–920px 用户可拖宽度是后续目标，本轮未实现。
+- **Workbench**：采用顶部显示/隐藏开关，默认零宽折叠，无常驻 mode rail。展开且没有已打开工具时居中显示纵向 registry 列表；打开后只显示已打开 contribution 的标签及 `+` 纵向菜单。每个 contribution 一个标签，保留浏览器/终端内部多标签；关闭最后一个工具返回空态。隐藏工作台或关闭外层终端标签不结束 PTY，结束仍需显式操作。Browser、Files、只读 Git Review、用户 Terminal 与 sandboxed plugin 都是真实 surface；不注册占位 Trace/侧边聊天。长列表滚动、长标签省略并保留完整名称。分栏使用 shadcn Resizable 同源的 react-resizable-panels，支持拖拽、键盘调整及同窗口宽度记忆；拖拽、设置弹窗和 `+` 菜单覆盖时隐藏原生 Browser/plugin view，结束后恢复并同步位置/尺寸，不销毁服务状态。设置打开时忽略后台 reveal。macOS 原生隐藏标题栏，保留红绿灯，三栏顶部 48px；窄对话区图标化既有操作，保留状态并将重复模型/权限信息留给 composer。跨重启、按工作区记宽度和 tab 恢复后做。
 
 过程 assistant 文本和 streaming 块没有完整回复操作栏。Host 完成标识 canonicalEntryId 存在时，仅同一回复的最后文本块显示一次；历史已完成回复不因后续 busy 消失。用户问题、代码和表格自身复制不变。
 
-这是基于 2026-09-01 竞品调研的阶段性覆盖：当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
+当前先保证对话、会话、账号、模型、审批、Context 和 Queue 的状态可信，不用空 Workbench 提前占据 360px。
 
-空态：DSH Hero。没选 project 时，中间对话区的 Hero 显示唯一主动作「选择工作区」。
+空态：没选 project 时，中间对话区显示唯一主动作「选择工作区」。
 
-## 3. 对话区：抄密度，不抄 Cordis
+## 3. 对话区
 
 2026-09-11 会话发现补充：对话顶栏提供“重命名会话”和“问题导航”两个紧凑文字按钮，窄窗口将模型、状态和运行权限移到下一行，保留核心入口。重命名使用局部 Popover 表单，共享名称校验，保存期间禁用重复提交；按会话身份和代际关闭旧表单，迟到响应不能影响新表单。只有 canonical 写入完成才更新标题，写盘失败复用显式引擎重连恢复已保存名称。
 
+多项目导航：左栏用项目分组与缩进单行会话替代单工作区列表，项目内可新建、折叠、直接打开目标会话；已加载标题搜索不伪称全库搜索，50 条分页、100 项目截断明确说明。只读目录使用公开 SDK 读取指定 sessions 根与一级 bucket，依据返回 cwd 归组而不解码 bucket；Main 只保存成功打开路径的 recentProjects。跨项目打开以 cwd/sessionPath/源身份单个串行意图执行，保留每会话草稿；局部错误与显式重试不被折叠或搜索遮住。文件链接目录保守跳过并提示，分页扫描成本尚未专项优化。
 
-当前路径分叉：顶栏独立确认入口写明未发送草稿不复制、文件与终端操作不撤销。Host 只允许已保存普通文件、当前路径有助手回复且无运行/等待操作的会话，验证提交时的 session/generation/leaf 后调用公开 SDK at-fork。子会话沿用 canonical 模型，来源草稿保留、子会话输入为空；侧栏使用来源元数据标记“分叉”，不为区分标题额外改写历史。来源路径只有在同项目 SDK 列表内才可导航。准备失败与可能已创建子会话的执行失败分别提示，失败后关闭核对再重新确认；不自动重试或删除可能留下的子文件。见 [分叉验收记录](docs/SESSION_FORK_ACCEPTANCE_2026-09-11.md)。
+当前路径分叉：顶栏独立确认入口写明未发送草稿不复制、文件与终端操作不撤销。Host 只允许已保存普通文件、当前路径有助手回复且无运行/等待操作的会话，验证提交时的 session/generation/leaf 后调用公开 SDK at-fork。子会话沿用 canonical 模型，来源草稿保留、子会话输入为空；侧栏使用来源元数据标记“分叉”，不为区分标题额外改写历史。来源路径只有在同项目 SDK 列表内才可导航。准备失败与可能已创建子会话的执行失败分别提示，失败后关闭核对再重新确认；不自动重试或删除可能留下的子文件。
 
-最近问题编辑（已通过独立审查）：仅当前分支最近 canonical user 展示入口，纯图片、首条问题和 user leaf 不遗漏。独立编辑草稿与普通 composer 分离，保留 Host 捕获的文本快照和图片，只修改问题文字。明确发送才以公开 SDK 父节点导航与扩展事件组合重新定位，保留当前模型/thinking，随后在原 JSONL 追加新路径；旧 entries 不删除，文件操作不回滚。发送 ID 去重，unknown 不自动重发；写盘不一致断连后，编辑区提供明确重连核对，保留两份草稿。编辑附件增删、任意历史编辑、旧分支选择、助手重试仍未实现。见 [编辑阶段验收](docs/SESSION_EDIT_ACCEPTANCE_2026-09-11.md)。
+最近问题编辑（已通过独立审查）：仅当前分支最近 canonical user 展示入口，纯图片、首条问题和 user leaf 不遗漏。独立编辑草稿与普通 composer 分离，保留 Host 捕获的文本快照和图片，只修改问题文字。明确发送才以公开 SDK 父节点导航与扩展事件组合重新定位，保留当前模型/thinking，随后在原 JSONL 追加新路径；旧 entries 不删除，文件操作不回滚。发送 ID 去重，unknown 不自动重发；写盘不一致断连后，编辑区提供明确重连核对，保留两份草稿。编辑附件增删、任意历史编辑、旧分支选择、助手重试仍未实现。
 
 侧栏标题搜索只作用于当前工作区已加载的会话，不增加全文索引；未选项目、无历史和无匹配结果分别展示。问题导航按当前 user 节点顺序列出摘要，长摘要省略并保留完整 tooltip；选择后关闭菜单、聚焦原问题并滚动到该处，Escape 则返回入口焦点。此动作只改变阅读位置，不切换 leaf、不修改模型或 transcript。既有中文字体、画布色、无头像与无消息时间戳继续保持。隔离 Electron 的常规/960px 截图用于布局验证，原生包验收仍待解锁后独立执行。
 
@@ -109,7 +65,7 @@ Terminal 采用持久挂载的 stage 和独立 controller，沿用中文、深�
 
 Git Review 提供“未暂存 / 已暂存 / 分支”三种只读范围，分别为 index→working tree、HEAD→index（支持 unborn）、用户明确选定引用与 HEAD 的 merge-base→HEAD。基准下拉区分本地与远端引用，不猜 main/master，也不 fetch。未跟踪文件与 tracked diff 分组，复用 Files 有界预览；逐文件加载并保留键盘焦点。采用 @pierre/diffs 1.4.2 的统一/分栏、语法和词级差异高亮，默认统一；始终可切换原始差异，长行横向滚动并显示非纯颜色的增删标记。只解析 patch，不额外获取完整旧/新文件，因此不承诺缺失上下文的多行词法准确度。当前有界主线程 JS 高亮，无 worker pool/虚拟化；解析失败、rawOnly 字节转义、大于 2,000 行或 200,000 字符显示完整原始文本；二进制/冲突/子模块/类型变化有明示，类型 patch 保留原文。切模式/文件通过 epoch 抑制迟到响应，不宣称取消 Main 进程；项目切换与引擎退出撤销 Main 能力，断线不展示旧差异，重连重新加载。未实现 Git 写入、Last turn、rename detection、冲突编辑。过滤器仓库明确拒绝扫描，安全边界不包含恶意本机进程或动态配置竞态。
 
-代码块和 Files 文本预览共用 Shiki 4.4.3：受控语言集合、GitHub 深浅主题、一个本地 JS regex worker。先提取原文再渲染 React tokens，复制不经过高亮 DOM；流式阶段纯文本，完成后异步着色，迟到结果不覆盖新内容或新主题。超过 100,000 字符或单行 4,000 字符保持完整原文；缓存键包含主题、语言和源码，至多 24 项/500,000 原文字符，同时最多 16 个请求，超量回退纯文本。未知语言回退纯文本，不注入消息 HTML、不开放 Node 或放宽 CSP。不提供额外语法主题市场；早期验证与构建成本见 [验收记录](docs/WORKBENCH_RENDERING_ACCEPTANCE_2026-09-13.md)。
+代码块和 Files 文本预览共用 Shiki 4.4.3：受控语言集合、GitHub 深浅主题、一个本地 JS regex worker。先提取原文再渲染 React tokens，复制不经过高亮 DOM；流式阶段纯文本，完成后异步着色，迟到结果不覆盖新内容或新主题。超过 100,000 字符或单行 4,000 字符保持完整原文；缓存键包含主题、语言和源码，至多 24 项/500,000 原文字符，同时最多 16 个请求，超量回退纯文本。未知语言回退纯文本，不注入消息 HTML、不开放 Node 或放宽 CSP。
 
 Files 使用原生 disclosure 按钮懒加载目录，文件名搜索与隐藏文件开关都受 Main 项目边界约束；搜索跳过依赖和构建目录，截断明确提示。预览限 1 MiB UTF-8 普通文件，以转义纯文本呈现并容纳长行横向滚动，可换行、复制内容/相对路径、刷新或返回原目录。二进制、超限、权限错误有独立反馈，符号链接不可用；切换项目清空目录、搜索与预览，在途旧响应不能回填。无编辑、删除、重命名或自动对话附件。
 
@@ -117,7 +73,7 @@ Browser 已实现为 Main 持有的 native `WebContentsView`：按 project 隔�
 
 第三方 Desktop UI 当前只开放包内静态 `sandboxed-web` surface。用户插件由 `~/.pi/agent/desktop-plugins/<id>/pi-desktop.json` 手工发现；与 Pi package 并置的 manifest 只从 Agent Host 当前实际加载的 package-scoped Skill/Extension root 发现，不扫描任意 project。Main 在 manifest discovery 前按 canonical realpath 合并两类 root，scope 以 project 优先并对可执行 Pi resource 标记取 OR，因此同目录或符号链接别名不会形成伪重复、也不会隐藏代码信任警告。root、entry、Pi `baseDir` 与 loader 原始 `source` 都留在 Host 边界；Renderer 只得到固定来源类别及 manifest 身份信息。面板运行在独立、非持久 partition 的 Main-owned `WebContentsView`，Node/Electron/Pi 均不可见，只得到带 generation 的四方法 `window.piPlugin` context/state bridge；网络、权限、导航、popup 和下载默认拒绝。设置里的 Desktop 开关只控制右栏 contribution，不卸载或停用 Pi resource。
 
-manifest 的 `permissions` 当前只用于清单展示，并不授予文件、shell、browser 或 network capability；第三方 command、native surface/backend 和 MCP Apps 尚未开放。Pi extension 仍是 Agent Host 中的可信本机用户代码，不是 sandbox。完整作者与安全边界见 [docs/WORKBENCH_PLUGIN_ARCHITECTURE.md](./docs/WORKBENCH_PLUGIN_ARCHITECTURE.md)。
+manifest 的 `permissions` 当前只用于清单展示，并不授予文件、shell、browser 或 network capability；第三方 command、native surface/backend 和 MCP Apps 尚未开放。Pi extension 仍是 Agent Host 中的可信本机用户代码，不是 sandbox。
 
 ### Skills
 
@@ -141,7 +97,7 @@ MCP 是 Pi inline extension + 官方稳定 MCP SDK 的窄工具桥，不是自�
 - 多号：别名槽 `openai-codex-<slug>`，不覆盖主机 `~/.codex`。
 - 延期：检测并导入 `~/.codex/auth.json` 只是便利能力，本轮未实现；没装 CLI 的人已经可以通过 Pi `/login` 直登。
 
-**Claude**：Pi `/login anthropic` 是 extra usage，不是 Claude Code 套餐限额。不要默认导入 Claude Code token。这是本产品要求持续显示的政策文案。
+**Anthropic**：Pi `/login anthropic` 的用量口径由该连接方式决定，不应显示成其他客户端的订阅额度，也不默认导入其他客户端凭证。
 
 **自定义端点**：独立设置组件提供 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages，不把两种 OpenAI 协议混用。全局 Pi 配置影响所有项目及 CLI，新增端点不自动选中。使用 jsonc-parser 局部编辑 canonical models.json，凭证只调用公开 ModelRuntime login；高级配置保守只读，损坏/过期文件不覆盖。只返回白名单元数据，密码本地组件态、从不回填，提交/关闭清空；编辑留空保留现有 key。CLI `models.json` 里已有、且运行时已具备可用模型的 provider（含非 `custom-*`、带嵌入 `apiKey` 的只读项）会出现在 composer 账号菜单中供显式选择；没有可用认证的端点仍不能发送。
 
@@ -173,7 +129,7 @@ Renderer (React) — 零 Node、零 Electron、零 Pi import。typed IPC。Main�
 
 ## 8. 明确不做什么
 
-不 load DSH Web UI；不把 pi-web-ui 当主界面；不 fork dsh-desktop；不自造 OAuth；不把 Codex 做成只能导入 CLI；不把 Agent 端口转到公网；手机 MVP 不做工作台；不做多账号自动 failover。Workbench 当前不做 marketplace、签名/自动更新、远端 entry、第三方 native/module/backend、通用 agent command binding 或 MCP Apps，也不把 Pi extension 宣传成 sandboxed code。
+不加载第三方 Web UI，不自造 OAuth，不把 Codex 做成只能导入 CLI，不把 Agent 端口转到公网；手机 MVP 不做工作台，也不做多账号自动 failover。Workbench 当前不做 marketplace、签名/自动更新、远端 entry、第三方 native/module/backend、通用 agent command binding 或 MCP Apps，也不把 Pi extension 宣传成 sandboxed code。
 
 ## 9. 建议落地顺序
 

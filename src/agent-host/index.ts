@@ -1,3 +1,5 @@
+import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseRecoveryFence } from './computer-use-execution'
+import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
 import { ProjectMutationClient } from './project-mutation-client'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
@@ -60,9 +62,6 @@ import {
   type ComputerUseCapabilityCancel,
   type ComputerUseCapabilityRequest,
   type ComputerUseCapabilityResponse,
-  type DesktopControlCapabilityCancel,
-  type DesktopControlCapabilityRequest,
-  type DesktopControlCapabilityResponse,
   type HostMessage,
   type HostRequest,
   type HostResult,
@@ -82,7 +81,6 @@ import {
   browserCapabilityResponseSchema,
   browserOperationSchema,
   computerUseCapabilityResponseSchema,
-  desktopControlCapabilityResponseSchema,
   hostRequestSchema
 } from '../shared/schemas'
 import {
@@ -90,12 +88,6 @@ import {
   type ComputerUseOperation,
   type ComputerUseResult
 } from '../shared/computer-use'
-import {
-  desktopControlAgentOperationSchema,
-  desktopControlAskDecision,
-  type DesktopControlAgentOperation,
-  type DesktopControlAgentResult
-} from '../shared/desktop-control'
 import { projectedSessionStatus, projectSessionTitle } from '../shared/session-presentation'
 import { createStatePatch } from '../shared/state-patch'
 import { resolveAgentDirectory } from '../main/e2e-temp-directory'
@@ -189,7 +181,9 @@ function projectSessionDirectory(cwd: string): string {
 }
 const ALIAS_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_TOOL_OUTPUT = 12_000
-const MESSAGE_UPDATE_BATCH_MS = 32
+// Keep streamed output responsive without reparsing a growing transcript on nearly every token burst.
+// 80 ms caps presentation updates at ~12.5 fps instead of ~31 fps.
+const MESSAGE_UPDATE_BATCH_MS = 80
 const BROWSER_TOOL_PARAMETERS = Type.Object({
   action: Type.Union([
     Type.Literal('tabs'),
@@ -226,55 +220,6 @@ const BROWSER_TOOL_PARAMETERS = Type.Object({
   text: Type.Optional(Type.String()),
   timeoutMs: Type.Optional(Type.Number({ minimum: 1, maximum: 30000 }))
 })
-const COMPUTER_USE_TOOL_PARAMETERS = Type.Union([
-  Type.Object({
-    action: Type.Literal('observe'),
-    mode: Type.Optional(
-      Type.Union([Type.Literal('semantic'), Type.Literal('visual'), Type.Literal('fused')])
-    )
-  }),
-  Type.Object({
-    action: Type.Literal('search'),
-    stateId: Type.String({ minLength: 1, maxLength: 80 }),
-    query: Type.String({ minLength: 1, maxLength: 200 })
-  }),
-  Type.Object({
-    action: Type.Literal('inspect'),
-    stateId: Type.String({ minLength: 1, maxLength: 80 }),
-    ref: Type.String({ pattern: '^@e[1-9]\\d*$' })
-  }),
-  Type.Object({
-    action: Type.Literal('act'),
-    stateId: Type.String({ minLength: 1, maxLength: 80 }),
-    target: Type.Union([
-      Type.Object({
-        kind: Type.Literal('ref'),
-        ref: Type.String({ pattern: '^@e[1-9]\\d*$' })
-      }),
-      Type.Object({
-        kind: Type.Literal('point'),
-        x: Type.Number({ minimum: 0, maximum: 10000 }),
-        y: Type.Number({ minimum: 0, maximum: 10000 })
-      })
-    ]),
-    intent: Type.Union([Type.Literal('press'), Type.Literal('move'), Type.Literal('type')]),
-    text: Type.Optional(Type.String({ minLength: 1, maxLength: 200 }))
-  })
-])
-
-const DESKTOP_TOOL_PARAMETERS = Type.Object({
-  action: Type.Union([
-    Type.Literal('dump'),
-    Type.Literal('hit_test'),
-    Type.Literal('click'),
-    Type.Literal('move'),
-    Type.Literal('type')
-  ]),
-  x: Type.Optional(Type.Number({ minimum: -100000, maximum: 100000 })),
-  y: Type.Optional(Type.Number({ minimum: -100000, maximum: 100000 })),
-  button: Type.Optional(Type.Union([Type.Literal('left'), Type.Literal('right')])),
-  text: Type.Optional(Type.String({ minLength: 1, maxLength: 200 }))
-})
 
 type PiSdk = typeof import('@earendil-works/pi-coding-agent')
 
@@ -309,8 +254,6 @@ function send(
     | BrowserCapabilityCancel
     | ComputerUseCapabilityRequest
     | ComputerUseCapabilityCancel
-    | DesktopControlCapabilityRequest
-    | DesktopControlCapabilityCancel
     | PiPackageRootsMessage
 ): void {
   if (displayQuarantine.failed) return
@@ -486,14 +429,6 @@ class PiDesktopHost {
       reject: (error: Error) => void
     }
   >()
-  private pendingDesktopControlCapabilities = new Map<
-    string,
-    {
-      resolve: (result: DesktopControlAgentResult) => void
-      reject: (error: Error) => void
-    }
-  >()
-
   private readEndpointSafety(): EndpointSafety {
     const session = this.runtime?.session
     const sessionId = session?.sessionManager.getSessionId() ?? null
@@ -827,7 +762,7 @@ class PiDesktopHost {
       name: 'pi-desktop-permissions',
       factory: (pi) => {
         pi.on('tool_call', async (event, ctx) => {
-          if (!['bash', 'powershell', 'write', 'edit', 'browser', 'computer', 'desktop'].includes(event.toolName)) {
+          if (!['bash', 'powershell', 'write', 'edit', 'browser', 'computer'].includes(event.toolName)) {
             return undefined
           }
           if (event.toolName === 'browser') {
@@ -838,11 +773,6 @@ class PiDesktopHost {
             ) {
               return undefined
             }
-          }
-          if (event.toolName === 'desktop') {
-            const decision = desktopControlAskDecision(event.input)
-            if (decision.kind === 'skip') return undefined
-            if (decision.kind === 'block') return { block: true, reason: decision.reason }
           }
           if (event.toolName === 'computer') {
             const parsed = computerUseOperationSchema.safeParse(event.input)
@@ -859,14 +789,13 @@ class PiDesktopHost {
             detail: presentation.detail
           }
           try {
-            const alwaysAsk = event.toolName === 'desktop' || event.toolName === 'computer'
+            const alwaysAsk = event.toolName === 'computer'
             const allowed =
               (!alwaysAsk && this.permissionMode === 'open') ||
               (await ctx.ui.confirm('允许 Pi 执行此操作？', presentation.detail))
             if (!allowed) return { block: true, reason: '用户拒绝了这次工具调用' }
             if (
               event.toolName !== 'browser' &&
-              event.toolName !== 'desktop' &&
               event.toolName !== 'computer'
             ) {
               const sessionId = this.runtime?.session.sessionManager.getSessionId()
@@ -952,6 +881,9 @@ class PiDesktopHost {
     return {
       name: 'pi-desktop-computer-use-v2',
       factory: (pi) => {
+        const recovery = new ComputerUseRecoveryFence()
+        pi.on('before_agent_start', async () => { recovery.reset() })
+        pi.on('tool_call', async event => recovery.check(event.toolName, event.input))
         pi.registerTool<typeof COMPUTER_USE_TOOL_PARAMETERS, ComputerUseResult>({
           name: 'computer',
           label: 'Computer Use',
@@ -959,7 +891,8 @@ class PiDesktopHost {
             '宿主级 Computer Use。observe 默认 fused：返回不可变 stateId、可访问性 @e refs，并在可用时附带桌面截图。优先用 ref 操作语义控件；Canvas/WebGL 等无语义目标时，可用当前截图像素 point。所有 act 都会审批，旧 state、显示器变化或过期视觉状态会被拒绝。',
           promptSnippet: '通过 stateId、语义 refs 和绑定截图安全读取与操作桌面 UI',
           promptGuidelines: [
-            'Start with computer observe; fused is the default and may fall back to semantic or visual depending on permissions.',
+            'Start with computer observe; text-only or unknown model capabilities use semantic mode. Visual observation and screenshot points require a model configured for image input.',
+            COMPUTER_USE_RECOVERY_GUIDELINE,
             'Prefer target kind=ref from the current state. Use target kind=point only for visible targets without a usable ref.',
             'Point x/y are pixels in the screenshot attached to that exact stateId, never global desktop coordinates.',
             'If act reports stale or expired state, observe again before acting.',
@@ -967,63 +900,10 @@ class PiDesktopHost {
           ],
           executionMode: 'sequential',
           parameters: COMPUTER_USE_TOOL_PARAMETERS,
-          execute: async (_toolCallId, params, signal) => {
+          execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
             const operation = computerUseOperationSchema.parse(params)
-            const result = await this.callComputerUse(operation, signal)
-            const visual =
-              result.kind === 'observation'
-                ? result.visual
-                : result.kind === 'action'
-                  ? result.observation.visual
-                  : undefined
-            const text = JSON.stringify(result, (key, value) =>
-              key === 'data' && typeof value === 'string' && value.length > 1000
-                ? '[desktop screenshot attached separately]'
-                : value
-            )
-            if (visual) {
-              return {
-                content: [
-                  { type: 'text', text },
-                  { type: 'image', data: visual.image.data, mimeType: visual.image.mimeType }
-                ],
-                details: result
-              }
-            }
-            return { content: [{ type: 'text', text }], details: result }
-          }
-        })
-      }
-    }
-  }
-
-  private desktopExtension(): InlineExtension {
-    return {
-      name: 'pi-desktop-computer-use',
-      factory: (pi) => {
-        pi.registerTool<typeof DESKTOP_TOOL_PARAMETERS, DesktopControlAgentResult>({
-          name: 'desktop',
-          label: '桌面',
-          description:
-            '读取和解锁后的 macOS 桌面：dump 获取有界辅助功能树，hit_test 用坐标命中控件，click/move/type 在用户确认后发送输入。不要索取或发送整屏截图；点击前先 dump 或 hit_test。锁屏、未授权屏幕录制或辅助功能时必须停止。',
-          promptSnippet: '读取 macOS 辅助功能树，并在用户确认后点击或输入',
-          promptGuidelines: [
-            'Use desktop dump or hit_test before click/move/type. Never request raw screenshots.',
-            'Clicks, moves, and typing always require user Ask approval, even in open permission mode.',
-            'Refuse when the session is locked or Screen Recording / Accessibility is not granted.'
-          ],
-          executionMode: 'sequential',
-          parameters: DESKTOP_TOOL_PARAMETERS,
-          execute: async (_toolCallId, params, signal) => {
-            const operation = desktopControlAgentOperationSchema.parse(params)
-            const result = await this.callDesktopControl(operation, signal)
-            const text =
-              result.kind === 'dump'
-                ? JSON.stringify(result.dump)
-                : result.kind === 'hit-test'
-                  ? JSON.stringify({ app: result.app, target: result.target })
-                  : result.message
-            return { content: [{ type: 'text', text }], details: result }
+            return executeComputerUse(operation, ctx.model?.input,
+              (request, abortSignal) => this.callComputerUse(request, abortSignal), signal, reason => recovery.update(reason))
           }
         })
       }
@@ -1130,56 +1010,6 @@ class PiDesktopHost {
     this.pendingComputerUseCapabilities.clear()
   }
 
-  private callDesktopControl(
-    operation: DesktopControlAgentOperation,
-    signal?: AbortSignal
-  ): Promise<DesktopControlAgentResult> {
-    if (signal?.aborted) return Promise.reject(new Error('桌面控制操作已停止'))
-    const requestId = randomUUID()
-    return new Promise((resolve, reject) => {
-      const onAbort = (): void => {
-        this.pendingDesktopControlCapabilities.delete(requestId)
-        send({ type: 'capability-cancel', capability: 'desktop-control', requestId })
-        reject(new Error('桌面控制操作已停止'))
-      }
-      signal?.addEventListener('abort', onAbort, { once: true })
-      this.pendingDesktopControlCapabilities.set(requestId, {
-        resolve: (result) => {
-          signal?.removeEventListener('abort', onAbort)
-          resolve(result)
-        },
-        reject: (error) => {
-          signal?.removeEventListener('abort', onAbort)
-          reject(error)
-        }
-      })
-      send({
-        type: 'capability-request',
-        capability: 'desktop-control',
-        requestId,
-        sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
-        generation: this.sessionGeneration,
-        operation
-      })
-    })
-  }
-
-  acceptDesktopControlCapabilityResponse(response: DesktopControlCapabilityResponse): void {
-    const pending = this.pendingDesktopControlCapabilities.get(response.requestId)
-    if (!pending) return
-    this.pendingDesktopControlCapabilities.delete(response.requestId)
-    if (response.ok) pending.resolve(response.data)
-    else pending.reject(new Error(response.error))
-  }
-
-  private rejectDesktopControlCapabilities(reason: string): void {
-    for (const [requestId, pending] of this.pendingDesktopControlCapabilities) {
-      send({ type: 'capability-cancel', capability: 'desktop-control', requestId })
-      pending.reject(new Error(reason))
-    }
-    this.pendingDesktopControlCapabilities.clear()
-  }
-
   private createUiContext(): ExtensionUIContext {
     const unsupported = async (): Promise<undefined> => undefined
     return {
@@ -1268,10 +1098,10 @@ class PiDesktopHost {
         resourceLoaderOptions: {
           additionalExtensionPaths: extensionPath ? [extensionPath] : [],
           extensionFactories: [
+            // Reject unavailable-desktop fallbacks before requesting tool approval.
+            this.computerUseExtension(),
             this.permissionExtension(),
             this.browserExtension(),
-            this.computerUseExtension(),
-            this.desktopExtension(),
             this.historyExtension(),
             createSessionTaskExtension(),
             mcp.extension()
@@ -1708,7 +1538,8 @@ class PiDesktopHost {
       id: model.id,
       name: model.name,
       contextWindow: model.contextWindow,
-      reasoning: model.reasoning
+      reasoning: model.reasoning,
+      input: model.input
     }
   }
 
@@ -2616,7 +2447,6 @@ class PiDesktopHost {
     this.sessionEdits.invalidate()
     this.rejectBrowserCapabilities('会话已切换，浏览器操作已取消')
     this.rejectComputerUseCapabilities('会话已切换，Computer Use 操作已取消')
-    this.rejectDesktopControlCapabilities('会话已切换，桌面控制操作已取消')
     this.rejectApprovals(true, 'session-switch')
     this.history.detach()
     this.historyObserver.clear()
@@ -2647,11 +2477,6 @@ process.parentPort.on('message', (event) => {
   const computerCapabilityResponse = computerUseCapabilityResponseSchema.safeParse(event.data)
   if (computerCapabilityResponse.success) {
     host.acceptComputerUseCapabilityResponse(computerCapabilityResponse.data)
-    return
-  }
-  const desktopCapabilityResponse = desktopControlCapabilityResponseSchema.safeParse(event.data)
-  if (desktopCapabilityResponse.success) {
-    host.acceptDesktopControlCapabilityResponse(desktopCapabilityResponse.data)
     return
   }
   const parsed = hostRequestSchema.safeParse(event.data)

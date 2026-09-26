@@ -17,6 +17,9 @@ function render(patch: Partial<ComponentProps<typeof DesktopControlPanel>> = {})
     <DesktopControlPanel
       permission={unsupported}
       accessibility={unsupported}
+      screenProbeFailed={false}
+      accessibilityProbeFailed={false}
+      activeModel={null}
       sources={[]}
       truncated={false}
       probed={false}
@@ -45,14 +48,12 @@ it('shows the permission chips and macOS-only copy', () => {
   expect(render()).toContain('不支持')
   expect(render()).toContain('打开系统设置（屏幕录制）')
   expect(render()).toContain('打开系统设置（辅助功能）')
-  expect(render()).toContain('刷新 / 试截取')
+  expect(render()).toContain('重新检测权限')
   expect(render()).toContain('读取窗口结构')
   expect(render()).toContain('确认点击')
   expect(render()).toContain('辅助功能')
-  expect(render()).toContain('adhoc')
   expect(render()).toContain('Cmd+Q')
-  expect(render()).toContain('Electron')
-  expect(render()).toContain('Ask')
+  expect(render()).toContain('点击和输入仍需逐次确认')
   expect(
     render({ permission: { ...unsupported, access: 'granted', canOpenSettings: true } })
   ).toContain('已授权')
@@ -60,6 +61,24 @@ it('shows the permission chips and macOS-only copy', () => {
   expect(render({ permission: { ...unsupported, access: 'restricted' } })).toContain('受限')
   expect(render({ permission: { ...unsupported, access: 'pending' } })).toContain('待确认')
   expect(render()).toContain('disabled=""')
+})
+
+it('separates untested, failed and unsupported permission states', () => {
+  const untested = render({ permission: null, accessibility: null })
+  expect(untested).toContain('待检测')
+  expect(untested).not.toContain('不支持')
+  expect(untested).toContain('打开系统设置（辅助功能）')
+  expect(render({ permission: null, screenProbeFailed: true })).toContain('检测失败')
+  expect(render({ accessibility: null, pending: 'sources' })).toContain('检测中')
+})
+
+it('explains the selected model image configuration without claiming remote support', () => {
+  expect(render({ activeModel: { name: 'GLM', acceptsImages: false } })).toContain(
+    '未声明图像输入能力；Computer Use 只能使用辅助功能读取界面'
+  )
+  expect(render({ activeModel: { name: 'Vision', acceptsImages: true } })).toContain(
+    '已配置图像输入；截图仍需屏幕录制授权'
+  )
 })
 
 it('renders a bounded thumbnail gallery after a successful probe', () => {

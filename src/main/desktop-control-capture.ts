@@ -15,6 +15,7 @@ import {
   type DesktopControlCommand,
   type DesktopControlPermission,
   type DesktopControlResult,
+  type DesktopWindowTarget,
   type MediaAccessStatus
 } from '../shared/desktop-control'
 import {
@@ -57,6 +58,8 @@ export type DesktopCaptureDeps = {
   getDisplays?: () => readonly DesktopDisplayMetrics[]
   openExternal: (url: string) => Promise<void>
 }
+
+export class TargetCaptureError extends Error {}
 
 function boundText(value: string, max: number): string {
   return value.replaceAll('\0', '').slice(0, max)
@@ -107,8 +110,14 @@ function toSource(input: DesktopCapturerSourceInput): CaptureSource | null {
 }
 
 function overlapArea(left: ComputerUseFrameRect, right: ComputerUseFrameRect): number {
-  const x = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x))
-  const y = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y))
+  const x = Math.max(
+    0,
+    Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x)
+  )
+  const y = Math.max(
+    0,
+    Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y)
+  )
   return x * y
 }
 
@@ -241,21 +250,23 @@ export class DesktopCapture {
   readDisplays(): readonly DesktopDisplayMetrics[] {
     if (this.deps.platform !== 'darwin' || !this.deps.getDisplays) return []
     try {
-      return this.deps.getDisplays().filter(
-        (display) =>
-          display.id &&
-          display.bounds.width > 0 &&
-          display.bounds.height > 0 &&
-          Number.isFinite(display.scaleFactor) &&
-          display.scaleFactor > 0
-      )
+      return this.deps
+        .getDisplays()
+        .filter(
+          (display) =>
+            display.id &&
+            display.bounds.width > 0 &&
+            display.bounds.height > 0 &&
+            Number.isFinite(display.scaleFactor) &&
+            display.scaleFactor > 0
+        )
     } catch {
       return []
     }
   }
 
   async captureVisualFrame(
-    preferredBounds?: ComputerUseFrameRect,
+    target: DesktopWindowTarget,
     signal?: AbortSignal
   ): Promise<ComputerUseVisualFrame> {
     if (signal?.aborted) throw new Error('Computer Use 操作已停止')
@@ -263,30 +274,39 @@ export class DesktopCapture {
     if (!permission.platformSupported) throw new Error('视觉 Computer Use 当前仅支持 macOS')
     if (!permission.canCapture) throw new Error('屏幕录制受系统策略限制，无法读取桌面图像')
 
-    const display = chooseDisplay(this.readDisplays(), preferredBounds)
-    if (!display) throw new Error('无法读取显示器信息')
-    const requestedSize = targetImageSize(display.bounds)
+    const display = chooseDisplay(this.readDisplays(), target.frame)
+    if (!display || overlapArea(display.bounds, target.frame) <= 0) {
+      if (permission.access !== 'granted') throw new Error('屏幕录制不可用，请确认授权后重试')
+      throw new TargetCaptureError('目标窗口不在可用显示器内')
+    }
+    const requestedSize = targetImageSize(target.frame)
 
     const sources = await this.deps.getSources({
-      types: ['screen'],
+      types: ['window'],
       thumbnailSize: requestedSize,
       fetchWindowIcons: false
     })
     if (signal?.aborted) throw new Error('Computer Use 操作已停止')
 
-    const exact = sources.find(
-      (source) => source.display_id && source.display_id === String(display.id)
-    )
-    const source = exact ?? (sources.length === 1 ? sources[0] : null)
-    if (!source) throw new Error('无法将桌面截图与目标显示器对应，请重新 observe')
+    const matched = sources.filter((source) => {
+      const match = /^window:(\d+):\d+$/.exec(source.id)
+      return match && Number(match[1]) === target.windowId
+    })
+    if (matched.length !== 1) {
+      if (sources.length === 0 && permission.access !== 'granted') {
+        throw new Error('屏幕录制尚未返回窗口图像，请确认授权后重试')
+      }
+      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+    }
+    const source = matched[0]
     if (source.thumbnail.isEmpty?.()) {
-      throw new Error('屏幕录制未返回图像，请确认授权后重试')
+      throw new Error('屏幕录制未返回目标窗口图像，请确认授权后重试')
     }
 
     let image = source.thumbnail
     const initial = image.getSize?.()
     if (!initial || initial.width <= 0 || initial.height <= 0) {
-      throw new Error('桌面截图尺寸无效')
+      throw new Error('目标窗口截图尺寸无效')
     }
     if (
       Math.max(initial.width, initial.height) > COMPUTER_USE_LIMITS.maxImageDimension &&
@@ -299,14 +319,21 @@ export class DesktopCapture {
       })
     }
     const size = image.getSize?.() ?? initial
+    const frameRatio = target.frame.width / target.frame.height
+    const imageRatio = size.width / size.height
+    if (Math.abs(frameRatio / imageRatio - 1) > 0.03) {
+      throw new TargetCaptureError('窗口截图与目标窗口尺寸不一致，请重新 observe')
+    }
     const data = pngBase64(image)
     if (!data || data.length > COMPUTER_USE_LIMITS.maxImageDataLength) {
       throw new Error('桌面截图超过 Computer Use 图像上限')
     }
 
     return computerUseVisualFrameSchema.parse({
+      scope: 'window',
+      sourceId: source.id,
       displayId: display.id,
-      framePoints: display.bounds,
+      framePoints: target.frame,
       scaleFactor: display.scaleFactor,
       capturedAt: Date.now(),
       image: {

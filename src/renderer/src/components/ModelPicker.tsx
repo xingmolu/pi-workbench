@@ -26,6 +26,11 @@ export default function ModelPicker({
   const current = snapshot.models.find(
     (model) => model.provider === snapshot.activeProvider && model.id === snapshot.activeModel
   )
+  const currentImageStatus = current
+    ? current.input?.includes('image')
+      ? '已配置图像输入'
+      : '未声明图像输入能力'
+    : '未选择模型'
   const account = snapshot.accounts.find((item) => item.id === snapshot.activeProvider)
   useEffect(() => {
     onOpenChange(false)
@@ -49,7 +54,7 @@ export default function ModelPicker({
         title={
           snapshot.busy
             ? '运行结束后可以切换模型'
-            : `${account?.name ?? '账号'} · ${current?.name ?? '选择模型'}`
+            : `${account?.name ?? '账号'} · ${current?.name ?? '选择模型'} · ${currentImageStatus}`
         }
       >
         <span>{current?.name ?? '选择模型'}</span>
@@ -97,7 +102,7 @@ export default function ModelPicker({
                           <strong>{model.name}</strong>
                           <small>
                             {model.unavailableReason ??
-                              `${formatTokens(model.contextWindow)} 上下文`}
+                              `${formatTokens(model.contextWindow)} 上下文 · ${model.input?.includes('image') ? '已配置图像输入' : '未声明图像输入能力'}`}
                           </small>
                         </span>
                         {model.provider === snapshot.activeProvider &&

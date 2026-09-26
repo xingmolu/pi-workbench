@@ -83,7 +83,7 @@ it('keeps a timed-out fork uncertain after an ordinary idle snapshot', async () 
       data: children[index].state
     })
   }
-  expect(controller.pool.quiescent).toBe(true)
+  expect(controller.quiescent).toBe(true)
   const broker = new HostResponseBroker({ timeoutMs: 1 })
   const fork: HostCommand = {
     type: 'session:fork',
@@ -92,24 +92,24 @@ it('keeps a timed-out fork uncertain after an ordinary idle snapshot', async () 
     entryId: 'leaf'
   }
   children[0].pending = broker.request(fork, () => {})
-  await expect(controller.pool.request(a.desktopScope!, fork)).rejects.toThrow('请求超时')
+  await expect(controller.requestWorker(a.desktopScope!.workerId, fork, { sessionId: a.sessionId, generation: a.generation })).rejects.toThrow('请求超时')
   children[0].pending = undefined
   children[0].options.onEvent({
     type: 'event',
     event: 'snapshot',
     data: { ...children[0].state, revision: 3 }
   })
-  expect(controller.pool.quiescent).toBe(false)
+  expect(controller.quiescent).toBe(false)
   await expect(controller.open({ cwd: '/project' }, b.desktopScope!)).rejects.toThrow(
     '常驻会话已达上限'
   )
-  expect(controller.pool.getSnapshot(a.desktopScope!.workerId)?.sessionId).toBe(a.sessionId)
+  expect(controller.getSnapshot(a.desktopScope!.workerId)?.sessionId).toBe(a.sessionId)
 })
 it('keeps the worker quiescent after an explicit completed model rejection', async () => {
   const { controller, children } = fixture()
   const a = await controller.open({ cwd: '/project' }, null)
   children[0].options.onEvent({ type: 'event', event: 'snapshot', data: { ...a, revision: 2 } })
-  expect(controller.pool.quiescent).toBe(true)
+  expect(controller.quiescent).toBe(true)
   const command: HostCommand = { type: 'model:set', providerId: 'missing', modelId: 'unavailable' }
   const broker = new HostResponseBroker()
   children[0].pending = broker.request(command, (request) => {
@@ -121,7 +121,7 @@ it('keeps the worker quiescent after an explicit completed model rejection', asy
     })
   })
   await expect(controller.request(command)).rejects.toThrow('模型不可用')
-  expect(controller.pool.quiescent).toBe(true)
+  expect(controller.quiescent).toBe(true)
 })
 it('keeps a captured A response on A after B selection and hides background A events', async () => {
   const { controller, children, events } = fixture()
@@ -145,7 +145,7 @@ it('keeps a captured A response on A after B selection and hides background A ev
   complete({ kind: 'snapshot', snapshot: a })
   const result = await pending
   expect(result.kind === 'snapshot' && result.snapshot.desktopScope).toEqual(a.desktopScope)
-  expect(controller.pool.selectedScope).toEqual(b.desktopScope)
+  expect(controller.selectedScope).toEqual(b.desktopScope)
 })
 it('rejects stale navigation and same-worker native identity after a fork', async () => {
   const { controller, children } = fixture()
@@ -156,7 +156,7 @@ it('rejects stale navigation and same-worker native identity after a fork', asyn
   expect(children[0].commands.some((command) => command.type === 'prompt:abort')).toBe(false)
   const b = await controller.open({ cwd: '/project' }, a.desktopScope!)
   expect(() => controller.select(a.desktopScope!.workerId, origin)).toThrow('Stale selection')
-  expect(controller.pool.selectedScope).toEqual(b.desktopScope)
+  expect(controller.selectedScope).toEqual(b.desktopScope)
 })
 
 it('allows explicit navigation from the last crashed selection without reviving its command authority', async () => {
