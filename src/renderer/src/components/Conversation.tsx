@@ -75,6 +75,9 @@ type ConversationProps = {
   loading: boolean
   error?: string | null
   onChooseProject: () => void
+  recentProject?: { path: string; name: string; sessionPath?: string; sessionTitle?: string } | null
+  onContinueProject?: (path: string, sessionPath?: string) => void
+  projectNavigationPending?: boolean
   onOpenSession: (path: string) => void
   onSend: (text: string, identity: { sessionId: string; generation: number }) => Promise<boolean>
   onReconnect: () => void
@@ -828,6 +831,7 @@ function Composer({
 
 export default function Conversation(props: ConversationProps): React.JSX.Element {
   const { snapshot, approvals, loading, error, onApproval, onChooseProject } = props
+  const recentProject = props.recentProject
   const hasNodes = snapshot.nodes.some((node) => node.type !== 'model' || !node.initial)
   const lastNode = snapshot.nodes.at(-1)
   const visibleError =
@@ -965,19 +969,53 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
         <div className="content-axis">
           {!hasNodes ? (
             <div className="hero-copy">
-              <h1>{snapshot.project ? '今天，我们完成什么？' : '从一个项目开始。'}</h1>
+              <h1>
+                {snapshot.project
+                  ? '今天，我们完成什么？'
+                  : recentProject
+                    ? '继续上次的工作。'
+                    : '从一个项目开始。'}
+              </h1>
               <p>
                 {loading
                   ? '正在连接本机 Pi 引擎…'
                   : snapshot.project
                     ? '描述你的目标，Pi 会协助你探索、实现与验证。'
-                    : '选择一个文件夹作为 Pi 的工作目录。'}
+                    : recentProject
+                      ? recentProject.sessionTitle
+                        ? `${recentProject.name} · ${recentProject.sessionTitle}`
+                        : `返回 ${recentProject.name}，开始新的会话。`
+                      : '选择一个文件夹作为 Pi 的工作目录。'}
               </p>
               {!snapshot.project ? (
-                <button className="hero-project-cta" type="button" onClick={onChooseProject}>
-                  <FolderOpen size={16} />
-                  选择工作区
-                </button>
+                <div className="hero-project-actions">
+                  {recentProject && props.onContinueProject ? (
+                    <button
+                      className="hero-project-cta"
+                      type="button"
+                      disabled={!snapshot.ready || props.projectNavigationPending}
+                      onClick={() =>
+                        props.onContinueProject?.(recentProject.path, recentProject.sessionPath)
+                      }
+                    >
+                      <FolderOpen size={16} />
+                      {props.projectNavigationPending
+                        ? '正在打开…'
+                        : recentProject.sessionPath
+                          ? '继续最近会话'
+                          : '打开最近项目'}
+                    </button>
+                  ) : null}
+                  <button
+                    className={recentProject ? 'hero-project-secondary' : 'hero-project-cta'}
+                    type="button"
+                    disabled={!snapshot.ready || props.projectNavigationPending}
+                    onClick={onChooseProject}
+                  >
+                    {!recentProject ? <FolderOpen size={16} /> : null}
+                    {recentProject ? '选择其他文件夹' : '选择工作区'}
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : (

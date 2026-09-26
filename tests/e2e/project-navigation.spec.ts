@@ -184,6 +184,17 @@ const group = (cwd: string) =>
     .locator('.project-group')
     .filter({ has: page.locator(`button.project-group-toggle[title=${JSON.stringify(cwd)}]`) })
 
+test('home resumes a recent project without reopening the folder picker', async () => {
+  await page.evaluate((cwd) => window.pi.navigationLibrary({ type: 'project:hide', cwd }), a)
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).project)).toBeNull()
+  await expect(page.getByRole('heading', { name: '继续上次的工作。' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '选择其他文件夹' })).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'home-continue.png') })
+  await page.getByRole('button', { name: '继续最近会话' }).click()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).project?.path)).toBe(b)
+  await expect(page.locator('.node-flow')).toContainText('归档讨论 49 的回答')
+})
+
 test('pending navigation keeps loaded rows stable but unavailable, including the collapsed rail', async () => {
   await page.locator('.composer-input').fill('保留 A 草稿')
   for (const width of [960, 1440]) {

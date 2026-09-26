@@ -26,7 +26,7 @@ import { useTextAttachments } from './store/text-attachments'
 import AccountQuota from './components/AccountQuota'
 import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
-import type { ProjectNavigationFailures } from '../../shared/project-catalog'
+import type { ProjectCatalog, ProjectNavigationFailures } from '../../shared/project-catalog'
 import { useSessionEdit } from './store/session-edit'
 import { commandOrigin, usePiStore } from './store/pi-store'
 import { sameSelectedScope } from '../../shared/session-runtime'
@@ -51,6 +51,27 @@ export default function App(): React.JSX.Element {
   const navigationAttempt = useRef(0)
   const [navigationFailures, setNavigationFailures] = useState<ProjectNavigationFailures>({})
   const [navigating, setNavigating] = useState(false)
+  const [recentProject, setRecentProject] = useState<{
+    path: string
+    name: string
+    sessionPath?: string
+    sessionTitle?: string
+  } | null>(null)
+  const acceptCatalog = useCallback((catalog: ProjectCatalog | null): void => {
+    const project = catalog?.projects.find((item) => !item.error)
+    if (!project) {
+      setRecentProject(null)
+      return
+    }
+    const latestSession = [...project.sessions]
+      .filter((session) => Boolean(session.path))
+      .sort((left, right) => right.modified.localeCompare(left.modified))[0]
+    setRecentProject({
+      path: project.path,
+      name: project.name,
+      ...(latestSession ? { sessionPath: latestSession.path, sessionTitle: latestSession.title } : {})
+    })
+  }, [])
   const forkPending = usePiStore((state) => state.forkPending)
   const editPhase = useSessionEdit((state) => state.phase)
   const skillAttachmentsBlocked = useTextAttachments((state) =>
@@ -358,12 +379,14 @@ export default function App(): React.JSX.Element {
             ...previous,
             [cwd]: { message, ...(sessionPath ? { sessionPath } : {}) }
           }))
+        if (attempt === navigationAttempt.current && !usePiStore.getState().snapshot.project)
+          setClientError(message)
       } finally {
         navigationLock.current = false
         setNavigating(false)
       }
     },
-    [setSnapshot]
+    [setClientError, setSnapshot]
   )
 
   const sendWorkbench = useCallback(
@@ -424,6 +447,7 @@ export default function App(): React.JSX.Element {
           if (snapshot.project) void navigateProject(snapshot.project.path)
         }}
         onNavigate={(cwd, path, workerId) => void navigateProject(cwd, path, workerId)}
+        onCatalog={acceptCatalog}
         navigationFailures={navigationFailures}
         pending={navigating}
         disabledReason={navigationDisabledReason}
@@ -440,6 +464,9 @@ export default function App(): React.JSX.Element {
             loading={loading}
             error={clientError ?? snapshot.error}
             onChooseProject={() => void chooseProject()}
+            recentProject={recentProject}
+            onContinueProject={(path, sessionPath) => void navigateProject(path, sessionPath)}
+            projectNavigationPending={navigating}
             onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
             onOpenSession={(path) => void send({ type: 'session:open', path })}
             onReconnect={() => void reconnect()}

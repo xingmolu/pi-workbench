@@ -35,12 +35,14 @@ function relativeTime(value: string): string {
 export default function ProjectSessionList({
   snapshot,
   onNavigate,
+  onCatalog,
   navigationFailures = {},
   pending = false,
   disabledReason
 }: {
   snapshot: AgentSnapshot
   onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
+  onCatalog?: (catalog: ProjectCatalog | null) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
   disabledReason?: string | null
@@ -70,17 +72,19 @@ export default function ProjectSessionList({
       .then((result) => {
         if (request !== epoch.current) return
         setCatalog(result.catalog)
+        onCatalog?.(result.catalog)
         setLoading(false)
       })
       .catch(() => {
         if (request !== epoch.current) return
+        onCatalog?.(null)
         setError('项目目录暂时不可读取')
         setLoading(false)
       })
     return () => {
       epoch.current++
     }
-  }, [snapshot.ready, snapshot.project?.path, historyKey, retry, library.revision])
+  }, [snapshot.ready, snapshot.project?.path, historyKey, retry, library.revision, onCatalog])
 
   const loadGroup = async (project: LiveProject, more: boolean): Promise<void> => {
     if (loadingGroups.includes(project.path)) return

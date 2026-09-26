@@ -748,12 +748,20 @@ button.send:disabled {
   color: var(--muted);
 }
 
+.hero-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px 18px;
+  margin-top: 28px;
+}
+
 .hero-project-cta {
   display: inline-flex;
   min-height: 38px;
   align-items: center;
   gap: 7px;
-  margin-top: 28px;
   padding: 8px 14px;
   border: 0;
   border-radius: 8px;
@@ -765,6 +773,30 @@ button.send:disabled {
 
 .hero-project-cta:hover {
   background: var(--accent-hover);
+}
+
+.hero-project-cta:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.hero-project-secondary {
+  min-height: 38px;
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.hero-project-secondary:hover {
+  color: var(--text);
+}
+
+.hero-project-secondary:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .node-flow {

@@ -15,7 +15,7 @@ import type { AgentSnapshot } from '../../../shared/contracts'
 import { canCreateSession } from '../../../shared/session-presentation'
 import ProjectSessionList from './ProjectSessionList'
 import { projectNavigationReason } from '../../../shared/project-catalog'
-import type { ProjectNavigationFailures } from '../../../shared/project-catalog'
+import type { ProjectCatalog, ProjectNavigationFailures } from '../../../shared/project-catalog'
 
 type SidebarProps = {
   collapsed: boolean
@@ -25,6 +25,7 @@ type SidebarProps = {
   onChooseProject: () => void
   onNewSession: () => void
   onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
+  onCatalog?: (catalog: ProjectCatalog | null) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
   disabledReason?: string | null
@@ -40,6 +41,7 @@ export default function Sidebar({
   onChooseProject,
   onNewSession,
   onNavigate,
+  onCatalog,
   navigationFailures,
   pending = false,
   disabledReason,
@@ -112,7 +114,7 @@ export default function Sidebar({
             <MessageSquarePlus size={17} />
           </button>
           <button className="icon-btn" type="button" onClick={onChooseProject} title={reason ?? '添加项目'}
-            aria-label="添加项目" disabled={Boolean(reason)}><FolderOpen size={17} /></button>
+            aria-label="添加项目" data-navigation-pending={pendingOnly} disabled={Boolean(reason)}><FolderOpen size={17} /></button>
         </div>
         <div className="rail-spacer" />
         <button className="icon-btn" type="button" aria-label="管理项目与归档" title="管理项目与归档" onClick={() => setManagerOpen(true)}><ArchiveRestore size={17} /></button>
@@ -171,6 +173,7 @@ export default function Sidebar({
       <ProjectSessionList
         snapshot={snapshot}
         onNavigate={onNavigate}
+        onCatalog={onCatalog}
         navigationFailures={navigationFailures}
         pending={pending}
         disabledReason={disabledReason}

@@ -150,7 +150,7 @@ export default function ProjectHeader({
           title={blocked ?? `在 ${project.name} 中新建会话`}
           aria-label={`在 ${project.name} 中新建会话`}
           disabled={Boolean(blocked)}
-          data-navigation-pending={pending || undefined}
+          data-navigation-pending={(pending && !project.error && !operationReason) || undefined}
           onClick={onNew}
         >
           <Plus size={15} />
