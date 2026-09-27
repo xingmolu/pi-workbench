@@ -448,8 +448,7 @@
 
 /* Older settings pages keep their markup; these rules give them the same page title,
    description and button language as the pages built on the primitives above. */
-.settings-content-inner :is(.skills-heading, .desktop-control-heading),
-.settings-content-inner .mcp-settings > .settings-section-title {
+.settings-content-inner .desktop-control-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -457,8 +456,7 @@
   margin: 4px 0 22px;
 }
 
-.settings-content-inner :is(.skills-heading, .desktop-control-heading) h2,
-.settings-content-inner .mcp-settings > .settings-section-title h2,
+.settings-content-inner .desktop-control-heading h2,
 .settings-content-inner .mobile-gateway-settings > h2 {
   display: block;
   margin: 0;
@@ -472,8 +470,7 @@
   display: none;
 }
 
-.settings-content-inner :is(.skills-heading, .desktop-control-heading) p,
-.settings-content-inner .mcp-settings > .settings-section-title small {
+.settings-content-inner .desktop-control-heading p {
   display: block;
   margin: 6px 0 0;
   color: var(--text-tertiary);
@@ -484,13 +481,13 @@
   margin: 4px 0 18px;
 }
 
-.settings-content-inner :is(.desktop-control-guide, .skills-settings > p) {
+.settings-content-inner .desktop-control-guide {
   color: var(--text-tertiary);
   font-size: 12.5px;
   line-height: 1.6;
 }
 
-.settings-content-inner :is(.settings-card, .desktop-control-card, .mcp-empty) {
+.settings-content-inner :is(.settings-card, .desktop-control-card) {
   border-color: var(--line);
   border-radius: 12px;
   background: var(--surface-floating);
