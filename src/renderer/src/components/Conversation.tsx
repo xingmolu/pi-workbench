@@ -14,7 +14,7 @@ import { useOffscreenApproval } from '../store/use-approval-visibility'
 import { groupConversationWork, type ConversationWorkGroup } from '../store/conversation-work-groups'
 import { summarizeTurnChanges, type TurnFileChange } from '../store/turn-changes'
 import { ChangePath, DiffStat, ToolChangeView } from './ToolChangeView'
-import TurnChanges from './TurnChanges'
+import TurnChanges, { type TurnCheckpoint } from './TurnChanges'
 import { parseTextContext } from '../../../shared/text-attachments'
 import {
   useTextAttachments,
@@ -289,13 +289,31 @@ function NodeFlow({
         return (
           <Fragment key={group.key}>
             {renderGroup(group, index)}
-            {receipt ? <TurnChanges files={receipt} projectPath={projectPath} /> : null}
+            {receipt ? (
+              <TurnChanges
+                files={receipt.files}
+                projectPath={projectPath}
+                checkpoint={turnCheckpoint(receipt.entryId)}
+              />
+            ) : null}
           </Fragment>
         )
       })}
       {!inlineEdit && edit.phase !== 'closed' ? <UserMessageEdit /> : null}
     </div>
   )
+
+  function turnCheckpoint(entryId: string | undefined): TurnCheckpoint | undefined {
+    const state = entryId && snapshot.checkpoints?.find((item) => item.entryId === entryId)
+    if (!state || !snapshot.sessionId) return undefined
+    return {
+      entryId: state.entryId,
+      state: state.state,
+      sessionId: snapshot.sessionId,
+      generation: snapshot.generation,
+      blockedReason: snapshot.busy || approvals.length ? '请等待当前任务结束后再撤销' : null
+    }
+  }
 
   function renderGroup(group: ConversationWorkGroup, index: number): React.ReactNode {
     if (group.kind === 'work') return (
@@ -380,16 +398,20 @@ function NodeFlow({
 function changesByTurnEnd(
   groups: readonly ConversationWorkGroup[],
   busy: boolean
-): Map<number, TurnFileChange[]> {
-  const receipts = new Map<number, TurnFileChange[]>()
+): Map<number, { files: TurnFileChange[]; entryId?: string }> {
+  const receipts = new Map<number, { files: TurnFileChange[]; entryId?: string }>()
   let turn: ConversationNode[] = []
+  let entryId: string | undefined
   const flush = (end: number): void => {
     const files = summarizeTurnChanges(turn)
-    if (files.length) receipts.set(end, files)
+    if (files.length) receipts.set(end, { files, entryId })
     turn = []
   }
   groups.forEach((group, index) => {
-    if (group.kind === 'node' && group.node.type === 'user' && index > 0) flush(index - 1)
+    if (group.kind === 'node' && group.node.type === 'user') {
+      if (index > 0) flush(index - 1)
+      entryId = group.node.canonicalEntryId
+    }
     if (group.kind === 'work') turn.push(...group.nodes)
   })
   if (!busy) flush(groups.length - 1)

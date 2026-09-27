@@ -27,6 +27,9 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
       return 'session-edit'
     case 'session:fork':
       return 'session-fork'
+    case 'checkpoint:plan':
+    case 'checkpoint:restore':
+      return 'checkpoint'
     case 'attachment:prompt':
     case 'attachment:query':
       return 'attachment'

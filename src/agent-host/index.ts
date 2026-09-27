@@ -1,6 +1,7 @@
 import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseRecoveryFence } from './computer-use-execution'
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { appliedToolChange } from './tool-change'
+import { CheckpointStore, resolveToolPath } from './checkpoints'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
 import { ProjectMutationClient } from './project-mutation-client'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
@@ -379,6 +380,7 @@ class PiDesktopHost {
   private timing: RunTiming | null = null
   private lastTiming: RunTiming | null = null
   private followUp: string[] = []
+  private readonly checkpoints = new CheckpointStore(join(AGENT_DIR, 'pi-desktop', 'checkpoints'))
   private sessionTransition = new SerialExecutor()
   private readonly sessionPersistenceGuard = new SessionMutationGuard()
   private readonly sessionListRefresh = new SessionListRefresh()
@@ -569,6 +571,20 @@ class PiDesktopHost {
         this.history.refresh()
         this.emitSnapshot()
         break
+      }
+      case 'checkpoint:plan':
+        return {
+          kind: 'checkpoint',
+          plan: this.checkpoints.plan(this.checkpointTarget(request), request.entryId)
+        }
+      case 'checkpoint:restore': {
+        const outcome = this.checkpoints.restore(
+          this.checkpointTarget(request),
+          request.entryId,
+          request.force
+        )
+        this.emitSnapshot()
+        return { kind: 'checkpoint', outcome }
       }
       case 'session:edit:prepare':
         return { kind: 'session-edit', result: this.sessionEdits.prepare(request) }
@@ -805,6 +821,8 @@ class PiDesktopHost {
               this.emitPatch()
               try { await this.mutations.acquire(event.toolCallId, { sessionId, generation: this.sessionGeneration }) }
               catch { return { block: true, reason: '项目操作已取消' } }
+              if (event.toolName === 'write' || event.toolName === 'edit')
+                this.captureCheckpoint(event.toolCallId, event.input)
               this.updateToolNode(event.toolCallId, this.toolExecution.executionStarted(event.toolCallId, Date.now()))
             }
             return undefined
@@ -1409,6 +1427,10 @@ class PiDesktopHost {
         break
       }
       case 'tool_execution_end': {
+        if (event.toolName === 'write' || event.toolName === 'edit') {
+          const sessionId = this.runtime?.session.sessionManager.getSessionId()
+          if (sessionId) this.checkpoints.settle(sessionId, event.toolCallId)
+        }
         if (event.toolName !== 'mcp') this.mutations.release(event.toolCallId)
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
         const change = event.isError
@@ -2316,8 +2338,43 @@ class PiDesktopHost {
       login: this.login,
       authGeneration: this.accountQuota.generation,
       loginPrompt: this.loginPrompt,
+      checkpoints: session ? this.checkpoints.turns(session.sessionManager.getSessionId()) : [],
       ...(this.lastError ? { error: this.lastError } : {})
     }
+  }
+
+  /** Runs under the project mutation lock, immediately before Pi writes the file. */
+  private captureCheckpoint(toolCallId: string, input: unknown): void {
+    const manager = this.runtime?.session.sessionManager
+    const rawPath =
+      input && typeof input === 'object' ? (input as Record<string, unknown>).path : undefined
+    if (!manager || typeof rawPath !== 'string' || !rawPath.trim()) return
+    const turn = manager
+      .getBranch()
+      .findLast((entry) => entry.type === 'message' && entry.message.role === 'user')
+    if (!turn) return
+    this.checkpoints.capture(
+      manager.getSessionId(),
+      turn.id,
+      toolCallId,
+      resolveToolPath(rawPath, manager.getCwd())
+    )
+  }
+
+  private checkpointTarget(request: { sessionId: string; generation: number }): string {
+    const session = this.runtime?.session
+    const sessionId = session?.sessionManager.getSessionId()
+    if (!session || sessionId !== request.sessionId || this.sessionGeneration !== request.generation)
+      throw new Error('会话已变化，请刷新后重试')
+    if (
+      !session.isIdle ||
+      session.isStreaming ||
+      session.isBashRunning ||
+      session.pendingMessageCount > 0 ||
+      this.approvalRegistry.requests(this.sessionGeneration).length
+    )
+      throw new Error('请等待当前任务结束后再还原')
+    return sessionId
   }
 
   private clearPatchTimer(): void {

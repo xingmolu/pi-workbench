@@ -1,6 +1,11 @@
 export * from './workbench-contracts'
 import type { DesktopCommandOrigin, LiveSessionSummary, SelectedSessionScope } from './session-runtime'
 import type { MessageFeedbackCommand, MessageFeedbackValue } from './message-actions'
+import type {
+  CheckpointCommand,
+  CheckpointTurnState,
+  HostCheckpointResult
+} from './checkpoints'
 import type { ProjectCatalog, ProjectCatalogCommand, ProjectNavigateCommand } from './project-catalog'
 import type { SessionSearchCommand, ProjectSearchCommand, SessionSearchResult, ProjectSearchResult } from './session-search'
 import type { SessionEditCommand, SessionEditResult } from './session-edit'
@@ -398,6 +403,8 @@ export type AgentSnapshot = {
   login: LoginStatus
   authGeneration?: number
   loginPrompt: LoginPrompt | null
+  /** Turns of the current session whose write/edit changes can be (or were) rolled back. */
+  checkpoints?: CheckpointTurnState[]
   error?: string
 }
 
@@ -425,6 +432,7 @@ export type HostCommand =
   | import('./skills').SkillsCommand
   | import('./mcp').McpCommand
   | MessageFeedbackCommand
+  | CheckpointCommand
   | ProjectCatalogCommand
   | ProjectNavigateCommand
   | SessionEditCommand
@@ -468,6 +476,7 @@ export type AckHostCommand = Exclude<
   | SessionEditCommand
   | ProjectCatalogCommand
   | Extract<HostCommand, { type: 'account:quota' }>
+  | CheckpointCommand
   | SessionSearchCommand | ProjectSearchCommand
   | import('./mcp').McpCommand
   | import('./skills').SkillsCommand
@@ -501,6 +510,7 @@ export type HostResult =
   | HostEndpointListResult
   | HostEndpointSaveResult
   | { kind: 'attachment'; receipt: AttachmentReceipt }
+  | HostCheckpointResult
 export type HostResultFor<Command extends HostCommand> = Command extends SessionSearchCommand
   ? { kind: 'session-search'; result: SessionSearchResult }
   : Command extends ProjectSearchCommand
@@ -517,6 +527,8 @@ export type HostResultFor<Command extends HostCommand> = Command extends Session
   ? { kind: 'project-catalog'; catalog: ProjectCatalog }
   : Command extends SessionEditCommand
   ? { kind: 'session-edit'; result: SessionEditResult }
+  : Command extends CheckpointCommand
+  ? HostCheckpointResult
   : Command extends { type: 'session:fork' }
     ? { kind: 'session-fork'; cancelled: boolean; snapshot: AgentSnapshot }
     : Command extends SnapshotHostCommand

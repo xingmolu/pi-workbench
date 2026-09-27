@@ -1515,6 +1515,62 @@ button.send:disabled {
 }
 .turn-change-row[aria-expanded='true'] .turn-change-chevron { transform: rotate(90deg); }
 .turn-change-diffs { padding: 0 12px 12px; }
+.turn-changes-head .diff-stat + .turn-undo { margin-left: 4px; }
+.turn-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--canvas);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.turn-undo:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+.turn-changes.is-restored .turn-changes-head,
+.turn-changes.is-restored .turn-change-row .change-path-name { color: var(--muted); }
+.turn-changes.is-restored .diff-stat { opacity: 0.55; text-decoration: line-through; }
+.turn-undo-confirm {
+  margin: 0 12px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-size: 12.5px;
+}
+.turn-undo-confirm > p { margin: 0 0 10px; color: var(--text-secondary); line-height: 1.6; }
+.turn-undo-confirm ul { display: grid; gap: 4px; margin: 0 0 12px; padding: 0; list-style: none; }
+.turn-undo-confirm li { display: flex; align-items: center; gap: 10px; }
+.turn-undo-confirm li .change-path { flex: 1; }
+.turn-undo-confirm li > span:last-child { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
+.turn-undo-confirm li.is-conflict > span:last-child { color: var(--warning-text); }
+.turn-undo-confirm li.is-uncaptured > span:last-child { color: var(--danger-text); }
+.turn-undo-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.turn-undo-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.turn-undo-status {
+  margin: 0 14px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.turn-undo-status.is-error { color: var(--danger-text); }
+.danger-button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+}
+.danger-button:hover:not(:disabled) { filter: brightness(1.06); }
 
 .login-actions {
   display: flex;

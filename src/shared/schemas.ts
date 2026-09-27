@@ -6,6 +6,12 @@ import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpRe
 import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
 import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
 import {
+  checkpointPlanCommandSchema,
+  checkpointRestoreCommandSchema,
+  checkpointResultSchema,
+  checkpointTurnStateSchema
+} from './checkpoints'
+import {
   editPrepareSchema,
   editCancelSchema,
   editSendSchema,
@@ -501,6 +507,7 @@ const agentSnapshotMetaShape = {
   login: loginStatusSchema,
   authGeneration: nonNegativeInteger.optional(),
   loginPrompt: loginPromptSchema.nullable(),
+  checkpoints: z.array(checkpointTurnStateSchema).optional(),
   error: z.string().optional()
 }
 
@@ -648,6 +655,8 @@ const commandSchemas = [
   mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema,
   accountQuotaCommandSchema,
   messageFeedbackCommandSchema,
+  checkpointPlanCommandSchema,
+  checkpointRestoreCommandSchema,
   projectCatalogCommandSchema,
   projectNavigateCommandSchema,
   editPrepareSchema,
@@ -694,6 +703,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   mcpReloadSchema.extend(requestIdShape),
   accountQuotaCommandSchema.extend(requestIdShape),
   messageFeedbackCommandSchema.extend(requestIdShape),
+  checkpointPlanCommandSchema.extend(requestIdShape),
+  checkpointRestoreCommandSchema.extend(requestIdShape),
   projectCatalogCommandSchema.extend(requestIdShape),
   projectNavigateCommandSchema.extend(requestIdShape),
   editPrepareSchema.extend(requestIdShape),
@@ -749,6 +760,7 @@ export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kin
     })
     .strict(),
   z.object({ kind: z.literal('attachment'), receipt: attachmentReceiptSchema }).strict(),
+  checkpointResultSchema,
   z
     .object({
       kind: z.literal('endpoint-list'),
