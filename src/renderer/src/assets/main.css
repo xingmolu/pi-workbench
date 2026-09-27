@@ -4235,7 +4235,7 @@ button.send:disabled {
   gap: 6px;
   margin-top: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-subtle);
 }
@@ -4266,7 +4266,7 @@ button.send:disabled {
   width: min(220px, 55%);
   height: 26px;
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-floating);
   color: var(--text);

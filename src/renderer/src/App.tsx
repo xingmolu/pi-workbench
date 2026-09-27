@@ -4,6 +4,7 @@ import PluginApprovalDialog, { type PluginApproval } from './components/PluginAp
 import './assets/navigation.css'
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
+import { applyThemeOverrides, usePluginThemes } from './store/plugin-themes'
 import { PanelRight } from 'lucide-react'
 import { useDesktopSettings } from './store/desktop-settings'
 import './assets/desktop-settings.css'
@@ -41,6 +42,17 @@ import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/worksp
 export default function App(): React.JSX.Element {
   const theme = useResolvedTheme()
   useLayoutEffect(() => applyDocumentTheme(theme), [theme])
+  const accent = useDesktopSettings((state) => state.settings.accent)
+  const pluginThemeId = useDesktopSettings((state) => state.settings.pluginTheme)
+  const pluginThemes = usePluginThemes((state) => state.themes)
+  useLayoutEffect(
+    () =>
+      applyThemeOverrides(
+        accent,
+        pluginThemes.find((candidate) => candidate.id === pluginThemeId) ?? null
+      ),
+    [accent, pluginThemeId, pluginThemes]
+  )
   const snapshot = usePiStore((state) => state.snapshot)
   const loading = usePiStore((state) => state.loading)
   const clientError = usePiStore((state) => state.clientError)
@@ -149,6 +161,7 @@ export default function App(): React.JSX.Element {
     availableWorkbenchViews.current = state.contributions.map(({ viewId }) => viewId)
     pluginNames.current = new Map(state.plugins.map((plugin) => [plugin.pluginId, plugin.name]))
     setPluginCommands(state.commands ?? [])
+    usePluginThemes.getState().setThemes(state.themes ?? [])
     dispatchWorkbenchStatus({ type: 'snapshot', snapshot: state })
     dispatchWorkbenchSelection({ type: 'snapshot', contributions: state.contributions })
   }, [])

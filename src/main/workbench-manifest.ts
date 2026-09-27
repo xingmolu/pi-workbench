@@ -8,6 +8,7 @@ import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbe
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
 import { normalizePiDesktopManifest, PI_DESKTOP_MANIFEST_FILE } from './manifest-compat'
+import { MAX_THEME_CSS_BYTES, sanitizeThemeCss } from '../shared/theme-tokens'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
 
@@ -44,8 +45,17 @@ export type ValidatedWorkbenchPlugin = {
   mcpServers: Record<string, McpServer>
   /** Declared user settings; values live in host storage. */
   settings: ValidatedPluginSetting[]
+  /** Token-only themes, already sanitized. */
+  themes: ValidatedPluginTheme[]
   /** Loaded from a manifest.json `manifest.json`: its pages may run inline scripts. */
   piDesktopCompat?: boolean
+}
+
+export type ValidatedPluginTheme = {
+  id: string
+  label: string
+  base: 'light' | 'dark'
+  tokens: Record<string, string>
 }
 
 export type ValidatedPluginSetting = {
@@ -204,6 +214,15 @@ const manifestSettingSchema = z
   })
   .strict()
 
+const manifestThemeSchema = z
+  .object({
+    id: localIdentifierSchema,
+    label: localizedTitleSchema,
+    path: z.string().min(1).max(4096),
+    base: z.enum(['light', 'dark']).default('dark')
+  })
+  .strict()
+
 const workbenchManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -224,6 +243,8 @@ const workbenchManifestSchema = z
         /** SKILL.md directories or single `.md` skill files, relative to the plugin root. */
         skills: z.array(z.string().min(1).max(4096)).max(32).default([]),
         settings: z.array(manifestSettingSchema).max(64).default([]),
+        /** Stylesheets that override design tokens; see `src/shared/theme-tokens.ts`. */
+        themes: z.array(manifestThemeSchema).max(8).default([]),
         /** `${pluginRoot}` in command, args and env expands to the plugin's directory. */
         mcpServers: z
           .record(mcpIdSchema, mcpServerSchema)
@@ -238,6 +259,7 @@ const workbenchManifestSchema = z
         agentTools: [],
         skills: [],
         settings: [],
+        themes: [],
         mcpServers: {}
       })
   })
@@ -334,6 +356,20 @@ function compareRoots(left: PiPackageRoot, right: PiPackageRoot): number {
   const leftKey = `${left.path}\0${left.scope}\0${left.source}\0${left.hasExecutablePiResources}`
   const rightKey = `${right.path}\0${right.scope}\0${right.source}\0${right.hasExecutablePiResources}`
   return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+}
+
+async function readBoundedFile(path: string, limit: number): Promise<string> {
+  const handle = await open(
+    path,
+    fileSystemConstants.O_RDONLY | fileSystemConstants.O_NONBLOCK | fileSystemConstants.O_NOFOLLOW
+  )
+  try {
+    const metadata = await handle.stat()
+    if (!metadata.isFile() || metadata.size > limit) throw new Error('File is not readable')
+    return (await handle.readFile()).subarray(0, limit).toString('utf8')
+  } finally {
+    await handle.close()
+  }
 }
 
 async function readBoundedManifest(manifestPath: string): Promise<string> {
@@ -621,6 +657,38 @@ export async function discoverWorkbenchManifests({
       skillPaths.push(directory)
     }
     if (invalidEntry) continue
+    const themes: ValidatedPluginTheme[] = []
+    for (const theme of manifest.contributes.themes) {
+      const file = await resolvePluginFile(canonicalRootPath, theme.path)
+      let css: string | null = null
+      if (file && file.endsWith('.css')) {
+        try {
+          css = await readBoundedFile(file, MAX_THEME_CSS_BYTES)
+        } catch {
+          css = null
+        }
+      }
+      if (css === null) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'theme-invalid',
+          message: `Theme ${theme.id} must be a .css file up to 256 KiB inside the plugin root.`,
+          pluginId: manifest.id
+        })
+        invalidEntry = true
+        break
+      }
+      const { tokens, ignored } = sanitizeThemeCss(css)
+      if (ignored > 0)
+        diagnostics.push({
+          severity: 'warning',
+          code: 'theme-tokens-ignored',
+          message: `主题 ${resolveTitle(theme.label)} 中有 ${ignored} 条声明不是可覆盖的设计变量，已忽略。`,
+          pluginId: manifest.id
+        })
+      themes.push({ id: theme.id, label: resolveTitle(theme.label), base: theme.base, tokens })
+    }
+    if (invalidEntry) continue
     const expandRoot = (value: string): string =>
       value.split('${pluginRoot}').join(canonicalRootPath)
     const mcpServers = Object.fromEntries(
@@ -690,6 +758,7 @@ export async function discoverWorkbenchManifests({
       skillPaths,
       mcpServers,
       ...(piDesktopFile ? { piDesktopCompat: true } : {}),
+      themes,
       settings: manifest.contributes.settings.map((setting) => ({
         key: setting.key,
         title: setting.title === undefined ? setting.key : resolveTitle(setting.title),

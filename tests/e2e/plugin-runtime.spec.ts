@@ -124,7 +124,7 @@ test('a plugin that runs code needs a grant, then serves commands through the ga
   await page.screenshot({ path: join(artifacts, 'grant.png'), animations: 'disabled' })
   await review.getByRole('button', { name: '授权并启用' }).click()
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  await expect(row).toContainText('进程：运行中')
+  await expect(row).toContainText('运行中')
   await expect(page.locator('.navigation-toast')).toContainText('Hello：已加载，环境变量：受限')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
 
@@ -236,7 +236,7 @@ test('views read project files and plugin writes wait for the user at the ask le
   await row.getByRole('switch', { name: 'Writer Desktop 面板' }).click()
   await expect(row.locator('li.is-high')).toHaveCount(2)
   await row.getByRole('button', { name: '授权并启用' }).click()
-  await expect(row).toContainText('进程：运行中')
+  await expect(row).toContainText('运行中')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
 
   const run = async (title: string) => {

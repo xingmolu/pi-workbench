@@ -94,7 +94,7 @@ test('theme changes recolor the existing emulator without replacing its shell or
   const darkColor = await screen().evaluate(el => getComputedStyle(el).color)
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
-  await page.getByLabel('主题', { exact: true }).selectOption('light')
+  await page.getByRole('radiogroup', { name: '主题' }).getByRole('radio', { name: '浅色', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await expect(screen()).toContainText(pidMarker)

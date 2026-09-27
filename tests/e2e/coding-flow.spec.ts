@@ -156,7 +156,10 @@ async function run(command: string, prompt: string): Promise<void> {
 async function theme(value: 'light' | 'dark'): Promise<void> {
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
-  await page.getByLabel('主题', { exact: true }).selectOption(value)
+  await page
+    .getByRole('radiogroup', { name: '主题' })
+    .getByRole('radio', { name: value === 'light' ? '浅色' : '深色', exact: true })
+    .click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', value)
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
 }

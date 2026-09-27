@@ -37,8 +37,7 @@ const IGNORED_TOP_LEVEL = [
 
 /** manifest.json contribution points this host does not implement. */
 const UNSUPPORTED_CONTRIBUTIONS: Readonly<Record<string, string>> = {
-  themes: '主题',
-  scenicThemes: '主题',
+  scenicThemes: '场景主题',
   windowAppearance: '窗口外观',
   services: '常驻服务',
   bus: '消息总线',

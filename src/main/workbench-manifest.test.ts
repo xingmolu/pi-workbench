@@ -101,6 +101,7 @@ describe('discoverWorkbenchManifests', () => {
         skillPaths: [],
         mcpServers: {},
         settings: [],
+        themes: [],
         pluginId: 'acme.notes',
         name: 'Acme Notes',
         version: '1.2.3',

@@ -18,6 +18,8 @@ import {
   isKnownPluginPermission,
   type PluginPermissionRisk
 } from '../../../shared/plugin-api'
+import { SettingsPage } from './SettingsPrimitives'
+import '../assets/plugin-settings.css'
 
 const RISK_LABEL: Record<PluginPermissionRisk, string> = { low: '低', medium: '中', high: '高' }
 const STATUS_LABEL = {
@@ -245,12 +247,15 @@ export default function PluginSettings({
   }
 
   return (
-    <section className="settings-section plugin-settings-section">
-      <div className="settings-section-title plugin-settings-title">
-        <div>
-          <span>工作台插件</span>
-          <small>管理右侧 Desktop 面板</small>
-        </div>
+    <SettingsPage
+      title="Desktop 插件"
+      description="插件可以在右侧工作台添加面板，并为 Agent 提供工具、技能和主题。会运行代码的插件需要你查看权限并授权后才会启动。"
+    >
+      <div className="plugin-toolbar">
+        <span>
+          {snapshot.plugins.length} 个插件 · 已启用{' '}
+          {snapshot.plugins.filter(({ desktopEnabled }) => desktopEnabled).length} 个
+        </span>
         <button
           className="plugin-reload-button"
           type="button"
@@ -261,11 +266,6 @@ export default function PluginSettings({
           {operation.reloading ? '正在刷新' : '重新加载'}
         </button>
       </div>
-
-      <p className="plugin-settings-note">
-        这里的开关只隐藏并销毁右侧 Desktop 贡献；不会禁用 Pi 已加载的 Skills/Extensions。
-        会运行代码的插件需要查看权限并授权后才会启动；随应用分发的内置插件默认启用，可以关闭。
-      </p>
 
       {operation.reloadError ? (
         <div className="plugin-operation-error" role="alert">
@@ -284,12 +284,36 @@ export default function PluginSettings({
           snapshot.plugins.map((plugin) => {
             const pending = operation.pendingPluginIds.includes(plugin.pluginId)
             const operationError = operation.pluginErrors[plugin.pluginId]
+            const status =
+              plugin.runtime?.hasMain && plugin.desktopEnabled
+                ? STATUS_LABEL[plugin.runtime.status]
+                : null
             return (
               <article className="plugin-row" key={plugin.pluginId}>
                 <div className="plugin-row-head">
+                  <span className="plugin-tile" aria-hidden="true">
+                    {plugin.name.slice(0, 1).toUpperCase()}
+                  </span>
                   <div className="plugin-identity">
-                    <strong title={plugin.name}>{plugin.name}</strong>
-                    <span>版本 {plugin.version}</span>
+                    <div className="plugin-name-line">
+                      <strong title={plugin.name}>{plugin.name}</strong>
+                      <span className="plugin-version">{plugin.version}</span>
+                      <span className="plugin-badge">{pluginScope(plugin)}</span>
+                      {status ? (
+                        <span
+                          className={`plugin-badge plugin-runtime is-${plugin.runtime!.status}`}
+                        >
+                          {status}
+                        </span>
+                      ) : null}
+                    </div>
+                    {plugin.description ? (
+                      <p className="plugin-description">{plugin.description}</p>
+                    ) : null}
+                    <p className="plugin-meta">
+                      <span title={pluginSourceLabel(plugin)}>{pluginSourceLabel(plugin)}</span>
+                      {plugin.builtin ? <span>固定启用</span> : null}
+                    </p>
                   </div>
                   <button
                     className="desktop-plugin-switch"
@@ -305,19 +329,15 @@ export default function PluginSettings({
                   </button>
                 </div>
 
-                <div className="plugin-meta">
-                  <span>范围：{pluginScope(plugin)}</span>
-                  <span title={pluginSourceLabel(plugin)}>来源：{pluginSourceLabel(plugin)}</span>
-                  <span>
-                    Desktop：
-                    {plugin.builtin ? '内置锁定' : plugin.desktopEnabled ? '已启用' : '已隐藏'}
-                  </span>
-                  {plugin.runtime?.hasMain && plugin.desktopEnabled ? (
-                    <span className={`plugin-runtime is-${plugin.runtime.status}`}>
-                      进程：{STATUS_LABEL[plugin.runtime.status]}
-                    </span>
-                  ) : null}
-                </div>
+                {plugin.requestedPermissions.length > 0 ? (
+                  <div className="plugin-permissions" aria-label="请求权限">
+                    <ShieldAlert size={12} aria-hidden="true" />
+                    {plugin.requestedPermissions.map((permission) => (
+                      <code key={permission}>{permission}</code>
+                    ))}
+                  </div>
+                ) : null}
+
                 {plugin.runtime?.needsGrant ? (
                   <div className="plugin-executable-warning" role="note">
                     <TriangleAlert size={13} aria-hidden="true" />
@@ -332,19 +352,6 @@ export default function PluginSettings({
                     onConfirm={() => void toggle(plugin, true)}
                   />
                 ) : null}
-
-                {plugin.description ? (
-                  <p className="plugin-description">{plugin.description}</p>
-                ) : null}
-                <p className="plugin-permissions">
-                  <ShieldAlert size={12} aria-hidden="true" />
-                  <span>
-                    请求权限：
-                    {plugin.requestedPermissions.length > 0
-                      ? plugin.requestedPermissions.join('、')
-                      : '无'}
-                  </span>
-                </p>
 
                 {plugin.settings && plugin.settings.length > 0 ? (
                   <div
@@ -408,6 +415,6 @@ export default function PluginSettings({
           <DiagnosticList diagnostics={registryDiagnostics} />
         </div>
       ) : null}
-    </section>
+    </SettingsPage>
   )
 }

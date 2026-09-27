@@ -1,71 +1,35 @@
-import type { ReactNode } from 'react'
-import {
-  DEFAULT_DESKTOP_SETTINGS,
-  type DesktopSettings
-} from '../../../shared/desktop-settings'
+import { DEFAULT_DESKTOP_SETTINGS, type DesktopSettings } from '../../../shared/desktop-settings'
 import { useDesktopSettings } from '../store/desktop-settings'
+import {
+  Segmented,
+  SelectControl,
+  SettingsGroup,
+  SettingsPage,
+  SettingsRow,
+  SettingsStatus,
+  Switch
+} from './SettingsPrimitives'
 import '../assets/desktop-settings.css'
 
-export function PreferenceRow({
-  label,
-  description,
-  children
+/** Status line and "restore defaults" for a page of desktop preferences. */
+export function PreferencesFooter({
+  resetPatch
 }: {
-  label: string
-  description: string
-  children: ReactNode
-}): React.JSX.Element {
-  return (
-    <label className="desktop-preference-row">
-      <span>
-        <strong>{label}</strong>
-        <small>{description}</small>
-      </span>
-      {children}
-    </label>
-  )
-}
-
-export function PreferencesFrame({
-  title,
-  resetPatch,
-  children
-}: {
-  title: string
   resetPatch: Partial<DesktopSettings>
-  children: ReactNode
 }): React.JSX.Element {
   const { status, error, hydrate, save } = useDesktopSettings()
   return (
-    <section className="desktop-preferences">
-      <h2>{title}</h2>
-      <p className="inline-hint">仅影响 Pi Desktop；修改后立即保存并生效。</p>
-      {error ? (
-        <div role="alert">
-          偏好读取或保存失败：{error}
-          <button onClick={() => void hydrate()}>重新读取</button>
-        </div>
-      ) : null}
-      <fieldset disabled={status !== 'ready'}>{children}</fieldset>
-      <footer>
-        <span role="status">
-          {status === 'saving'
-            ? '正在保存…'
-            : status === 'loading' || status === 'idle'
-              ? '正在读取…'
-              : status === 'ready'
-                ? '已与本机保存的设置同步'
-                : '未确认保存，请重新读取'}
-        </span>
-        <button
-          className="secondary-button"
-          disabled={status !== 'ready'}
-          onClick={() => void save(resetPatch)}
-        >
-          恢复默认
-        </button>
-      </footer>
-    </section>
+    <div className="sp-footer">
+      <SettingsStatus status={status} error={error} onRetry={() => void hydrate()} />
+      <button
+        type="button"
+        className="sp-link-button"
+        disabled={status !== 'ready'}
+        onClick={() => void save(resetPatch)}
+      >
+        恢复默认
+      </button>
+    </div>
   )
 }
 
@@ -76,42 +40,54 @@ const generalDefaults: Partial<DesktopSettings> = {
 }
 
 export default function GeneralSettings(): React.JSX.Element {
-  const { settings, save } = useDesktopSettings()
+  const { settings, save, status } = useDesktopSettings()
+  const disabled = status !== 'ready'
   return (
-    <PreferencesFrame title="常规" resetPatch={generalDefaults}>
-      <PreferenceRow label="发送快捷键" description="Shift + Enter 始终换行；输入法选词不会发送。">
-        <select
-          aria-label="发送快捷键"
-          value={settings.sendShortcut}
-          onChange={(e) =>
-            void save({ sendShortcut: e.target.value as 'enter' | 'modifier-enter' })
-          }
+    <SettingsPage title="常规">
+      <SettingsGroup title="输入">
+        <SettingsRow
+          label="发送快捷键"
+          description="Shift + Enter 始终换行；输入法选词时不会发送。"
         >
-          <option value="enter">Enter 发送</option>
-          <option value="modifier-enter">⌘ / Ctrl + Enter 发送</option>
-        </select>
-      </PreferenceRow>
-      <PreferenceRow label="工作详情" description="工作过程的默认展开方式；单独展开或收起的选择优先。">
-        <select
-          aria-label="工作详情"
-          value={settings.workDetails}
-          onChange={(e) => void save({ workDetails: e.target.value as 'compact' | 'expanded' })}
+          <SelectControl
+            label="发送快捷键"
+            value={settings.sendShortcut}
+            disabled={disabled}
+            onChange={(value) =>
+              void save({ sendShortcut: value as DesktopSettings['sendShortcut'] })
+            }
+          >
+            <option value="enter">Enter 发送</option>
+            <option value="modifier-enter">⌘ / Ctrl + Enter 发送</option>
+          </SelectControl>
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title="对话">
+        <SettingsRow
+          label="工作详情"
+          description="工作过程默认展开还是收起；单独展开过的保持你的选择。"
         >
-          <option value="compact">紧凑</option>
-          <option value="expanded">展开</option>
-        </select>
-      </PreferenceRow>
-      <PreferenceRow
-        label="显示用量统计"
-        description="在输入框下方显示用量；不影响统计收集和 Context。"
-      >
-        <input
-          aria-label="显示用量统计"
-          type="checkbox"
-          checked={settings.showUsage}
-          onChange={(e) => void save({ showUsage: e.target.checked })}
-        />
-      </PreferenceRow>
-    </PreferencesFrame>
+          <Segmented
+            label="工作详情"
+            value={settings.workDetails}
+            disabled={disabled}
+            options={[
+              { value: 'compact', label: '紧凑' },
+              { value: 'expanded', label: '展开' }
+            ]}
+            onChange={(workDetails) => void save({ workDetails })}
+          />
+        </SettingsRow>
+        <SettingsRow label="显示用量统计" description="在输入框下方显示本次会话的用量。">
+          <Switch
+            label="显示用量统计"
+            checked={settings.showUsage}
+            disabled={disabled}
+            onChange={(showUsage) => void save({ showUsage })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+      <PreferencesFooter resetPatch={generalDefaults} />
+    </SettingsPage>
   )
 }

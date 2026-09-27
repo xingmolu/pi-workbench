@@ -21,6 +21,7 @@ function codePlugin(permissions: string[]): ValidatedWorkbenchPlugin {
     skillPaths: [],
     mcpServers: {},
     settings: [],
+    themes: [],
     workbench: [
       {
         contribution: {
@@ -347,5 +348,31 @@ describe('plugin grants', () => {
       token: 'secret',
       mode: 'slow'
     })
+  })
+
+  it('offers themes only from enabled plugins granted ui.theme', async () => {
+    const themed = {
+      ...codePlugin(['ui.theme']),
+      canonicalMainPath: undefined,
+      commands: [],
+      themes: [
+        { id: 'dusk', label: '黄昏', base: 'dark' as const, tokens: { '--canvas': '#101014' } }
+      ]
+    }
+    const { state } = setup([themed])
+    await state.reload()
+    expect(state.snapshot().themes).toEqual([])
+    await state.dispatch({ type: 'plugin:set-enabled', pluginId: 'acme.git', desktopEnabled: true })
+    expect(state.snapshot().themes).toEqual([
+      {
+        id: 'acme.git/dusk',
+        pluginId: 'acme.git',
+        pluginName: 'Git',
+        label: '黄昏',
+        base: 'dark',
+        tokens: { '--canvas': '#101014' }
+      }
+    ])
+    expect(workbenchSnapshotSchema.safeParse(state.snapshot()).success).toBe(true)
   })
 })

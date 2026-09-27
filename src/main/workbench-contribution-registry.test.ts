@@ -40,6 +40,7 @@ function plugin(
     skillPaths: [],
     mcpServers: {},
     settings: [],
+    themes: [],
     pluginId,
     name: pluginId,
     version: '1.0.0',

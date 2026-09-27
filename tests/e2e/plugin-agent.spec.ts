@@ -133,7 +133,7 @@ async function enablePlugin(): Promise<void> {
   await expect(review).toContainText('agent.skills')
   await page.screenshot({ path: join(artifacts, 'grant.png'), animations: 'disabled' })
   await review.getByRole('button', { name: '授权并启用' }).click()
-  await expect(row).toContainText('进程：运行中')
+  await expect(row).toContainText('运行中')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   // Plugin contributions apply to sessions created after the plugin is enabled.
   await page.evaluate(() =>

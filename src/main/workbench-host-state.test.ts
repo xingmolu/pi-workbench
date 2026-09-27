@@ -63,6 +63,7 @@ function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
     skillPaths: [],
     mcpServers: {},
     settings: [],
+    themes: [],
     pluginId: 'acme.notes',
     name: 'Acme Notes',
     version: '1.0.0',

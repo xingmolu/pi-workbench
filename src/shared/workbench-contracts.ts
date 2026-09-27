@@ -95,6 +95,19 @@ export type WorkbenchSnapshot = {
   contributions: WorkbenchContribution[]
   diagnostics: WorkbenchDiagnostic[]
   commands?: PluginCommandSummary[]
+  /** Themes from enabled plugins granted `ui.theme`. */
+  themes?: PluginThemeSummary[]
+}
+
+export type PluginThemeSummary = {
+  /** `<plugin id>/<theme id>`, the value stored in desktop settings. */
+  id: string
+  pluginId: string
+  pluginName: string
+  label: string
+  base: 'light' | 'dark'
+  /** Sanitized design-token overrides. */
+  tokens: Record<string, string>
 }
 
 export type WorkbenchCommand =

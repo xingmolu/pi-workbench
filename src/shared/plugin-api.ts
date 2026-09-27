@@ -4,6 +4,7 @@ import { z } from 'zod'
 export const PLUGIN_PERMISSIONS = {
   'ui.view': 'low',
   'ui.command': 'low',
+  'ui.theme': 'low',
   notify: 'low',
   storage: 'low',
   'fs.read': 'medium',

@@ -169,7 +169,7 @@ test('the bundled Git plugin is on by default, shown as built in, and can be tur
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
   const row = page.locator('.plugin-row').filter({ hasText: '随 Pi Desktop 分发' })
-  await expect(row).toContainText('范围：内置')
+  await expect(row.locator('.plugin-badge').first()).toHaveText('内置')
   const toggle = row.getByRole('switch', { name: 'Git Desktop 面板' })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
   await page.screenshot({ path: join(artifacts, 'settings.png'), animations: 'disabled' })

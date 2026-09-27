@@ -11,7 +11,9 @@ void useDesktopSettings
   .getState()
   .hydrate()
   .then(() => {
-    applyDocumentTheme(resolveTheme(useDesktopSettings.getState().settings.theme, systemIsDark()))
+    const { settings } = useDesktopSettings.getState()
+    applyDocumentTheme(resolveTheme(settings.theme, systemIsDark()))
+    document.documentElement.dataset.accent = settings.accent
     createRoot(document.getElementById('root')!).render(
       <StrictMode>
         <App />

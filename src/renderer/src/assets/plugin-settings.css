@@ -1,0 +1,225 @@
+/* Desktop plugins page, on the shared settings primitives. Loaded after main.css. */
+.plugin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -6px 2px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.plugin-toolbar .plugin-reload-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.plugin-toolbar .plugin-reload-button:hover:not(:disabled) {
+  color: var(--text-strong);
+  border-color: var(--border-strong);
+}
+
+.settings-content .plugin-list {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-content .plugin-row {
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-content .plugin-row + .plugin-row {
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.settings-content .plugin-row-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.plugin-tile {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-content .plugin-identity {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.plugin-name-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plugin-name-line strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.plugin-version {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.plugin-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.plugin-badge.plugin-runtime.is-running {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  box-shadow: none;
+  color: var(--success-text);
+}
+
+.plugin-badge.plugin-runtime.is-crashed,
+.plugin-badge.plugin-runtime.is-failed {
+  background: var(--danger-bg);
+  box-shadow: none;
+  color: var(--danger-text);
+}
+
+.settings-content .plugin-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settings-content .plugin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.settings-content .plugin-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0 44px;
+  color: var(--text-tertiary);
+}
+
+.settings-content .plugin-permissions code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.settings-content
+  .plugin-row
+  > :is(
+    .plugin-grant,
+    .plugin-settings-fields,
+    .plugin-executable-warning,
+    .plugin-operation-error,
+    .plugin-diagnostics
+  ) {
+  margin-left: 44px;
+}
+
+.settings-content .plugin-grant {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.settings-content .plugin-settings-fields {
+  margin-top: 10px;
+  border-color: var(--line);
+  background: var(--canvas);
+}
+
+.settings-content .plugin-settings-fields input[type='text'],
+.settings-content .plugin-settings-fields input[type='number'],
+.settings-content .plugin-settings-fields select {
+  border-color: var(--line);
+}
+
+.settings-content .plugin-diagnostics {
+  margin-top: 10px;
+}
+
+/* Desktop plugin switch matches the shared switch. */
+.settings-content .desktop-plugin-switch {
+  width: 34px;
+  height: 20px;
+  flex: 0 0 34px;
+  margin-top: 6px;
+}
+
+.settings-content .desktop-plugin-switch > span {
+  width: 34px;
+  height: 20px;
+  border: 0;
+  background: var(--border-strong);
+  transition: background 0.16s ease;
+}
+
+.settings-content .desktop-plugin-switch > span::after {
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+}
+
+.settings-content .desktop-plugin-switch[aria-checked='true'] > span {
+  background: var(--accent);
+}
+
+.settings-content .desktop-plugin-switch[aria-checked='true'] > span::after {
+  background: #fff;
+}
+
+.settings-content .desktop-plugin-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings-content .desktop-plugin-switch:disabled > span {
+  border-style: none;
+}

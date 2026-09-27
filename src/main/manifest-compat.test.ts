@@ -48,7 +48,7 @@ const PI_MANIFEST = {
         env: { DOCS_TOKEN: { setting: 'token' } }
       }
     ],
-    themes: [{ id: 'dark', label: 'Dark', path: 'themes/dark.css' }],
+    themes: [{ id: 'dusk', label: 'Dusk', path: 'themes/dusk.css', base: 'dark' }],
     services: [{ id: 'watcher' }],
     bus: { publish: ['a.b'] }
   },
@@ -92,7 +92,8 @@ describe('manifest.json manifest compatibility', () => {
     })
     expect(value).not.toHaveProperty('author')
     expect(value).not.toHaveProperty('ui')
-    expect(warnings.join('\n')).toMatch(/主题[\s\S]*常驻服务[\s\S]*消息总线[\s\S]*独立窗口/)
+    expect(warnings.join('\n')).toMatch(/常驻服务[\s\S]*消息总线[\s\S]*独立窗口/)
+    expect(value).toMatchObject({ contributes: { themes: [{ id: 'dusk' }] } })
   })
 
   it('resolves setting references', () => {
@@ -111,6 +112,11 @@ describe('manifest.json manifest compatibility', () => {
     await writeFile(join(plugin, 'panel', 'index.html'), '<!doctype html><title>p</title>')
     await writeFile(join(plugin, 'skills', 'guide.md'), '---\ndescription: guide\n---\n')
     await writeFile(join(plugin, 'main.js'), 'module.exports = {}')
+    await mkdir(join(plugin, 'themes'))
+    await writeFile(
+      join(plugin, 'themes', 'dusk.css'),
+      ':root { --accent: #c084fc; --canvas: #101014; --bg: #000; }\nbody { background: url(x.png); }'
+    )
     await writeFile(join(plugin, 'manifest.json'), JSON.stringify(PI_MANIFEST))
     const webApp = join(parent, 'web-app')
     await mkdir(webApp)
@@ -146,11 +152,23 @@ describe('manifest.json manifest compatibility', () => {
       { value: 'fast', label: 'fast' },
       { value: 'slow', label: 'slow' }
     ])
-    expect(
-      diagnostics.every(({ severity, code }) => severity === 'warning' && code === 'compat-ignored')
-    ).toBe(true)
-    // Themes, services, bus, the floating panel, and inline scripts in its pages.
-    expect(diagnostics).toHaveLength(5)
+    expect(diagnostics.every(({ severity }) => severity === 'warning')).toBe(true)
+    expect(sample.themes).toEqual([
+      {
+        id: 'dusk',
+        label: 'Dusk',
+        base: 'dark',
+        tokens: { '--accent': '#c084fc', '--canvas': '#101014' }
+      }
+    ])
+    // Services, bus, the floating panel, inline scripts, and the ignored theme declarations.
+    expect(diagnostics.map(({ code }) => code).sort()).toEqual([
+      'compat-ignored',
+      'compat-ignored',
+      'compat-ignored',
+      'compat-ignored',
+      'theme-tokens-ignored'
+    ])
     expect(sample.piDesktopCompat).toBe(true)
   })
 })

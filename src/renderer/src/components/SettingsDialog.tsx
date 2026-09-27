@@ -24,6 +24,7 @@ import type {
 } from '../../../shared/contracts'
 import SettingsAccounts from './SettingsAccounts'
 import PluginSettings from './PluginSettings'
+import { SettingsPage } from './SettingsPrimitives'
 import {
   SettingsDraftProvider,
   confirmDiscardSettingsDraft,
@@ -167,20 +168,18 @@ function SettingsDialogContent({
             returnFocusRef.current?.focus()
           }}
         >
-          <header className="settings-dialog-header">
-            <div className="settings-dialog-title">
-              <Dialog.Title>设置</Dialog.Title>
-              {draft?.dirty ? <span className="settings-unsaved-badge">有未保存修改</span> : null}
-            </div>
-            <Dialog.Close className="icon-btn" aria-label="关闭设置" title="关闭设置">
-              <X size={17} />
-            </Dialog.Close>
-          </header>
+          <Dialog.Close className="icon-btn settings-close" aria-label="关闭设置" title="关闭设置">
+            <X size={17} />
+          </Dialog.Close>
           <Dialog.Description className="settings-sr-only">
             管理 Pi Desktop 的常规、外观、账号、Agent 能力与桌面控制设置。
           </Dialog.Description>
           <div className="settings-dialog-body">
             <nav className="settings-navigation" aria-label="设置分类">
+              <div className="settings-dialog-title">
+                <Dialog.Title>设置</Dialog.Title>
+                {draft?.dirty ? <span className="settings-unsaved-badge">未保存</span> : null}
+              </div>
               <label className="settings-search">
                 <Search size={14} aria-hidden="true" />
                 <input
@@ -230,26 +229,33 @@ function SettingsDialogContent({
               <small className="settings-product-name">Pi Desktop</small>
             </nav>
             <div className="settings-content" data-settings-section={section}>
-              {section === 'general' ? (
-                <GeneralSettings />
-              ) : section === 'appearance' ? (
-                <AppearanceSettings />
-              ) : section === 'mobile' ? (
-                <MobileGatewaySettings />
-              ) : section === 'accounts' ? (
-                <SettingsAccounts {...props} />
-              ) : section === 'skills' ? (
-                (skillsContent ?? <p className="inline-hint">技能设置模块尚未加载。</p>)
-              ) : section === 'plugins' ? (
-                <PluginSettings
-                  snapshot={props.workbenchSnapshot}
-                  onCommand={props.onWorkbenchCommand}
-                />
-              ) : section === 'desktop-control' ? (
-                <DesktopControlSettings />
-              ) : (
-                (mcpContent ?? <p className="inline-hint">MCP 设置模块尚未加载。</p>)
-              )}
+              <div className="settings-content-inner">
+                {section === 'general' ? (
+                  <GeneralSettings />
+                ) : section === 'appearance' ? (
+                  <AppearanceSettings />
+                ) : section === 'mobile' ? (
+                  <MobileGatewaySettings />
+                ) : section === 'accounts' ? (
+                  <SettingsPage
+                    title="账号与模型"
+                    description="登录编程套餐或添加自定义端点；凭据只保存在本机。"
+                  >
+                    <SettingsAccounts {...props} />
+                  </SettingsPage>
+                ) : section === 'skills' ? (
+                  (skillsContent ?? <p className="inline-hint">技能设置模块尚未加载。</p>)
+                ) : section === 'plugins' ? (
+                  <PluginSettings
+                    snapshot={props.workbenchSnapshot}
+                    onCommand={props.onWorkbenchCommand}
+                  />
+                ) : section === 'desktop-control' ? (
+                  <DesktopControlSettings />
+                ) : (
+                  (mcpContent ?? <p className="inline-hint">MCP 设置模块尚未加载。</p>)
+                )}
+              </div>
             </div>
           </div>
         </Dialog.Content>

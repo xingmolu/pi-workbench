@@ -1,0 +1,504 @@
+/* Settings pages: a quiet page title, grouped cards, and compact rows with the control on
+   the right. Shared by every section so the dialog reads as one surface. */
+
+.sp-page {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.sp-page-header {
+  margin: 4px 0 22px;
+}
+
+.sp-page-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sp-page-header p {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.sp-group {
+  margin: 0 0 24px;
+}
+
+.sp-group-header {
+  margin: 0 2px 8px;
+}
+
+.sp-group-header h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sp-group-header p {
+  margin: 3px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sp-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-sm);
+}
+
+.sp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 56px;
+  padding: 11px 16px;
+}
+
+.sp-row + .sp-row {
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.sp-row.is-stacked {
+  display: block;
+}
+
+.sp-row.is-stacked .sp-row-control {
+  display: block;
+  margin-top: 14px;
+}
+
+.sp-row-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sp-row-label {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sp-row-description {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sp-row-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Switch */
+.sp-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.sp-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+  transition: transform 0.16s ease;
+}
+
+.sp-switch[aria-checked='true'] {
+  background: var(--accent);
+}
+
+.sp-switch[aria-checked='true'] > span {
+  transform: translateX(14px);
+}
+
+.sp-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Segmented */
+.sp-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.sp-segmented button {
+  min-width: 56px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sp-segmented button:hover:not(:disabled) {
+  color: var(--text-strong);
+}
+
+.sp-segmented button[aria-checked='true'] {
+  background: var(--surface-floating);
+  color: var(--text-strong);
+  font-weight: 500;
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--line-soft);
+}
+
+/* Select */
+.sp-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary);
+}
+
+.sp-select select {
+  appearance: none;
+  min-width: 112px;
+  height: 30px;
+  padding: 0 30px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sp-select select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.sp-select > svg {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+/* Status and quiet actions */
+.sp-status {
+  min-height: 16px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.sp-status.is-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 10px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.sp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -8px;
+}
+
+.sp-link-button,
+.sp-status button {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sp-link-button:hover:not(:disabled),
+.sp-status button:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+/* Theme cards */
+.sp-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+}
+
+.sp-theme-card {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-theme-card > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.sp-theme-card small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-theme-card[aria-checked='true'] {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.sp-theme-preview {
+  position: relative;
+  display: block;
+  height: 84px;
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--line);
+  transition: box-shadow 0.12s ease;
+}
+
+.sp-theme-card:hover:not(:disabled, [aria-checked='true']) .sp-theme-preview {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.sp-theme-card[aria-checked='true'] .sp-theme-preview {
+  box-shadow:
+    0 0 0 2px var(--surface-floating),
+    0 0 0 4px var(--accent);
+}
+
+.sp-theme-card:disabled {
+  cursor: default;
+}
+
+.sp-theme-window {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  background: var(--p-canvas);
+}
+
+/* "Follow system" shows the dark window over the right half. */
+.sp-theme-half {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(58% 0, 100% 0, 100% 100%, 42% 100%);
+}
+
+.sp-theme-window .sp-mini-sidebar {
+  width: 30%;
+  padding: 10px 7px;
+  background: var(--p-raised);
+  border-right: 1px solid var(--p-line);
+}
+
+.sp-theme-window .sp-mini-sidebar i {
+  display: block;
+  height: 5px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  background: var(--p-line);
+}
+
+.sp-theme-window .sp-mini-sidebar i:first-child {
+  width: 70%;
+  background: var(--p-muted);
+  opacity: 0.55;
+}
+
+.sp-theme-window .sp-mini-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px;
+}
+
+.sp-theme-window .sp-mini-bubble {
+  align-self: flex-end;
+  width: 46%;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--p-chip);
+}
+
+.sp-theme-window .sp-mini-line {
+  width: 78%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--p-muted);
+  opacity: 0.45;
+}
+
+.sp-theme-window .sp-mini-composer {
+  display: flex;
+  justify-content: flex-end;
+  height: 16px;
+  padding: 3px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  background: var(--p-composer);
+}
+
+.sp-theme-window .sp-mini-composer b {
+  width: 10px;
+  border-radius: 999px;
+  background: var(--p-accent);
+}
+
+/* Accent swatches */
+.sp-swatches {
+  display: flex;
+  gap: 10px;
+}
+
+.sp-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
+  cursor: pointer;
+}
+
+.sp-swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--surface-floating),
+    0 0 0 4px var(--swatch);
+}
+
+.sp-swatch:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Reading preview */
+.sp-preview {
+  padding: 14px 16px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  background: var(--canvas);
+}
+
+.sp-preview p {
+  margin: 0 0 8px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.sp-preview pre {
+  margin: 0;
+  overflow: auto;
+}
+
+.settings-dialog :is(.sp-switch, .sp-segmented button, .sp-theme-card, .sp-swatch):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Older settings pages keep their markup; these rules give them the same page title,
+   description and button language as the pages built on the primitives above. */
+.settings-content-inner :is(.skills-heading, .desktop-control-heading),
+.settings-content-inner .mcp-settings > .settings-section-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 4px 0 22px;
+}
+
+.settings-content-inner :is(.skills-heading, .desktop-control-heading) h2,
+.settings-content-inner .mcp-settings > .settings-section-title h2,
+.settings-content-inner .mobile-gateway-settings > h2 {
+  display: block;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings-content-inner :is(.skills-heading, .desktop-control-heading) h2 > svg {
+  display: none;
+}
+
+.settings-content-inner :is(.skills-heading, .desktop-control-heading) p,
+.settings-content-inner .mcp-settings > .settings-section-title small {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+}
+
+.settings-content-inner .mobile-gateway-settings > h2 {
+  margin: 4px 0 18px;
+}
+
+.settings-content-inner :is(.desktop-control-guide, .skills-settings > p) {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.settings-content-inner :is(.settings-card, .desktop-control-card, .mcp-empty) {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-content-inner :is(.secondary-button, .tool-chip) {
+  min-height: 30px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}

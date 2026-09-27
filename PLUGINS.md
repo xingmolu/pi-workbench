@@ -98,7 +98,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 
 | 风险 | 权限 |
 |---|---|
-| 低 | `ui.view`、`ui.command`、`notify`、`storage` |
+| 低 | `ui.view`、`ui.command`、`ui.theme`、`notify`、`storage` |
 | 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`clipboard.write`、`shell.openExternal` |
 | 高 | `fs.write`、`git.write`、`git.push`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
 
@@ -309,7 +309,7 @@ module.exports = {
   - `skills` 接受单个 `.md` 文件、目录或 `{ path }`；pi 原生支持单文件技能。
   - `mcpServers` 接受数组形式；插件内相对路径的命令从插件目录运行；`env` / `headers` 中的 `{ "setting": "key" }` 在交付给 Agent 时取该插件的设置值。
   - `settings`：`string`、`number`、`boolean`、`select` 在设置 → Desktop 插件中直接编辑；`json`、`shortcut` 只显示，由插件自己修改。
-  - 不支持的贡献点——主题、常驻服务、消息总线、Agent 扩展模块、模型提供方、外部会话来源、全局快捷键——被忽略，并在插件行中逐条以警告列出，不会让整个插件加载失败。
+  - 主题见 §18。不支持的贡献点——场景主题、常驻服务、消息总线、Agent 扩展模块、模型提供方、外部会话来源、全局快捷键——被忽略，并在插件行中逐条以警告列出，不会让整个插件加载失败。
 - **权限别名**：`agent.tool.register` → `agent.tools`，`agent.prompt.inject` → `agent.skills`，`mcp.server.local` / `mcp.server.remote` → `mcp.local` / `mcp.remote`，`ui.panel` → `ui.view`。其余未实现的权限在授权界面标为"此版本不支持，不会授予"。
 - **插件进程 `pi`**：
   - `pi.plugin.getId()`（同步）、`getSettings()`、`setSettings(values)`（只接受声明过的键和对应类型）、`getDataPath()`（`~/.pi/agent/pi-desktop/plugin-data/<id>`）。
@@ -318,5 +318,12 @@ module.exports = {
   - `pi.bus.publish` / `subscribe`、`pi.services.register` 为空实现，保证使用它们的插件能加载；设置页会说明这些能力被忽略。
   - 导出 `onPanelInvoke(channel, payload)` 的插件：视图调用宿主未实现的通道时转发给它（插件与自己的视图通信，不需要额外权限）。
 - **视图**：除 `window.piPlugin` 外还提供 `window.pluginBridge`（`invoke(channel, payload)`、`on(event, listener)`）。宿主通道新增 `workspace.get`、`app.getAppearance`、`plugin.getSettings`。`on` 目前只发布 `workspace:changed`。
-- 未做：主题、常驻服务、消息总线、`fs.glob` / `fs.remove`、剪贴板、`net.fetch`、`manifest.fs` 的路径范围（我们的文件接口始终限定在当前项目内）、按项目启用插件、`plugin:settingsChanged` 事件。
+- 未做：常驻服务、消息总线、`fs.glob` / `fs.remove`、剪贴板、`net.fetch`、`manifest.fs` 的路径范围（我们的文件接口始终限定在当前项目内）、按项目启用插件、`plugin:settingsChanged` 事件。
+
+## 18. 主题
+
+- **内置外观**：设置 → 外观提供"跟随系统 / 浅色 / 深色"主题卡片（带缩略预览）和五种强调色（蓝、紫、绿、橙、粉），每种强调色在浅色和深色下分别调过对比度。设置项为 `accent` 与 `pluginTheme`，旧的偏好文件自动取默认值。
+  - 主题 CSS（`.css`，≤ 256 KiB，每个插件最多 8 个）在发现时读取，只提取 `--变量: 值` 声明，而且只保留 `src/shared/theme-tokens.ts` 中列出的设计变量（背景、文字、线条、强调色、状态色、阴影等）。值只能是颜色、数字和颜色函数，含 `url`、`var`、`image`、`expression`、`@`、反斜杠或引号的一律丢弃；选择器和其他规则全部忽略。丢弃的条数在插件行中以警告列出。
+  - 渲染层把保留下来的变量设为根元素的内联自定义属性，不注入任何样式表，所以主题无法加载资源、添加选择器或改变布局。
+  - 选择插件主题时，界面切到它声明的浅色或深色底色，强调色由主题决定；插件被停用或卸载后自动回落到对应的内置底色和用户选的强调色。
 

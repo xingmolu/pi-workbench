@@ -1,9 +1,13 @@
 import { z } from 'zod'
+import { ACCENT_COLORS } from './theme-tokens'
 
 export const DESKTOP_SETTINGS_CHANNEL = 'pi:desktop-settings'
 export const desktopSettingsSchema = z.strictObject({
   // Missing in older preference files: preserve the existing dark appearance.
   theme: z.enum(['dark', 'light', 'system']).default('dark'),
+  accent: z.enum(ACCENT_COLORS).default('blue'),
+  /** A plugin theme (`<plugin id>/<theme id>`); `theme` then holds its light/dark base. */
+  pluginTheme: z.string().min(3).max(300).nullable().default(null),
   messageFontSize: z.number().int().min(13).max(18),
   codeFontSize: z.number().int().min(11).max(16),
   codeWrap: z.boolean(),
@@ -15,6 +19,8 @@ export const desktopSettingsSchema = z.strictObject({
 export type DesktopSettings = z.infer<typeof desktopSettingsSchema>
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   theme: 'system',
+  accent: 'blue',
+  pluginTheme: null,
   messageFontSize: 15,
   codeFontSize: 13,
   codeWrap: false,

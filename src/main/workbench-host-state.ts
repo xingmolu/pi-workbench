@@ -656,6 +656,18 @@ export function createWorkbenchHostState(
     diagnostics: [...discovery.diagnostics, ...crashDiagnostics.values()],
     commands: (dependencies.runtime?.commands() ?? []).filter(({ pluginId }) =>
       isDesktopEnabled(pluginId)
+    ),
+    themes: discovery.plugins.flatMap((plugin) =>
+      isDesktopEnabled(plugin.pluginId) && gatewayPlugin(plugin).granted.has('ui.theme')
+        ? plugin.themes.map((theme) => ({
+            id: `${plugin.pluginId}/${theme.id}`,
+            pluginId: plugin.pluginId,
+            pluginName: plugin.name,
+            label: theme.label,
+            base: theme.base,
+            tokens: theme.tokens
+          }))
+        : []
     )
   })
 

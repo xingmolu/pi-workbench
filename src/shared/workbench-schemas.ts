@@ -218,6 +218,21 @@ export const workbenchSnapshotSchema: z.ZodType<WorkbenchSnapshot> = z
     plugins: z.array(desktopPluginSummarySchema),
     contributions: z.array(workbenchContributionSchema),
     diagnostics: z.array(workbenchDiagnosticSchema),
+    themes: z
+      .array(
+        z
+          .object({
+            id: z.string().min(3).max(300),
+            pluginId: identifierSchema,
+            pluginName: z.string().trim().min(1).max(256),
+            label: z.string().trim().min(1).max(256),
+            base: z.enum(['light', 'dark']),
+            tokens: z.record(z.string().regex(/^--[a-z0-9-]+$/), z.string().max(200))
+          })
+          .strict()
+      )
+      .max(256)
+      .optional(),
     commands: z
       .array(
         z

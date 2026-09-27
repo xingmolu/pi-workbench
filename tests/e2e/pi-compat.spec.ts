@@ -195,7 +195,7 @@ test('a manifest.json plugin loads, is granted, runs commands, panels and settin
   await expect(review).toContainText('agent.tools')
   await expect(review).toContainText('agent.skills')
   await review.getByRole('button', { name: '授权并启用' }).click()
-  await expect(row).toContainText('进程：运行中')
+  await expect(row).toContainText('运行中')
 
   const greeting = row.getByRole('textbox', { name: 'Compat Notes 设置：Greeting' })
   await expect(greeting).toHaveValue('Hello')

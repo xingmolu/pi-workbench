@@ -104,3 +104,70 @@
 :root {
   --mono: 'SF Mono', 'SFMono-Regular', ui-monospace, Menlo, Consolas, 'Liberation Mono', monospace;
 }
+
+/* Accent colors. Blue is the palette default above; each accent is tuned per base so text on
+   accent fills and accent-tinted surfaces keep their contrast. */
+:root[data-theme='light'][data-accent='violet'] {
+  --accent: #6b4fd4;
+  --accent-hover: #5d42c4;
+  --accent-text: #5b3fc2;
+  --accent-soft: #f3f0fd;
+  --accent-border: #b7a7ee;
+  --sidebar-running: #5b3fc2;
+}
+:root[data-theme='dark'][data-accent='violet'] {
+  --accent: #8a72e8;
+  --accent-hover: #9884ee;
+  --accent-text: #c3b6ff;
+  --accent-soft: #29243f;
+  --accent-border: #7a6bb8;
+  --sidebar-running: #c3b6ff;
+}
+:root[data-theme='light'][data-accent='green'] {
+  --accent: #1e7a4c;
+  --accent-hover: #186a41;
+  --accent-text: #1b6f45;
+  --accent-soft: #ebf6ef;
+  --accent-border: #93c9aa;
+  --sidebar-running: #1b6f45;
+}
+:root[data-theme='dark'][data-accent='green'] {
+  --accent: #3f9a6b;
+  --accent-hover: #4aa877;
+  --accent-text: #8ed3ad;
+  --accent-soft: #1d2d25;
+  --accent-border: #4b7d62;
+  --sidebar-running: #8ed3ad;
+}
+:root[data-theme='light'][data-accent='orange'] {
+  --accent: #c0561b;
+  --accent-hover: #aa4b15;
+  --accent-text: #ad4c16;
+  --accent-soft: #fdf2ea;
+  --accent-border: #ebb592;
+  --sidebar-running: #ad4c16;
+}
+:root[data-theme='dark'][data-accent='orange'] {
+  --accent: #cf773b;
+  --accent-hover: #db8649;
+  --accent-text: #f2b88c;
+  --accent-soft: #35271d;
+  --accent-border: #93613f;
+  --sidebar-running: #f2b88c;
+}
+:root[data-theme='light'][data-accent='pink'] {
+  --accent: #c0396f;
+  --accent-hover: #aa2f62;
+  --accent-text: #ad3265;
+  --accent-soft: #fcedf3;
+  --accent-border: #e8a7c3;
+  --sidebar-running: #ad3265;
+}
+:root[data-theme='dark'][data-accent='pink'] {
+  --accent: #cf5f8d;
+  --accent-hover: #da6f9a;
+  --accent-text: #f3aac8;
+  --accent-soft: #36202a;
+  --accent-border: #95506f;
+  --sidebar-running: #f3aac8;
+}
