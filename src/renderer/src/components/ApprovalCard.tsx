@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Check, Copy, LoaderCircle } from 'lucide-react'
-import type { ApprovalRequest } from '../../../shared/contracts'
+import type { ApprovalRequest, ToolFileChange } from '../../../shared/contracts'
+import { ToolChangeView } from './ToolChangeView'
 import { approvalSummary } from '../store/conversation-presentation'
 import { approvalPreview } from '../store/approval-presentation'
 import '../assets/approval.css'
@@ -10,10 +11,13 @@ export type ApprovalHandler = (id: string, allow: boolean) => Promise<boolean> |
 /** One compact decision surface per request. An acknowledgement is not execution success. */
 export default function ApprovalCard({
   request,
+  change,
   projectPath,
   onApproval
 }: {
   request: ApprovalRequest
+  /** The proposed file change for write/edit requests, shown before anything is written. */
+  change?: ToolFileChange
   projectPath?: string
   onApproval: ApprovalHandler
 }): React.JSX.Element {
@@ -84,22 +88,26 @@ export default function ApprovalCard({
         仅本次操作。Pi 已暂停此操作，确认后才会执行。
         {projectPath ? <> 会话目录：{projectPath}。</> : null}
       </p>
-      <div className="approval-preview">
-        <pre tabIndex={0} aria-label={preview.label}>
-          {preview.text}
-        </pre>
-        <button
-          type="button"
-          className="icon-btn approval-copy"
-          aria-label="复制操作内容"
-          onClick={() => void copy()}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-        </button>
-        <span className="sr-only" role="status">
-          {copied ? '已复制操作内容' : ''}
-        </span>
-      </div>
+      {change ? (
+        <ToolChangeView change={change} projectPath={projectPath} />
+      ) : (
+        <div className="approval-preview">
+          <pre tabIndex={0} aria-label={preview.label}>
+            {preview.text}
+          </pre>
+          <button
+            type="button"
+            className="icon-btn approval-copy"
+            aria-label="复制操作内容"
+            onClick={() => void copy()}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+          <span className="sr-only" role="status">
+            {copied ? '已复制操作内容' : ''}
+          </span>
+        </div>
+      )}
       {preview.parameters !== null ? (
         <details className="approval-parameters">
           <summary>完整操作参数</summary>

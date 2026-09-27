@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
@@ -11,7 +11,10 @@ import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../stor
 import WorkSummary from './WorkSummary'
 import ApprovalCard, { type ApprovalHandler } from './ApprovalCard'
 import { useOffscreenApproval } from '../store/use-approval-visibility'
-import { groupConversationWork } from '../store/conversation-work-groups'
+import { groupConversationWork, type ConversationWorkGroup } from '../store/conversation-work-groups'
+import { summarizeTurnChanges, type TurnFileChange } from '../store/turn-changes'
+import { ChangePath, DiffStat, ToolChangeView } from './ToolChangeView'
+import TurnChanges from './TurnChanges'
 import { parseTextContext } from '../../../shared/text-attachments'
 import {
   useTextAttachments,
@@ -22,6 +25,9 @@ import {
 import {
   ArrowUp,
   ArrowDown,
+  Bug,
+  Compass,
+  FlaskConical,
   ArrowLeft,
   ArrowRightLeft,
   Archive,
@@ -57,6 +63,7 @@ import SessionFork from './SessionFork'
 import UserMessageEdit from './UserMessageEdit'
 import { useSessionEdit } from '../store/session-edit'
 import { usePiStore } from '../store/pi-store'
+import { useComposerPrefill } from '../store/composer-prefill'
 import QuestionNavigation from './QuestionNavigation'
 import ModelPicker from './ModelPicker'
 import {
@@ -100,6 +107,19 @@ const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
   desktop: Monitor,
   generic: Wrench
 }
+
+/** Tool titles embed absolute paths; inside the open project the prefix is noise. */
+function projectRelative(title: string, projectPath?: string): string {
+  if (!projectPath) return title
+  const root = projectPath.replace(/[\\/]+$/, '')
+  return title.split(`${root}/`).join('').split(`${root}\\`).join('')
+}
+
+const STARTERS = [
+  { icon: Compass, label: '梳理项目结构', prompt: '梳理这个项目的结构、关键模块和它们之间的关系。' },
+  { icon: Bug, label: '排查一个问题', prompt: '帮我排查这个问题：' },
+  { icon: FlaskConical, label: '补充测试', prompt: '为最近修改的代码补充测试，并运行确认通过。' }
+] as const
 
 const STATUS_LABEL = {
   queued: '排队中',
@@ -146,6 +166,7 @@ const ToolNode = memo(function ToolNode({
   const [open, setOpen] = useState<boolean | null>(null)
   const Icon = TOOL_ICON[node.intent]
   const meta = toolMetaDisplay(node)
+  const change = node.change
   return (
     <Collapsible.Root
       className={`tool-node is-${node.status}`}
@@ -154,8 +175,18 @@ const ToolNode = memo(function ToolNode({
     >
       {!activeApproval && <Collapsible.Trigger className="tool-trigger">
         <Icon size={15} />
-        <span className="tool-title">{node.title}</span>
-        <span className="tool-status">{STATUS_LABEL[node.status]}</span>
+        {change ? (
+          <span className="tool-title is-change">
+            <span className="tool-verb">{node.name === 'write' ? '写入' : '编辑'}</span>
+            <ChangePath path={change.path} projectPath={projectPath} />
+            <DiffStat additions={change.additions} deletions={change.deletions} />
+          </span>
+        ) : (
+          <span className="tool-title">{projectRelative(node.title, projectPath)}</span>
+        )}
+        <span className={node.status === 'success' ? 'sr-only' : 'tool-status'}>
+          {STATUS_LABEL[node.status]}
+        </span>
         {meta.map((item) => (
           <span className="tool-meta" key={item}>
             {item}
@@ -168,12 +199,29 @@ const ToolNode = memo(function ToolNode({
           <ApprovalCard
             key={`${activeApproval.generation}:${activeApproval.id}`}
             request={activeApproval}
+            change={change}
             projectPath={projectPath}
             onApproval={(id, allow) => {
               setOpen(true)
               return onApproval(id, allow)
             }}
           />
+        ) : change ? (
+          <>
+            <ToolChangeView change={change} projectPath={projectPath} header={false} />
+            {node.output ? (
+              <div className="tool-output">
+                <span>输出</span>
+                <pre>{node.output}</pre>
+              </div>
+            ) : null}
+            {node.detail ? (
+              <details className="tool-raw">
+                <summary>原始参数</summary>
+                <pre>{node.detail}</pre>
+              </details>
+            ) : null}
+          </>
         ) : (
           <>
             {node.detail ? <pre>{node.detail}</pre> : null}
@@ -231,85 +279,121 @@ function NodeFlow({
   const inlineEdit =
     edit.scope &&
     nodes.some((node) => node.type === 'user' && node.canonicalEntryId === edit.scope!.entryId)
+  const groups = useMemo(() => groupConversationWork(nodes), [nodes])
+  const turnChanges = useMemo(() => changesByTurnEnd(groups, snapshot.busy), [groups, snapshot.busy])
+  const projectPath = snapshot.project?.path
   return (
     <div className="node-flow">
-      {groupConversationWork(nodes).map((group, index, groups) => {
-        if (group.kind === 'work') return (
-          <WorkSummary key={group.key} nodes={group.nodes} running={snapshot.busy && index === groups.length - 1}>
-            {group.nodes.map((node) => node.type === 'think' ?
-              <ThinkNode key={node.presentationIdentity ?? node.id} node={node} /> :
-              <ToolNode key={node.presentationIdentity ?? node.id} node={node}
-                activeApproval={currentToolApproval(node, approvals)} projectPath={snapshot.project?.path} onApproval={onApproval} />)}
-          </WorkSummary>
-        )
-        const node = group.node
-        const key = node.presentationIdentity ?? node.id
-        // Pi keeps each retry failure in canonical history. Collapse only adjacent identical
-        // errors visually; user/assistant/tool boundaries still preserve separate failures.
-        const nextGroup = groups[index + 1]
-        const next = nextGroup?.kind === 'node' ? nextGroup.node : undefined
-        if (node.type === 'error' && next?.type === 'error' && node.message === next.message)
-          return null
-        if (node.type === 'user') {
-          return (
-            <div className="user-row" key={key} data-user-node-id={node.id} tabIndex={-1}>
-              <div className="user-node">
-                <TextContextMessage text={node.text} />
-                {node.imageCount ? (
-                  <span className="user-image-note">{node.imageCount} 张图片</span>
-                ) : null}
-              </div>
-              <MessageActions node={node} snapshot={snapshot}/>
-              {edit.scope?.entryId === node.canonicalEntryId ? <UserMessageEdit /> : null}
-            </div>
-          )
-        }
-        if (node.type === 'assistant') {
-          return <AssistantNode key={key} node={node} snapshot={snapshot}
-            showActions={!node.streaming && !!node.canonicalEntryId &&
-              lastReplyBlocks.get(node.canonicalEntryId) === node}/>
-        }
-        if (node.type === 'think') return <ThinkNode key={key} node={node} />
-        if (node.type === 'model') {
-          // Keep initial metadata in canonical history; it is not a conversation divider.
-          if (node.initial) return null
-          return (
-            <div className="history-note is-model-switch" key={key} role="note">
-              <ArrowRightLeft size={13} aria-hidden="true" />
-              <span>模型切换 · {node.provider} / {node.modelId}</span>
-            </div>
-          )
-        }
-        if (node.type === 'compaction') {
-          return (
-            <div className="history-note is-compaction" key={key} role="note">
-              <Archive size={13} aria-hidden="true" />
-              <span>上下文已压缩，历史消息仍保留</span>
-            </div>
-          )
-        }
-        if (node.type === 'tool') {
-          const activeApproval = currentToolApproval(node, approvals)
-          return (
-            <ToolNode
-              key={key}
-              node={node}
-              activeApproval={activeApproval}
-              projectPath={snapshot.project?.path}
-              onApproval={onApproval}
-            />
-          )
-        }
+      {groups.map((group, index) => {
+        const receipt = turnChanges.get(index)
         return (
-          <div className={node.type === 'stopped' ? 'stopped-node' : 'error-node'} key={key}>
-            {node.type === 'stopped' ? <Square size={13} /> : <CircleAlert size={15} />}
-            {node.message}
-          </div>
+          <Fragment key={group.key}>
+            {renderGroup(group, index)}
+            {receipt ? <TurnChanges files={receipt} projectPath={projectPath} /> : null}
+          </Fragment>
         )
       })}
       {!inlineEdit && edit.phase !== 'closed' ? <UserMessageEdit /> : null}
     </div>
   )
+
+  function renderGroup(group: ConversationWorkGroup, index: number): React.ReactNode {
+    if (group.kind === 'work') return (
+      <WorkSummary key={group.key} nodes={group.nodes} running={snapshot.busy && index === groups.length - 1}>
+        {group.nodes.map((node) => node.type === 'think' ?
+          <ThinkNode key={node.presentationIdentity ?? node.id} node={node} /> :
+          <ToolNode key={node.presentationIdentity ?? node.id} node={node}
+            activeApproval={currentToolApproval(node, approvals)} projectPath={projectPath} onApproval={onApproval} />)}
+      </WorkSummary>
+    )
+    const node = group.node
+    const key = node.presentationIdentity ?? node.id
+    // Pi keeps each retry failure in canonical history. Collapse only adjacent identical
+    // errors visually; user/assistant/tool boundaries still preserve separate failures.
+    const nextGroup = groups[index + 1]
+    const next = nextGroup?.kind === 'node' ? nextGroup.node : undefined
+    if (node.type === 'error' && next?.type === 'error' && node.message === next.message)
+      return null
+    if (node.type === 'user') {
+      return (
+        <div className="user-row" key={key} data-user-node-id={node.id} tabIndex={-1}>
+          <div className="user-node">
+            <TextContextMessage text={node.text} />
+            {node.imageCount ? (
+              <span className="user-image-note">{node.imageCount} 张图片</span>
+            ) : null}
+          </div>
+          <MessageActions node={node} snapshot={snapshot}/>
+          {edit.scope?.entryId === node.canonicalEntryId ? <UserMessageEdit /> : null}
+        </div>
+      )
+    }
+    if (node.type === 'assistant') {
+      return <AssistantNode key={key} node={node} snapshot={snapshot}
+        showActions={!node.streaming && !!node.canonicalEntryId &&
+          lastReplyBlocks.get(node.canonicalEntryId) === node}/>
+    }
+    if (node.type === 'think') return <ThinkNode key={key} node={node} />
+    if (node.type === 'model') {
+      // Keep initial metadata in canonical history; it is not a conversation divider.
+      // A choice made before the first message is setup, not a switch.
+      if (node.initial || !groups.slice(0, index).some((item) => item.kind === 'node' && item.node.type === 'user'))
+        return null
+      return (
+        <div className="history-note is-model-switch" key={key} role="note">
+          <ArrowRightLeft size={13} aria-hidden="true" />
+          <span>模型切换 · {node.provider} / {node.modelId}</span>
+        </div>
+      )
+    }
+    if (node.type === 'compaction') {
+      return (
+        <div className="history-note is-compaction" key={key} role="note">
+          <Archive size={13} aria-hidden="true" />
+          <span>上下文已压缩，历史消息仍保留</span>
+        </div>
+      )
+    }
+    if (node.type === 'tool') {
+      const activeApproval = currentToolApproval(node, approvals)
+      return (
+        <ToolNode
+          key={key}
+          node={node}
+          activeApproval={activeApproval}
+          projectPath={projectPath}
+          onApproval={onApproval}
+        />
+      )
+    }
+    return (
+      <div className={node.type === 'stopped' ? 'stopped-node' : 'error-node'} key={key}>
+        {node.type === 'stopped' ? <Square size={13} /> : <CircleAlert size={15} />}
+        {node.message}
+      </div>
+    )
+  }
+}
+
+/** Index of each turn's last group → files that turn changed. The running turn is still
+ * accumulating, so its receipt waits until the agent settles. */
+function changesByTurnEnd(
+  groups: readonly ConversationWorkGroup[],
+  busy: boolean
+): Map<number, TurnFileChange[]> {
+  const receipts = new Map<number, TurnFileChange[]>()
+  let turn: ConversationNode[] = []
+  const flush = (end: number): void => {
+    const files = summarizeTurnChanges(turn)
+    if (files.length) receipts.set(end, files)
+    turn = []
+  }
+  groups.forEach((group, index) => {
+    if (group.kind === 'node' && group.node.type === 'user' && index > 0) flush(index - 1)
+    if (group.kind === 'work') turn.push(...group.nodes)
+  })
+  if (!busy) flush(groups.length - 1)
+  return receipts
 }
 
 function TextContextMessage({ text }: { text: string }): React.JSX.Element {
@@ -576,6 +660,22 @@ function Composer({
   }, [skillInsertion, skillInsertionBlocked, snapshot, draftKey])
 
 
+  const prefill = useComposerPrefill((state) => state.pending)
+  useEffect(() => {
+    if (!prefill) return
+    const text = useComposerPrefill.getState().consume()
+    if (!text || !canCompose || editOpen || submitting) return
+    setDraft(text)
+    requestAnimationFrame(() => {
+      const input = textarea.current
+      if (!input) return
+      input.focus()
+      input.setSelectionRange(text.length, text.length)
+    })
+    // setDraft is recreated each render; the prefill value is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill, canCompose, editOpen, submitting])
+
   useEffect(() => {
     const input = textarea.current
     if (!input) return
@@ -832,7 +932,8 @@ function Composer({
 export default function Conversation(props: ConversationProps): React.JSX.Element {
   const { snapshot, approvals, loading, error, onApproval, onChooseProject } = props
   const recentProject = props.recentProject
-  const hasNodes = snapshot.nodes.some((node) => node.type !== 'model' || !node.initial)
+  // A model choice made before the first message is setup, not conversation content.
+  const hasNodes = snapshot.nodes.some((node) => node.type !== 'model')
   const lastNode = snapshot.nodes.at(-1)
   const visibleError =
     error && !(lastNode?.type === 'error' && lastNode.message === error) ? error : null
@@ -987,6 +1088,21 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                         : `返回 ${recentProject.name}，开始新的会话。`
                       : '选择一个文件夹作为 Pi 的工作目录。'}
               </p>
+              {snapshot.project && !loading ? (
+                <div className="hero-starters" aria-label="快速开始">
+                  {STARTERS.map(({ icon: Icon, label, prompt }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="hero-starter"
+                      onClick={() => useComposerPrefill.getState().request(prompt)}
+                    >
+                      <Icon size={15} aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {!snapshot.project ? (
                 <div className="hero-project-actions">
                   {recentProject && props.onContinueProject ? (

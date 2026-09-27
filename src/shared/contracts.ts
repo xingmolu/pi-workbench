@@ -37,6 +37,21 @@ export type ToolStatus =
 
 export type SessionStatus = 'idle' | 'running' | 'awaiting-approval' | 'error' | 'stopped'
 
+/** A file mutation requested by, or applied through, a write/edit tool call. */
+export type ToolFileChange = {
+  path: string
+  kind: 'edit' | 'write'
+  /** `proposed` comes from the model's arguments; `applied` is the tool's own result patch. */
+  source: 'proposed' | 'applied'
+  /** Whether hunk line numbers are real file positions. */
+  anchored: boolean
+  /** Unified patch; empty when `omitted` because it exceeded the display budget. */
+  patch: string
+  additions: number
+  deletions: number
+  omitted?: boolean
+}
+
 export type ConversationNode = {
   /** Host-only display continuity within one runtime generation; never a command target. */
   presentationIdentity?: string
@@ -84,6 +99,7 @@ export type ConversationNode = {
       originalOutputLength?: number
       truncated?: boolean
       status: ToolStatus
+      change?: ToolFileChange
     }
   | {
       id: string

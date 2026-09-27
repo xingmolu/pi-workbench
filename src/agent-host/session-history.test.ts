@@ -55,6 +55,35 @@ describe('canonical active branch history', () => {
     expect(projectSessionHistory(manager.getBranch()).find(n => n.type === 'assistant' && n.markdown === 'working')).not.toHaveProperty('canonicalEntryId')
     expect(projectSessionHistory([], { temporaryMessages: [{ id: 'tmp', message: assistant([{type:'text',text:'temporary'}]) }] })[0]).not.toHaveProperty('canonicalEntryId')
   })
+  it('shows proposed edits until the canonical result supplies the applied patch', () => {
+    const manager = SessionManager.inMemory('/tmp/pi-history-fixture')
+    manager.appendMessage(user('fix'))
+    manager.appendMessage(
+      assistant(
+        [
+          {
+            type: 'toolCall',
+            id: 'e',
+            name: 'edit',
+            arguments: { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] }
+          }
+        ],
+        { stopReason: 'toolUse' }
+      )
+    )
+    const tool = () => projectSessionHistory(manager.getBranch()).find((node) => node.type === 'tool')
+    expect(tool()).toMatchObject({ change: { source: 'proposed', anchored: false, path: 'a.ts' } })
+    const patch = '--- a.ts\n+++ a.ts\n@@ -7,1 +7,1 @@\n-a\n+b\n'
+    manager.appendMessage({
+      ...result('ok', 'e'),
+      toolName: 'edit',
+      details: { diff: '', patch, firstChangedLine: 7 }
+    } as ToolResultMessage)
+    expect(tool()).toMatchObject({
+      status: 'success',
+      change: { source: 'applied', anchored: true, path: 'a.ts', patch }
+    })
+  })
   it('projects image-only user with canonical entry identity and no image capability', () => {
     const manager = SessionManager.inMemory('/tmp/pi-history-fixture')
     const id = manager.appendMessage({

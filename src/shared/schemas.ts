@@ -127,7 +127,20 @@ const conversationNodeSchema = z.discriminatedUnion('type', [
       durationMs: nonNegativeInteger.optional(),
       originalOutputLength: nonNegativeInteger.optional(),
       truncated: z.boolean().optional(),
-      status: toolStatusSchema
+      status: toolStatusSchema,
+      change: z
+        .object({
+          path: z.string(),
+          kind: z.enum(['edit', 'write']),
+          source: z.enum(['proposed', 'applied']),
+          anchored: z.boolean(),
+          patch: z.string(),
+          additions: nonNegativeInteger,
+          deletions: nonNegativeInteger,
+          omitted: z.boolean().optional()
+        })
+        .strict()
+        .optional()
     })
     .strict(),
   z.object({ ...nodeIdentitySchema, type: z.literal('error'), message: z.string() }).strict(),

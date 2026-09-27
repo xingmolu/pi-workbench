@@ -49,10 +49,13 @@ const css = `
 `
 export function PierrePatchDiff({
   patch,
-  layout
+  layout,
+  lineNumbers = true
 }: {
   patch: string
   layout: 'unified' | 'split'
+  /** Hide gutters when hunk positions are not real file lines. */
+  lineNumbers?: boolean
 }): React.JSX.Element {
   const theme = useResolvedTheme()
   return (
@@ -68,6 +71,7 @@ export function PierrePatchDiff({
           themeType: theme,
           preferredHighlighter: 'shiki-js',
           disableFileHeader: true,
+          disableLineNumbers: !lineNumbers,
           overflow: 'scroll',
           tokenizeMaxLength: 100_000,
           tokenizeMaxLineLength: 4000,

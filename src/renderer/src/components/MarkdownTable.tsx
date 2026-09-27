@@ -113,10 +113,15 @@ export function MarkdownTable({ node, children }: Props): React.JSX.Element {
         >
           <Table2 size={16}/>
         </ActionIcon>
-        <label>
-          导出方式{' '}
+        <label className="markdown-table-mode">
+          <span className="sr-only">导出方式</span>
           <select
             value={mode}
+            title={
+              mode === 'text-protected'
+                ? '文本保护：每个单元格（含表头）前加单引号，会改变值；不能保证所有表格软件的公式安全。'
+                : '原始值：可能被表格软件解释为公式，仅导出可信内容。'
+            }
             onChange={(event) => setMode(event.target.value as MarkdownTableRequest['mode'])}
           >
             <option value="text-protected">文本保护</option>
@@ -124,12 +129,12 @@ export function MarkdownTable({ node, children }: Props): React.JSX.Element {
           </select>
         </label>
       </div>
-      <p className="markdown-action-note">
-        {mode === 'text-protected'
-          ? '每个单元格（含表头）前加单引号，会改变值；不能保证所有表格软件的公式安全。'
-          : '原始值可能被表格软件解释为公式，仅导出可信内容。'}
-        {payload?.format === 'CSV' && ' 含特殊分隔符或使用原始值，复制为 CSV。'}
-      </p>
+      {mode === 'raw' ? (
+        <p className="markdown-action-note">
+          原始值可能被表格软件解释为公式，仅导出可信内容。
+          {payload?.format === 'CSV' && ' 含特殊分隔符或使用原始值，复制为 CSV。'}
+        </p>
+      ) : null}
       {invalid && (
         <p role="status">
           表格超过导出预算（10,000 单元格、200 列、1 MiB）或格式无效，未截断导出。

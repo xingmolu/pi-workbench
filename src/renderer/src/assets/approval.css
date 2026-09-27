@@ -2,10 +2,11 @@
 .conversation .approval-card {
   min-width: 0;
   width: 100%;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 14px;
   background: var(--surface-floating);
+  box-shadow: var(--shadow-sm);
   color: var(--text);
   font-size: 12px;
   line-height: 1.5;
@@ -25,6 +26,11 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.conversation .approval-card > .tool-change {
+  margin-top: 10px;
+  border-color: var(--line-soft);
+}
+.conversation .approval-card > .tool-change .tool-change-body { max-height: 320px; }
 .approval-preview {
   position: relative;
   min-width: 0;

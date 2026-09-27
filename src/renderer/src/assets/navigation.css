@@ -10,12 +10,15 @@
   border-bottom: 0;
 }
 .shell .brand-mark {
-  background: transparent;
-  color: var(--text);
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--text);
+  color: var(--canvas);
   font:
-    600 23px/1 Georgia,
+    600 15px/1 Georgia,
     serif;
-  width: 24px;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 18%);
 }
 .shell .brand-name {
   font-size: 14px;
@@ -494,10 +497,13 @@ body.is-sidebar-resizing * {
   gap: 10px;
 }
 .conversation .conversation-session-title {
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text);
-  font-weight: 550;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
+/* Idle is the resting state; the header only speaks up when something needs attention. */
+.conversation .conversation-status.is-idle { display: none; }
 .conversation .conversation-head-meta {
   margin-left: 0;
 }
@@ -513,25 +519,56 @@ body.is-sidebar-resizing * {
   min-height: 42vh;
 }
 .conversation .hero-copy h1 {
-  font: 550 clamp(28px, 3vw, 38px)/1.3 var(--font);
-  letter-spacing: -0.035em;
+  font: 600 clamp(26px, 2.6vw, 34px)/1.3 var(--font);
+  letter-spacing: -0.03em;
 }
+.hero-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 28px;
+}
+.hero-starter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--canvas);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.hero-starter > svg { color: var(--muted-2); }
+.hero-starter:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+.hero-starter:hover > svg { color: var(--text-secondary); }
 .conversation .hero-copy p {
   line-height: 1.8;
   color: var(--text-secondary);
   max-width: 480px;
 }
 .conversation .user-node {
-  border-radius: 14px;
-  padding: 12px 16px;
-  line-height: 1.7;
-  max-width: 660px;
+  border-radius: 18px;
+  padding: 10px 16px;
+  line-height: 1.65;
+  max-width: 640px;
 }
 .conversation .node-flow {
   gap: 24px;
 }
 .conversation .assistant-node {
-  line-height: 1.8;
+  line-height: 1.75;
 }
 .conversation .work-summary-trigger {
   font-size: 13px;
@@ -550,18 +587,20 @@ body.is-sidebar-resizing * {
   padding-bottom: 12px;
 }
 .conversation .composer {
-  padding: 13px 14px 11px;
+  padding: 12px 12px 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--composer);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 3%);
+  box-shadow: var(--shadow-md);
   transition:
     border-color 120ms ease,
     box-shadow 120ms ease;
 }
 .conversation .composer:focus-within {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow:
+    0 0 0 3px var(--selection-wash),
+    var(--shadow-md);
 }
 .conversation .composer-input {
   min-height: 52px;
@@ -606,9 +645,14 @@ body.is-sidebar-resizing * {
 .conversation .send {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: 50%;
   grid-area: auto;
+  background: var(--text);
+  color: var(--canvas);
+  transition: opacity 120ms ease, transform 120ms ease;
 }
+.conversation .send:hover:not(:disabled) { background: var(--text); opacity: 0.86; }
+.conversation .send:active:not(:disabled) { transform: scale(0.94); }
 .conversation .composer-stop {
   display: flex;
   align-items: center;

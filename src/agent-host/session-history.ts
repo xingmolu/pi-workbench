@@ -2,6 +2,7 @@ import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-codin
 import type { ConversationNode, ToolStatus } from '../shared/contracts'
 import { assistantTerminalNode } from './assistant-outcome'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import { appliedToolChange, proposedToolChange } from './tool-change'
 import { MESSAGE_FEEDBACK_TYPE, messageFeedbackDataSchema, type MessageFeedbackValue } from '../shared/message-actions'
 
 type ToolNode = Extract<ConversationNode, { type: 'tool' }>
@@ -12,6 +13,7 @@ export type HistoryToolOverlay = {
   originalOutputLength?: number
   truncated?: boolean
   durationMs?: number
+  change?: ToolNode['change']
 }
 export type SessionHistoryOptions = {
   /** Caller supplies stable, generation-scoped identities only for messages not yet appended. */
@@ -115,10 +117,15 @@ export function projectSessionHistory(
     if (message.role === 'toolResult') {
       const queue = pending.get(message.toolCallId)
       const tool = queue?.shift()
-      if (tool)
+      if (tool) {
         Object.assign(tool, outputFields(textFromContent(message.content)), {
           status: message.isError ? 'error' : 'success'
         })
+        const applied = message.isError
+          ? undefined
+          : appliedToolChange(tool.name, message.details, tool.change?.path)
+        if (applied) tool.change = applied
+      }
       return
     }
     if (message.role !== 'assistant') return
@@ -165,6 +172,8 @@ export function projectSessionHistory(
             ...toolPresentation(block.name, block.arguments),
             status: 'queued'
           }
+          const change = proposedToolChange(block.name, block.arguments)
+          if (change) tool.change = change
           nodes.push(tool)
           const queue = pending.get(block.id) ?? []
           queue.push(tool)
@@ -214,7 +223,10 @@ export function projectSessionHistory(
         ? { originalOutputLength: overlay.originalOutputLength }
         : {}),
       ...(overlay.truncated !== undefined ? { truncated: overlay.truncated } : {}),
-      ...(overlay.durationMs !== undefined ? { durationMs: overlay.durationMs } : {})
+      ...(overlay.durationMs !== undefined ? { durationMs: overlay.durationMs } : {}),
+      ...(overlay.change !== undefined && node.change?.source !== 'applied'
+        ? { change: overlay.change }
+        : {})
     }
   })
 }

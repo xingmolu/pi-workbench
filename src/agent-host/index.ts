@@ -1,5 +1,6 @@
 import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseRecoveryFence } from './computer-use-execution'
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
+import { appliedToolChange } from './tool-change'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
 import { ProjectMutationClient } from './project-mutation-client'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
@@ -1410,14 +1411,20 @@ class PiDesktopHost {
       case 'tool_execution_end': {
         if (event.toolName !== 'mcp') this.mutations.release(event.toolCallId)
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
-        this.updateToolNode(
-          event.toolCallId,
-          this.toolOutputFields(
+        const change = event.isError
+          ? undefined
+          : appliedToolChange(
+              event.toolName,
+              isRecord(event.result) ? event.result.details : undefined
+            )
+        this.updateToolNode(event.toolCallId, {
+          ...this.toolOutputFields(
             textFromContent(isRecord(event.result) ? event.result.content : event.result),
             state.status,
             state.durationMs
-          )
-        )
+          ),
+          ...(change ? { change } : {})
+        })
         break
       }
       case 'agent_settled':
