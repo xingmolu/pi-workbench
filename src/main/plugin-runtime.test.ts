@@ -73,6 +73,105 @@ function setup(timeouts = {}) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+describe('manifest.json API compatibility', () => {
+  function compatSetup() {
+    const opened: string[] = []
+    const toasts: string[] = []
+    const stored: Record<string, unknown> = { greeting: 'hi' }
+    const processes: FakeProcess[] = []
+    const runtime = new PluginRuntime({
+      spawn: () => {
+        const child = new FakeProcess()
+        processes.push(child)
+        return child
+      },
+      context: () => ({ projectPath: '/work/shop' }),
+      storage: { get: () => undefined, set: () => undefined },
+      toast: (_pluginId, message) => toasts.push(message),
+      openView: (viewId) => opened.push(viewId),
+      audit: () => undefined,
+      onChange: () => undefined,
+      settings: {
+        get: () => ({ ...stored }),
+        set: (_pluginId, values) => Object.assign(stored, values)
+      },
+      dataPath: async (pluginId) => `/data/${pluginId}`,
+      appearance: () => 'light'
+    })
+    const view = plugin({
+      granted: new Set(['ui.view', 'agent.tools']),
+      agentTools: ['echo_text'],
+      views: new Map([['panel', 'acme.notes.panel']])
+    })
+    return { runtime, processes, opened, toasts, stored, view }
+  }
+
+  it('offers panels, toasts, settings, workspace and appearance to views', async () => {
+    const { runtime, opened, toasts, view } = compatSetup()
+    await runtime.callFromView(view, 'ui.openPanel', { title: 'x' })
+    await runtime.callFromView(view, 'ui.showToast', { message: 'from view' })
+    await runtime.callFromView(view, 'ui.notify', { message: 'notified' })
+    expect(opened).toEqual(['acme.notes.panel'])
+    expect(toasts).toEqual(['from view', 'notified'])
+    await expect(runtime.callFromView(view, 'plugin.getSettings', {})).resolves.toEqual({
+      greeting: 'hi'
+    })
+    await expect(runtime.callFromView(view, 'workspace.get', {})).resolves.toEqual({
+      path: '/work/shop',
+      name: 'shop'
+    })
+    await expect(runtime.callFromView(view, 'app.getAppearance', {})).resolves.toEqual({
+      base: 'light'
+    })
+    for (const method of ['plugin.setSettings', 'plugin.getDataPath', 'agent.unregisterTool'])
+      await expect(runtime.callFromView(view, method, {})).rejects.toMatchObject({
+        code: 'UNSUPPORTED'
+      })
+  })
+
+  it('lets the process change settings, find its data path and unregister tools', async () => {
+    const { runtime, processes, stored, view } = compatSetup()
+    runtime.sync([view])
+    const child = processes[0]
+    child.emit({ kind: 'ready' })
+    child.emit({
+      kind: 'call',
+      id: 1,
+      method: 'plugin.setSettings',
+      params: { values: { greeting: 'yo' } }
+    })
+    child.emit({ kind: 'call', id: 2, method: 'plugin.getDataPath', params: {} })
+    child.emit({ kind: 'call', id: 3, method: 'agent.registerTool', params: { name: 'echo_text' } })
+    child.emit({
+      kind: 'call',
+      id: 4,
+      method: 'agent.unregisterTool',
+      params: { name: 'echo_text' }
+    })
+    await flush()
+    expect(stored.greeting).toBe('yo')
+    expect(child.lastReply(2)).toMatchObject({ ok: true, value: '/data/acme.notes' })
+    await expect(runtime.runTool('acme.notes', 'echo_text', {})).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    })
+  })
+
+  it("forwards channels the host does not implement to the plugin's onPanelInvoke", async () => {
+    const { runtime, processes, view } = compatSetup()
+    await expect(runtime.callFromView(view, 'notes.list', {})).rejects.toMatchObject({
+      code: 'UNSUPPORTED'
+    })
+    runtime.sync([view])
+    const child = processes[0]
+    child.emit({ kind: 'ready' })
+    const reply = runtime.callFromView(view, 'notes.list', { limit: 2 })
+    const invoke = child.sent.findLast((message) => message.kind === 'invoke')
+    expect(invoke).toMatchObject({ target: 'panel', name: 'notes.list', input: { limit: 2 } })
+    child.emit({ kind: 'reply', id: (invoke as { id: number }).id, ok: true, value: ['a', 'b'] })
+    await expect(reply).resolves.toEqual(['a', 'b'])
+  })
+})
+
 describe('plugin agent tools', () => {
   const toolPlugin = (): RuntimePlugin =>
     plugin({ granted: new Set(['agent.tools']), agentTools: ['lookup', 'unbound'] })

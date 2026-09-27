@@ -190,6 +190,24 @@ export const desktopPluginSummarySchema: z.ZodType<DesktopPluginSummary> = z
         needsGrant: z.boolean()
       })
       .strict()
+      .optional(),
+    settings: z
+      .array(
+        z
+          .object({
+            key: z.string().min(1).max(64),
+            title: z.string().min(1).max(256),
+            description: z.string().max(1000).optional(),
+            type: z.enum(['string', 'number', 'boolean', 'select', 'json', 'shortcut']),
+            value: jsonValueSchema,
+            options: z
+              .array(z.object({ value: z.string().max(256), label: z.string().max(256) }).strict())
+              .max(64)
+              .optional()
+          })
+          .strict()
+      )
+      .max(64)
       .optional()
   })
   .strict()
@@ -281,6 +299,14 @@ export const workbenchCommandSchema: z.ZodType<WorkbenchCommand> = z.discriminat
       type: z.literal('plugin:command:run'),
       pluginId: identifierSchema,
       commandId: z.string().min(1).max(128)
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('plugin:settings:set'),
+      pluginId: identifierSchema,
+      key: z.string().min(1).max(64),
+      value: jsonValueSchema
     })
     .strict(),
   z

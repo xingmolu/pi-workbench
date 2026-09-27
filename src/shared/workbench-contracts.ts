@@ -76,6 +76,17 @@ export type DesktopPluginSummary = {
     /** Requested permissions changed since the last grant; the plugin stays off until re-granted. */
     needsGrant: boolean
   }
+  /** Settings the plugin declares, with their current values. */
+  settings?: PluginSettingSummary[]
+}
+
+export type PluginSettingSummary = {
+  key: string
+  title: string
+  description?: string
+  type: 'string' | 'number' | 'boolean' | 'select' | 'json' | 'shortcut'
+  value: JsonValue
+  options?: { value: string; label: string }[]
 }
 
 export type WorkbenchSnapshot = {
@@ -92,6 +103,7 @@ export type WorkbenchCommand =
   | { type: 'plugin:set-enabled'; pluginId: string; desktopEnabled: boolean }
   | { type: 'view:set'; viewId: string; visible: boolean; bounds?: WorkbenchBounds }
   | { type: 'plugin:command:run'; pluginId: string; commandId: string }
+  | { type: 'plugin:settings:set'; pluginId: string; key: string; value: JsonValue }
   | { type: 'plugin:approval:respond'; id: string; allow: boolean }
 
 export type WorkbenchCommandResult = { state: WorkbenchSnapshot }

@@ -4,7 +4,11 @@ import type {
   PluginPanelCommandResult,
   PluginPanelContext
 } from '../shared/workbench-contracts'
-import { createPluginPanelClient, type PluginPanelTransport } from './plugin-client'
+import {
+  createPiDesktopPluginBridge,
+  createPluginPanelClient,
+  type PluginPanelTransport
+} from './plugin-client'
 
 const CONTEXT: PluginPanelContext = {
   pluginId: 'acme.notes',
@@ -185,5 +189,27 @@ describe('plugin panel preload client', () => {
     fake.invoke.mockClear()
     await expect(client.getState(CONTEXT.generation)).rejects.toThrow('context is stale')
     expect(fake.invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers manifest.json views the pluginBridge shape over the same client', async () => {
+    const fake = transport((command) => {
+      if (command.type === 'context:get') return { type: 'context', context: CONTEXT }
+      return { type: 'api:result', context: CONTEXT, ok: true, value: { ok: 1 } }
+    })
+    const bridge = createPiDesktopPluginBridge(createPluginPanelClient(fake.value))
+    expect(Object.keys(bridge).sort()).toEqual(['invoke', 'on'])
+    await expect(bridge.invoke('ui.showToast', { message: 'hi' })).resolves.toEqual({ ok: 1 })
+    expect(fake.invoke).toHaveBeenLastCalledWith(
+      expect.objectContaining({ method: 'ui.showToast', params: { message: 'hi' } })
+    )
+    await bridge.invoke('workspace.get')
+    expect(fake.invoke).toHaveBeenLastCalledWith(expect.objectContaining({ params: {} }))
+
+    const seen: unknown[] = []
+    const off = bridge.on('workspace:changed', (payload) => seen.push(payload))
+    bridge.on('appearance:changed', () => seen.push('never'))()
+    fake.emit({ ...CONTEXT, projectPath: '/workspace/other', generation: 8 })
+    off()
+    expect(seen).toEqual([{ path: '/workspace/other' }])
   })
 })

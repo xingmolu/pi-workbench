@@ -1419,6 +1419,7 @@ function createWindow(): void {
     pluginHostPath: join(__dirname, 'plugin-host.js'),
     permissionMode: () => activePermissionMode,
     bundledPluginDirectory: bundledPluginDirectory(),
+    appearance: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
     pluginServices: (() => {
       mkdirSync(app.getPath('sessionData'), { recursive: true })
       const hooksPath = mkdtempSync(join(app.getPath('sessionData'), 'plugin-git-hooks-'))

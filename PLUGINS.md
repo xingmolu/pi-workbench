@@ -1,6 +1,6 @@
 # Pi Desktop 插件体系与 Agent 运行时设计
 
-状态：v1。第一、二阶段已实现，见第 13、14 节；其余阶段按第 10 节推进。本文定义插件体系第一阶段的边界、manifest、进程与权限模型、公开 API，以及与之配套的 Agent 运行时（runtime provider）契约。实现按第 10 节分阶段推进，每阶段有独立验收标准。
+状态：v1。第一至五阶段已实现，见第 13–17 节。第 3 节的 manifest 示例是早期草案，实际字段以第 16、17 节为准。本文定义插件体系第一阶段的边界、manifest、进程与权限模型、公开 API，以及与之配套的 Agent 运行时（runtime provider）契约。实现按第 10 节分阶段推进，每阶段有独立验收标准。
 
 ## 1. 目标与非目标
 
@@ -198,7 +198,7 @@ interface ToolGate {
 | P4 Agent 扩展（已完成，见 §16） | `ToolGate` 抽取、`agentTools`（native）、`skills`、`mcpServers`、假运行时测试 | 插件工具在三个档位下行为正确；假运行时经 MCP 桥调用插件工具 |
 
 
-- 对齐：manifest 核心字段、`contributes.views/commands/agentTools/skills/mcpServers`、权限名称、`pi.*` 中已实现方法的参数形状、错误码。
+- 对齐：manifest 核心字段、`contributes.views/commands/agentTools/skills/mcpServers/settings`、权限名称（通过别名映射）、`pi.*` 中已实现方法的参数形状、视图桥 `window.pluginBridge`、错误码。实现细节见 §17。
 - 不对齐：分发格式与市场、常驻服务与消息总线、主题、pi 会话与 LLM 上下文类 API（第一阶段）。
 - 许可：对方为 LGPL-3.0。我们只参考接口约定与设计，不复制其代码。
 
@@ -298,4 +298,25 @@ module.exports = {
 - **假运行时契约测试**（`src/agent-host/fake-runtime.test.ts`）：一个不依赖 pi 的运行时，用自己的工具名（`RunShell`、`WriteFile`、MCP 工具），通过类别映射进入 ToolGate，经 MCP 桥调用插件工具，并把原生事件归一化为 `ConversationNode`；覆盖三个档位和拒绝。
 - **顺带修复**：会话会反复重发相同的包根目录，此前每次都会清空注册表、销毁面板并重启所有插件进程（插件工具调用时尤其明显）。现在同一会话身份下重复的根目录被忽略；注册表重载期间插件进程保持运行，重载完成后只重启真正变化的插件。
 - 未做：`pi.agent.onTurnEnd`、插件 MCP 服务器在 MCP 设置页中的展示、接入第二个真实运行时。
+
+
+
+- **manifest**：插件目录里没有 `pi-desktop.json` 时读取 `manifest.json`；只有带 `schemaVersion` 和 `id` 的 `manifest.json` 才被当作插件（避免误读网页应用等同名文件）。解析前先做归一化（`src/main/manifest-compat.ts`）：
+  - 忽略描述性字段：`author`、`homepage`、`repository`、`icon`、`i18n`、`enabledByDefault`、`activationEvents`、`fs`、`net`；`engines` 可省略。
+  - `ui.panel`（独立浮动窗口）在工作台中以 id 为 `panel` 的视图显示；`pi.ui.openPanel()` 打开它。来自 `manifest.json` 的视图默认不需要打开项目（`onApp`）。
+  - 命令 id 可以带点（`hello.open`），`category` 忽略。
+  - `agentTools[].schema` 作为 `parameters`；`risk` 忽略（插件自报的风险不降低审批，见 §16）。
+  - `skills` 接受单个 `.md` 文件、目录或 `{ path }`；pi 原生支持单文件技能。
+  - `mcpServers` 接受数组形式；插件内相对路径的命令从插件目录运行；`env` / `headers` 中的 `{ "setting": "key" }` 在交付给 Agent 时取该插件的设置值。
+  - `settings`：`string`、`number`、`boolean`、`select` 在设置 → Desktop 插件中直接编辑；`json`、`shortcut` 只显示，由插件自己修改。
+  - 不支持的贡献点——主题、常驻服务、消息总线、Agent 扩展模块、模型提供方、外部会话来源、全局快捷键——被忽略，并在插件行中逐条以警告列出，不会让整个插件加载失败。
+- **权限别名**：`agent.tool.register` → `agent.tools`，`agent.prompt.inject` → `agent.skills`，`mcp.server.local` / `mcp.server.remote` → `mcp.local` / `mcp.remote`，`ui.panel` → `ui.view`。其余未实现的权限在授权界面标为"此版本不支持，不会授予"。
+- **插件进程 `pi`**：
+  - `pi.plugin.getId()`（同步）、`getSettings()`、`setSettings(values)`（只接受声明过的键和对应类型）、`getDataPath()`（`~/.pi/agent/pi-desktop/plugin-data/<id>`）。
+  - `pi.ui.showToast` / `notify` 接受字符串或 `{ message }`，不再需要 `notify` 权限（提示总带插件名）；`pi.ui.openPanel()`。
+  - `pi.agent.registerTool` 接受 `execute(args, context)`（`context.log`），`pi.agent.unregisterTool(name)`。
+  - `pi.bus.publish` / `subscribe`、`pi.services.register` 为空实现，保证使用它们的插件能加载；设置页会说明这些能力被忽略。
+  - 导出 `onPanelInvoke(channel, payload)` 的插件：视图调用宿主未实现的通道时转发给它（插件与自己的视图通信，不需要额外权限）。
+- **视图**：除 `window.piPlugin` 外还提供 `window.pluginBridge`（`invoke(channel, payload)`、`on(event, listener)`）。宿主通道新增 `workspace.get`、`app.getAppearance`、`plugin.getSettings`。`on` 目前只发布 `workspace:changed`。
+- 未做：主题、常驻服务、消息总线、`fs.glob` / `fs.remove`、剪贴板、`net.fetch`、`manifest.fs` 的路径范围（我们的文件接口始终限定在当前项目内）、按项目启用插件、`plugin:settingsChanged` 事件。
 

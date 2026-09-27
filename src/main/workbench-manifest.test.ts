@@ -100,6 +100,7 @@ describe('discoverWorkbenchManifests', () => {
         agentTools: [],
         skillPaths: [],
         mcpServers: {},
+        settings: [],
         pluginId: 'acme.notes',
         name: 'Acme Notes',
         version: '1.2.3',
@@ -344,7 +345,6 @@ describe('discoverWorkbenchManifests', () => {
     }> = [
       { name: 'schema', overrides: { schemaVersion: 2 }, code: 'manifest-invalid' },
       { name: 'version', overrides: { version: 'latest' }, code: 'manifest-invalid' },
-      { name: 'missing-engine', overrides: { engines: undefined }, code: 'manifest-invalid' },
       {
         name: 'invalid-engine',
         overrides: { engines: { piDesktop: 'not a range' } },

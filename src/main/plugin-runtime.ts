@@ -70,6 +70,14 @@ export type PluginRuntimeDependencies = {
   audit(entry: PluginAuditEntry): void
   onChange(): void
   timeouts?: Partial<typeof PLUGIN_TIMEOUTS>
+  /** Declared settings merged with stored values; `set` validates against the declaration. */
+  settings?: {
+    get(pluginId: string): Record<string, unknown>
+    set(pluginId: string, values: Record<string, unknown>): Record<string, unknown>
+  }
+  /** Creates and returns the plugin's private data directory. */
+  dataPath?(pluginId: string): Promise<string>
+  appearance?(): 'light' | 'dark'
 }
 
 type Running = {
@@ -95,7 +103,8 @@ function storageKey(pluginId: string, projectPath: string | null, key: string): 
 /** Every refusal is audited, but only high-risk calls when they succeed: panels poll status
  * and reads would otherwise bury the writes that matter. */
 function auditsSuccess(method: string): boolean {
-  if (!Object.hasOwn(PLUGIN_HOST_METHODS, method)) return true
+  // Unknown methods are the plugin's own panel channels (or refusals, audited on failure).
+  if (!Object.hasOwn(PLUGIN_HOST_METHODS, method)) return false
   const permission = PLUGIN_HOST_METHODS[method as PluginHostMethod].permission
   return permission !== null && PLUGIN_PERMISSIONS[permission] === 'high'
 }
@@ -193,7 +202,7 @@ export class PluginRuntime {
 
   private invoke(
     running: Running,
-    target: 'command' | 'tool',
+    target: 'command' | 'tool' | 'panel',
     name: string,
     input: unknown,
     timeout: number,
@@ -232,7 +241,7 @@ export class PluginRuntime {
         id,
         target,
         name,
-        ...(target === 'tool' ? { input } : {})
+        ...(target === 'command' ? {} : { input })
       })
     })
   }
@@ -374,7 +383,19 @@ export class PluginRuntime {
     try {
       if (Object.hasOwn(PLUGIN_HOST_METHODS, method) && !isViewCallable(method as PluginHostMethod))
         throw new PluginApiError('UNSUPPORTED', '面板不能调用此方法')
-      const value = await this.execute(plugin, null, method, params)
+      // Channels the host does not implement go to the plugin's own `onPanelInvoke`.
+      const running = this.running.get(plugin.pluginId)
+      const value =
+        !Object.hasOwn(PLUGIN_HOST_METHODS, method) && running?.status === 'running'
+          ? await this.invoke(
+              running,
+              'panel',
+              method.slice(0, 128),
+              params ?? {},
+              this.timeouts.command,
+              '插件面板调用超时'
+            )
+          : await this.execute(plugin, null, method, params)
       if (auditsSuccess(method))
         this.dependencies.audit({ pluginId: plugin.pluginId, method, outcome: 'ok' })
       return value
@@ -549,8 +570,43 @@ export class PluginRuntime {
         return this.services().git.push(plan)
       }
       case 'ui.showToast':
+      case 'ui.notify':
         this.dependencies.toast(plugin.pluginId, args.message as string)
         return undefined
+      case 'ui.openPanel': {
+        const viewId = plugin.views.get('panel') ?? [...plugin.views.values()][0]
+        if (!viewId) throw new PluginApiError('NOT_FOUND', '插件没有可打开的面板')
+        this.dependencies.openView(viewId)
+        return undefined
+      }
+      case 'agent.unregisterTool':
+        registry?.tools.delete(args.name as string)
+        return undefined
+      case 'plugin.getSettings':
+        return this.dependencies.settings?.get(plugin.pluginId) ?? {}
+      case 'plugin.setSettings': {
+        if (!this.dependencies.settings) throw new PluginApiError('UNSUPPORTED', '插件设置不可用')
+        return this.dependencies.settings.set(
+          plugin.pluginId,
+          args.values as Record<string, unknown>
+        )
+      }
+      case 'plugin.getDataPath': {
+        if (!this.dependencies.dataPath)
+          throw new PluginApiError('UNSUPPORTED', '插件数据目录不可用')
+        return this.dependencies.dataPath(plugin.pluginId)
+      }
+      case 'workspace.get': {
+        const { projectPath } = this.dependencies.context()
+        return projectPath
+          ? {
+              path: projectPath,
+              name: projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? projectPath
+            }
+          : null
+      }
+      case 'app.getAppearance':
+        return { base: this.dependencies.appearance?.() ?? 'dark' }
       case 'ui.openView': {
         const viewId = plugin.views.get(args.id as string)
         if (!viewId) throw new PluginApiError('NOT_FOUND', '视图未在 manifest 中声明')

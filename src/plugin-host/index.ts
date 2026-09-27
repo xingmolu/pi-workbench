@@ -18,9 +18,15 @@ type Port = {
 const port = (process as unknown as { parentPort?: Port }).parentPort
 if (!port) throw new Error('Plugin host must run as a utility process')
 
-type PluginModule = { onLoad?: () => unknown; onUnload?: () => unknown }
+type PluginModule = {
+  onLoad?: () => unknown
+  onUnload?: () => unknown
+  /** manifest.json: view channels the host does not implement arrive here. */
+  onPanelInvoke?: (channel: string, payload: unknown) => unknown
+}
 type CommandHandler = () => unknown
-type ToolHandler = (input: unknown) => unknown
+type ToolContext = { log(message: string): void; pluginId: string }
+type ToolHandler = (input: unknown, context: ToolContext) => unknown
 
 let nextCallId = 1
 const pending = new Map<
@@ -30,6 +36,7 @@ const pending = new Map<
 const commands = new Map<string, CommandHandler>()
 const tools = new Map<string, ToolHandler>()
 let plugin: PluginModule | null = null
+let pluginId = ''
 
 function send(message: PluginProcessMessage): void {
   port!.postMessage(message)
@@ -67,8 +74,31 @@ const pi = Object.freeze({
     }
   }),
   ui: Object.freeze({
-    showToast: (message: string) => call('ui.showToast', { message }),
-    openView: (id: string) => call('ui.openView', { id })
+    showToast: (message: string | { message: string }) =>
+      call('ui.showToast', { message: typeof message === 'string' ? message : message?.message }),
+    notify: (message: string | { message: string }) =>
+      call('ui.notify', { message: typeof message === 'string' ? message : message?.message }),
+    openView: (id: string) => call('ui.openView', { id }),
+    /** manifest.json panels open as the plugin's view in the work panel. */
+    openPanel: () => call('ui.openPanel', {})
+  }),
+  plugin: Object.freeze({
+    getId: () => pluginId,
+    getSettings: () => call('plugin.getSettings'),
+    setSettings: (values: Record<string, unknown>) => call('plugin.setSettings', { values }),
+    getDataPath: () => call('plugin.getDataPath')
+  }),
+  /**
+   * message bus and resident services are not implemented. They are accepted
+   * as no-ops so plugins that use them still load; settings shows that they were ignored.
+   */
+  bus: Object.freeze({
+    publish: async (): Promise<void> => undefined,
+    subscribe: async (): Promise<() => Promise<void>> => async () => undefined
+  }),
+  services: Object.freeze({
+    register: (): void => undefined,
+    unregister: (): void => undefined
   }),
   storage: Object.freeze({
     get: (key: string) => call('storage.get', { key }),
@@ -94,12 +124,22 @@ const pi = Object.freeze({
     push: () => call('git.push')
   }),
   agent: Object.freeze({
-    /** `run(input)` returns a string, `{ content: [{ type: 'text', text }] }`, or JSON data. */
-    async registerTool(tool: { name: string; run: ToolHandler }): Promise<void> {
-      if (!tool || typeof tool.run !== 'function')
+    /** `run(input, context)` (or `execute`) returns a string,
+     * `{ content: [{ type: 'text', text }] }`, or JSON data. */
+    async registerTool(tool: {
+      name: string
+      run?: ToolHandler
+      execute?: ToolHandler
+    }): Promise<void> {
+      const handler = tool?.run ?? tool?.execute
+      if (typeof handler !== 'function')
         throw new HostError('INVALID_ARGUMENT', 'agent.registerTool requires a run function')
       await call('agent.registerTool', { name: tool.name })
-      tools.set(tool.name, tool.run)
+      tools.set(tool.name, handler)
+    },
+    async unregisterTool(name: string): Promise<void> {
+      tools.delete(name)
+      await call('agent.unregisterTool', { name })
     }
   })
 })
@@ -138,6 +178,7 @@ port.on('message', (event) => {
   const message = parsed.data
   switch (message.kind) {
     case 'load':
+      pluginId = message.pluginId
       void load(message.mainPath)
       break
     case 'reply': {
@@ -152,6 +193,25 @@ port.on('message', (event) => {
       break
     }
     case 'invoke': {
+      if (message.target === 'panel') {
+        const handler = plugin?.onPanelInvoke
+        if (typeof handler !== 'function') {
+          send(
+            errorReply(
+              message.id,
+              new HostError('UNSUPPORTED', `Channel ${message.name} is not handled`)
+            )
+          )
+          return
+        }
+        void Promise.resolve()
+          .then(() => handler.call(plugin, message.name, message.input))
+          .then(
+            (value) => send({ kind: 'reply', id: message.id, ok: true, value }),
+            (error: unknown) => send(errorReply(message.id, error))
+          )
+        return
+      }
       if (message.target === 'tool') {
         const handler = tools.get(message.name)
         if (!handler) {
@@ -164,7 +224,12 @@ port.on('message', (event) => {
           return
         }
         void Promise.resolve()
-          .then(() => handler(message.input))
+          .then(() =>
+            handler(message.input, {
+              pluginId,
+              log: (text: string) => console.log(`[${pluginId}] ${String(text).slice(0, 2000)}`)
+            })
+          )
           .then(
             (value) => send({ kind: 'reply', id: message.id, ok: true, value }),
             (error: unknown) => send(errorReply(message.id, error))

@@ -8,18 +8,24 @@ import type {
   WorkbenchDiagnostic,
   WorkbenchSnapshot
 } from '../shared/workbench-contracts'
+import { resolveSettingPlaceholders } from './manifest-compat'
 import { BUILTIN_BROWSER_VIEW_ID } from '../shared/workbench-contracts'
 import { pluginPanelStateSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import type {
   ValidatedWorkbenchEntry,
+  ValidatedPluginSetting,
   ValidatedWorkbenchPlugin,
   WorkbenchManifestDiscovery,
   WorkbenchManifestDiscoveryOptions
 } from './workbench-manifest'
 import { realpath } from 'node:fs/promises'
 import { mergeWorkbenchPackageRoots } from './workbench-package-root-merge'
-import { IMPLICIT_PLUGIN_PERMISSIONS, isKnownPluginPermission } from '../shared/plugin-api'
+import {
+  IMPLICIT_PLUGIN_PERMISSIONS,
+  isKnownPluginPermission,
+  PluginApiError
+} from '../shared/plugin-api'
 import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
 import type { GatewayPlugin, RuntimePlugin } from './plugin-runtime'
 import {
@@ -100,6 +106,10 @@ export type WorkbenchHostState = {
   agentContributions(): PluginAgentContributions
   /** Waits for registry reloads in flight, e.g. the one a session switch starts. */
   whenLoaded(): Promise<void>
+  /** Declared settings merged with stored values. */
+  pluginSettings(pluginId: string): Record<string, JsonValue>
+  /** Stores values for declared settings; rejects unknown keys and wrong types. */
+  setPluginSettings(pluginId: string, values: Record<string, unknown>): Record<string, JsonValue>
   dispose(): void
 }
 
@@ -155,6 +165,56 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
 const DESKTOP_ENABLED_STORE_KEY = 'workbenchDesktopEnabled'
 const PANEL_STATE_STORE_KEY = 'workbenchPanelState'
 const GRANTS_STORE_KEY = 'workbenchPluginGrants'
+const SETTINGS_STORE_KEY = 'workbenchPluginSettings'
+
+function readPluginSettings(store: WorkbenchStateStore): Record<string, Record<string, JsonValue>> {
+  const stored = store.get(SETTINGS_STORE_KEY)
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
+  return Object.fromEntries(
+    Object.entries(stored).filter(
+      (entry): entry is [string, Record<string, JsonValue>] =>
+        Boolean(entry[1]) && typeof entry[1] === 'object' && !Array.isArray(entry[1])
+    )
+  )
+}
+
+function settingFallback(setting: ValidatedPluginSetting): JsonValue {
+  if (setting.default !== undefined && pluginPanelStateSchema.safeParse(setting.default).success)
+    return setting.default as JsonValue
+  switch (setting.type) {
+    case 'number':
+      return 0
+    case 'boolean':
+      return false
+    case 'select':
+      return setting.options?.[0]?.value ?? ''
+    case 'json':
+      return null
+    default:
+      return ''
+  }
+}
+
+function acceptsSettingValue(setting: ValidatedPluginSetting, value: unknown): value is JsonValue {
+  switch (setting.type) {
+    case 'string':
+    case 'shortcut':
+      return typeof value === 'string' && value.length <= 8192
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value)
+    case 'boolean':
+      return typeof value === 'boolean'
+    case 'select':
+      return (
+        typeof value === 'string' &&
+        (setting.options ?? []).some((option) => option.value === value)
+      )
+    case 'json':
+      return pluginPanelStateSchema.safeParse(value).success
+    default:
+      return false
+  }
+}
 
 function readGrants(store: WorkbenchStateStore): Record<string, string[]> {
   const stored = store.get(GRANTS_STORE_KEY)
@@ -246,6 +306,39 @@ export function createWorkbenchHostState(
   let disposed = false
   const desktopEnabled = readDesktopEnabled(dependencies.store)
   const grants = readGrants(dependencies.store)
+  const storedSettings = readPluginSettings(dependencies.store)
+  const settingsOf = (plugin: ValidatedWorkbenchPlugin): Record<string, JsonValue> =>
+    Object.fromEntries(
+      plugin.settings.map((setting) => {
+        const stored = storedSettings[plugin.pluginId]?.[setting.key]
+        return [
+          setting.key,
+          stored !== undefined && acceptsSettingValue(setting, stored)
+            ? stored
+            : settingFallback(setting)
+        ]
+      })
+    )
+  const storeSettings = (
+    plugin: ValidatedWorkbenchPlugin,
+    values: Record<string, unknown>
+  ): Record<string, JsonValue> => {
+    const next = { ...(storedSettings[plugin.pluginId] ?? {}) }
+    for (const [key, value] of Object.entries(values)) {
+      const setting = plugin.settings.find((candidate) => candidate.key === key)
+      if (!setting)
+        throw new PluginApiError(
+          'INVALID_ARGUMENT',
+          `设置 ${key.slice(0, 64)} 未在 manifest 中声明`
+        )
+      if (!acceptsSettingValue(setting, value))
+        throw new PluginApiError('INVALID_ARGUMENT', `设置 ${key} 的值类型不对`)
+      next[key] = value
+    }
+    storedSettings[plugin.pluginId] = next
+    dependencies.store.set(SETTINGS_STORE_KEY, { ...storedSettings })
+    return settingsOf(plugin)
+  }
   const panelStates = readPanelStates(dependencies.store)
   type PendingCreation = {
     pluginId: string
@@ -526,6 +619,18 @@ export function createWorkbenchHostState(
         hasExecutablePiResources: plugin.hasExecutablePiResources,
         requestedPermissions: plugin.requestedPermissions,
         diagnostics: pluginDiagnostics(plugin.pluginId),
+        ...(plugin.settings.length > 0
+          ? {
+              settings: plugin.settings.map((setting) => ({
+                key: setting.key,
+                title: setting.title,
+                ...(setting.description === undefined ? {} : { description: setting.description }),
+                type: setting.type,
+                value: settingsOf(plugin)[setting.key],
+                ...(setting.options === undefined ? {} : { options: setting.options })
+              }))
+            }
+          : {}),
         ...(requiresGrant(plugin)
           ? {
               runtime: {
@@ -730,6 +835,14 @@ export function createWorkbenchHostState(
           dependencies.onState?.(snapshot())
           break
         }
+        case 'plugin:settings:set': {
+          const plugin = discovered(command.pluginId)
+          if (!plugin) throw new Error('Workbench plugin is unavailable')
+          storeSettings(plugin, { [command.key]: command.value })
+          revision += 1
+          dependencies.onState?.(snapshot())
+          break
+        }
         case 'plugin:command:run': {
           if (!dependencies.runtime || !isDesktopEnabled(command.pluginId))
             throw new Error('插件未启用')
@@ -916,6 +1029,18 @@ export function createWorkbenchHostState(
       assertNotDisposed()
       return runTrackedPanelOperation(panelContext, operation)
     },
+    pluginSettings(pluginId) {
+      const plugin = discovered(pluginId)
+      return plugin ? settingsOf(plugin) : {}
+    },
+    setPluginSettings(pluginId, values) {
+      const plugin = discovered(pluginId)
+      if (!plugin) throw new PluginApiError('NOT_FOUND', '插件不可用')
+      const result = storeSettings(plugin, values)
+      revision += 1
+      dependencies.onState?.(snapshot())
+      return result
+    },
     async whenLoaded() {
       // A reload can start while waiting for another; wait until none is newer.
       for (let current = loaded; ;) {
@@ -954,8 +1079,22 @@ export function createWorkbenchHostState(
         for (const [id, server] of Object.entries(plugin.mcpServers)) {
           const serverId = pluginMcpServerId(plugin.pluginId, id)
           if (!serverId || server.disabled) continue
-          if (server.command ? granted.has('mcp.local') : granted.has('mcp.remote'))
-            contributions.mcpServers[serverId] = server
+          if (!(server.command ? granted.has('mcp.local') : granted.has('mcp.remote'))) continue
+          // `{ setting: key }` references in env and headers read this plugin's settings.
+          const values = settingsOf(plugin)
+          const resolve = (map: Record<string, string> | undefined) =>
+            map &&
+            Object.fromEntries(
+              Object.entries(map).map(([key, value]) => [
+                key,
+                resolveSettingPlaceholders(value, values)
+              ])
+            )
+          contributions.mcpServers[serverId] = {
+            ...server,
+            ...(server.env ? { env: resolve(server.env) } : {}),
+            ...(server.headers ? { headers: resolve(server.headers) } : {})
+          }
         }
       }
       return contributions

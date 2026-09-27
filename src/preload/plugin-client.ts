@@ -127,3 +127,21 @@ export function createPluginPanelClient(transport: PluginPanelTransport): Plugin
     }
   })
 }
+
+/** view bridge (`window.pluginBridge`), mapped onto the same narrow client. */
+export type PiDesktopPluginBridge = {
+  invoke(channel: string, payload?: unknown): Promise<unknown>
+  on(event: string, listener: (payload: unknown) => void): () => void
+}
+
+export function createPiDesktopPluginBridge(api: PluginPanelAPI): PiDesktopPluginBridge {
+  return Object.freeze({
+    invoke: (channel: string, payload?: unknown) =>
+      api.call(channel, (payload ?? {}) as Parameters<PluginPanelAPI['call']>[1]),
+    on(event: string, listener: (payload: unknown) => void) {
+      // The open project is the only event this host publishes to views.
+      if (event !== 'workspace:changed') return () => undefined
+      return api.onContext((context) => listener({ path: context.projectPath }))
+    }
+  })
+}

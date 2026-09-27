@@ -39,6 +39,7 @@ function plugin(
     agentTools: [],
     skillPaths: [],
     mcpServers: {},
+    settings: [],
     pluginId,
     name: pluginId,
     version: '1.0.0',

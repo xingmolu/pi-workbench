@@ -149,5 +149,11 @@ describe('Workbench panel response security', () => {
     expect(STRICT_WORKBENCH_PANEL_CSP).toContain("default-src 'none'")
     expect(STRICT_WORKBENCH_PANEL_CSP).toContain("connect-src 'none'")
     expect(STRICT_WORKBENCH_PANEL_CSP).toContain("frame-ancestors 'none'")
+    const compat = secureWorkbenchPanelResponseHeaders({}, { inlineScripts: true })[
+      'Content-Security-Policy'
+    ][0]
+    expect(compat).toContain("script-src 'self' 'unsafe-inline'")
+    expect(compat).toContain("connect-src 'none'")
+    expect(compat).toContain("default-src 'none'")
   })
 })

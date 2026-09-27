@@ -20,6 +20,7 @@ function codePlugin(permissions: string[]): ValidatedWorkbenchPlugin {
     agentTools: [],
     skillPaths: [],
     mcpServers: {},
+    settings: [],
     workbench: [
       {
         contribution: {
@@ -292,5 +293,59 @@ describe('plugin grants', () => {
     finish()
     await waiting
     expect(waited).toBe(true)
+  })
+
+  it('stores declared settings, validates them and feeds MCP setting references', async () => {
+    const withSettings = {
+      ...codePlugin(['mcp.local']),
+      settings: [
+        { key: 'token', title: 'Token', type: 'string' as const, default: '' },
+        {
+          key: 'mode',
+          title: 'Mode',
+          type: 'select' as const,
+          options: [
+            { value: 'fast', label: 'Fast' },
+            { value: 'slow', label: 'Slow' }
+          ]
+        }
+      ],
+      mcpServers: { docs: { command: 'node', env: { TOKEN: '${setting:token}' } } }
+    }
+    const { state, persisted } = setup([withSettings])
+    await state.reload()
+    await state.dispatch({ type: 'plugin:set-enabled', pluginId: 'acme.git', desktopEnabled: true })
+    expect(state.pluginSettings('acme.git')).toEqual({ token: '', mode: 'fast' })
+
+    await state.dispatch({
+      type: 'plugin:settings:set',
+      pluginId: 'acme.git',
+      key: 'token',
+      value: 'secret'
+    })
+    expect(git(state.snapshot()).settings).toEqual([
+      { key: 'token', title: 'Token', type: 'string', value: 'secret' },
+      {
+        key: 'mode',
+        title: 'Mode',
+        type: 'select',
+        value: 'fast',
+        options: [
+          { value: 'fast', label: 'Fast' },
+          { value: 'slow', label: 'Slow' }
+        ]
+      }
+    ])
+    expect(persisted.get('workbenchPluginSettings')).toEqual({ 'acme.git': { token: 'secret' } })
+    expect(state.agentContributions().mcpServers).toEqual({
+      acme_git_docs: { command: 'node', env: { TOKEN: 'secret' } }
+    })
+
+    expect(() => state.setPluginSettings('acme.git', { mode: 'turbo' })).toThrow(/类型/)
+    expect(() => state.setPluginSettings('acme.git', { other: 1 })).toThrow(/未在 manifest/)
+    expect(state.setPluginSettings('acme.git', { mode: 'slow' })).toEqual({
+      token: 'secret',
+      mode: 'slow'
+    })
   })
 })

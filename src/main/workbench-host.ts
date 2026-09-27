@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
 import type { PluginAgentContributions } from '../shared/plugin-agent'
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import {
@@ -105,6 +105,8 @@ export type WorkbenchHostDependencies = {
   pluginHostPath?: string
   /** Directory of plugins shipped with the app (one plugin per child directory). */
   bundledPluginDirectory?: string
+  /** The app's current light/dark appearance, for `app.getAppearance`. */
+  appearance?: () => 'light' | 'dark'
   spawnPlugin?: PluginRuntimeDependencies['spawn']
   pluginServices?: PluginRuntimeDependencies['services']
   /** The foreground session's approval level; plugin writes follow it. */
@@ -225,7 +227,8 @@ function configurePanelSession(
   partition: string,
   panelSession: Session,
   canonicalRootPath: string,
-  ownership: WorkbenchPanelSessionOwnership
+  ownership: WorkbenchPanelSessionOwnership,
+  inlineScripts: boolean
 ): void {
   configureOwnedWorkbenchPanelSession({
     partition,
@@ -242,7 +245,9 @@ function configurePanelSession(
       )
       ownedSession.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, callback) => {
         callback({
-          responseHeaders: secureWorkbenchPanelResponseHeaders(details.responseHeaders)
+          responseHeaders: secureWorkbenchPanelResponseHeaders(details.responseHeaders, {
+            inlineScripts
+          })
         })
       })
     }
@@ -265,7 +270,13 @@ async function createElectronPanelView(
     request.entry.contribution.viewId
   )
   const panelSession = session.fromPartition(partition, { cache: false })
-  configurePanelSession(partition, panelSession, canonicalRootPath, sessionOwnership)
+  configurePanelSession(
+    partition,
+    panelSession,
+    canonicalRootPath,
+    sessionOwnership,
+    request.plugin.piDesktopCompat === true
+  )
   const view = new WebContentsView({
     webPreferences: {
       preload: preloadPath,
@@ -497,6 +508,16 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
           dependencies.onEvent?.({ type: 'toast', pluginId, message: message.slice(0, 600) }),
         openView: (viewId) => dependencies.onEvent?.({ type: 'reveal', viewId }),
         audit: pluginAuditWriter(join(dependencies.agentDir, 'pi-desktop', 'plugin-audit.jsonl')),
+        settings: {
+          get: (pluginId) => state.pluginSettings(pluginId),
+          set: (pluginId, values) => state.setPluginSettings(pluginId, values)
+        },
+        dataPath: async (pluginId) => {
+          const path = join(dependencies.agentDir, 'pi-desktop', 'plugin-data', pluginId)
+          await mkdir(path, { recursive: true })
+          return path
+        },
+        ...(dependencies.appearance ? { appearance: dependencies.appearance } : {}),
         onChange: () => notifyRuntime()
       })
     : undefined

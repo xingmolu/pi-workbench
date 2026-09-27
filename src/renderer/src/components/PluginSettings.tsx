@@ -73,6 +73,83 @@ function GrantReview({
   )
 }
 
+type PluginSetting = NonNullable<DesktopPluginSummary['settings']>[number]
+
+function SettingField({
+  setting,
+  pluginName,
+  disabled,
+  onChange
+}: {
+  setting: PluginSetting
+  pluginName: string
+  disabled: boolean
+  onChange: (value: PluginSetting['value']) => void
+}): React.JSX.Element {
+  const label = `${pluginName} 设置：${setting.title}`
+  let control: React.JSX.Element
+  switch (setting.type) {
+    case 'boolean':
+      control = (
+        <input
+          type="checkbox"
+          aria-label={label}
+          checked={setting.value === true}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      )
+      break
+    case 'select':
+      control = (
+        <select
+          aria-label={label}
+          value={String(setting.value ?? '')}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {(setting.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )
+      break
+    case 'number':
+    case 'string':
+      control = (
+        <input
+          // Remount when the stored value changes so an external update shows.
+          key={String(setting.value)}
+          type={setting.type === 'number' ? 'number' : 'text'}
+          aria-label={label}
+          defaultValue={String(setting.value ?? '')}
+          disabled={disabled}
+          onBlur={(event) => {
+            const raw = event.target.value
+            const value = setting.type === 'number' ? Number(raw) : raw
+            if (setting.type === 'number' && !Number.isFinite(value)) return
+            if (value !== setting.value) onChange(value)
+          }}
+        />
+      )
+      break
+    default:
+      // JSON and shortcut settings are shown but edited by the plugin itself.
+      control = <code>{JSON.stringify(setting.value)}</code>
+  }
+  return (
+    <label className="plugin-setting">
+      <span>
+        {setting.title}
+        {setting.description ? <small>{setting.description}</small> : null}
+      </span>
+      {control}
+    </label>
+  )
+}
+
 function pluginScope(plugin: DesktopPluginSummary): string {
   if (plugin.scope === 'builtin' || plugin.scope === 'bundled') return '内置'
   if (plugin.scope === 'project') return '项目'
@@ -268,6 +345,37 @@ export default function PluginSettings({
                       : '无'}
                   </span>
                 </p>
+
+                {plugin.settings && plugin.settings.length > 0 ? (
+                  <div
+                    className="plugin-settings-fields"
+                    role="group"
+                    aria-label={`${plugin.name} 设置`}
+                  >
+                    {plugin.settings.map((setting) => (
+                      <SettingField
+                        key={setting.key}
+                        setting={setting}
+                        pluginName={plugin.name}
+                        disabled={pending}
+                        onChange={(value) =>
+                          void onCommand({
+                            type: 'plugin:settings:set',
+                            pluginId: plugin.pluginId,
+                            key: setting.key,
+                            value
+                          }).catch((error: unknown) =>
+                            dispatch({
+                              type: 'toggle:failure',
+                              pluginId: plugin.pluginId,
+                              message: pluginSettingsErrorMessage(error)
+                            })
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
 
                 {plugin.hasExecutablePiResources ? (
                   <div className="plugin-executable-warning" role="note">

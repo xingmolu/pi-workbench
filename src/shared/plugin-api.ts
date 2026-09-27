@@ -87,9 +87,19 @@ export const PLUGIN_HOST_METHODS = {
     permission: null,
     params: z.object({ id: localIdSchema }).strict()
   },
+  /** Toasts are attributed to the plugin, so they need no permission (as in manifest.json). */
   'ui.showToast': {
-    permission: 'notify',
+    permission: null,
     params: z.object({ message: z.string().trim().min(1).max(500) }).strict()
+  },
+  'ui.notify': {
+    permission: null,
+    params: z.object({ message: z.string().trim().min(1).max(500) }).strict()
+  },
+  /** floating panel: opens the plugin's `panel` view, or its first view. */
+  'ui.openPanel': {
+    permission: 'ui.view',
+    params: z.object({}).passthrough()
   },
   'ui.openView': {
     permission: 'ui.view',
@@ -164,12 +174,46 @@ export const PLUGIN_HOST_METHODS = {
   'agent.registerTool': {
     permission: 'agent.tools',
     params: z.object({ name: localIdSchema }).strict()
+  },
+  'agent.unregisterTool': {
+    permission: 'agent.tools',
+    params: z.object({ name: localIdSchema }).strict()
+  },
+  /** Declared settings merged with the user's values. */
+  'plugin.getSettings': {
+    permission: null,
+    params: z.object({}).strict()
+  },
+  'plugin.setSettings': {
+    permission: null,
+    params: z.object({ values: z.record(z.string(), z.unknown()) }).strict()
+  },
+  /** A private directory for the plugin's own files. Process only. */
+  'plugin.getDataPath': {
+    permission: null,
+    params: z.object({}).strict()
+  },
+  /** The open project, as `workspace.get` panel channel. */
+  'workspace.get': {
+    permission: null,
+    params: z.object({}).strict()
+  },
+  'app.getAppearance': {
+    permission: null,
+    params: z.object({}).strict()
   }
 } as const satisfies Record<string, { permission: PluginPermission | null; params: z.ZodType }>
 
 /** Methods a sandboxed view may call directly; command registration stays in the process. */
+const PROCESS_ONLY_METHODS: ReadonlySet<string> = new Set([
+  'agent.registerTool',
+  'agent.unregisterTool',
+  'plugin.setSettings',
+  'plugin.getDataPath'
+])
+
 export function isViewCallable(method: PluginHostMethod): boolean {
-  return !method.startsWith('commands.') && method !== 'agent.registerTool'
+  return !method.startsWith('commands.') && !PROCESS_ONLY_METHODS.has(method)
 }
 
 export type PluginHostMethod = keyof typeof PLUGIN_HOST_METHODS
@@ -209,7 +253,8 @@ export const pluginProcessMessageSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('invoke'),
       id: z.number().int().nonnegative(),
-      target: z.enum(['command', 'tool']),
+      /** `panel` forwards a view channel the host does not implement to `onPanelInvoke`. */
+      target: z.enum(['command', 'tool', 'panel']),
       name: z.string().max(128),
       /** Tool input, already validated against the declared schema by the agent host. */
       input: z.unknown().optional()

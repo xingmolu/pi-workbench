@@ -7,6 +7,7 @@ import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workb
 import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
+import { normalizePiDesktopManifest, PI_DESKTOP_MANIFEST_FILE } from './manifest-compat'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
 
@@ -41,6 +42,19 @@ export type ValidatedWorkbenchPlugin = {
   skillPaths: string[]
   /** MCP servers with `${pluginRoot}` already expanded. */
   mcpServers: Record<string, McpServer>
+  /** Declared user settings; values live in host storage. */
+  settings: ValidatedPluginSetting[]
+  /** Loaded from a manifest.json `manifest.json`: its pages may run inline scripts. */
+  piDesktopCompat?: boolean
+}
+
+export type ValidatedPluginSetting = {
+  key: string
+  title: string
+  description?: string
+  type: 'string' | 'number' | 'boolean' | 'select' | 'json' | 'shortcut'
+  default?: unknown
+  options?: { value: string; label: string }[]
 }
 
 export type ValidatedPluginCommand = { id: string; title: string; keywords: string[] }
@@ -144,9 +158,14 @@ const manifestViewSchema = z
   })
   .strict()
 
+/** Command ids may be dotted (`hello.open`), as in manifest.json. */
+const commandIdentifierSchema = z
+  .string()
+  .regex(/^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/, 'Expected a lowercase command identifier')
+
 const manifestCommandSchema = z
   .object({
-    id: localIdentifierSchema,
+    id: commandIdentifierSchema,
     title: localizedTitleSchema,
     keywords: z.array(z.string().trim().min(1).max(64)).max(16).default([])
   })
@@ -163,6 +182,25 @@ const manifestAgentToolSchema = z
       .refine((value) => JSON.stringify(value).length <= 32 * 1024, 'Tool schema is too large')
       .default({ type: 'object', properties: {} }),
     readOnly: z.boolean().default(false)
+  })
+  .strict()
+
+const manifestSettingSchema = z
+  .object({
+    key: z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
+    title: localizedTitleSchema.optional(),
+    description: z.string().max(1000).optional(),
+    type: z.enum(['string', 'number', 'boolean', 'select', 'json', 'shortcut']),
+    default: z.unknown().optional(),
+    options: z
+      .array(
+        z.union([
+          z.string().max(256),
+          z.object({ value: z.string().max(256), label: localizedTitleSchema.optional() }).strip()
+        ])
+      )
+      .max(64)
+      .optional()
   })
   .strict()
 
@@ -183,8 +221,9 @@ const workbenchManifestSchema = z
         views: z.array(manifestViewSchema).max(64).default([]),
         commands: z.array(manifestCommandSchema).max(128).default([]),
         agentTools: z.array(manifestAgentToolSchema).max(32).default([]),
-        /** Directories of SKILL.md skills, relative to the plugin root. */
+        /** SKILL.md directories or single `.md` skill files, relative to the plugin root. */
         skills: z.array(z.string().min(1).max(4096)).max(32).default([]),
+        settings: z.array(manifestSettingSchema).max(64).default([]),
         /** `${pluginRoot}` in command, args and env expands to the plugin's directory. */
         mcpServers: z
           .record(mcpIdSchema, mcpServerSchema)
@@ -198,6 +237,7 @@ const workbenchManifestSchema = z
         commands: [],
         agentTools: [],
         skills: [],
+        settings: [],
         mcpServers: {}
       })
   })
@@ -248,15 +288,16 @@ async function resolvePluginFile(
   return undefined
 }
 
-async function resolvePluginDirectory(
+async function resolvePluginSkillPath(
   canonicalRootPath: string,
   entry: string
 ): Promise<string | undefined> {
   if (!isLocalRelativeEntry(entry)) return undefined
   try {
     const candidate = await realpath(join(canonicalRootPath, entry))
-    if (isPathWithinRoot(canonicalRootPath, candidate) && (await stat(candidate)).isDirectory())
-      return candidate
+    if (!isPathWithinRoot(canonicalRootPath, candidate)) return undefined
+    const metadata = await stat(candidate)
+    if (metadata.isDirectory() || (metadata.isFile() && candidate.endsWith('.md'))) return candidate
   } catch {
     // Reported by the caller.
   }
@@ -351,9 +392,18 @@ export async function discoverWorkbenchManifests({
     let manifestPath: string
     let manifestText: string
     let declaredManifestExists = false
+    // Our own manifest wins; a manifest.json `manifest.json` is read when it is the only one.
+    let piDesktopFile = false
     try {
-      const declaredManifestPath = join(canonicalRootPath, 'pi-desktop.json')
-      await lstat(declaredManifestPath)
+      let declaredManifestPath = join(canonicalRootPath, 'pi-desktop.json')
+      try {
+        await lstat(declaredManifestPath)
+      } catch (error) {
+        if (!(isRecord(error) && error.code === 'ENOENT')) throw error
+        declaredManifestPath = join(canonicalRootPath, PI_DESKTOP_MANIFEST_FILE)
+        await lstat(declaredManifestPath)
+        piDesktopFile = true
+      }
       declaredManifestExists = true
       manifestPath = await realpath(declaredManifestPath)
       if (!isPathWithinRoot(canonicalRootPath, manifestPath)) {
@@ -390,6 +440,12 @@ export async function discoverWorkbenchManifests({
       })
       continue
     }
+    // `manifest.json` is a common name; only a manifest.json-shaped one is a plugin manifest.
+    if (
+      piDesktopFile &&
+      !(isRecord(rawManifest) && 'schemaVersion' in rawManifest && 'id' in rawManifest)
+    )
+      continue
     const pluginId = diagnosticPluginId(rawManifest)
 
     if (hasUnsupportedCommands(rawManifest)) {
@@ -402,7 +458,8 @@ export async function discoverWorkbenchManifests({
       continue
     }
 
-    const parsedManifest = workbenchManifestSchema.safeParse(rawManifest)
+    const compat = normalizePiDesktopManifest(rawManifest, { piDesktopFile })
+    const parsedManifest = workbenchManifestSchema.safeParse(compat.value)
     if (!parsedManifest.success) {
       diagnostics.push({
         severity: 'error',
@@ -413,6 +470,17 @@ export async function discoverWorkbenchManifests({
       continue
     }
     const manifest: WorkbenchManifest = parsedManifest.data
+    if (
+      piDesktopFile &&
+      (manifest.contributes.views.length > 0 || manifest.contributes.workbench.length > 0)
+    )
+      compat.warnings.push('按 manifest.json 插件的方式，允许该插件的面板页面运行内联脚本。')
+    const compatDiagnostics: WorkbenchDiagnostic[] = compat.warnings.map((message) => ({
+      severity: 'warning',
+      code: 'compat-ignored',
+      message,
+      pluginId: manifest.id
+    }))
 
     if (!semver.valid(manifest.version)) {
       diagnostics.push({
@@ -538,12 +606,13 @@ export async function discoverWorkbenchManifests({
 
     const skillPaths: string[] = []
     for (const skill of manifest.contributes.skills) {
-      const directory = await resolvePluginDirectory(canonicalRootPath, skill)
+      const directory = await resolvePluginSkillPath(canonicalRootPath, skill)
       if (directory === undefined) {
         diagnostics.push({
           severity: 'error',
           code: 'skill-invalid',
-          message: 'Plugin skill paths must resolve to directories inside the plugin root.',
+          message:
+            'Plugin skill paths must resolve to directories or .md files inside the plugin root.',
           pluginId: manifest.id
         })
         invalidEntry = true
@@ -592,6 +661,7 @@ export async function discoverWorkbenchManifests({
       continue
     }
 
+    diagnostics.push(...compatDiagnostics)
     plugins.push({
       pluginId: manifest.id,
       name: manifest.name,
@@ -618,7 +688,27 @@ export async function discoverWorkbenchManifests({
         readOnly: tool.readOnly
       })),
       skillPaths,
-      mcpServers
+      mcpServers,
+      ...(piDesktopFile ? { piDesktopCompat: true } : {}),
+      settings: manifest.contributes.settings.map((setting) => ({
+        key: setting.key,
+        title: setting.title === undefined ? setting.key : resolveTitle(setting.title),
+        ...(setting.description === undefined ? {} : { description: setting.description }),
+        type: setting.type,
+        ...(setting.default === undefined ? {} : { default: setting.default }),
+        ...(setting.options === undefined
+          ? {}
+          : {
+              options: setting.options.map((option) =>
+                typeof option === 'string'
+                  ? { value: option, label: option }
+                  : {
+                      value: option.value,
+                      label: option.label === undefined ? option.value : resolveTitle(option.label)
+                    }
+              )
+            })
+      }))
     })
     pluginIds.add(manifest.id)
     currentViewIds.forEach((viewId) => viewIds.add(viewId))

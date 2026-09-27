@@ -56,8 +56,19 @@ export function isPotentialWorkbenchPanelNavigation(
   }
 }
 
+/**
+ * manifest.json plugin pages commonly use inline scripts. Plugins loaded from its manifest get
+ * this variant; everything else (no network, files only from the plugin root, no Node)
+ * stays the same.
+ */
+export const PI_DESKTOP_COMPAT_PANEL_CSP = STRICT_WORKBENCH_PANEL_CSP.replace(
+  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'"
+)
+
 export function secureWorkbenchPanelResponseHeaders(
-  responseHeaders: Readonly<Record<string, string[]>> | undefined
+  responseHeaders: Readonly<Record<string, string[]>> | undefined,
+  options: { inlineScripts?: boolean } = {}
 ): Record<string, string[]> {
   const securityHeaders = new Set([
     'content-security-policy',
@@ -71,7 +82,9 @@ export function secureWorkbenchPanelResponseHeaders(
   )
   return {
     ...headers,
-    'Content-Security-Policy': [STRICT_WORKBENCH_PANEL_CSP],
+    'Content-Security-Policy': [
+      options.inlineScripts ? PI_DESKTOP_COMPAT_PANEL_CSP : STRICT_WORKBENCH_PANEL_CSP
+    ],
     'X-Content-Type-Options': ['nosniff'],
     'Referrer-Policy': ['no-referrer']
   }

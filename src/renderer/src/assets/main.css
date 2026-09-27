@@ -4229,3 +4229,56 @@ button.send:disabled {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+
+.plugin-settings-fields {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.plugin-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.plugin-setting > span {
+  display: grid;
+  min-width: 0;
+  color: var(--text-strong);
+}
+
+.plugin-setting small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.plugin-setting input[type='text'],
+.plugin-setting input[type='number'],
+.plugin-setting select {
+  width: min(220px, 55%);
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-floating);
+  color: var(--text);
+  font: inherit;
+}
+
+.plugin-setting code {
+  max-width: 55%;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

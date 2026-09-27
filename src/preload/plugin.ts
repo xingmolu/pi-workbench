@@ -3,7 +3,7 @@ import {
   WORKBENCH_PANEL_CHANNEL,
   WORKBENCH_PANEL_CONTEXT_CHANNEL
 } from '../shared/workbench-contracts'
-import { createPluginPanelClient } from './plugin-client'
+import { createPiDesktopPluginBridge, createPluginPanelClient } from './plugin-client'
 
 const api = createPluginPanelClient({
   invoke: (command) => ipcRenderer.invoke(WORKBENCH_PANEL_CHANNEL, command),
@@ -15,3 +15,5 @@ const api = createPluginPanelClient({
 })
 
 contextBridge.exposeInMainWorld('piPlugin', api)
+// Plugins written for the common manifest.json format use this name.
+contextBridge.exposeInMainWorld('pluginBridge', createPiDesktopPluginBridge(api))
