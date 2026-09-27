@@ -12,7 +12,7 @@ type SafeRootSource = (typeof SAFE_SOURCE_ORDER)[number]
 type AggregatedRoot = {
   path: string
   sources: Set<SafeRootSource>
-  scope: 'user' | 'project'
+  scope: PiPackageRoot['scope']
   hasExecutablePiResources: boolean
 }
 

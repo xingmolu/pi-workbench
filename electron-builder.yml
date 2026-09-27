@@ -8,6 +8,7 @@ files:
   - package.json
 asarUnpack:
   - node_modules/node-pty/**
+  - resources/plugins/**
 win:
   executableName: pi-desktop
 nsis:

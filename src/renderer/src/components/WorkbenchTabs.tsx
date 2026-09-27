@@ -4,6 +4,7 @@ import {
   Blocks,
   Files,
   FlaskConical,
+  GitBranch,
   GitPullRequest,
   Globe2,
   Plus,
@@ -17,6 +18,7 @@ import '../assets/workbench-tabs.css'
 const icons: Record<WorkbenchIcon, LucideIcon> = {
   files: Files,
   'git-review': GitPullRequest,
+  'git-branch': GitBranch,
   terminal: TerminalSquare,
   browser: Globe2,
   plugin: Puzzle,

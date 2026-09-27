@@ -100,7 +100,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 |---|---|
 | 低 | `ui.view`、`ui.command`、`notify`、`storage` |
 | 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`clipboard.write`、`shell.openExternal` |
-| 高 | `fs.write`、`git.write`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
+| 高 | `fs.write`、`git.write`、`git.push`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
 
 - `fs` 与 `net` 范围默认拒绝：未声明即无访问。`project` 表示当前项目根目录，按解析符号链接后的真实路径判断。
 - 插件发起的写操作（`fs.write`、`git.write`）与 Agent 的写操作适用同一套项目档位（请求批准 / 帮我批准 / 完全访问）与自定义规则；`git.push` 这类对外操作在任何档位都需要用户确认。
@@ -127,7 +127,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | `pi.storage` | 按插件、按项目的 JSON 存储（单项 ≤ 32 KiB，沿用现有限制） | `storage` |
 | `pi.project` | `current()`、`onDidChange` | 无 |
 | `pi.fs` | `readText`、`list`、`stat`；`writeText`（经工具闸门，可撤销） | `fs.read` / `fs.write` |
-| `pi.git` | `status`、`diff`、`log`；`stage`、`unstage`、`discard`（可撤销）、`commit`、`push`（始终确认） | `git.read` / `git.write` |
+| `pi.git` | `status`、`diff`、`log`；`stage`、`unstage`、`discard`（可撤销）、`commit`；`push`（始终确认） | `git.read` / `git.write` / `git.push` |
 | `pi.agent` | `registerTool`（与 manifest 声明对应）、`onTurnEnd`（只读：本轮改动摘要） | `agent.tools` |
 
 约定：
@@ -183,7 +183,7 @@ interface ToolGate {
 | 功能 | 归属 | 说明 |
 |---|---|---|
 | Files | 内置插件（随应用分发，可禁用、不可卸载） | 只用 `pi.fs` 公开 API，作为 API 的第一个验证者 |
-| Git（暂存、提交、推送） | 新的内置插件 | 只用 `pi.git`；提交信息可调用当前模型起草 |
+| Git（暂存、提交、推送） | 内置插件（`resources/plugins/git`，已完成） | 只用 `pi.git`；提交信息可调用当前模型起草 |
 | 对话内改动、本轮汇总、撤销 | 宿主 | 属于对话证据，跟随消息存在，不做成插件 |
 | Terminal、Browser | 暂留宿主 | 依赖原生 PTY 与 WebContentsView，等公开 API 能覆盖后再评估 |
 | 权限档位与审批 | 宿主 | 属于工具闸门 |
@@ -214,7 +214,7 @@ interface ToolGate {
 
 - 授权：含 `main` 或申请 `ui.view` 以外已知权限的插件默认关闭；在设置 → Desktop 插件中打开开关时先展示所请求的权限及风险，确认即授予。之后 manifest 申请了新权限，插件自动暂停，需重新授权。关闭即撤销授权。仅含视图的插件保持原有的默认启用行为。未知权限名照常显示，标注"此版本不支持，不会授予"。
 - 进程：每个启用的插件一个 `utilityProcess`（`out/main/plugin-host.js`），只继承 `PATH`、`HOME`、`USER`、`LANG`、临时目录与 `PI_PLUGIN_ID`。
-- 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。每次调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次）。
+- 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次；第三阶段起成功的调用只记高风险方法，见 §15）。
 - 命令出现在 ⌘K 的"插件命令"分组中；执行超时 30 秒，加载超时 15 秒。
 - 崩溃隔离：插件进程退出时，挂起的命令以 `PLUGIN_CRASHED` 失败，命令从 ⌘K 移除，界面提示，不自动重启；在设置中关开一次即可重新启动。
 
@@ -260,3 +260,21 @@ module.exports = {
 - 视图调用：面板页面通过 `window.piPlugin.call(method, params)` 调用同一套网关，与插件进程共享权限、参数校验和审计；视图不能注册命令。失败时以普通对象 `{ name, code, message }` 拒绝（`contextBridge` 会丢掉 Error 的自定义字段）。只有视图、没有 `main` 的插件同样可以申请 `fs.read`、`git.read` 等权限，启用前同样需要授权。
 - 写操作审批沿用当前会话的项目档位：请求批准下每次写入、暂存、取消暂存、提交、丢弃都会弹出确认；帮我批准下只有丢弃需要确认；完全访问不再询问。确认框明确标出发起的插件，覆盖在原生插件视图之上（视图会暂时隐藏），2 分钟无响应视为拒绝。审批期间切换项目会取消该次写入。
 - Files 迁移为插件推后：现有 Files 依赖"添加到对话"、⌘K 文件搜索等宿主能力，迁移不带来用户可见的变化；以 Git 插件作为公开接口的第一个真实使用者。
+
+## 15. 第三阶段实现说明
+
+- 随应用分发的内置插件：放在 `resources/plugins/<目录>/pi-desktop.json`，与用户插件用同一套 manifest、网关和视图宿主，没有私有通道。打包时 `resources/plugins/**` 解出 asar（`asarUnpack`），插件文件在磁盘上是普通文件；开发与 E2E 直接读仓库里的目录。
+- 信任方式：内置插件默认启用，授予的就是 manifest 里请求的权限（安装应用即完成审阅），授权不写入存储；可以在设置中关闭，不能卸载；设置里显示"范围：内置 · 来源：随 Pi Desktop 分发"。
+- 来源隔离：内置根目录只由 Main 产生，不经过 Agent Host 的包根合并，Agent Host 发来的根目录也不能声明 `bundled`（schema 仍只接受 `user` / `project`）。发现时内置根排在最前面，用户或项目插件使用相同 id 会被判为重复并忽略，不能冒充内置插件。
+- `pi.git.push`（新权限 `git.push`，高风险）：
+  - 先用加固执行器生成推送计划：当前分支、HEAD、远程与远程分支（没有上游时选 `origin` 或唯一的远程，并在推送后设为上游）、将要推送的提交（最多列 20 条）。远程地址里的用户名和密码会被去掉后再展示。
+  - 确认框在任何档位（包括完全访问）都会弹出，列出远程、地址和提交。
+  - 推送的是确认时的那个提交（`<hash>:refs/heads/<分支>`），确认后 HEAD 或分支变了就取消。
+  - 推送使用用户自己的环境和全局配置，这样凭据助手、SSH agent、代理才能工作；但命令行上关闭仓库 hooks（包括 pre-push）和 fsmonitor，禁用 `ext::` 协议，关闭终端提示，并且不继承指向其他仓库或配置的 `GIT_*` 变量。
+  - 仓库本地配置里如果有会执行程序或改写推送目标的设置（`core.sshCommand`、`credential.*`、`url.*`、`include*`、`remote.*.receivepack` 等），拒绝代为推送，提示在终端中推送。
+  - 失败归类：被拒绝（需要先拉取）→ `CONFLICT`；凭据不可用 → `PERMISSION_DENIED` 并提示配置凭据助手或 SSH 密钥；超时 120 秒。
+- `pi.git.status` 增加 `upstream`（如 `origin/main`，尚未推送时为 `null`）。
+- 审计调整：拒绝和失败都记录；成功的调用只记录高风险方法（写入、暂存、提交、丢弃、推送等）。面板会定时读取状态，逐条记录读操作会淹没真正重要的写操作。
+- Git 插件（`works.pi.git`）只有视图、没有 `main`，不会常驻进程。面板显示分支与领先/落后提交数、已暂存与未暂存改动（点开看差异）、逐个或全部暂存/取消暂存、丢弃、提交（没有暂存时"暂存全部并提交"，⌘/Ctrl+Enter）、推送和最近提交；在面板获得焦点、切回可见和每 4 秒刷新一次，列表内容没变时不重建，以免打断悬停和已展开的差异。
+- 提交信息起草（§12 第 3 条）仍待定，留到提供一次性补全 API 时再做。
+

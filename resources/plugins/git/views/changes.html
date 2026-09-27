@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Git</title>
+    <link rel="stylesheet" href="./changes.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="branch" id="branch" title="当前分支">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="4.5" cy="3.5" r="1.75" />
+          <circle cx="4.5" cy="12.5" r="1.75" />
+          <circle cx="11.5" cy="5.5" r="1.75" />
+          <path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-3 2.25-6.4 4" />
+        </svg>
+        <span id="branch-name">—</span>
+        <span class="sync" id="sync"></span>
+      </div>
+      <div class="bar-actions">
+        <button type="button" class="icon" id="refresh" aria-label="刷新" title="刷新">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5V5h-2.5" />
+          </svg>
+        </button>
+        <button type="button" class="push" id="push" hidden>推送</button>
+      </div>
+    </header>
+
+    <div class="notice" id="notice" role="status" hidden></div>
+
+    <main id="content">
+      <section class="compose" id="compose">
+        <textarea
+          id="message"
+          rows="2"
+          placeholder="提交信息（⌘/Ctrl + Enter 提交）"
+          aria-label="提交信息"
+          spellcheck="false"
+        ></textarea>
+        <button type="button" class="primary" id="commit" disabled>提交</button>
+      </section>
+
+      <section class="group" id="staged-group" hidden>
+        <div class="group-head">
+          <span>已暂存</span><span class="count" id="staged-count"></span>
+          <button type="button" class="link" id="unstage-all">全部取消暂存</button>
+        </div>
+        <ul class="files" id="staged" aria-label="已暂存的改动"></ul>
+      </section>
+
+      <section class="group" id="changes-group" hidden>
+        <div class="group-head">
+          <span>改动</span><span class="count" id="changes-count"></span>
+          <button type="button" class="link" id="stage-all">全部暂存</button>
+        </div>
+        <ul class="files" id="changes" aria-label="未暂存的改动"></ul>
+      </section>
+
+      <div class="empty" id="empty" hidden></div>
+
+      <details class="history" id="history">
+        <summary>最近提交</summary>
+        <ol id="log"></ol>
+      </details>
+    </main>
+    <script src="./changes.js"></script>
+  </body>
+</html>

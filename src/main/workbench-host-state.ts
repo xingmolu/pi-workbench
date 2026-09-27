@@ -17,11 +17,9 @@ import type {
   WorkbenchManifestDiscovery,
   WorkbenchManifestDiscoveryOptions
 } from './workbench-manifest'
+import { realpath } from 'node:fs/promises'
 import { mergeWorkbenchPackageRoots } from './workbench-package-root-merge'
-import {
-  IMPLICIT_PLUGIN_PERMISSIONS,
-  isKnownPluginPermission
-} from '../shared/plugin-api'
+import { IMPLICIT_PLUGIN_PERMISSIONS, isKnownPluginPermission } from '../shared/plugin-api'
 import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
 import type { GatewayPlugin, RuntimePlugin } from './plugin-runtime'
 
@@ -65,6 +63,8 @@ export type WorkbenchNativeView = {
 export type WorkbenchHostStateDependencies = {
   appVersion: string
   userRoots: () => Promise<readonly PiPackageRoot[]>
+  /** Plugins shipped inside the app: trusted, on by default, may be disabled. */
+  bundledRoots?: () => Promise<readonly PiPackageRoot[]>
   canonicalizeRoot?: (path: string) => Promise<string>
   discover: (options: WorkbenchManifestDiscoveryOptions) => Promise<WorkbenchManifestDiscovery>
   store: WorkbenchStateStore
@@ -151,8 +151,9 @@ function readGrants(store: WorkbenchStateStore): Record<string, string[]> {
   const stored = store.get(GRANTS_STORE_KEY)
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
   return Object.fromEntries(
-    Object.entries(stored).filter((entry): entry is [string, string[]] =>
-      Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string')
+    Object.entries(stored).filter(
+      (entry): entry is [string, string[]] =>
+        Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string')
     )
   )
 }
@@ -270,7 +271,14 @@ export function createWorkbenchHostState(
   const discovered = (pluginId: string): ValidatedWorkbenchPlugin | undefined =>
     discovery.plugins.find((plugin) => plugin.pluginId === pluginId)
 
+  const bundled = (plugin: ValidatedWorkbenchPlugin): boolean => plugin.scope === 'bundled'
+
+  /** Bundled plugins ship with the app, so installing it granted what they request. */
+  const grantedTo = (plugin: ValidatedWorkbenchPlugin): string[] =>
+    bundled(plugin) ? knownRequested(plugin) : (grants[plugin.pluginId] ?? [])
+
   const needsGrant = (plugin: ValidatedWorkbenchPlugin): boolean =>
+    !bundled(plugin) &&
     requiresGrant(plugin) &&
     desktopEnabled[plugin.pluginId] === true &&
     !knownRequested(plugin).every(
@@ -282,7 +290,7 @@ export function createWorkbenchHostState(
   /** View-only plugins keep their historical default-on behavior; code needs an opt-in. */
   const isDesktopEnabled = (pluginId: string): boolean => {
     const plugin = discovered(pluginId)
-    if (plugin && requiresGrant(plugin))
+    if (plugin && requiresGrant(plugin) && !bundled(plugin))
       return desktopEnabled[pluginId] === true && !needsGrant(plugin)
     return desktopEnabled[pluginId] !== false
   }
@@ -292,7 +300,7 @@ export function createWorkbenchHostState(
     name: plugin.name,
     granted: new Set([
       ...IMPLICIT_PLUGIN_PERMISSIONS,
-      ...(grants[plugin.pluginId] ?? []).filter(isKnownPluginPermission)
+      ...grantedTo(plugin).filter(isKnownPluginPermission)
     ]),
     commands: plugin.commands,
     views: new Map(
@@ -513,7 +521,7 @@ export function createWorkbenchHostState(
               runtime: {
                 hasMain: plugin.canonicalMainPath !== undefined,
                 status: dependencies.runtime?.status(plugin.pluginId) ?? 'stopped',
-                grantedPermissions: grants[plugin.pluginId] ?? [],
+                grantedPermissions: grantedTo(plugin),
                 needsGrant: needsGrant(plugin)
               }
             }
@@ -554,11 +562,21 @@ export function createWorkbenchHostState(
   ): Promise<WorkbenchSnapshot> => {
     try {
       const userRoots = await dependencies.userRoots()
-      const roots = await mergeWorkbenchPackageRoots([...userRoots, ...requestedPackageRoots], {
-        ...(dependencies.canonicalizeRoot === undefined
-          ? {}
-          : { canonicalize: dependencies.canonicalizeRoot })
+      const bundledRoots = (await dependencies.bundledRoots?.()) ?? []
+      const canonicalize = dependencies.canonicalizeRoot
+      const merged = await mergeWorkbenchPackageRoots([...userRoots, ...requestedPackageRoots], {
+        ...(canonicalize === undefined ? {} : { canonicalize })
       })
+      // Bundled roots stay out of the merge so no other source can relabel them as trusted.
+      const bundledPaths = new Set(
+        await Promise.all(
+          bundledRoots.map((root) => (canonicalize ?? realpath)(root.path).catch(() => root.path))
+        )
+      )
+      const roots = [
+        ...bundledRoots,
+        ...merged.filter(({ path, scope }) => scope !== 'bundled' && !bundledPaths.has(path))
+      ]
       if (disposed || requestEpoch !== registryEpoch) return snapshot()
       const discovered = await dependencies.discover({
         roots,
@@ -679,9 +697,11 @@ export function createWorkbenchHostState(
           dependencies.store.set(DESKTOP_ENABLED_STORE_KEY, { ...desktopEnabled })
           // Enabling is the grant: the settings UI shows the requested permissions first.
           const plugin = discovered(command.pluginId)!
-          if (command.desktopEnabled) grants[command.pluginId] = knownRequested(plugin)
-          else delete grants[command.pluginId]
-          dependencies.store.set(GRANTS_STORE_KEY, { ...grants })
+          if (!bundled(plugin)) {
+            if (command.desktopEnabled) grants[command.pluginId] = knownRequested(plugin)
+            else delete grants[command.pluginId]
+            dependencies.store.set(GRANTS_STORE_KEY, { ...grants })
+          }
           if (!command.desktopEnabled) {
             invalidatePendingCreations(command.pluginId)
             destroyPluginViews(command.pluginId)

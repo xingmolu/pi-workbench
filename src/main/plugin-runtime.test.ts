@@ -110,7 +110,7 @@ describe('plugin runtime broker', () => {
     await expect(run).resolves.toBeUndefined()
   })
 
-  it('enforces allowlist, parameters and granted permissions, and audits every call', async () => {
+  it('enforces allowlist, parameters and granted permissions, and audits refusals', async () => {
     const { runtime, processes, audit, toasts, opened, storage } = setup()
     runtime.sync([plugin({ granted: new Set(['ui.view', 'notify']) })])
     const child = processes[0]
@@ -134,8 +134,6 @@ describe('plugin runtime broker', () => {
       'clipboard.read:UNSUPPORTED',
       'ui.showToast:INVALID_ARGUMENT',
       'storage.set:PERMISSION_DENIED',
-      'ui.showToast:ok',
-      'ui.openView:ok',
       'ui.openView:NOT_FOUND'
     ])
   })
@@ -245,7 +243,7 @@ describe('plugin writes, approvals and view calls', () => {
           }
         },
         git: {
-          status: async () => ({ branch: 'main', ahead: 0, behind: 0, files: [] }),
+          status: async () => ({ branch: 'main', upstream: null, ahead: 0, behind: 0, files: [] }),
           diff: async () => ({ patch: '' }),
           log: async () => ({ commits: [] }),
           stage: async (_project, paths) => {
@@ -255,14 +253,29 @@ describe('plugin writes, approvals and view calls', () => {
           discard: async (_project, paths) => {
             calls.push(`discard ${paths.join(',')}`)
           },
-          commit: async () => ({ hash: 'abc' })
+          commit: async () => ({ hash: 'abc' }),
+          pushPlan: async (project) => ({
+            root: project,
+            branch: 'main',
+            head: 'f'.repeat(40),
+            remote: 'origin',
+            url: 'https://example.com/shop.git',
+            remoteBranch: 'main',
+            setUpstream: false,
+            commits: [{ hash: 'f'.repeat(40), subject: 'ship it' }],
+            moreCommits: 0
+          }),
+          push: async (plan) => {
+            calls.push(`push ${plan.remote} ${plan.remoteBranch}`)
+            return { remote: plan.remote, branch: plan.remoteBranch }
+          }
         }
       }
     })
     const view = {
       pluginId: 'acme.git',
       name: 'Git',
-      granted: new Set(['ui.view', 'fs.read', 'fs.write', 'git.read', 'git.write']),
+      granted: new Set(['ui.view', 'fs.read', 'fs.write', 'git.read', 'git.write', 'git.push']),
       commands: [],
       views: new Map()
     }
@@ -304,6 +317,32 @@ describe('plugin writes, approvals and view calls', () => {
     expect(approvals).toEqual([])
   })
 
+  it('always asks before pushing, even at full access, and shows what leaves the machine', async () => {
+    const { runtime, view, calls, approvals } = withServices('open')
+    const detail: string[] = []
+    const approve = runtime['dependencies'].approve!
+    runtime['dependencies'].approve = async (request) => {
+      detail.push(request.detail)
+      return approve(request)
+    }
+    await expect(runtime.callFromView(view, 'git.push', {})).resolves.toEqual({
+      remote: 'origin',
+      branch: 'main'
+    })
+    expect(approvals).toEqual(['推送 main 到 origin/main'])
+    expect(detail[0]).toContain('https://example.com/shop.git')
+    expect(detail[0]).toContain('fffffff ship it')
+    expect(calls).toEqual(['push origin main'])
+  })
+
+  it('does not push when the push is refused', async () => {
+    const { runtime, view, calls } = withServices('open', false)
+    await expect(runtime.callFromView(view, 'git.push', {})).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED'
+    })
+    expect(calls).toEqual([])
+  })
+
   it('cancels a write when the project changes during approval', async () => {
     const setup = withServices('ask')
     const approve = setup.runtime['dependencies'].approve!
@@ -317,7 +356,7 @@ describe('plugin writes, approvals and view calls', () => {
     expect(setup.calls).toEqual([])
   })
 
-  it('lets views read but not register commands, rejects paths outside the project, and audits', async () => {
+  it('lets views read but not register commands, rejects paths outside the project, and audits refusals and writes', async () => {
     const { runtime, view, audit } = withServices('open')
     await expect(runtime.callFromView(view, 'fs.readText', { path: 'src/a.ts' })).resolves.toEqual({
       text: 'read src/a.ts'
@@ -335,11 +374,12 @@ describe('plugin writes, approvals and view calls', () => {
     await expect(
       runtime.callFromView({ ...view, granted: new Set(['ui.view']) }, 'fs.readText', { path: 'a' })
     ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    await runtime.callFromView(view, 'git.commit', { message: 'x' })
     expect(audit.map(({ method, outcome }) => `${method}:${outcome}`)).toEqual([
-      'fs.readText:ok',
       'commands.register:UNSUPPORTED',
       'fs.readText:INVALID_ARGUMENT',
-      'fs.readText:PERMISSION_DENIED'
+      'fs.readText:PERMISSION_DENIED',
+      'git.commit:ok'
     ])
   })
 })

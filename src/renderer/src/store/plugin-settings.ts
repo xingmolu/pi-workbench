@@ -13,8 +13,11 @@ export function pluginDesktopToggleCommand(
 }
 
 export function pluginSourceLabel(
-  plugin: Pick<DesktopPluginSummary, 'builtin' | 'source'>
+  plugin: Pick<DesktopPluginSummary, 'builtin' | 'source'> & {
+    scope?: DesktopPluginSummary['scope']
+  }
 ): string {
+  if (plugin.scope === 'bundled') return '随 Pi Desktop 分发'
   return plugin.builtin ? 'Pi Desktop 内置' : plugin.source
 }
 

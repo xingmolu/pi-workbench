@@ -79,7 +79,11 @@ import { WorkspaceFiles } from './workspace-files'
 import { GIT_REVIEW_CHANNEL, gitReviewCommandSchema } from '../shared/git-review'
 import { GitReview } from './git-review'
 import { GitReviewProcess } from './git-review-process'
-import { PluginFileService, PluginGitService } from './plugin-services'
+import {
+  createUserGitPushRunner,
+  PluginFileService,
+  PluginGitService
+} from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
 import { BrowserManager } from './browser-manager'
@@ -415,6 +419,11 @@ function errorMessage(error: unknown): string {
 }
 
 /** Only the user's global commit identity is read; plugin git otherwise ignores global config. */
+/** Bundled plugins are unpacked from the asar archive so they are real files on disk. */
+function bundledPluginDirectory(): string {
+  return join(app.getAppPath().replace(/app\.asar$/, 'app.asar.unpacked'), 'resources', 'plugins')
+}
+
 async function gitCommitIdentity(): Promise<{ name: string; email: string } | null> {
   const read = (key: string): Promise<string> =>
     new Promise((resolve) => {
@@ -1397,25 +1406,28 @@ function createWindow(): void {
     panelSenderBinding: workbenchPanelIpc,
     pluginHostPath: join(__dirname, 'plugin-host.js'),
     permissionMode: () => activePermissionMode,
-    pluginServices: {
-      fs: new PluginFileService(),
-      git: new PluginGitService(
-        new GitReviewProcess({
-          gitPath: '/usr/bin/git',
-          hooksPath: (() => {
-            mkdirSync(app.getPath('sessionData'), { recursive: true })
-            return mkdtempSync(join(app.getPath('sessionData'), 'plugin-git-hooks-'))
-          })(),
-          trustedEnv: {
-            HOME: homedir(),
-            PATH: '/usr/bin:/bin',
-            TMPDIR: app.getPath('temp'),
-            LC_ALL: 'C'
-          }
-        }),
-        gitCommitIdentity
-      )
-    },
+    bundledPluginDirectory: bundledPluginDirectory(),
+    pluginServices: (() => {
+      mkdirSync(app.getPath('sessionData'), { recursive: true })
+      const hooksPath = mkdtempSync(join(app.getPath('sessionData'), 'plugin-git-hooks-'))
+      return {
+        fs: new PluginFileService(),
+        git: new PluginGitService(
+          new GitReviewProcess({
+            gitPath: '/usr/bin/git',
+            hooksPath,
+            trustedEnv: {
+              HOME: homedir(),
+              PATH: '/usr/bin:/bin',
+              TMPDIR: app.getPath('temp'),
+              LC_ALL: 'C'
+            }
+          }),
+          gitCommitIdentity,
+          createUserGitPushRunner({ gitPath: '/usr/bin/git', hooksPath })
+        )
+      }
+    })(),
     onEvent: (event) => {
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, event)
     },

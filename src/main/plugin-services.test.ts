@@ -4,7 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitReviewProcess } from './git-review-process'
-import { PluginFileService, PluginGitService, resolveInProject } from './plugin-services'
+import {
+  createUserGitPushRunner,
+  PluginFileService,
+  PluginGitService,
+  resolveInProject
+} from './plugin-services'
 
 let root: string
 let project: string
@@ -37,7 +42,17 @@ function gitService(): PluginGitService {
       hooksPath: join(root, 'hooks'),
       trustedEnv: { HOME: root, PATH: '/usr/bin:/bin', LC_ALL: 'C' }
     }),
-    async () => ({ name: 'Plugin User', email: 'user@example.com' })
+    async () => ({ name: 'Plugin User', email: 'user@example.com' }),
+    createUserGitPushRunner({
+      gitPath: '/usr/bin/git',
+      hooksPath: join(root, 'hooks'),
+      env: {
+        HOME: root,
+        PATH: '/usr/bin:/bin',
+        GIT_DIR: '/elsewhere',
+        GIT_CONFIG_GLOBAL: '/dev/null'
+      }
+    })
   )
 }
 
@@ -138,5 +153,104 @@ describe('plugin git service', () => {
 
   it('reports a non-repository clearly', async () => {
     await expect(gitService().status(project)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  describe('push', () => {
+    const remote = (): string => join(root, 'remote.git')
+    const setupRepository = (): void => {
+      execFileSync('/usr/bin/git', ['init', '-q', '--bare', remote()])
+      git('init', '-q', '-b', 'main')
+      writeFileSync(join(project, 'a.txt'), 'a\n')
+      git('add', '.')
+      git('commit', '-q', '-m', 'first')
+      git('remote', 'add', 'origin', remote())
+    }
+    const remoteHead = (branch: string): string =>
+      execFileSync('/usr/bin/git', ['--git-dir', remote(), 'rev-parse', branch]).toString().trim()
+
+    it('plans a first push to origin, pushes the approved commit and sets the upstream', async () => {
+      setupRepository()
+      writeFileSync(
+        join(project, '.git', 'hooks', 'pre-push'),
+        '#!/bin/sh\ntouch hook-ran\nexit 1\n',
+        {
+          mode: 0o755
+        }
+      )
+      const service = gitService()
+      const plan = await service.pushPlan(project)
+      expect(plan).toMatchObject({
+        branch: 'main',
+        remote: 'origin',
+        remoteBranch: 'main',
+        setUpstream: true,
+        commits: [{ subject: 'first' }],
+        moreCommits: 0
+      })
+      await expect(service.push(plan)).resolves.toEqual({ remote: 'origin', branch: 'main' })
+      expect(remoteHead('main')).toBe(plan.head)
+      expect(git('config', 'branch.main.merge').trim()).toBe('refs/heads/main')
+      expect(await service.status(project)).toMatchObject({ upstream: 'origin/main', ahead: 0 })
+      expect(() => readFileSync(join(project, 'hook-ran'))).toThrow()
+
+      writeFileSync(join(project, 'a.txt'), 'b\n')
+      git('commit', '-q', '-am', 'second')
+      const next = await service.pushPlan(project)
+      expect(next).toMatchObject({ setUpstream: false, commits: [{ subject: 'second' }] })
+      await service.push(next)
+      expect(remoteHead('main')).toBe(next.head)
+      await expect(service.pushPlan(project)).rejects.toMatchObject({ code: 'CONFLICT' })
+    })
+
+    it('refuses to push something other than what was approved', async () => {
+      setupRepository()
+      const service = gitService()
+      const plan = await service.pushPlan(project)
+      git('commit', '-q', '--allow-empty', '-m', 'sneaky')
+      await expect(service.push(plan)).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(() => remoteHead('main')).toThrow()
+    })
+
+    it('reports a rejected non-fast-forward push as a conflict', async () => {
+      setupRepository()
+      const service = gitService()
+      await service.push(await service.pushPlan(project))
+      git('commit', '-q', '--amend', '--allow-empty', '-m', 'rewritten')
+      await expect(service.push(await service.pushPlan(project))).rejects.toMatchObject({
+        code: 'CONFLICT',
+        message: expect.stringContaining('拉取')
+      })
+    })
+
+    it('refuses repositories whose local config could run a program during push', async () => {
+      setupRepository()
+      git('config', 'core.sshCommand', 'touch pwned')
+      await expect(gitService().pushPlan(project)).rejects.toMatchObject({ code: 'UNSUPPORTED' })
+      git('config', '--unset', 'core.sshCommand')
+      git('config', 'remote.origin.receivepack', 'touch pwned; git-receive-pack')
+      await expect(gitService().pushPlan(project)).rejects.toMatchObject({ code: 'UNSUPPORTED' })
+      git('config', '--unset', 'remote.origin.receivepack')
+      writeFileSync(join(root, 'extra.config'), '[core]\n\tsshCommand = touch pwned\n')
+      git('config', 'include.path', join(root, 'extra.config'))
+      await expect(gitService().pushPlan(project)).rejects.toMatchObject({
+        code: 'UNSUPPORTED',
+        message: expect.stringContaining('include.path')
+      })
+    })
+
+    it('needs a branch and a remote', async () => {
+      git('init', '-q', '-b', 'main')
+      git('commit', '-q', '--allow-empty', '-m', 'first')
+      await expect(gitService().pushPlan(project)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      git('checkout', '-q', '--detach')
+      await expect(gitService().pushPlan(project)).rejects.toMatchObject({ code: 'CONFLICT' })
+    })
+
+    it('hides credentials embedded in the remote address', async () => {
+      setupRepository()
+      git('remote', 'set-url', 'origin', 'https://user:secret@example.com/repo.git')
+      const plan = await gitService().pushPlan(project)
+      expect(plan.url).toBe('https://example.com/repo.git')
+    })
   })
 })

@@ -736,4 +736,24 @@ describe('discoverWorkbenchManifests', () => {
     ])
     expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'manifest-read-failed' })])
   })
+
+  it('lets a bundled plugin keep its id against a user plugin that sorts earlier', async () => {
+    const user = await temporaryPluginRoot('a-user')
+    await writeManifest(user, { name: 'Impostor' })
+    const bundled = await temporaryPluginRoot('z-bundled')
+    await writeManifest(bundled, { name: 'Shipped' })
+    const discovery = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        { path: user, source: '本机插件', scope: 'user', hasExecutablePiResources: false },
+        { path: bundled, source: '内置插件', scope: 'bundled', hasExecutablePiResources: false }
+      ]
+    })
+    expect(discovery.plugins.map(({ name, scope }) => `${name}:${scope}`)).toEqual([
+      'Shipped:bundled'
+    ])
+    expect(discovery.diagnostics).toEqual([
+      expect.objectContaining({ code: 'duplicate-plugin-id', pluginId: 'acme.notes' })
+    ])
+  })
 })

@@ -74,7 +74,7 @@ function GrantReview({
 }
 
 function pluginScope(plugin: DesktopPluginSummary): string {
-  if (plugin.scope === 'builtin') return '内置'
+  if (plugin.scope === 'builtin' || plugin.scope === 'bundled') return '内置'
   if (plugin.scope === 'project') return '项目'
   return '用户'
 }
@@ -135,7 +135,8 @@ export default function PluginSettings({
   )
 
   const toggle = async (plugin: DesktopPluginSummary, reviewed = false): Promise<void> => {
-    if (!plugin.desktopEnabled && plugin.runtime && !reviewed) {
+    // Bundled plugins ship with the app; installing it was the review.
+    if (!plugin.desktopEnabled && plugin.runtime && plugin.scope !== 'bundled' && !reviewed) {
       setReviewing(plugin.pluginId)
       return
     }
@@ -186,7 +187,7 @@ export default function PluginSettings({
 
       <p className="plugin-settings-note">
         这里的开关只隐藏并销毁右侧 Desktop 贡献；不会禁用 Pi 已加载的 Skills/Extensions。
-        会运行代码的插件需要查看权限并授权后才会启动。
+        会运行代码的插件需要查看权限并授权后才会启动；随应用分发的内置插件默认启用，可以关闭。
       </p>
 
       {operation.reloadError ? (

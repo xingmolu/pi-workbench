@@ -110,6 +110,7 @@ jobs:
           tests/e2e/work-summary.spec.ts
           tests/e2e/coding-flow.spec.ts
           tests/e2e/plugin-runtime.spec.ts
+          tests/e2e/git-plugin.spec.ts
           --reporter=line
 
       - name: Upload E2E diagnostics

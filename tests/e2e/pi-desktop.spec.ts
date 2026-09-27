@@ -957,7 +957,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       electronType: 'undefined',
       ipcRendererType: 'undefined',
       hostBridgeType: 'undefined',
-      pluginBridgeKeys: ['getContext', 'getState', 'onContext', 'setState']
+      pluginBridgeKeys: ['call', 'getContext', 'getState', 'onContext', 'setState']
     })
 
     const childrenBeforePopup = await electronApp!.evaluate(

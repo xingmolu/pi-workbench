@@ -17,7 +17,8 @@ export type WorkbenchSurface =
   | { kind: 'native-view'; adapter: 'browser' }
   | { kind: 'sandboxed-web' }
 
-export type WorkbenchIcon = 'files' | 'git-review' | 'terminal' | 'browser' | 'plugin' | 'flask'
+export type WorkbenchIcon =
+  'files' | 'git-review' | 'git-branch' | 'terminal' | 'browser' | 'plugin' | 'flask'
 
 export type WorkbenchActivation = 'onApp' | 'onProject'
 
@@ -61,7 +62,7 @@ export type DesktopPluginSummary = {
   version: string
   description?: string
   source: string
-  scope: 'builtin' | 'user' | 'project'
+  scope: 'builtin' | 'bundled' | 'user' | 'project'
   builtin: boolean
   desktopEnabled: boolean
   hasExecutablePiResources: boolean

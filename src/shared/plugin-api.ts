@@ -12,6 +12,7 @@ export const PLUGIN_PERMISSIONS = {
   'shell.openExternal': 'medium',
   'fs.write': 'high',
   'git.write': 'high',
+  'git.push': 'high',
   'agent.tools': 'high',
   'agent.skills': 'high',
   'mcp.local': 'high',
@@ -153,6 +154,11 @@ export const PLUGIN_HOST_METHODS = {
   'git.commit': {
     permission: 'git.write',
     params: z.object({ message: z.string().trim().min(1).max(5000) }).strict()
+  },
+  /** Always confirmed, whatever the project's approval level. */
+  'git.push': {
+    permission: 'git.push',
+    params: z.object({}).strict()
   }
 } as const satisfies Record<string, { permission: PluginPermission | null; params: z.ZodType }>
 

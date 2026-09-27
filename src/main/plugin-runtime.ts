@@ -1,5 +1,6 @@
 import {
   PLUGIN_HOST_METHODS,
+  PLUGIN_PERMISSIONS,
   PLUGIN_STORAGE_MAX_BYTES,
   PLUGIN_TIMEOUTS,
   PluginApiError,
@@ -55,7 +56,7 @@ export type PluginRuntimeDependencies = {
     fs: Pick<PluginFileService, 'list' | 'stat' | 'readText' | 'writeText'>
     git: Pick<
       PluginGitService,
-      'status' | 'diff' | 'log' | 'stage' | 'unstage' | 'discard' | 'commit'
+      'status' | 'diff' | 'log' | 'stage' | 'unstage' | 'discard' | 'commit' | 'pushPlan' | 'push'
     >
   }
   /** Asks the user in the main window; resolves false when declined or timed out. */
@@ -87,6 +88,14 @@ function storageKey(pluginId: string, projectPath: string | null, key: string): 
  * Broker between plugin processes and host services. Every `pi.*` call passes, in order:
  * method allowlist → parameter schema → declared-and-granted permission → service → audit.
  */
+/** Every refusal is audited, but only high-risk calls when they succeed: panels poll status
+ * and reads would otherwise bury the writes that matter. */
+function auditsSuccess(method: string): boolean {
+  if (!Object.hasOwn(PLUGIN_HOST_METHODS, method)) return true
+  const permission = PLUGIN_HOST_METHODS[method as PluginHostMethod].permission
+  return permission !== null && PLUGIN_PERMISSIONS[permission] === 'high'
+}
+
 export class PluginRuntime {
   private readonly running = new Map<string, Running>()
   private readonly failures = new Map<string, PluginRuntimeStatus>()
@@ -277,7 +286,7 @@ export class PluginRuntime {
     try {
       const value = await this.execute(running.plugin, running.registered, method, params)
       reply = { kind: 'reply', id, ok: true, value }
-      this.dependencies.audit({ pluginId, method, outcome: 'ok' })
+      if (auditsSuccess(method)) this.dependencies.audit({ pluginId, method, outcome: 'ok' })
     } catch (error) {
       const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
       const message = error instanceof PluginApiError ? error.message : '宿主处理失败'
@@ -293,7 +302,8 @@ export class PluginRuntime {
       if (Object.hasOwn(PLUGIN_HOST_METHODS, method) && !isViewCallable(method as PluginHostMethod))
         throw new PluginApiError('UNSUPPORTED', '面板不能调用此方法')
       const value = await this.execute(plugin, null, method, params)
-      this.dependencies.audit({ pluginId: plugin.pluginId, method, outcome: 'ok' })
+      if (auditsSuccess(method))
+        this.dependencies.audit({ pluginId: plugin.pluginId, method, outcome: 'ok' })
       return value
     } catch (error) {
       const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
@@ -314,15 +324,16 @@ export class PluginRuntime {
 
   /** Plugin writes follow the project's approval level: ask confirms, auto confirms only
    * destructive actions, full access never confirms. Confirmation is never optional for
-   * a destructive action outside full access. */
+   * a destructive action outside full access, and never optional at all for actions that
+   * leave the machine (`always`). */
   private async confirm(
     plugin: GatewayPlugin,
     title: string,
     detail: string,
-    destructive: boolean
+    level: boolean | 'always'
   ): Promise<void> {
     const mode = this.dependencies.context().permissionMode ?? 'ask'
-    if (mode === 'open' || (mode === 'auto' && !destructive)) return
+    if (level !== 'always' && (mode === 'open' || (mode === 'auto' && !level))) return
     const approved = await (this.dependencies.approve?.({
       pluginId: plugin.pluginId,
       pluginName: plugin.name,
@@ -434,6 +445,27 @@ export class PluginRuntime {
         await this.confirm(plugin, '提交暂存的改动', args.message as string, false)
         this.assertProject(project)
         return this.services().git.commit(project, args.message as string)
+      }
+      case 'git.push': {
+        const project = this.project()
+        const plan = await this.services().git.pushPlan(project)
+        const commits = plan.commits.map(({ hash, subject }) => `${hash.slice(0, 7)} ${subject}`)
+        if (plan.moreCommits > 0) commits.push(`…另外 ${plan.moreCommits} 个提交`)
+        await this.confirm(
+          plugin,
+          `推送 ${plan.branch} 到 ${plan.remote}/${plan.remoteBranch}`,
+          [
+            `远程：${plan.remote}  ${plan.url}`,
+            plan.setUpstream ? `将新建远程分支 ${plan.remoteBranch} 并设为上游` : null,
+            '',
+            ...(commits.length > 0 ? commits : ['没有新的提交'])
+          ]
+            .filter((line) => line !== null)
+            .join('\n'),
+          'always'
+        )
+        this.assertProject(project)
+        return this.services().git.push(plan)
       }
       case 'ui.showToast':
         this.dependencies.toast(plugin.pluginId, args.message as string)

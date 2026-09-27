@@ -147,4 +147,78 @@ describe('plugin grants', () => {
     expect(git(snapshot).desktopEnabled).toBe(true)
     expect(git(snapshot).runtime).toBeUndefined()
   })
+
+  it('trusts bundled plugins: on by default, granted what they request, and disableable', async () => {
+    const bundled = {
+      ...codePlugin(['git.read', 'git.write', 'git.push']),
+      scope: 'bundled' as const
+    }
+    const { state, synced, persisted } = setup([bundled])
+    await state.reload()
+    expect(git(state.snapshot())).toMatchObject({
+      scope: 'bundled',
+      desktopEnabled: true,
+      runtime: { needsGrant: false, grantedPermissions: ['git.read', 'git.write', 'git.push'] }
+    })
+    expect(state.pluginForView('acme.git.changes')?.granted.has('git.push')).toBe(true)
+    expect(synced.at(-1)?.map(({ pluginId }) => pluginId)).toEqual(['acme.git'])
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'acme.git',
+      desktopEnabled: false
+    })
+    expect(git(state.snapshot()).desktopEnabled).toBe(false)
+    expect(state.pluginForView('acme.git.changes')).toBeNull()
+    expect(synced.at(-1)).toEqual([])
+    // Grants are implied by shipping with the app, never stored.
+    expect(persisted.get('workbenchPluginGrants') ?? {}).toEqual({})
+
+    await state.dispatch({ type: 'plugin:set-enabled', pluginId: 'acme.git', desktopEnabled: true })
+    expect(git(state.snapshot()).desktopEnabled).toBe(true)
+  })
+
+  it('discovers bundled roots first and keeps other sources from relabeling them', async () => {
+    const seen: { path: string; scope: string }[][] = []
+    const state = createWorkbenchHostState({
+      appVersion: '0.1.0',
+      userRoots: async () => [
+        {
+          path: '/app/plugins/git',
+          source: '本机插件',
+          scope: 'user',
+          hasExecutablePiResources: false
+        },
+        {
+          path: '/home/me/plugins/x',
+          source: '本机插件',
+          scope: 'user',
+          hasExecutablePiResources: false
+        }
+      ],
+      bundledRoots: async () => [
+        {
+          path: '/app/plugins/git',
+          source: '内置插件',
+          scope: 'bundled',
+          hasExecutablePiResources: false
+        }
+      ],
+      canonicalizeRoot: async (path) => path,
+      discover: async ({ roots }) => {
+        seen.push(roots.map(({ path, scope }) => ({ path, scope })))
+        return { plugins: [], diagnostics: [] }
+      },
+      store: { get: () => undefined, set: () => undefined },
+      createView: async () => {
+        throw new Error('unused')
+      },
+      nativeViews: { browser: { setView: () => undefined } }
+    })
+    await state.reload()
+    expect(seen.at(-1)).toEqual([
+      { path: '/app/plugins/git', scope: 'bundled' },
+      { path: '/home/me/plugins/x', scope: 'user' }
+    ])
+  })
 })

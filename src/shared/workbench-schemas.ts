@@ -143,7 +143,8 @@ export const workbenchIconSchema = z.enum([
   'terminal',
   'browser',
   'plugin',
-  'flask'
+  'flask',
+  'git-branch'
 ])
 export const workbenchActivationSchema = z.enum(['onApp', 'onProject'])
 
@@ -175,7 +176,7 @@ export const desktopPluginSummarySchema: z.ZodType<DesktopPluginSummary> = z
     version: z.string().trim().min(1).max(128),
     description: z.string().max(4096).optional(),
     source: z.string().trim().min(1).max(512),
-    scope: z.enum(['builtin', 'user', 'project']),
+    scope: z.enum(['builtin', 'bundled', 'user', 'project']),
     builtin: z.boolean(),
     desktopEnabled: z.boolean(),
     hasExecutablePiResources: z.boolean(),

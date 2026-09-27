@@ -2,7 +2,8 @@
 export type PiPackageRoot = {
   path: string
   source: string
-  scope: 'user' | 'project'
+  /** 'bundled' roots ship with the app and are only ever produced by Main. */
+  scope: 'user' | 'project' | 'bundled'
   hasExecutablePiResources: boolean
 }
 

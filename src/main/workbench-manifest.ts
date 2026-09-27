@@ -100,10 +100,13 @@ function resolveIcon(token: string | undefined): WorkbenchContribution['icon'] {
     case 'folder':
       return 'files'
     case 'diff':
-    case 'branch':
     case 'pull-request':
     case 'git-review':
       return 'git-review'
+    case 'branch':
+    case 'git':
+    case 'git-branch':
+      return 'git-branch'
     case 'terminal':
       return 'terminal'
     case 'browser':
@@ -214,7 +217,10 @@ function isPathWithinRoot(canonicalRootPath: string, canonicalEntryPath: string)
   )
 }
 
+/** Bundled roots are discovered first so a user plugin can never take a bundled plugin's id. */
 function compareRoots(left: PiPackageRoot, right: PiPackageRoot): number {
+  const bundled = Number(right.scope === 'bundled') - Number(left.scope === 'bundled')
+  if (bundled !== 0) return bundled
   const leftKey = `${left.path}\0${left.scope}\0${left.source}\0${left.hasExecutablePiResources}`
   const rightKey = `${right.path}\0${right.scope}\0${right.source}\0${right.hasExecutablePiResources}`
   return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0

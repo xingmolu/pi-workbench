@@ -92,6 +92,8 @@ export type WorkbenchHostDependencies = {
   onEvent?: (event: WorkbenchEvent) => void
   /** Absolute path of the bundled plugin process entry; plugins with `main` stay stopped without it. */
   pluginHostPath?: string
+  /** Directory of plugins shipped with the app (one plugin per child directory). */
+  bundledPluginDirectory?: string
   spawnPlugin?: PluginRuntimeDependencies['spawn']
   pluginServices?: PluginRuntimeDependencies['services']
   /** The foreground session's approval level; plugin writes follow it. */
@@ -125,7 +127,17 @@ function pluginAuditWriter(file: string): (entry: PluginAuditEntry) => void {
 /** Plugin processes get only what they need to run tools, never provider keys or app env. */
 export function pluginProcessEnv(pluginId: string, source = process.env): Record<string, string> {
   const env: Record<string, string> = { PI_PLUGIN_ID: pluginId, NODE_ENV: 'production' }
-  for (const key of ['PATH', 'HOME', 'USER', 'USERPROFILE', 'LANG', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot'])
+  for (const key of [
+    'PATH',
+    'HOME',
+    'USER',
+    'USERPROFILE',
+    'LANG',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'SystemRoot'
+  ])
     if (source[key]) env[key] = source[key]!
   if (!env.HOME) env.HOME = homedir()
   return env
@@ -319,8 +331,11 @@ async function createElectronPanelView(
   }
 }
 
-async function userDesktopPluginRoots(agentDir: string): Promise<PiPackageRoot[]> {
-  const desktopPluginsDirectory = join(agentDir, 'desktop-plugins')
+async function pluginRootsIn(
+  desktopPluginsDirectory: string,
+  source: string,
+  scope: PiPackageRoot['scope']
+): Promise<PiPackageRoot[]> {
   let children
   try {
     children = await readdir(desktopPluginsDirectory, { withFileTypes: true })
@@ -334,8 +349,8 @@ async function userDesktopPluginRoots(agentDir: string): Promise<PiPackageRoot[]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((child) => ({
       path: join(desktopPluginsDirectory, child.name),
-      source: '本机插件',
-      scope: 'user' as const,
+      source,
+      scope,
       hasExecutablePiResources: false
     }))
 }
@@ -440,7 +455,9 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
         storage: {
           get: (key) => {
             const all = dependencies.store.get(storageKey)
-            return all && typeof all === 'object' ? (all as Record<string, unknown>)[key] : undefined
+            return all && typeof all === 'object'
+              ? (all as Record<string, unknown>)[key]
+              : undefined
           },
           set: (key, value) => {
             const all = dependencies.store.get(storageKey)
@@ -460,7 +477,14 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
   const state = createWorkbenchHostState({
     ...(runtime ? { runtime } : {}),
     appVersion: dependencies.appVersion,
-    userRoots: () => userDesktopPluginRoots(dependencies.agentDir),
+    userRoots: () =>
+      pluginRootsIn(join(dependencies.agentDir, 'desktop-plugins'), '本机插件', 'user'),
+    ...(dependencies.bundledPluginDirectory
+      ? {
+          bundledRoots: () =>
+            pluginRootsIn(dependencies.bundledPluginDirectory!, '内置插件', 'bundled')
+        }
+      : {}),
     discover: discoverWorkbenchManifests,
     store: dependencies.store,
     createView:
