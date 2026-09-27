@@ -2,6 +2,49 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Check, Copy, LoaderCircle } from 'lucide-react'
 import type { ApprovalRequest, ToolFileChange } from '../../../shared/contracts'
 import { ToolChangeView } from './ToolChangeView'
+import { usePiStore } from '../store/pi-store'
+import { savePermissionRules } from '../store/permission-rules'
+import {
+  EMPTY_PERMISSION_RULES,
+  suggestCommandRule,
+  type PermissionRules
+} from '../../../shared/permission-rules'
+
+/** The rule an approval can turn into, or null when none would be safe or useful. */
+function alwaysAllow(
+  request: ApprovalRequest,
+  change: ToolFileChange | undefined,
+  projectPath: string | undefined,
+  rules: PermissionRules
+): { label: string; next: PermissionRules } | null {
+  if (!projectPath) return null
+  if (request.toolName === 'bash' || request.toolName === 'powershell') {
+    let command: unknown
+    try {
+      command = (JSON.parse(request.detail) as { command?: unknown }).command
+    } catch {
+      return null
+    }
+    const rule = typeof command === 'string' ? suggestCommandRule(command) : null
+    if (!rule || rules.commands.includes(rule)) return null
+    return { label: `总是允许 ${rule}`, next: { ...rules, commands: [...rules.commands, rule] } }
+  }
+  if (
+    (request.toolName === 'write' || request.toolName === 'edit') &&
+    change &&
+    !rules.projectEdits
+  ) {
+    const root = projectPath.replace(/[\\/]+$/, '')
+    const inside =
+      !change.path.includes('..') &&
+      (!/^([\\/]|[A-Za-z]:)/.test(change.path) ||
+        change.path.startsWith(`${root}/`) ||
+        change.path.startsWith(`${root}\\`))
+    // The Host re-checks the resolved, symlink-free path before honoring the rule.
+    return inside ? { label: '总是允许编辑项目文件', next: { ...rules, projectEdits: true } } : null
+  }
+  return null
+}
 import { approvalSummary } from '../store/conversation-presentation'
 import { approvalPreview } from '../store/approval-presentation'
 import '../assets/approval.css'
@@ -30,6 +73,8 @@ export default function ApprovalCard({
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const preview = approvalPreview(request)
+  const rules = usePiStore((state) => state.snapshot.permissionRules) ?? EMPTY_PERMISSION_RULES
+  const always = alwaysAllow(request, change, projectPath, rules)
 
   useEffect(() => {
     mounted.current = true
@@ -44,12 +89,13 @@ export default function ApprovalCard({
     return () => clearTimeout(timeout)
   }, [copied])
 
-  const respond = async (allow: boolean): Promise<void> => {
+  const respond = async (allow: boolean, rule?: PermissionRules): Promise<void> => {
     if (inFlight.current) return
     inFlight.current = true
     setDecision(allow ? 'allow' : 'deny')
     setError(null)
     try {
+      if (rule && projectPath) await savePermissionRules(projectPath, rule)
       const accepted = await onApproval(request.id, allow)
       if (accepted === false) throw new Error('确认未能提交，请重试。')
       if (mounted.current) setSubmitted(true)
@@ -122,6 +168,17 @@ export default function ApprovalCard({
         </p>
       ) : null}
       <footer className="approval-footer">
+        {always ? (
+          <button
+            type="button"
+            className="approval-always"
+            disabled={decision !== null}
+            title="保存为这个项目的规则，并允许这一次"
+            onClick={() => void respond(true, always.next)}
+          >
+            {always.label}
+          </button>
+        ) : null}
         <div className="approval-actions" data-approval-actions={request.id}>
           <button
             type="button"

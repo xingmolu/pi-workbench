@@ -1788,14 +1788,6 @@ button.send:disabled {
   background: var(--success);
 }
 
-.composer-footer {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  margin-top: 7px;
-}
-
 .context-control {
   display: inline-flex;
   min-width: 0;

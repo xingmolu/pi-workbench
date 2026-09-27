@@ -1,6 +1,5 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import { Markdown } from './Markdown'
 import { useDesktopSettings } from '../store/desktop-settings'
@@ -32,7 +31,6 @@ import {
   ArrowRightLeft,
   Archive,
   Brain,
-  Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -66,6 +64,7 @@ import { usePiStore } from '../store/pi-store'
 import { useComposerPrefill } from '../store/composer-prefill'
 import QuestionNavigation from './QuestionNavigation'
 import ModelPicker from './ModelPicker'
+import PermissionControl from './PermissionControl'
 import {
   composerStatsDisplay,
   approvalSummary,
@@ -436,16 +435,6 @@ function TextContextMessage({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-function MenuContent({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <DropdownMenu.Portal>
-      <DropdownMenu.Content className="dropdown-content" sideOffset={7} align="start">
-        {children}
-      </DropdownMenu.Content>
-    </DropdownMenu.Portal>
-  )
-}
-
 function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element {
   const display = contextDisplay(metrics)
   const runtimeRows = runtimeMetricsDisplay(metrics)
@@ -464,7 +453,7 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
           title="查看上下文与用量"
           aria-label={display.ariaLabel}
         ><span className={`context-meter${display.percent === null ? ' is-unknown' : ''}`} aria-hidden="true" />
-          <span>上下文 {display.percent === null ? '未知' : `${Math.round(display.percent)}%`}</span>
+          <span>{display.percent === null ? '—' : `${Math.round(display.percent)}%`}</span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -894,8 +883,10 @@ function Composer({
 
           <ModelPicker snapshot={snapshot} open={modelMenuOpen} onOpenChange={setModelMenuOpen}
             onSelect={onChooseModel} onLogin={onLogin} onSettings={onOpenSettings} />
+          <PermissionControl snapshot={snapshot} onPermissionChange={onPermissionChange} />
 
           <span className="composer-spacer" />
+          <ContextMeter metrics={snapshot.metrics} />
           <QueuePopover followUp={snapshot.followUp} onClear={onClearQueue} />
           {snapshot.busy && <button className="composer-stop" type="button" title="停止当前运行" aria-label="停止当前运行"
             disabled={!snapshot.ready} onClick={onAbort}><Square size={12} fill="currentColor" /><span>停止</span></button>}
@@ -907,44 +898,6 @@ function Composer({
             {snapshot.busy ? <ListPlus size={17} /> : <ArrowUp size={18} />}
           </button>
         </div>
-      </div>
-      <div className="composer-footer">
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger
-              className="tool-chip permission-chip"
-              disabled={!snapshot.project}
-            >
-              <span className={`permission-dot is-${snapshot.permissionMode}`} />
-              <span className="chip-label">
-                {snapshot.permissionMode === 'ask' ? '操作需确认' : '工具已开放'}（本次运行）
-              </span>
-              <ChevronDown size={12} />
-            </DropdownMenu.Trigger>
-            <MenuContent>
-              <DropdownMenu.Label className="dropdown-label">工具权限</DropdownMenu.Label>
-              <DropdownMenu.Item
-                className="dropdown-item"
-                onSelect={() => onPermissionChange('ask')}
-              >
-                <span>
-                  <strong>操作需确认</strong>
-                  <small>写文件、运行命令和网页交互需要确认</small>
-                </span>
-                {snapshot.permissionMode === 'ask' ? <Check size={14} /> : null}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                className="dropdown-item"
-                onSelect={() => onPermissionChange('open')}
-              >
-                <span>
-                  <strong>本次运行开放工具</strong>
-                  <small>本次运行允许 Pi 直接使用工具</small>
-                </span>
-                {snapshot.permissionMode === 'open' ? <Check size={14} /> : null}
-              </DropdownMenu.Item>
-            </MenuContent>
-          </DropdownMenu.Root>
-        <ContextMeter metrics={snapshot.metrics} />
       </div>
       {desktopSettings.showUsage ? <Stats metrics={snapshot.metrics} /> : null}
     </div>

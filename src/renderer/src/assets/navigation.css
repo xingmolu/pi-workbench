@@ -603,7 +603,7 @@ body.is-sidebar-resizing * {
     var(--shadow-md);
 }
 .conversation .composer-input {
-  min-height: 52px;
+  min-height: 44px;
   font-size: var(--message-font-size, 15px);
   line-height: 1.7;
   padding: 3px 2px;
@@ -676,20 +676,6 @@ body.is-sidebar-resizing * {
   background: var(--surface-subtle);
   font-size: 12px;
   height: 30px;
-}
-.composer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 30px;
-  padding: 4px 3px 0;
-}
-.composer-footer .permission-chip {
-  max-width: none;
-  height: 28px;
-  font-size: 12px;
-  padding-inline: 4px;
 }
 .conversation .context-control {
   display: flex;
@@ -909,4 +895,129 @@ body.is-sidebar-resizing * {
 }
 .conversation-actions .session-action > span {
   display: none;
+}
+
+/* Permission and context live in the input row; no second row under the composer. */
+.conversation .permission-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 5px;
+  padding-inline: 7px;
+}
+.conversation .permission-chip.is-open { color: var(--warning-text); }
+.conversation .permission-chip .chip-label { max-width: 150px; }
+.conversation .composer-tools .context-control {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 7px;
+  gap: 5px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.permission-popover {
+  z-index: 110;
+  width: min(360px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-floating);
+  color: var(--text);
+  box-shadow: 0 16px 48px var(--popup-shadow);
+  font-size: 13px;
+}
+.permission-modes { display: grid; gap: 2px; }
+.permission-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.permission-mode:hover { background: var(--surface-hover); }
+.permission-mode > span,
+.permission-edits > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
+.permission-mode strong,
+.permission-edits strong { font-size: 13px; font-weight: 500; }
+.permission-mode small,
+.permission-edits small { color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; }
+.permission-rules {
+  margin-top: 6px;
+  padding: 10px 10px 6px;
+  border-top: 1px solid var(--line-soft);
+}
+.permission-rules > header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.permission-rules > header strong { font-size: 12px; font-weight: 600; }
+.permission-rules > header span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.permission-edits {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 4px 0 10px;
+  cursor: pointer;
+}
+.permission-edits input { margin: 3px 0 0; accent-color: var(--accent); }
+.permission-subtitle { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11.5px; }
+.permission-commands ul { display: grid; gap: 4px; margin: 0 0 8px; padding: 0; list-style: none; }
+.permission-commands li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 2px 0 9px;
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+.permission-commands li code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: 12px/1.4 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.permission-commands li .icon-btn { width: 24px; height: 24px; }
+.permission-commands > p { margin: 0 0 8px; color: var(--muted); font-size: 11.5px; }
+.permission-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+.permission-add:focus-within { border-color: var(--border-focus); }
+.permission-add input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: 12px var(--mono);
+}
+.permission-add .icon-btn { width: 26px; height: 26px; }
+.permission-note { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.permission-error { margin: 8px 0 0; color: var(--danger-text); font-size: 11.5px; }
+@container composer (max-width: 560px) {
+  .conversation .permission-chip .chip-label { display: none; }
+  .conversation .composer-tools .context-control > span:last-child { display: none; }
 }

@@ -6,6 +6,7 @@ import type {
   CheckpointTurnState,
   HostCheckpointResult
 } from './checkpoints'
+import type { PermissionRules, PermissionRulesCommand } from './permission-rules'
 import type { ProjectCatalog, ProjectCatalogCommand, ProjectNavigateCommand } from './project-catalog'
 import type { SessionSearchCommand, ProjectSearchCommand, SessionSearchResult, ProjectSearchResult } from './session-search'
 import type { SessionEditCommand, SessionEditResult } from './session-edit'
@@ -405,6 +406,8 @@ export type AgentSnapshot = {
   loginPrompt: LoginPrompt | null
   /** Turns of the current session whose write/edit changes can be (or were) rolled back. */
   checkpoints?: CheckpointTurnState[]
+  /** Allow rules of the open project; absent without a project. */
+  permissionRules?: PermissionRules
   error?: string
 }
 
@@ -433,6 +436,7 @@ export type HostCommand =
   | import('./mcp').McpCommand
   | MessageFeedbackCommand
   | CheckpointCommand
+  | PermissionRulesCommand
   | ProjectCatalogCommand
   | ProjectNavigateCommand
   | SessionEditCommand

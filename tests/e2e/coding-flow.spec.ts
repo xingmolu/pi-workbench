@@ -83,6 +83,12 @@ test.beforeEach(async () => {
           fauxAssistantMessage(fauxText(${JSON.stringify(answer)}))
         ]);
       }});
+      pi.registerCommand('rules-fixture', { description:'Offline command rule flow', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([fauxToolCall('bash', {command:'printf RULE_OK'}, {id:'rule-bash-' + Date.now()})], {stopReason:'toolUse'}),
+          fauxAssistantMessage('命令已运行。')
+        ]);
+      }});
       pi.registerCommand('approval-fixture', { description:'Offline approval flow', handler:async () => {
         faux.setResponses([
           fauxAssistantMessage([fauxToolCall('edit', {path:${JSON.stringify(file)}, edits:[
@@ -230,4 +236,37 @@ test('undo asks before overwriting files edited after the agent', async () => {
   await confirm.getByRole('button', { name: '覆盖 1 个文件并撤销', exact: true }).click()
   await expect(changes).toContainText('已撤销 2 个文件')
   expect(await readFile(cart, 'utf8')).toBe(SOURCE)
+})
+
+test('always-allow turns an approval into a project rule the next run honors', async () => {
+  await run('/rules-fixture', '跑一下检查')
+  const card = page.locator('.approval-card')
+  await expect(card).toBeVisible()
+  await card.getByRole('button', { name: '总是允许 printf', exact: true }).click()
+  await expect(page.locator('.assistant-node').last()).toContainText('命令已运行')
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).permissionRules?.commands))
+    .toEqual(['printf'])
+
+  await run('/rules-fixture', '再跑一次')
+  await expect(page.locator('.assistant-node')).toHaveCount(2)
+  await expect(page.locator('.approval-card')).toHaveCount(0)
+  await expect(page.locator('.tool-node').last()).toContainText('printf RULE_OK')
+
+  const chip = page.locator('.composer .permission-chip')
+  await expect(chip).toContainText('需确认 · 1 条规则')
+  await chip.click()
+  const popover = page.getByRole('dialog', { name: '工具权限' })
+  await expect(popover.locator('code')).toHaveText('printf')
+  await popover.getByLabel('添加始终允许的命令').fill('npm test && rm x')
+  await popover.getByRole('button', { name: '添加规则' }).click()
+  await expect(popover.getByRole('alert')).toContainText('规则不能包含')
+  await popover.getByLabel('添加始终允许的命令').fill('npm test')
+  await popover.getByRole('button', { name: '添加规则' }).click()
+  await expect(popover.locator('code')).toHaveText(['printf', 'npm test'])
+  await page.screenshot({ path: join(artifacts, 'permission-popover.png'), animations: 'disabled' })
+  await popover.getByRole('button', { name: '移除规则 printf' }).click()
+  await expect(popover.locator('code')).toHaveText(['npm test'])
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: join(artifacts, 'composer-compact.png'), animations: 'disabled' })
 })

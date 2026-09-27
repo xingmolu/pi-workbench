@@ -11,6 +11,7 @@ import {
   checkpointResultSchema,
   checkpointTurnStateSchema
 } from './checkpoints'
+import { permissionRulesCommandSchema, permissionRulesSchema } from './permission-rules'
 import {
   editPrepareSchema,
   editCancelSchema,
@@ -508,6 +509,7 @@ const agentSnapshotMetaShape = {
   authGeneration: nonNegativeInteger.optional(),
   loginPrompt: loginPromptSchema.nullable(),
   checkpoints: z.array(checkpointTurnStateSchema).optional(),
+  permissionRules: permissionRulesSchema.optional(),
   error: z.string().optional()
 }
 
@@ -657,6 +659,7 @@ const commandSchemas = [
   messageFeedbackCommandSchema,
   checkpointPlanCommandSchema,
   checkpointRestoreCommandSchema,
+  permissionRulesCommandSchema,
   projectCatalogCommandSchema,
   projectNavigateCommandSchema,
   editPrepareSchema,
@@ -705,6 +708,7 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   messageFeedbackCommandSchema.extend(requestIdShape),
   checkpointPlanCommandSchema.extend(requestIdShape),
   checkpointRestoreCommandSchema.extend(requestIdShape),
+  permissionRulesCommandSchema.extend(requestIdShape),
   projectCatalogCommandSchema.extend(requestIdShape),
   projectNavigateCommandSchema.extend(requestIdShape),
   editPrepareSchema.extend(requestIdShape),

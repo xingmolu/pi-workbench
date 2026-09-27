@@ -2,6 +2,7 @@ import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseRecover
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { appliedToolChange } from './tool-change'
 import { CheckpointStore, resolveToolPath } from './checkpoints'
+import { PermissionRulesStore } from './permission-rules-store'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
 import { ProjectMutationClient } from './project-mutation-client'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
@@ -381,6 +382,9 @@ class PiDesktopHost {
   private lastTiming: RunTiming | null = null
   private followUp: string[] = []
   private readonly checkpoints = new CheckpointStore(join(AGENT_DIR, 'pi-desktop', 'checkpoints'))
+  private readonly permissionRules = new PermissionRulesStore(
+    join(AGENT_DIR, 'pi-desktop', 'permissions.json')
+  )
   private sessionTransition = new SerialExecutor()
   private readonly sessionPersistenceGuard = new SessionMutationGuard()
   private readonly sessionListRefresh = new SessionListRefresh()
@@ -698,6 +702,12 @@ class PiDesktopHost {
       case 'permission:respond':
         this.resolveApproval(request.approvalId, request.allow)
         break
+      case 'permission:rules:set':
+        if (!this.projectPath || request.projectPath !== this.projectPath)
+          throw new Error('项目已切换，请重新设置')
+        this.permissionRules.set(this.projectPath, request.rules)
+        this.emitPatch()
+        break
       case 'account:login':
         await this.startLogin(request.providerId, request.method)
         break
@@ -807,8 +817,17 @@ class PiDesktopHost {
           }
           try {
             const alwaysAsk = event.toolName === 'computer'
+            const ruleAllowed =
+              !alwaysAsk &&
+              this.projectPath !== null &&
+              this.permissionRules.allows(
+                this.projectPath,
+                event.toolName,
+                event.input,
+                ctx.sessionManager.getCwd()
+              )
             const allowed =
-              (!alwaysAsk && this.permissionMode === 'open') ||
+              (!alwaysAsk && (this.permissionMode === 'open' || ruleAllowed)) ||
               (await ctx.ui.confirm('允许 Pi 执行此操作？', presentation.detail))
             if (!allowed) return { block: true, reason: '用户拒绝了这次工具调用' }
             if (
@@ -2339,6 +2358,7 @@ class PiDesktopHost {
       authGeneration: this.accountQuota.generation,
       loginPrompt: this.loginPrompt,
       checkpoints: session ? this.checkpoints.turns(session.sessionManager.getSessionId()) : [],
+      ...(this.projectPath ? { permissionRules: this.permissionRules.get(this.projectPath) } : {}),
       ...(this.lastError ? { error: this.lastError } : {})
     }
   }

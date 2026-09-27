@@ -53,6 +53,7 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'queue:clear':
     case 'permission:set':
     case 'permission:respond':
+    case 'permission:rules:set':
     case 'account:login':
     case 'account:login:respond':
     case 'account:alias:add':

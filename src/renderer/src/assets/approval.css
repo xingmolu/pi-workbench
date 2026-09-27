@@ -90,8 +90,28 @@
 }
 .conversation .approval-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 10px;
+}
+.approval-always {
+  min-width: 0;
+  margin-right: auto;
+  padding: 4px 2px;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.approval-always:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .conversation .approval-actions {
   display: flex;
