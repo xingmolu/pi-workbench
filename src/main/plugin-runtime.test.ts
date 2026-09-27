@@ -115,7 +115,7 @@ describe('plugin runtime broker', () => {
     runtime.sync([plugin({ granted: new Set(['ui.view', 'notify']) })])
     const child = processes[0]
     child.emit({ kind: 'ready' })
-    child.emit({ kind: 'call', id: 1, method: 'fs.readText', params: {} })
+    child.emit({ kind: 'call', id: 1, method: 'clipboard.read', params: {} })
     child.emit({ kind: 'call', id: 2, method: 'ui.showToast', params: { message: '' } })
     child.emit({ kind: 'call', id: 3, method: 'storage.set', params: { key: 'a', value: 1 } })
     child.emit({ kind: 'call', id: 4, method: 'ui.showToast', params: { message: 'hi' } })
@@ -131,7 +131,7 @@ describe('plugin runtime broker', () => {
     expect(opened).toEqual(['acme.notes.panel'])
     expect(storage.size).toBe(0)
     expect(audit.map(({ method, outcome }) => `${method}:${outcome}`)).toEqual([
-      'fs.readText:UNSUPPORTED',
+      'clipboard.read:UNSUPPORTED',
       'ui.showToast:INVALID_ARGUMENT',
       'storage.set:PERMISSION_DENIED',
       'ui.showToast:ok',
@@ -214,5 +214,132 @@ describe('plugin runtime broker', () => {
     runtime.sync([plugin({ canonicalMainPath: '/plugins/notes/v2.js' })])
     first.emit({ kind: 'ready' })
     expect(runtime.status('acme.notes')).toBe('starting')
+  })
+})
+
+describe('plugin writes, approvals and view calls', () => {
+  function withServices(mode: 'ask' | 'auto' | 'open', approveAnswer = true) {
+    const calls: string[] = []
+    const approvals: string[] = []
+    let projectPath: string | null = '/work/shop'
+    const audit: PluginAuditEntry[] = []
+    const runtime = new PluginRuntime({
+      spawn: () => new FakeProcess(),
+      context: () => ({ projectPath, permissionMode: mode }),
+      storage: { get: () => undefined, set: () => undefined },
+      toast: () => undefined,
+      openView: () => undefined,
+      audit: (entry) => audit.push(entry),
+      onChange: () => undefined,
+      approve: async (request) => {
+        approvals.push(request.title)
+        return approveAnswer
+      },
+      services: {
+        fs: {
+          list: async () => ({ entries: [], truncated: false }),
+          stat: async () => ({ kind: 'file', size: 1, modified: '' }),
+          readText: async (_project, path) => ({ text: `read ${path}` }),
+          writeText: async (project, path) => {
+            calls.push(`write ${project} ${path}`)
+          }
+        },
+        git: {
+          status: async () => ({ branch: 'main', ahead: 0, behind: 0, files: [] }),
+          diff: async () => ({ patch: '' }),
+          log: async () => ({ commits: [] }),
+          stage: async (_project, paths) => {
+            calls.push(`stage ${paths.join(',')}`)
+          },
+          unstage: async () => undefined,
+          discard: async (_project, paths) => {
+            calls.push(`discard ${paths.join(',')}`)
+          },
+          commit: async () => ({ hash: 'abc' })
+        }
+      }
+    })
+    const view = {
+      pluginId: 'acme.git',
+      name: 'Git',
+      granted: new Set(['ui.view', 'fs.read', 'fs.write', 'git.read', 'git.write']),
+      commands: [],
+      views: new Map()
+    }
+    return {
+      runtime,
+      view,
+      calls,
+      approvals,
+      audit,
+      switchProject: (next: string | null) => {
+        projectPath = next
+      }
+    }
+  }
+
+  it('asks before every write at the ask level and honors a refusal', async () => {
+    const { runtime, view, calls, approvals } = withServices('ask', false)
+    await expect(
+      runtime.callFromView(view, 'fs.writeText', { path: 'a.md', content: 'x' })
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    expect(approvals).toEqual(['写入 a.md'])
+    expect(calls).toEqual([])
+  })
+
+  it('auto approves routine writes but still asks before discarding', async () => {
+    const { runtime, view, calls, approvals } = withServices('auto')
+    await runtime.callFromView(view, 'fs.writeText', { path: 'a.md', content: 'x' })
+    await runtime.callFromView(view, 'git.stage', { paths: ['a.md'] })
+    expect(approvals).toEqual([])
+    await runtime.callFromView(view, 'git.discard', { paths: ['a.md'] })
+    expect(approvals).toEqual(['丢弃 1 个文件的未暂存改动'])
+    expect(calls).toEqual(['write /work/shop a.md', 'stage a.md', 'discard a.md'])
+  })
+
+  it('never asks at full access', async () => {
+    const { runtime, view, approvals } = withServices('open')
+    await runtime.callFromView(view, 'git.discard', { paths: ['a.md'] })
+    await runtime.callFromView(view, 'git.commit', { message: 'x' })
+    expect(approvals).toEqual([])
+  })
+
+  it('cancels a write when the project changes during approval', async () => {
+    const setup = withServices('ask')
+    const approve = setup.runtime['dependencies'].approve!
+    setup.runtime['dependencies'].approve = async (request) => {
+      setup.switchProject('/work/other')
+      return approve(request)
+    }
+    await expect(
+      setup.runtime.callFromView(setup.view, 'fs.writeText', { path: 'a.md', content: 'x' })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(setup.calls).toEqual([])
+  })
+
+  it('lets views read but not register commands, rejects paths outside the project, and audits', async () => {
+    const { runtime, view, audit } = withServices('open')
+    await expect(runtime.callFromView(view, 'fs.readText', { path: 'src/a.ts' })).resolves.toEqual({
+      text: 'read src/a.ts'
+    })
+    await expect(
+      runtime.callFromView(view, 'commands.register', { id: 'x' })
+    ).rejects.toMatchObject({
+      code: 'UNSUPPORTED'
+    })
+    await expect(
+      runtime.callFromView(view, 'fs.readText', { path: '../etc/passwd' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT'
+    })
+    await expect(
+      runtime.callFromView({ ...view, granted: new Set(['ui.view']) }, 'fs.readText', { path: 'a' })
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    expect(audit.map(({ method, outcome }) => `${method}:${outcome}`)).toEqual([
+      'fs.readText:ok',
+      'commands.register:UNSUPPORTED',
+      'fs.readText:INVALID_ARGUMENT',
+      'fs.readText:PERMISSION_DENIED'
+    ])
   })
 })

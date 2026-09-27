@@ -104,6 +104,18 @@ export function createPluginPanelClient(transport: PluginPanelTransport): Plugin
       if (result.type !== 'state:stored') throw invalid('Workbench panel response is invalid')
       assertCurrentResponse(context, result.context)
     },
+    async call(method, params = {}) {
+      const context = cachedContext ?? (await getContext())
+      const result = await invoke({ type: 'api:call', context, method, params })
+      if (result.type !== 'api:result') throw invalid('Workbench panel response is invalid')
+      if (result.ok) return result.value ?? null
+      // contextBridge clones Error objects as message-only; a plain object keeps `code`.
+      throw Object.freeze({
+        name: 'PluginApiError',
+        code: result.code ?? 'INTERNAL',
+        message: result.message ?? 'Plugin call failed'
+      })
+    },
     onContext(listener) {
       return transport.onContext((value) => {
         try {

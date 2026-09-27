@@ -51,6 +51,26 @@ export class PluginApiError extends Error {
   }
 }
 
+export const PLUGIN_FS_MAX_READ_BYTES = 1024 * 1024
+export const PLUGIN_FS_MAX_WRITE_CHARS = 2 * 1024 * 1024
+export const PLUGIN_FS_MAX_ENTRIES = 2000
+
+/** Project-relative, forward-slash paths. Containment is re-checked on the real path in Main. */
+const projectPathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (value) =>
+      !value.includes('\0') &&
+      !value.startsWith('/') &&
+      !/^[A-Za-z]:/.test(value) &&
+      !value.includes('\\') &&
+      !value.split('/').includes('..'),
+    'Expected a path inside the project'
+  )
+const gitPathsSchema = z.array(projectPathSchema).min(1).max(500)
+
 const localIdSchema = z
   .string()
   .regex(/^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/, 'Expected a lowercase identifier')
@@ -85,8 +105,61 @@ export const PLUGIN_HOST_METHODS = {
   'project.current': {
     permission: null,
     params: z.object({}).strict()
+  },
+  'fs.list': {
+    permission: 'fs.read',
+    params: z.object({ path: projectPathSchema.default('.') }).strict()
+  },
+  'fs.stat': {
+    permission: 'fs.read',
+    params: z.object({ path: projectPathSchema }).strict()
+  },
+  'fs.readText': {
+    permission: 'fs.read',
+    params: z.object({ path: projectPathSchema }).strict()
+  },
+  'fs.writeText': {
+    permission: 'fs.write',
+    params: z
+      .object({ path: projectPathSchema, content: z.string().max(PLUGIN_FS_MAX_WRITE_CHARS) })
+      .strict()
+  },
+  'git.status': {
+    permission: 'git.read',
+    params: z.object({}).strict()
+  },
+  'git.diff': {
+    permission: 'git.read',
+    params: z
+      .object({ path: projectPathSchema.optional(), staged: z.boolean().default(false) })
+      .strict()
+  },
+  'git.log': {
+    permission: 'git.read',
+    params: z.object({ limit: z.number().int().min(1).max(200).default(30) }).strict()
+  },
+  'git.stage': {
+    permission: 'git.write',
+    params: z.object({ paths: gitPathsSchema }).strict()
+  },
+  'git.unstage': {
+    permission: 'git.write',
+    params: z.object({ paths: gitPathsSchema }).strict()
+  },
+  'git.discard': {
+    permission: 'git.write',
+    params: z.object({ paths: gitPathsSchema }).strict()
+  },
+  'git.commit': {
+    permission: 'git.write',
+    params: z.object({ message: z.string().trim().min(1).max(5000) }).strict()
   }
 } as const satisfies Record<string, { permission: PluginPermission | null; params: z.ZodType }>
+
+/** Methods a sandboxed view may call directly; command registration stays in the process. */
+export function isViewCallable(method: PluginHostMethod): boolean {
+  return !method.startsWith('commands.')
+}
 
 export type PluginHostMethod = keyof typeof PLUGIN_HOST_METHODS
 

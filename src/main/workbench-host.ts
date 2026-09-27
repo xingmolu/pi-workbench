@@ -21,6 +21,9 @@ import type {
   WorkbenchEvent,
   WorkbenchSnapshot
 } from '../shared/workbench-contracts'
+import type { PermissionMode } from '../shared/contracts'
+import { PluginApiError } from '../shared/plugin-api'
+import { randomUUID } from 'node:crypto'
 import {
   PluginRuntime,
   type PluginAuditEntry,
@@ -51,6 +54,8 @@ import {
 } from './workbench-host-state'
 
 export interface WorkbenchHost {
+  /** A `pi.*` call from a plugin view, authorized against the view's owning plugin. */
+  pluginCall(viewId: string, method: string, params: unknown): Promise<unknown>
   snapshot(): WorkbenchSnapshot
   reload(): Promise<WorkbenchSnapshot>
   dispatch(command: WorkbenchCommand): Promise<WorkbenchCommandResult>
@@ -88,6 +93,10 @@ export type WorkbenchHostDependencies = {
   /** Absolute path of the bundled plugin process entry; plugins with `main` stay stopped without it. */
   pluginHostPath?: string
   spawnPlugin?: PluginRuntimeDependencies['spawn']
+  pluginServices?: PluginRuntimeDependencies['services']
+  /** The foreground session's approval level; plugin writes follow it. */
+  permissionMode?: () => PermissionMode
+  approvalTimeoutMs?: number
   createView?: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
   panelSenderBinding?: WorkbenchPanelSenderBinding
 }
@@ -335,8 +344,16 @@ class WorkbenchHostImplementation implements WorkbenchHost {
   constructor(
     private readonly state: WorkbenchHostState,
     private readonly cleanupSessions: () => void,
-    private readonly cleanupPanelSenders: (host: WorkbenchHost) => void
+    private readonly cleanupPanelSenders: (host: WorkbenchHost) => void,
+    private readonly plugins: {
+      call(viewId: string, method: string, params: unknown): Promise<unknown>
+      respond(id: string, allow: boolean): void
+    }
   ) {}
+
+  pluginCall(viewId: string, method: string, params: unknown): Promise<unknown> {
+    return this.plugins.call(viewId, method, params)
+  }
 
   snapshot(): WorkbenchSnapshot {
     return this.state.snapshot()
@@ -347,6 +364,10 @@ class WorkbenchHostImplementation implements WorkbenchHost {
   }
 
   dispatch(command: WorkbenchCommand): Promise<WorkbenchCommandResult> {
+    if (command.type === 'plugin:approval:respond') {
+      this.plugins.respond(command.id, command.allow)
+      return Promise.resolve({ state: this.state.snapshot() })
+    }
     return this.state.dispatch(command)
   }
 
@@ -385,10 +406,37 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     dependencies.spawnPlugin ??
     (dependencies.pluginHostPath ? electronPluginSpawner(dependencies.pluginHostPath) : undefined)
   const storageKey = 'workbenchPluginStorage'
+  const approvals = new Map<string, (allow: boolean) => void>()
+  const approve: PluginRuntimeDependencies['approve'] = (request) =>
+    new Promise<boolean>((resolve) => {
+      if (!dependencies.onEvent) return resolve(false)
+      const id = randomUUID()
+      const settle = (allow: boolean): void => {
+        if (!approvals.delete(id)) return
+        clearTimeout(timer)
+        dependencies.onEvent?.({ type: 'plugin-approval-closed', id })
+        resolve(allow)
+      }
+      const timer = setTimeout(() => settle(false), dependencies.approvalTimeoutMs ?? 120_000)
+      approvals.set(id, settle)
+      dependencies.onEvent({
+        type: 'plugin-approval',
+        id,
+        pluginId: request.pluginId,
+        pluginName: request.pluginName,
+        title: request.title.slice(0, 600),
+        detail: request.detail.slice(0, 20_000)
+      })
+    })
   const runtime = spawn
     ? new PluginRuntime({
         spawn,
-        context: () => ({ projectPath }),
+        context: () => ({
+          projectPath,
+          ...(dependencies.permissionMode ? { permissionMode: dependencies.permissionMode() } : {})
+        }),
+        ...(dependencies.pluginServices ? { services: dependencies.pluginServices } : {}),
+        approve,
         storage: {
           get: (key) => {
             const all = dependencies.store.get(storageKey)
@@ -437,6 +485,7 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
       state.setContext(context)
     },
     dispose() {
+      for (const settle of [...approvals.values()]) settle(false)
       state.dispose()
       runtime?.dispose()
     }
@@ -444,7 +493,16 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
   const host = new WorkbenchHostImplementation(
     trackedState,
     () => cleanupWorkbenchPanelSessions(sessionOwnership),
-    (owner) => panelSenderBinding?.unbindHost(owner)
+    (owner) => panelSenderBinding?.unbindHost(owner),
+    {
+      call: async (viewId, method, params) => {
+        const plugin = state.pluginForView(viewId)
+        if (!plugin) throw new PluginApiError('NOT_FOUND', '插件未启用')
+        if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
+        return runtime.callFromView(plugin, method, params)
+      },
+      respond: (id, allow) => approvals.get(id)?.(allow)
+    }
   )
   panelStates.set(host, state)
   return host

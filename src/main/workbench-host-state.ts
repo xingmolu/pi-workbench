@@ -23,7 +23,7 @@ import {
   isKnownPluginPermission
 } from '../shared/plugin-api'
 import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
-import type { RuntimePlugin } from './plugin-runtime'
+import type { GatewayPlugin, RuntimePlugin } from './plugin-runtime'
 
 /** The part of PluginRuntime the Workbench state depends on. */
 export type WorkbenchPluginRuntime = {
@@ -89,6 +89,8 @@ export type WorkbenchHostState = {
   ): Promise<Result>
   /** Plugin processes started, stopped or registered commands. */
   runtimeChanged(): void
+  /** The enabled plugin that owns a view, as the gateway sees it. */
+  pluginForView(viewId: string): GatewayPlugin | null
   dispose(): void
 }
 
@@ -285,30 +287,29 @@ export function createWorkbenchHostState(
     return desktopEnabled[pluginId] !== false
   }
 
+  const gatewayPlugin = (plugin: ValidatedWorkbenchPlugin): GatewayPlugin => ({
+    pluginId: plugin.pluginId,
+    name: plugin.name,
+    granted: new Set([
+      ...IMPLICIT_PLUGIN_PERMISSIONS,
+      ...(grants[plugin.pluginId] ?? []).filter(isKnownPluginPermission)
+    ]),
+    commands: plugin.commands,
+    views: new Map(
+      plugin.workbench.map(({ contribution }) => [
+        contribution.viewId.startsWith(`${plugin.pluginId}.`)
+          ? contribution.viewId.slice(plugin.pluginId.length + 1)
+          : contribution.viewId,
+        contribution.viewId
+      ])
+    )
+  })
+
   const syncRuntime = (): void => {
     dependencies.runtime?.sync(
       discovery.plugins.flatMap((plugin) =>
         plugin.canonicalMainPath !== undefined && isDesktopEnabled(plugin.pluginId)
-          ? [
-              {
-                pluginId: plugin.pluginId,
-                name: plugin.name,
-                canonicalMainPath: plugin.canonicalMainPath,
-                granted: new Set([
-                  ...IMPLICIT_PLUGIN_PERMISSIONS,
-                  ...(grants[plugin.pluginId] ?? []).filter(isKnownPluginPermission)
-                ]),
-                commands: plugin.commands,
-                views: new Map(
-                  plugin.workbench.map(({ contribution }) => [
-                    contribution.viewId.startsWith(`${plugin.pluginId}.`)
-                      ? contribution.viewId.slice(plugin.pluginId.length + 1)
-                      : contribution.viewId,
-                    contribution.viewId
-                  ])
-                )
-              }
-            ]
+          ? [{ ...gatewayPlugin(plugin), canonicalMainPath: plugin.canonicalMainPath }]
           : []
       )
     )
@@ -875,6 +876,12 @@ export function createWorkbenchHostState(
     async runPanelOperation(panelContext, operation) {
       assertNotDisposed()
       return runTrackedPanelOperation(panelContext, operation)
+    },
+    pluginForView(viewId) {
+      const plugin = discovery.plugins.find((candidate) =>
+        candidate.workbench.some(({ contribution }) => contribution.viewId === viewId)
+      )
+      return plugin && isDesktopEnabled(plugin.pluginId) ? gatewayPlugin(plugin) : null
     },
     runtimeChanged() {
       if (disposed) return

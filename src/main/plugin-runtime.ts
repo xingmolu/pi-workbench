@@ -9,6 +9,9 @@ import {
   type PluginProcessMessage
 } from '../shared/plugin-api'
 import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
+import type { PermissionMode } from '../shared/contracts'
+import { isViewCallable } from '../shared/plugin-api'
+import type { PluginFileService, PluginGitService } from './plugin-services'
 import type { ValidatedPluginCommand } from './workbench-manifest'
 
 /** A spawned plugin process. Main supplies the Electron implementation; tests use fakes. */
@@ -17,6 +20,16 @@ export type PluginProcessHandle = {
   onMessage(listener: (message: unknown) => void): void
   onExit(listener: (code: number) => void): void
   kill(): void
+}
+
+/** What the gateway needs to authorize a call, with or without a running process. */
+export type GatewayPlugin = Omit<RuntimePlugin, 'canonicalMainPath'>
+
+export type PluginApprovalRequest = {
+  pluginId: string
+  pluginName: string
+  title: string
+  detail: string
 }
 
 export type RuntimePlugin = {
@@ -37,7 +50,16 @@ export type PluginAuditEntry = {
 
 export type PluginRuntimeDependencies = {
   spawn(pluginId: string): PluginProcessHandle
-  context(): { projectPath: string | null }
+  context(): { projectPath: string | null; permissionMode?: PermissionMode }
+  services?: {
+    fs: Pick<PluginFileService, 'list' | 'stat' | 'readText' | 'writeText'>
+    git: Pick<
+      PluginGitService,
+      'status' | 'diff' | 'log' | 'stage' | 'unstage' | 'discard' | 'commit'
+    >
+  }
+  /** Asks the user in the main window; resolves false when declined or timed out. */
+  approve?(request: PluginApprovalRequest): Promise<boolean>
   storage: { get(key: string): unknown; set(key: string, value: unknown): void }
   toast(pluginId: string, message: string): void
   openView(viewId: string): void
@@ -253,7 +275,7 @@ export class PluginRuntime {
     const pluginId = running.plugin.pluginId
     let reply: PluginProcessMessage
     try {
-      const value = await this.execute(running, method, params)
+      const value = await this.execute(running.plugin, running.registered, method, params)
       reply = { kind: 'reply', id, ok: true, value }
       this.dependencies.audit({ pluginId, method, outcome: 'ok' })
     } catch (error) {
@@ -265,29 +287,154 @@ export class PluginRuntime {
     if (this.running.get(pluginId) === running) running.handle.postMessage(reply)
   }
 
-  private async execute(running: Running, method: string, params: unknown): Promise<unknown> {
+  /** A call from one of the plugin's sandboxed views. Same gateway, same audit, no commands. */
+  async callFromView(plugin: GatewayPlugin, method: string, params: unknown): Promise<unknown> {
+    try {
+      if (Object.hasOwn(PLUGIN_HOST_METHODS, method) && !isViewCallable(method as PluginHostMethod))
+        throw new PluginApiError('UNSUPPORTED', '面板不能调用此方法')
+      const value = await this.execute(plugin, null, method, params)
+      this.dependencies.audit({ pluginId: plugin.pluginId, method, outcome: 'ok' })
+      return value
+    } catch (error) {
+      const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
+      this.dependencies.audit({
+        pluginId: plugin.pluginId,
+        method: method.slice(0, 128),
+        outcome: code
+      })
+      throw error instanceof PluginApiError ? error : new PluginApiError('INTERNAL', '宿主处理失败')
+    }
+  }
+
+  private project(): string {
+    const { projectPath } = this.dependencies.context()
+    if (!projectPath) throw new PluginApiError('NOT_FOUND', '没有打开的项目')
+    return projectPath
+  }
+
+  /** Plugin writes follow the project's approval level: ask confirms, auto confirms only
+   * destructive actions, full access never confirms. Confirmation is never optional for
+   * a destructive action outside full access. */
+  private async confirm(
+    plugin: GatewayPlugin,
+    title: string,
+    detail: string,
+    destructive: boolean
+  ): Promise<void> {
+    const mode = this.dependencies.context().permissionMode ?? 'ask'
+    if (mode === 'open' || (mode === 'auto' && !destructive)) return
+    const approved = await (this.dependencies.approve?.({
+      pluginId: plugin.pluginId,
+      pluginName: plugin.name,
+      title,
+      detail
+    }) ?? Promise.resolve(false))
+    if (!approved) throw new PluginApiError('PERMISSION_DENIED', '用户拒绝了这次操作')
+  }
+
+  /** The approved target must still be the open project when the write happens. */
+  private assertProject(project: string): void {
+    if (this.dependencies.context().projectPath !== project)
+      throw new PluginApiError('CONFLICT', '项目已切换，操作已取消')
+  }
+
+  private services(): NonNullable<PluginRuntimeDependencies['services']> {
+    const services = this.dependencies.services
+    if (!services) throw new PluginApiError('UNSUPPORTED', '此环境未提供文件与 Git 服务')
+    return services
+  }
+
+  private async execute(
+    plugin: GatewayPlugin,
+    registered: Set<string> | null,
+    method: string,
+    params: unknown
+  ): Promise<unknown> {
     if (!Object.hasOwn(PLUGIN_HOST_METHODS, method))
       throw new PluginApiError('UNSUPPORTED', `pi.${method.slice(0, 64)} 在此版本不可用`)
     const spec = PLUGIN_HOST_METHODS[method as PluginHostMethod]
     const parsed = spec.params.safeParse(params)
     if (!parsed.success) throw new PluginApiError('INVALID_ARGUMENT', '参数无效')
-    if (spec.permission !== null && !running.plugin.granted.has(spec.permission))
+    if (spec.permission !== null && !plugin.granted.has(spec.permission))
       throw new PluginApiError('PERMISSION_DENIED', `需要权限 ${spec.permission}`)
-    const plugin = running.plugin
     const args = parsed.data as Record<string, unknown>
     switch (method as PluginHostMethod) {
       case 'commands.register': {
         const commandId = args.id as string
+        if (!registered) throw new PluginApiError('UNSUPPORTED', '面板不能注册命令')
         if (!plugin.commands.some((command) => command.id === commandId))
           throw new PluginApiError('INVALID_ARGUMENT', '命令必须先在 manifest 中声明')
-        running.registered.add(commandId)
+        registered.add(commandId)
         this.dependencies.onChange()
         return undefined
       }
       case 'commands.unregister':
-        running.registered.delete(args.id as string)
+        registered?.delete(args.id as string)
         this.dependencies.onChange()
         return undefined
+      case 'fs.list':
+        return this.services().fs.list(this.project(), args.path as string)
+      case 'fs.stat':
+        return this.services().fs.stat(this.project(), args.path as string)
+      case 'fs.readText':
+        return this.services().fs.readText(this.project(), args.path as string)
+      case 'fs.writeText': {
+        const project = this.project()
+        await this.confirm(
+          plugin,
+          `写入 ${args.path as string}`,
+          `${(args.content as string).length} 个字符`,
+          false
+        )
+        this.assertProject(project)
+        await this.services().fs.writeText(project, args.path as string, args.content as string)
+        return undefined
+      }
+      case 'git.status':
+        return this.services().git.status(this.project())
+      case 'git.diff':
+        return this.services().git.diff(
+          this.project(),
+          args.path as string | undefined,
+          args.staged as boolean
+        )
+      case 'git.log':
+        return this.services().git.log(this.project(), args.limit as number)
+      case 'git.stage': {
+        const project = this.project()
+        const paths = args.paths as string[]
+        await this.confirm(plugin, `暂存 ${paths.length} 个文件`, paths.join('\n'), false)
+        this.assertProject(project)
+        await this.services().git.stage(project, paths)
+        return undefined
+      }
+      case 'git.unstage': {
+        const project = this.project()
+        const paths = args.paths as string[]
+        await this.confirm(plugin, `取消暂存 ${paths.length} 个文件`, paths.join('\n'), false)
+        this.assertProject(project)
+        await this.services().git.unstage(project, paths)
+        return undefined
+      }
+      case 'git.discard': {
+        const project = this.project()
+        const paths = args.paths as string[]
+        await this.confirm(
+          plugin,
+          `丢弃 ${paths.length} 个文件的未暂存改动`,
+          paths.join('\n'),
+          true
+        )
+        this.assertProject(project)
+        await this.services().git.discard(project, paths)
+        return undefined
+      }
+      case 'git.commit': {
+        const project = this.project()
+        await this.confirm(plugin, '提交暂存的改动', args.message as string, false)
+        this.assertProject(project)
+        return this.services().git.commit(project, args.message as string)
+      }
       case 'ui.showToast':
         this.dependencies.toast(plugin.pluginId, args.message as string)
         return undefined

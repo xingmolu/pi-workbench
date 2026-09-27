@@ -91,6 +91,7 @@ export type WorkbenchCommand =
   | { type: 'plugin:set-enabled'; pluginId: string; desktopEnabled: boolean }
   | { type: 'view:set'; viewId: string; visible: boolean; bounds?: WorkbenchBounds }
   | { type: 'plugin:command:run'; pluginId: string; commandId: string }
+  | { type: 'plugin:approval:respond'; id: string; allow: boolean }
 
 export type WorkbenchCommandResult = { state: WorkbenchSnapshot }
 
@@ -98,6 +99,15 @@ export type WorkbenchEvent =
   | { type: 'state'; data: WorkbenchSnapshot }
   | { type: 'reveal'; viewId: string; context?: JsonValue }
   | { type: 'toast'; pluginId: string; message: string }
+  | {
+      type: 'plugin-approval'
+      id: string
+      pluginId: string
+      pluginName: string
+      title: string
+      detail: string
+    }
+  | { type: 'plugin-approval-closed'; id: string }
 
 export type PluginPanelContext = {
   pluginId: string
@@ -117,8 +127,17 @@ export type PluginPanelSetStateCommand = {
   context: PluginPanelContext
   value: JsonValue
 }
+export type PluginPanelApiCallCommand = {
+  type: 'api:call'
+  context: PluginPanelContext
+  method: string
+  params: JsonValue
+}
 export type PluginPanelCommand =
-  PluginPanelContextCommand | PluginPanelGetStateCommand | PluginPanelSetStateCommand
+  | PluginPanelContextCommand
+  | PluginPanelGetStateCommand
+  | PluginPanelSetStateCommand
+  | PluginPanelApiCallCommand
 
 export type PluginPanelContextResult = {
   type: 'context'
@@ -133,12 +152,26 @@ export type PluginPanelStateStoredResult = {
   type: 'state:stored'
   context: PluginPanelContext
 }
+export type PluginPanelApiResult = {
+  type: 'api:result'
+  context: PluginPanelContext
+  ok: boolean
+  value?: JsonValue
+  code?: string
+  message?: string
+}
 export type PluginPanelCommandResult =
-  PluginPanelContextResult | PluginPanelStateResult | PluginPanelStateStoredResult
+  | PluginPanelContextResult
+  | PluginPanelStateResult
+  | PluginPanelStateStoredResult
+  | PluginPanelApiResult
 
 export type PluginPanelAPI = {
   getContext: () => Promise<PluginPanelContext>
   getState: (generation: number) => Promise<JsonValue>
   setState: (generation: number, value: JsonValue) => Promise<void>
   onContext: (listener: (context: PluginPanelContext) => void) => () => void
+  /** Calls a `pi.*` host method on behalf of this view's plugin; rejects with a plain
+   * `{ name, code, message }` object, since contextBridge would drop an Error's `code`. */
+  call: (method: string, params?: JsonValue) => Promise<JsonValue>
 }

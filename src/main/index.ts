@@ -45,6 +45,8 @@ import {
   formatTextContext
 } from '../shared/text-attachments'
 import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -57,6 +59,7 @@ import type {
   DesktopEvent,
   HostRequest,
   HostResult,
+  PermissionMode,
   SnapshotHostCommand,
   WorkbenchEvent
 } from '../shared/contracts'
@@ -75,6 +78,8 @@ import { WORKSPACE_FILES_CHANNEL, workspaceFilesCommandSchema } from '../shared/
 import { WorkspaceFiles } from './workspace-files'
 import { GIT_REVIEW_CHANNEL, gitReviewCommandSchema } from '../shared/git-review'
 import { GitReview } from './git-review'
+import { GitReviewProcess } from './git-review-process'
+import { PluginFileService, PluginGitService } from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
 import { BrowserManager } from './browser-manager'
@@ -409,6 +414,24 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Only the user's global commit identity is read; plugin git otherwise ignores global config. */
+async function gitCommitIdentity(): Promise<{ name: string; email: string } | null> {
+  const read = (key: string): Promise<string> =>
+    new Promise((resolve) => {
+      execFile(
+        '/usr/bin/git',
+        ['config', '--global', '--get', key],
+        { env: { HOME: homedir(), PATH: '/usr/bin:/bin' }, timeout: 3000 },
+        (error, stdout) => resolve(error ? '' : String(stdout).trim())
+      )
+    })
+  const [name, email] = await Promise.all([read('user.name'), read('user.email')])
+  return name && email && !/[\0\n]/.test(name + email) ? { name, email } : null
+}
+
+/** The foreground session's approval level; plugin writes follow it. */
+let activePermissionMode: PermissionMode = 'ask'
+
 function updateWorkbenchContext(): void {
   attachmentSubmissions.setContext(
     activeProjectPath && activeHostIdentity.sessionId
@@ -459,6 +482,7 @@ function forwardEvent(event: DesktopEvent): void {
     packageRootsLifecycle.transitionIdentity(nextIdentity, () => {
       activeHostIdentity = nextIdentity
       if (event.event === 'snapshot') {
+        activePermissionMode = event.data.permissionMode
         activeSessionPath = event.data.activeSessionPath
         activeProjectPath = event.data.project?.path ?? null
         browserManager?.setProject(activeProjectPath)
@@ -466,6 +490,9 @@ function forwardEvent(event: DesktopEvent): void {
       if (event.event === 'patch' && 'project' in event.data.meta) {
         activeProjectPath = event.data.meta.project?.path ?? null
         browserManager?.setProject(activeProjectPath)
+      }
+      if (event.event === 'patch' && event.data.meta.permissionMode !== undefined) {
+        activePermissionMode = event.data.meta.permissionMode
       }
       if (event.event === 'patch' && 'activeSessionPath' in event.data.meta) {
         activeSessionPath = event.data.meta.activeSessionPath ?? null
@@ -568,6 +595,7 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   packageRootsLifecycle.transitionIdentity(nextIdentity, () => {
     activeHostIdentity = nextIdentity
     activeProjectPath = result.snapshot.project?.path ?? null
+    activePermissionMode = result.snapshot.permissionMode
     activeSessionPath = result.snapshot.activeSessionPath
     browserManager?.setProject(activeProjectPath)
     updateWorkbenchContext()
@@ -1368,6 +1396,26 @@ function createWindow(): void {
     browser: browserManager,
     panelSenderBinding: workbenchPanelIpc,
     pluginHostPath: join(__dirname, 'plugin-host.js'),
+    permissionMode: () => activePermissionMode,
+    pluginServices: {
+      fs: new PluginFileService(),
+      git: new PluginGitService(
+        new GitReviewProcess({
+          gitPath: '/usr/bin/git',
+          hooksPath: (() => {
+            mkdirSync(app.getPath('sessionData'), { recursive: true })
+            return mkdtempSync(join(app.getPath('sessionData'), 'plugin-git-hooks-'))
+          })(),
+          trustedEnv: {
+            HOME: homedir(),
+            PATH: '/usr/bin:/bin',
+            TMPDIR: app.getPath('temp'),
+            LC_ALL: 'C'
+          }
+        }),
+        gitCommitIdentity
+      )
+    },
     onEvent: (event) => {
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, event)
     },

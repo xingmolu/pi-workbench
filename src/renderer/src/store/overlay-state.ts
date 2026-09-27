@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-type AppOverlay = 'settings' | 'command' | 'navigation'
+type AppOverlay = 'settings' | 'command' | 'navigation' | 'plugin-approval'
 type OverlayState = {
   active: AppOverlay | null
   open: (overlay: AppOverlay) => boolean

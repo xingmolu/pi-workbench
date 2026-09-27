@@ -80,11 +80,29 @@ export function createWorkbenchPanelIpcRouter(dependencies: {
     return parsed.data
   }
 
-  const route = (binding: Binding, command: PluginPanelCommand): PluginPanelCommandResult => {
+  const route = async (
+    binding: Binding,
+    command: PluginPanelCommand
+  ): Promise<PluginPanelCommandResult> => {
     const context = currentContext(binding)
     if (command.type === 'context:get') return { type: 'context', context }
     if (!contextsEqual(command.context, context)) {
       throw requestError('Workbench panel context is stale')
+    }
+    if (command.type === 'api:call') {
+      try {
+        const value = await binding.host.pluginCall(binding.viewId, command.method, command.params)
+        // Host services return plain data; the round trip also strips anything non-JSON.
+        const json = value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+        return { type: 'api:result', context, ok: true, ...(json === undefined ? {} : { value: json }) }
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+            ? error.code
+            : 'INTERNAL'
+        const message = error instanceof Error ? error.message.slice(0, 2000) : '宿主处理失败'
+        return { type: 'api:result', context, ok: false, code, message }
+      }
     }
     if (command.type === 'state:get') {
       return {
@@ -137,7 +155,7 @@ export function createWorkbenchPanelIpcRouter(dependencies: {
       if (!parsed.success) throw requestError('Workbench panel request is invalid')
 
       try {
-        return pluginPanelCommandResultSchema.parse(route(binding, parsed.data))
+        return pluginPanelCommandResultSchema.parse(await route(binding, parsed.data))
       } catch (error) {
         if (error instanceof WorkbenchPanelRequestError) throw error
         throw requestError('Workbench panel request failed')

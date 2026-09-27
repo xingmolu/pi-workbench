@@ -74,6 +74,21 @@ const pi = Object.freeze({
   }),
   project: Object.freeze({
     current: () => call('project.current')
+  }),
+  fs: Object.freeze({
+    list: (path = '.') => call('fs.list', { path }),
+    stat: (path: string) => call('fs.stat', { path }),
+    readText: (path: string) => call('fs.readText', { path }),
+    writeText: (path: string, content: string) => call('fs.writeText', { path, content })
+  }),
+  git: Object.freeze({
+    status: () => call('git.status'),
+    diff: (options: { path?: string; staged?: boolean } = {}) => call('git.diff', options),
+    log: (options: { limit?: number } = {}) => call('git.log', options),
+    stage: (paths: string[]) => call('git.stage', { paths }),
+    unstage: (paths: string[]) => call('git.unstage', { paths }),
+    discard: (paths: string[]) => call('git.discard', { paths }),
+    commit: (message: string) => call('git.commit', { message })
   })
 })
 ;(globalThis as Record<string, unknown>).pi = pi

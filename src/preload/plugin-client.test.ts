@@ -47,10 +47,43 @@ function transport(
 }
 
 describe('plugin panel preload client', () => {
-  it('exposes exactly the four narrow plugin methods', () => {
+  it('exposes exactly the five narrow plugin methods', () => {
     const client = createPluginPanelClient(transport().value)
 
-    expect(Object.keys(client).sort()).toEqual(['getContext', 'getState', 'onContext', 'setState'])
+    expect(Object.keys(client).sort()).toEqual([
+      'call',
+      'getContext',
+      'getState',
+      'onContext',
+      'setState'
+    ])
+  })
+
+  it('calls host methods with the current context and surfaces coded failures', async () => {
+    const fake = transport((command) => {
+      if (command.type === 'context:get') return { type: 'context', context: CONTEXT }
+      if (command.type === 'api:call' && command.method === 'fs.readText')
+        return { type: 'api:result', context: CONTEXT, ok: true, value: { text: 'hi' } }
+      return {
+        type: 'api:result',
+        context: CONTEXT,
+        ok: false,
+        code: 'PERMISSION_DENIED',
+        message: '需要权限 git.write'
+      }
+    })
+    const client = createPluginPanelClient(fake.value)
+    await expect(client.call('fs.readText', { path: 'a.ts' })).resolves.toEqual({ text: 'hi' })
+    expect(fake.invoke).toHaveBeenLastCalledWith({
+      type: 'api:call',
+      context: CONTEXT,
+      method: 'fs.readText',
+      params: { path: 'a.ts' }
+    })
+    await expect(client.call('git.commit', { message: 'x' })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+      message: '需要权限 git.write'
+    })
   })
 
   it('validates context/state results and sends only shared panel commands', async () => {

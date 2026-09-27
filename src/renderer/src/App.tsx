@@ -1,5 +1,6 @@
 import { useNavigationLibrary } from './store/navigation-library'
 import NavigationFeedback from './components/navigation/NavigationFeedback'
+import PluginApprovalDialog, { type PluginApproval } from './components/PluginApprovalDialog'
 import './assets/navigation.css'
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
@@ -122,6 +123,7 @@ export default function App(): React.JSX.Element {
   const availableWorkbenchViews = useRef<readonly string[]>([])
   const pluginNames = useRef(new Map<string, string>())
   const [pluginCommands, setPluginCommands] = useState<PluginCommandSummary[]>([])
+  const [pluginApprovals, setPluginApprovals] = useState<PluginApproval[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
   useEffect(() => { void useNavigationLibrary.getState().hydrate() }, [])
   useEffect(() => { if (!snapshot.project) setWorkbenchOpen(false) }, [snapshot.project?.path])
@@ -213,6 +215,12 @@ export default function App(): React.JSX.Element {
           setWorkbenchOpen(true)
         },
         onError: reportWorkbenchError,
+        onApproval: (event) =>
+          setPluginApprovals((current) =>
+            event.type === 'plugin-approval'
+              ? [...current.filter(({ id }) => id !== event.id), event]
+              : current.filter(({ id }) => id !== event.id)
+          ),
         onToast: (pluginId, message) =>
           useNavigationFeedback.getState().notify({
             message: `${pluginNames.current.get(pluginId) ?? '插件'}：${message}`
@@ -560,6 +568,15 @@ export default function App(): React.JSX.Element {
         />
       )}
       <NavigationFeedback />
+      {pluginApprovals[0] ? (
+        <PluginApprovalDialog
+          key={pluginApprovals[0].id}
+          approval={pluginApprovals[0]}
+          onRespond={async (id, allow) => {
+            await window.pi.workbench({ type: 'plugin:approval:respond', id, allow })
+          }}
+        />
+      ) : null}
       <SettingsDialog
         skillsContent={
           <SkillsSettings

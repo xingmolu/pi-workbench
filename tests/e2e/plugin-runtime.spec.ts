@@ -7,6 +7,7 @@ import {
 } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 
 const artifacts = resolve('artifacts/e2e/plugin-runtime')
@@ -157,4 +158,123 @@ test('a plugin that runs code needs a grant, then serves commands through the ga
   ).toBe(true)
   expect(audit).not.toContain('"k"')
   await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeVisible()
+})
+
+test('views read project files and plugin writes wait for the user at the ask level', async () => {
+  const project = join(root, 'project')
+  const plugin = join(root, 'agent', 'desktop-plugins', 'writer')
+  await mkdir(join(plugin, 'views'), { recursive: true })
+  const git = (...args: string[]) =>
+    execFileSync('/usr/bin/git', args, {
+      cwd: project,
+      env: { PATH: '/usr/bin:/bin', HOME: join(root, 'home') }
+    })
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.name', 'E2E')
+  git('config', 'user.email', 'e2e@example.com')
+  await writeFile(join(project, 'readme.md'), '# fixture\n')
+  git('add', '.')
+  git('commit', '-q', '-m', 'init')
+  await writeFile(
+    join(plugin, 'pi-desktop.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'acme.writer',
+      version: '1.0.0',
+      name: 'Writer',
+      engines: { piDesktop: '^0.1.0' },
+      main: 'main.js',
+      permissions: ['ui.view', 'notify', 'fs.read', 'fs.write', 'git.read', 'git.write'],
+      contributes: {
+        views: [
+          { id: 'files', title: '文件读取', entry: 'views/files.html', activation: 'onProject' }
+        ],
+        commands: [
+          { id: 'open', title: '打开读取面板' },
+          { id: 'save', title: '写入笔记' },
+          { id: 'commit', title: '提交笔记' }
+        ]
+      }
+    })
+  )
+  await writeFile(
+    join(plugin, 'views', 'files.html'),
+    '<!doctype html><title>files</title><script src="./files.js"></script>'
+  )
+  await writeFile(
+    join(plugin, 'views', 'files.js'),
+    `window.__result = null
+    window.piPlugin.call('fs.list', { path: '.' })
+      .then(async (listing) => {
+        const text = await window.piPlugin.call('fs.readText', { path: 'readme.md' })
+        let denied = null
+        try { await window.piPlugin.call('fs.readText', { path: '../outside.txt' }) } catch (e) { denied = e.code }
+        window.__result = { names: listing.entries.map((e) => e.name), text: text.text, denied }
+      })
+      .catch((e) => { window.__result = { error: e.code || String(e) } })`
+  )
+  await writeFile(
+    join(plugin, 'main.js'),
+    `module.exports = { async onLoad() {
+      await pi.commands.register({ id: 'open', run: () => pi.ui.openView('files') })
+      await pi.commands.register({ id: 'save', run: async () => {
+        try { await pi.fs.writeText('notes/today.md', 'hello from plugin\\n'); await pi.ui.showToast('已写入') }
+        catch (error) { await pi.ui.showToast('写入被拒绝：' + error.code) }
+      } })
+      await pi.commands.register({ id: 'commit', run: async () => {
+        await pi.git.stage(['notes/today.md'])
+        const { hash } = await pi.git.commit('add notes')
+        const status = await pi.git.status()
+        await pi.ui.showToast('已提交 ' + hash.slice(0, 7) + '，剩余改动 ' + status.files.length)
+      } })
+    } }`
+  )
+  await page.evaluate(() => window.pi.workbench({ type: 'plugins:reload' }))
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
+  const row = page.locator('.plugin-row').filter({ hasText: 'Writer' })
+  await row.getByRole('switch', { name: 'Writer Desktop 面板' }).click()
+  await expect(row.locator('li.is-high')).toHaveCount(2)
+  await row.getByRole('button', { name: '授权并启用' }).click()
+  await expect(row).toContainText('进程：运行中')
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
+
+  const run = async (title: string) => {
+    await palette()
+    await page.getByRole('option', { name: new RegExp(title) }).click()
+  }
+
+  await run('打开读取面板')
+  await expect
+    .poll(() =>
+      app.evaluate(({ webContents }) =>
+        webContents
+          .getAllWebContents()
+          .find((contents) => contents.getURL().endsWith('/views/files.html'))
+          ?.executeJavaScript('window.__result')
+      )
+    )
+    .toEqual({ names: ['readme.md'], text: '# fixture\n', denied: 'INVALID_ARGUMENT' })
+
+  await run('写入笔记')
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('插件 Writer 请求')
+  await expect(dialog).toContainText('写入 notes/today.md')
+  await page.screenshot({ path: join(artifacts, 'approval.png'), animations: 'disabled' })
+  await dialog.getByRole('button', { name: '拒绝' }).click()
+  await expect(page.locator('.navigation-toast')).toContainText('写入被拒绝：PERMISSION_DENIED')
+  await expect(readFile(join(project, 'notes', 'today.md'), 'utf8')).rejects.toThrow()
+
+  await run('写入笔记')
+  await page.getByRole('alertdialog').getByRole('button', { name: '允许一次' }).click()
+  await expect(page.locator('.navigation-toast')).toContainText('Writer：已写入')
+  expect(await readFile(join(project, 'notes', 'today.md'), 'utf8')).toBe('hello from plugin\n')
+
+  await run('提交笔记')
+  await expect(page.getByRole('alertdialog')).toContainText('暂存 1 个文件')
+  await page.getByRole('alertdialog').getByRole('button', { name: '允许一次' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('提交暂存的改动')
+  await page.getByRole('alertdialog').getByRole('button', { name: '允许一次' }).click()
+  await expect(page.locator('.navigation-toast')).toContainText('剩余改动 0')
+  expect(git('log', '-1', '--format=%s %an').toString().trim()).toBe('add notes E2E')
 })

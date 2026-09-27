@@ -281,6 +281,13 @@ export const workbenchCommandSchema: z.ZodType<WorkbenchCommand> = z.discriminat
       pluginId: identifierSchema,
       commandId: z.string().min(1).max(128)
     })
+    .strict(),
+  z
+    .object({
+      type: z.literal('plugin:approval:respond'),
+      id: z.string().uuid(),
+      allow: z.boolean()
+    })
     .strict()
 ])
 
@@ -303,7 +310,18 @@ export const workbenchEventSchema: z.ZodType<WorkbenchEvent> = z.discriminatedUn
       pluginId: identifierSchema,
       message: z.string().min(1).max(600)
     })
-    .strict()
+    .strict(),
+  z
+    .object({
+      type: z.literal('plugin-approval'),
+      id: z.string().uuid(),
+      pluginId: identifierSchema,
+      pluginName: z.string().min(1).max(256),
+      title: z.string().min(1).max(600),
+      detail: z.string().max(20_000)
+    })
+    .strict(),
+  z.object({ type: z.literal('plugin-approval-closed'), id: z.string().uuid() }).strict()
 ])
 
 export const pluginPanelContextSchema: z.ZodType<PluginPanelContext> = z
@@ -327,6 +345,14 @@ export const pluginPanelCommandSchema: z.ZodType<PluginPanelCommand> = z.discrim
         context: pluginPanelContextSchema,
         value: pluginPanelStateSchema
       })
+      .strict(),
+    z
+      .object({
+        type: z.literal('api:call'),
+        context: pluginPanelContextSchema,
+        method: z.string().min(1).max(128),
+        params: jsonValueSchema
+      })
       .strict()
   ]
 )
@@ -341,5 +367,15 @@ export const pluginPanelCommandResultSchema: z.ZodType<PluginPanelCommandResult>
         value: pluginPanelStateSchema
       })
       .strict(),
-    z.object({ type: z.literal('state:stored'), context: pluginPanelContextSchema }).strict()
+    z.object({ type: z.literal('state:stored'), context: pluginPanelContextSchema }).strict(),
+    z
+      .object({
+        type: z.literal('api:result'),
+        context: pluginPanelContextSchema,
+        ok: z.boolean(),
+        value: jsonValueSchema.optional(),
+        code: z.string().max(64).optional(),
+        message: z.string().max(2000).optional()
+      })
+      .strict()
   ])
