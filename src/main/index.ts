@@ -8,6 +8,7 @@ import { UtilityProcessAgentRuntime } from './utility-session-worker'
 import { AgentRuntimeProviderRegistry } from './agent-runtime'
 import { ForegroundCapabilityRouter } from './foreground-capability-router'
 import { WorkerMutationCapabilities } from './worker-mutation-capabilities'
+import { PluginAgentBridge } from './plugin-agent-bridge'
 import { desktopCommandOriginSchema, type DesktopCommandOrigin, type SelectedSessionScope } from '../shared/session-runtime'
 import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
 import { applyStatePatch } from '../shared/state-patch'
@@ -254,6 +255,14 @@ let workbenchContextGeneration = 0
 let workbenchContextKey = ''
 let selectedWorkerId: string | null = null
 const mutationCapabilities = new WorkerMutationCapabilities()
+const pluginAgentBridge = new PluginAgentBridge({
+  contributions: async () => (workbenchHost ? workbenchHost.agentContributions() : null),
+  runTool: (pluginId, name, input, signal) => {
+    if (!workbenchHost) return Promise.reject(new Error('插件运行时不可用'))
+    return workbenchHost.runAgentTool(pluginId, name, input, signal)
+  },
+  foregroundProject: () => activeProjectPath
+})
 const workerRoots = new Map<string, unknown>()
 type MobileWorkerListener = (event: {
   workerId: string
@@ -314,6 +323,7 @@ const sessionWorkers = new SessionWorkerSupervisor({
   onExit: (workerId, error) => {
     foregroundCapabilities.cancelOwner(workerId)
     mutationCapabilities.exit(workerId)
+    pluginAgentBridge.cancelOwner(workerId)
     attachmentSubmissions.retireWorker(workerId)
     const failed = sessionWorkers.findLiveSummary(workerId)
     if (failed?.sessionId && failed.generation !== null) attachmentSubmissions.retireScope({ projectPath: failed.cwd, sessionId: failed.sessionId, generation: failed.generation })
@@ -532,6 +542,7 @@ function forwardEvent(event: DesktopEvent): void {
 function handleHostMessage(child: UtilityProcess, owner: string, message: unknown): void {
   if (agentHost !== child) return
   if (packageRootsLifecycle.handleMessage(message)) return
+  if (pluginAgentBridge.handle(owner, message, response => child.postMessage(response))) return
   if (foregroundCapabilities.handle(owner, message, response => child.postMessage(response))) return
   const event = responseBroker.accept(message)
   if (event?.event === 'snapshot') lobbySnapshot = event.data
@@ -547,6 +558,7 @@ function handleWorkerCapability(workerId: string, cwd: string, message: unknown,
   let snapshot: AgentSnapshot | null = null
   try { snapshot = sessionWorkers.getSnapshot(workerId) } catch { /* Child may still be bootstrapping. */ }
   if (mutationCapabilities.handle(workerId, cwd, snapshot, message, reply)) return true
+  if (pluginAgentBridge.handle(workerId, message, reply)) return true
   const roots = piPackageRootsMessageSchema.safeParse(message)
   if (roots.success) {
     workerRoots.set(workerId, roots.data)

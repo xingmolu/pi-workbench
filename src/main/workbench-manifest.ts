@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workbench-contracts'
 import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
+import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
 
@@ -35,9 +36,23 @@ export type ValidatedWorkbenchPlugin = {
   /** Discovery-time snapshot of the plugin process entry; revalidated before spawning. */
   canonicalMainPath?: string
   commands: ValidatedPluginCommand[]
+  agentTools: ValidatedAgentTool[]
+  /** Canonical skill directories inside the plugin root. */
+  skillPaths: string[]
+  /** MCP servers with `${pluginRoot}` already expanded. */
+  mcpServers: Record<string, McpServer>
 }
 
 export type ValidatedPluginCommand = { id: string; title: string; keywords: string[] }
+
+export type ValidatedAgentTool = {
+  name: string
+  title: string
+  description: string
+  /** JSON Schema for the tool input; always an object schema. */
+  parameters: Record<string, unknown>
+  readOnly: boolean
+}
 
 export type WorkbenchManifestDiscovery = {
   plugins: ValidatedWorkbenchPlugin[]
@@ -137,6 +152,20 @@ const manifestCommandSchema = z
   })
   .strict()
 
+const manifestAgentToolSchema = z
+  .object({
+    name: localIdentifierSchema,
+    title: localizedTitleSchema.optional(),
+    description: z.string().trim().min(1).max(2000),
+    parameters: z
+      .object({ type: z.literal('object') })
+      .passthrough()
+      .refine((value) => JSON.stringify(value).length <= 32 * 1024, 'Tool schema is too large')
+      .default({ type: 'object', properties: {} }),
+    readOnly: z.boolean().default(false)
+  })
+  .strict()
+
 const workbenchManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -152,15 +181,40 @@ const workbenchManifestSchema = z
         /** Legacy Pi Desktop form, still accepted. */
         workbench: z.array(manifestWorkbenchEntrySchema).max(256).default([]),
         views: z.array(manifestViewSchema).max(64).default([]),
-        commands: z.array(manifestCommandSchema).max(128).default([])
+        commands: z.array(manifestCommandSchema).max(128).default([]),
+        agentTools: z.array(manifestAgentToolSchema).max(32).default([]),
+        /** Directories of SKILL.md skills, relative to the plugin root. */
+        skills: z.array(z.string().min(1).max(4096)).max(32).default([]),
+        /** `${pluginRoot}` in command, args and env expands to the plugin's directory. */
+        mcpServers: z
+          .record(mcpIdSchema, mcpServerSchema)
+          .refine((value) => Object.keys(value).length <= 8, 'At most 8 MCP servers')
+          .default({})
       })
       .strict()
-      .default({ workbench: [], views: [], commands: [] })
+      .default({
+        workbench: [],
+        views: [],
+        commands: [],
+        agentTools: [],
+        skills: [],
+        mcpServers: {}
+      })
   })
   .strict()
   .refine((manifest) => manifest.main !== undefined || manifest.contributes.commands.length === 0, {
     message: 'Commands require a main entry'
   })
+  .refine(
+    (manifest) => manifest.main !== undefined || manifest.contributes.agentTools.length === 0,
+    { message: 'Agent tools require a main entry' }
+  )
+  .refine(
+    (manifest) =>
+      new Set(manifest.contributes.agentTools.map(({ name }) => name)).size ===
+      manifest.contributes.agentTools.length,
+    { message: 'Agent tool names must be unique' }
+  )
 
 type WorkbenchManifest = z.infer<typeof workbenchManifestSchema>
 
@@ -190,6 +244,21 @@ async function resolvePluginFile(
       return candidate
   } catch {
     // Missing or unreadable files are reported by the caller.
+  }
+  return undefined
+}
+
+async function resolvePluginDirectory(
+  canonicalRootPath: string,
+  entry: string
+): Promise<string | undefined> {
+  if (!isLocalRelativeEntry(entry)) return undefined
+  try {
+    const candidate = await realpath(join(canonicalRootPath, entry))
+    if (isPathWithinRoot(canonicalRootPath, candidate) && (await stat(candidate)).isDirectory())
+      return candidate
+  } catch {
+    // Reported by the caller.
   }
   return undefined
 }
@@ -467,6 +536,42 @@ export async function discoverWorkbenchManifests({
       }
     }
 
+    const skillPaths: string[] = []
+    for (const skill of manifest.contributes.skills) {
+      const directory = await resolvePluginDirectory(canonicalRootPath, skill)
+      if (directory === undefined) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'skill-invalid',
+          message: 'Plugin skill paths must resolve to directories inside the plugin root.',
+          pluginId: manifest.id
+        })
+        invalidEntry = true
+        break
+      }
+      skillPaths.push(directory)
+    }
+    if (invalidEntry) continue
+    const expandRoot = (value: string): string =>
+      value.split('${pluginRoot}').join(canonicalRootPath)
+    const mcpServers = Object.fromEntries(
+      Object.entries(manifest.contributes.mcpServers).map(([id, server]) => [
+        id,
+        {
+          ...server,
+          ...(server.command ? { command: expandRoot(server.command) } : {}),
+          ...(server.args ? { args: server.args.map(expandRoot) } : {}),
+          ...(server.env
+            ? {
+                env: Object.fromEntries(
+                  Object.entries(server.env).map(([key, value]) => [key, expandRoot(value)])
+                )
+              }
+            : {})
+        }
+      ])
+    )
+
     // Unknown names stay visible in settings; the grant gateway only ever honors known ones.
     const requestedPermissions = [...new Set(manifest.permissions ?? [])]
 
@@ -504,7 +609,16 @@ export async function discoverWorkbenchManifests({
         id: command.id,
         title: resolveTitle(command.title),
         keywords: command.keywords
-      }))
+      })),
+      agentTools: manifest.contributes.agentTools.map((tool) => ({
+        name: tool.name,
+        title: tool.title === undefined ? tool.name : resolveTitle(tool.title),
+        description: tool.description,
+        parameters: tool.parameters,
+        readOnly: tool.readOnly
+      })),
+      skillPaths,
+      mcpServers
     })
     pluginIds.add(manifest.id)
     currentViewIds.forEach((viewId) => viewIds.add(viewId))

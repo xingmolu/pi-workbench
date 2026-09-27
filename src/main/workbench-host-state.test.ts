@@ -59,6 +59,9 @@ type ControlledViewAttempt = {
 function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   return {
     commands: [],
+    agentTools: [],
+    skillPaths: [],
+    mcpServers: {},
     pluginId: 'acme.notes',
     name: 'Acme Notes',
     version: '1.0.0',

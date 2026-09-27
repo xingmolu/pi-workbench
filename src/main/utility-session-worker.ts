@@ -32,7 +32,9 @@ export class UtilityProcessAgentRuntime implements AgentRuntime {
         id: 'pi',
         label: 'Pi',
         hostCapabilities: true,
-        residentSessions: true
+        residentSessions: true,
+        toolDelivery: 'native',
+        skills: 'native'
       } satisfies AgentRuntimeProviderDescriptor)
   }
 

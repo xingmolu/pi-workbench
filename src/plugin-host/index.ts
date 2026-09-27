@@ -20,6 +20,7 @@ if (!port) throw new Error('Plugin host must run as a utility process')
 
 type PluginModule = { onLoad?: () => unknown; onUnload?: () => unknown }
 type CommandHandler = () => unknown
+type ToolHandler = (input: unknown) => unknown
 
 let nextCallId = 1
 const pending = new Map<
@@ -27,6 +28,7 @@ const pending = new Map<
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >()
 const commands = new Map<string, CommandHandler>()
+const tools = new Map<string, ToolHandler>()
 let plugin: PluginModule | null = null
 
 function send(message: PluginProcessMessage): void {
@@ -88,7 +90,17 @@ const pi = Object.freeze({
     stage: (paths: string[]) => call('git.stage', { paths }),
     unstage: (paths: string[]) => call('git.unstage', { paths }),
     discard: (paths: string[]) => call('git.discard', { paths }),
-    commit: (message: string) => call('git.commit', { message })
+    commit: (message: string) => call('git.commit', { message }),
+    push: () => call('git.push')
+  }),
+  agent: Object.freeze({
+    /** `run(input)` returns a string, `{ content: [{ type: 'text', text }] }`, or JSON data. */
+    async registerTool(tool: { name: string; run: ToolHandler }): Promise<void> {
+      if (!tool || typeof tool.run !== 'function')
+        throw new HostError('INVALID_ARGUMENT', 'agent.registerTool requires a run function')
+      await call('agent.registerTool', { name: tool.name })
+      tools.set(tool.name, tool.run)
+    }
   })
 })
 ;(globalThis as Record<string, unknown>).pi = pi
@@ -140,6 +152,25 @@ port.on('message', (event) => {
       break
     }
     case 'invoke': {
+      if (message.target === 'tool') {
+        const handler = tools.get(message.name)
+        if (!handler) {
+          send(
+            errorReply(
+              message.id,
+              new HostError('NOT_FOUND', `Tool ${message.name} is not registered`)
+            )
+          )
+          return
+        }
+        void Promise.resolve()
+          .then(() => handler(message.input))
+          .then(
+            (value) => send({ kind: 'reply', id: message.id, ok: true, value }),
+            (error: unknown) => send(errorReply(message.id, error))
+          )
+        return
+      }
       const handler = commands.get(message.name)
       if (!handler) {
         send(

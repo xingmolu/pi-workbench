@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
+import type { PluginAgentContributions } from '../shared/plugin-agent'
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -56,6 +58,15 @@ import {
 export interface WorkbenchHost {
   /** A `pi.*` call from a plugin view, authorized against the view's owning plugin. */
   pluginCall(viewId: string, method: string, params: unknown): Promise<unknown>
+  /** What enabled plugins contribute to agent sessions, once the registry has loaded. */
+  agentContributions(): Promise<PluginAgentContributions>
+  /** Runs a plugin agent tool after checking the input against its declared schema. */
+  runAgentTool(
+    pluginId: string,
+    name: string,
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<string>
   snapshot(): WorkbenchSnapshot
   reload(): Promise<WorkbenchSnapshot>
   dispatch(command: WorkbenchCommand): Promise<WorkbenchCommandResult>
@@ -362,12 +373,27 @@ class WorkbenchHostImplementation implements WorkbenchHost {
     private readonly cleanupPanelSenders: (host: WorkbenchHost) => void,
     private readonly plugins: {
       call(viewId: string, method: string, params: unknown): Promise<unknown>
+      runTool(pluginId: string, name: string, input: unknown, signal?: AbortSignal): Promise<string>
       respond(id: string, allow: boolean): void
     }
   ) {}
 
   pluginCall(viewId: string, method: string, params: unknown): Promise<unknown> {
     return this.plugins.call(viewId, method, params)
+  }
+
+  async agentContributions(): Promise<PluginAgentContributions> {
+    await this.state.whenLoaded()
+    return this.state.agentContributions()
+  }
+
+  runAgentTool(
+    pluginId: string,
+    name: string,
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<string> {
+    return this.plugins.runTool(pluginId, name, input, signal)
   }
 
   snapshot(): WorkbenchSnapshot {
@@ -524,6 +550,20 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
         if (!plugin) throw new PluginApiError('NOT_FOUND', '插件未启用')
         if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
         return runtime.callFromView(plugin, method, params)
+      },
+      runTool: async (pluginId, name, input, signal) => {
+        if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
+        await state.whenLoaded()
+        const tool = state
+          .agentContributions()
+          .tools.find((candidate) => candidate.pluginId === pluginId && candidate.name === name)
+        if (!tool) throw new PluginApiError('NOT_FOUND', '插件工具不可用')
+        if ((JSON.stringify(input ?? {}) ?? '').length > 64 * 1024)
+          throw new PluginApiError('INVALID_ARGUMENT', '插件工具参数超限')
+        const validate = new AjvJsonSchemaValidator().getValidator(tool.parameters)
+        if (!validate(input ?? {}).valid)
+          throw new PluginApiError('INVALID_ARGUMENT', '参数不符合插件工具声明的 schema')
+        return runtime.runTool(pluginId, name, input ?? {}, signal)
       },
       respond: (id, allow) => approvals.get(id)?.(allow)
     }

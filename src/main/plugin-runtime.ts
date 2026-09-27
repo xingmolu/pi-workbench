@@ -4,6 +4,7 @@ import {
   PLUGIN_STORAGE_MAX_BYTES,
   PLUGIN_TIMEOUTS,
   PluginApiError,
+  pluginToolResultText,
   pluginProcessMessageSchema,
   type PluginErrorCode,
   type PluginHostMethod,
@@ -39,6 +40,8 @@ export type RuntimePlugin = {
   canonicalMainPath: string
   granted: ReadonlySet<string>
   commands: readonly ValidatedPluginCommand[]
+  /** Tool names declared in `contributes.agentTools`. */
+  agentTools?: readonly string[]
   /** Local view id → global Workbench view id. */
   views: ReadonlyMap<string, string>
 }
@@ -74,8 +77,9 @@ type Running = {
   handle: PluginProcessHandle
   status: PluginRuntimeStatus
   registered: Set<string>
+  tools: Set<string>
   nextInvokeId: number
-  invokes: Map<number, { resolve: () => void; reject: (error: Error) => void }>
+  invokes: Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>
   loadTimer?: ReturnType<typeof setTimeout>
   stopping: boolean
 }
@@ -141,27 +145,95 @@ export class PluginRuntime {
     return commands
   }
 
-  runCommand(pluginId: string, commandId: string): Promise<void> {
+  async runCommand(pluginId: string, commandId: string): Promise<void> {
     const running = this.running.get(pluginId)
     if (!running || running.status !== 'running' || !running.registered.has(commandId))
-      return Promise.reject(new PluginApiError('NOT_FOUND', '插件命令不可用'))
+      throw new PluginApiError('NOT_FOUND', '插件命令不可用')
+    await this.invoke(
+      running,
+      'command',
+      commandId,
+      undefined,
+      this.timeouts.command,
+      '插件命令超时'
+    )
+  }
+
+  /** Runs a plugin agent tool and returns its result as text for the model. */
+  async runTool(
+    pluginId: string,
+    name: string,
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const running = this.running.get(pluginId)
+    if (!running || running.status !== 'running')
+      throw new PluginApiError('NOT_FOUND', '插件未运行')
+    if (!running.plugin.granted.has('agent.tools'))
+      throw new PluginApiError('PERMISSION_DENIED', '需要权限 agent.tools')
+    if (!running.tools.has(name)) throw new PluginApiError('NOT_FOUND', '插件工具尚未就绪')
+    try {
+      const value = await this.invoke(
+        running,
+        'tool',
+        name,
+        input ?? {},
+        this.timeouts.tool,
+        '插件工具超时',
+        signal
+      )
+      this.dependencies.audit({ pluginId, method: `tool:${name}`, outcome: 'ok' })
+      return pluginToolResultText(value)
+    } catch (error) {
+      const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
+      this.dependencies.audit({ pluginId, method: `tool:${name}`, outcome: code })
+      throw error instanceof PluginApiError ? error : new PluginApiError('INTERNAL', '插件工具失败')
+    }
+  }
+
+  private invoke(
+    running: Running,
+    target: 'command' | 'tool',
+    name: string,
+    input: unknown,
+    timeout: number,
+    timeoutMessage: string,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(new PluginApiError('CONFLICT', '调用已取消'))
     const id = running.nextInvokeId++
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
+    return new Promise<unknown>((resolve, reject) => {
+      const settle = (): void => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
         running.invokes.delete(id)
-        reject(new PluginApiError('TIMEOUT', '插件命令超时'))
-      }, this.timeouts.command)
+      }
+      const onAbort = (): void => {
+        settle()
+        reject(new PluginApiError('CONFLICT', '调用已取消'))
+      }
+      const timer = setTimeout(() => {
+        settle()
+        reject(new PluginApiError('TIMEOUT', timeoutMessage))
+      }, timeout)
+      signal?.addEventListener('abort', onAbort, { once: true })
       running.invokes.set(id, {
-        resolve: () => {
-          clearTimeout(timer)
-          resolve()
+        resolve: (value) => {
+          settle()
+          resolve(value)
         },
         reject: (error) => {
-          clearTimeout(timer)
+          settle()
           reject(error)
         }
       })
-      running.handle.postMessage({ kind: 'invoke', id, target: 'command', name: commandId })
+      running.handle.postMessage({
+        kind: 'invoke',
+        id,
+        target,
+        name,
+        ...(target === 'tool' ? { input } : {})
+      })
     })
   }
 
@@ -184,6 +256,7 @@ export class PluginRuntime {
       handle,
       status: 'starting',
       registered: new Set(),
+      tools: new Set(),
       nextInvokeId: 1,
       invokes: new Map(),
       stopping: false
@@ -265,7 +338,7 @@ export class PluginRuntime {
         const waiter = running.invokes.get(message.id)
         if (!waiter) return
         running.invokes.delete(message.id)
-        if (message.ok) waiter.resolve()
+        if (message.ok) waiter.resolve(message.value)
         else
           waiter.reject(
             new PluginApiError(message.code ?? 'INTERNAL', message.message ?? '插件命令失败')
@@ -284,7 +357,7 @@ export class PluginRuntime {
     const pluginId = running.plugin.pluginId
     let reply: PluginProcessMessage
     try {
-      const value = await this.execute(running.plugin, running.registered, method, params)
+      const value = await this.execute(running.plugin, running, method, params)
       reply = { kind: 'reply', id, ok: true, value }
       if (auditsSuccess(method)) this.dependencies.audit({ pluginId, method, outcome: 'ok' })
     } catch (error) {
@@ -357,7 +430,7 @@ export class PluginRuntime {
 
   private async execute(
     plugin: GatewayPlugin,
-    registered: Set<string> | null,
+    registry: Pick<Running, 'registered' | 'tools'> | null,
     method: string,
     params: unknown
   ): Promise<unknown> {
@@ -372,17 +445,25 @@ export class PluginRuntime {
     switch (method as PluginHostMethod) {
       case 'commands.register': {
         const commandId = args.id as string
-        if (!registered) throw new PluginApiError('UNSUPPORTED', '面板不能注册命令')
+        if (!registry) throw new PluginApiError('UNSUPPORTED', '面板不能注册命令')
         if (!plugin.commands.some((command) => command.id === commandId))
           throw new PluginApiError('INVALID_ARGUMENT', '命令必须先在 manifest 中声明')
-        registered.add(commandId)
+        registry.registered.add(commandId)
         this.dependencies.onChange()
         return undefined
       }
       case 'commands.unregister':
-        registered?.delete(args.id as string)
+        registry?.registered.delete(args.id as string)
         this.dependencies.onChange()
         return undefined
+      case 'agent.registerTool': {
+        if (!registry) throw new PluginApiError('UNSUPPORTED', '面板不能注册工具')
+        const name = args.name as string
+        if (!(plugin.agentTools ?? []).includes(name))
+          throw new PluginApiError('INVALID_ARGUMENT', '工具必须先在 manifest 中声明')
+        registry.tools.add(name)
+        return undefined
+      }
       case 'fs.list':
         return this.services().fs.list(this.project(), args.path as string)
       case 'fs.stat':
@@ -511,6 +592,7 @@ function samePlugin(left: RuntimePlugin, right: RuntimePlugin): boolean {
     left.granted.size === right.granted.size &&
     [...left.granted].every((permission) => right.granted.has(permission)) &&
     JSON.stringify(left.commands) === JSON.stringify(right.commands) &&
+    JSON.stringify(left.agentTools ?? []) === JSON.stringify(right.agentTools ?? []) &&
     JSON.stringify([...left.views]) === JSON.stringify([...right.views])
   )
 }

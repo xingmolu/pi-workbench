@@ -73,6 +73,71 @@ function setup(timeouts = {}) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+describe('plugin agent tools', () => {
+  const toolPlugin = (): RuntimePlugin =>
+    plugin({ granted: new Set(['agent.tools']), agentTools: ['lookup', 'unbound'] })
+
+  it('runs only declared, registered tools and returns their result as text', async () => {
+    const { runtime, processes, audit } = setup()
+    runtime.sync([toolPlugin()])
+    const child = processes[0]
+    child.emit({ kind: 'ready' })
+    child.emit({ kind: 'call', id: 1, method: 'agent.registerTool', params: { name: 'lookup' } })
+    child.emit({ kind: 'call', id: 2, method: 'agent.registerTool', params: { name: 'other' } })
+    await flush()
+    expect(child.lastReply(1)).toMatchObject({ ok: true })
+    expect(child.lastReply(2)).toMatchObject({ code: 'INVALID_ARGUMENT' })
+
+    await expect(runtime.runTool('acme.notes', 'unbound', {})).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    })
+    const result = runtime.runTool('acme.notes', 'lookup', { q: 'tax' })
+    const invoke = child.sent.findLast((message) => message.kind === 'invoke')
+    expect(invoke).toMatchObject({ target: 'tool', name: 'lookup', input: { q: 'tax' } })
+    child.emit({
+      kind: 'reply',
+      id: (invoke as { id: number }).id,
+      ok: true,
+      value: { content: [{ type: 'text', text: 'rate 0.1' }] }
+    })
+    await expect(result).resolves.toBe('rate 0.1')
+    expect(audit.at(-1)).toEqual({ pluginId: 'acme.notes', method: 'tool:lookup', outcome: 'ok' })
+  })
+
+  it('rejects tools without the agent.tools grant, times out and honors cancellation', async () => {
+    const { runtime, processes } = setup({ tool: 20 })
+    runtime.sync([plugin({ agentTools: ['lookup'] })])
+    processes[0].emit({ kind: 'ready' })
+    await expect(runtime.runTool('acme.notes', 'lookup', {})).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED'
+    })
+
+    runtime.sync([toolPlugin()])
+    const child = processes.at(-1)!
+    child.emit({ kind: 'ready' })
+    child.emit({ kind: 'call', id: 1, method: 'agent.registerTool', params: { name: 'lookup' } })
+    await flush()
+    await expect(runtime.runTool('acme.notes', 'lookup', {})).rejects.toMatchObject({
+      code: 'TIMEOUT'
+    })
+    const controller = new AbortController()
+    const cancelled = runtime.runTool('acme.notes', 'lookup', {}, controller.signal)
+    controller.abort()
+    await expect(cancelled).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('does not let views register tools', async () => {
+    const { runtime } = setup()
+    await expect(
+      runtime.callFromView(
+        { ...toolPlugin(), canonicalMainPath: undefined } as never,
+        'agent.registerTool',
+        { name: 'lookup' }
+      )
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED' })
+  })
+})
+
 describe('plugin runtime broker', () => {
   it('loads a plugin and exposes only declared, registered commands', async () => {
     const { runtime, processes } = setup()

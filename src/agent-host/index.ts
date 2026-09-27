@@ -4,6 +4,13 @@ import { appliedToolChange } from './tool-change'
 import { CheckpointStore, resolveToolPath } from './checkpoints'
 import { PermissionRulesStore } from './permission-rules-store'
 import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import { piToolCategory, ToolGate, type GatedToolCall } from './tool-gate'
+import { PluginAgentClient, pluginToolsExtension } from './plugin-agent-client'
+import {
+  EMPTY_PLUGIN_AGENT_CONTRIBUTIONS,
+  pluginAgentResponseSchema,
+  type PluginAgentContributions
+} from '../shared/plugin-agent'
 import { ProjectMutationClient } from './project-mutation-client'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
 import { observeAttachmentPrompt } from './attachment-acceptance'
@@ -377,7 +384,15 @@ class PiDesktopHost {
   private mcpConfig = new McpConfigStore(join(AGENT_DIR, 'mcp.json'))
   private mcpRuntimes = new WeakMap<AgentSession, McpRuntime>()
   private approvalMetadata: ApprovalMetadata | null = null
+  /** Plugin agent tools registered in the current runtime, by the tool name the model sees. */
+  private pluginTools = new Map<
+    string,
+    { pluginId: string; pluginName: string; title: string; readOnly: boolean }
+  >()
   readonly mutations = new ProjectMutationClient(message => process.parentPort.postMessage(message))
+  readonly pluginAgent = new PluginAgentClient((message) => process.parentPort.postMessage(message))
+  /** Contributions the current runtime was built with; MCP reloads keep plugin servers. */
+  private pluginContributions: PluginAgentContributions = EMPTY_PLUGIN_AGENT_CONTRIBUTIONS
   private timing: RunTiming | null = null
   private lastTiming: RunTiming | null = null
   private followUp: string[] = []
@@ -772,7 +787,7 @@ class PiDesktopHost {
         catch { throw new Error('MCP 配置未保存：文件已变化、只读或无效，请刷新核对。') }
       }
       try {
-        const servers = await this.mcpConfig.enabled()
+        const servers = { ...(await this.mcpConfig.enabled()), ...this.pluginContributions.mcpServers }
         applied = runtime ? await runtime.reload(servers) : false
         if (!runtime) message = '配置已保存；选择项目后点击重新连接，或由 agent 按需连接已启用服务器。'
         else if (!applied) message = '配置已保存，但部分服务器连接失败；请检查列表后显式重连。'
@@ -786,71 +801,73 @@ class PiDesktopHost {
       ...(message ? { message } : {}), servers: result.servers.map(server => server.enabled && runtime ? { ...server, ...runtime.status(server.id) } : server) }
   }
 
+  /** Runtime-agnostic tool policy; the pi extension below only translates pi's hook into it. */
+  private readonly toolGate = new ToolGate({
+    mode: () => this.permissionMode,
+    rulesAllow: (call, auto) =>
+      this.projectPath !== null &&
+      this.permissionRules.allows(this.projectPath, call.tool, call.input, call.cwd, auto),
+    confirm: (call) => this.confirmTool(call),
+    acquire: (call) =>
+      this.mutations.acquire(call.toolCallId, {
+        sessionId: call.sessionId!,
+        generation: this.sessionGeneration
+      }),
+    release: (toolCallId) => this.mutations.release(toolCallId),
+    checkpoint: {
+      capture: (call) => this.captureCheckpoint(call.toolCallId, call.input),
+      settle: (sessionId, toolCallId) => this.checkpoints.settle(sessionId, toolCallId)
+    },
+    onWaiting: (toolCallId) => {
+      this.updateToolNode(toolCallId, this.toolExecution.waitingForResource(toolCallId))
+      this.emitPatch()
+    },
+    onStarted: (toolCallId) =>
+      this.updateToolNode(toolCallId, this.toolExecution.executionStarted(toolCallId, Date.now()))
+  })
+
+  private toolCategory(toolName: string, input: unknown): ReturnType<typeof piToolCategory> {
+    return piToolCategory(toolName, input, (name) => this.pluginTools.get(name))
+  }
+
+  private confirmTool(call: GatedToolCall): Promise<boolean> {
+    const plugin = this.pluginTools.get(call.tool)
+    const presentation = plugin
+      ? {
+          title: `插件 ${plugin.pluginName} · ${plugin.title}`,
+          detail: JSON.stringify(call.input ?? {}, null, 2).slice(0, 8000)
+        }
+      : toolPresentation(call.tool, call.input)
+    this.approvalMetadata = {
+      toolCallId: call.toolCallId,
+      toolName: call.tool,
+      intent: plugin ? 'generic' : toolIntent(call.tool),
+      title: presentation.title,
+      detail: presentation.detail
+    }
+    return this.requestApproval(presentation.detail).finally(() => {
+      this.approvalMetadata = null
+    })
+  }
+
   private permissionExtension(): InlineExtension {
     return {
       name: 'pi-desktop-permissions',
       factory: (pi) => {
         pi.on('tool_call', async (event, ctx) => {
-          if (!['bash', 'powershell', 'write', 'edit', 'browser', 'computer'].includes(event.toolName)) {
-            return undefined
-          }
-          if (event.toolName === 'browser') {
-            const parsed = browserOperationSchema.safeParse(event.input)
-            if (
-              !parsed.success ||
-              ['tabs', 'snapshot', 'screenshot', 'wait'].includes(parsed.data.action)
-            ) {
-              return undefined
-            }
-          }
-          if (event.toolName === 'computer') {
-            const parsed = computerUseOperationSchema.safeParse(event.input)
-            if (!parsed.success) return { block: true, reason: '无效的 Computer Use 操作' }
-            if (parsed.data.action !== 'act') return undefined
-          }
-
-          const presentation = toolPresentation(event.toolName, event.input)
-          this.approvalMetadata = {
+          if (event.toolName === 'computer' && !computerUseOperationSchema.safeParse(event.input).success)
+            return { block: true, reason: '无效的 Computer Use 操作' }
+          const { category, readOnly } = this.toolCategory(event.toolName, event.input)
+          const decision = await this.toolGate.before({
+            sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            intent: toolIntent(event.toolName),
-            title: presentation.title,
-            detail: presentation.detail
-          }
-          try {
-            const alwaysAsk = event.toolName === 'computer'
-            const ruleAllowed =
-              !alwaysAsk &&
-              this.projectPath !== null &&
-              this.permissionRules.allows(
-                this.projectPath,
-                event.toolName,
-                event.input,
-                ctx.sessionManager.getCwd(),
-                this.permissionMode === 'auto'
-              )
-            const allowed =
-              (!alwaysAsk && (this.permissionMode === 'open' || ruleAllowed)) ||
-              (await ctx.ui.confirm('允许 Pi 执行此操作？', presentation.detail))
-            if (!allowed) return { block: true, reason: '用户拒绝了这次工具调用' }
-            if (
-              event.toolName !== 'browser' &&
-              event.toolName !== 'computer'
-            ) {
-              const sessionId = this.runtime?.session.sessionManager.getSessionId()
-              if (!sessionId) return { block: true, reason: '会话已结束' }
-              this.updateToolNode(event.toolCallId, this.toolExecution.waitingForResource(event.toolCallId))
-              this.emitPatch()
-              try { await this.mutations.acquire(event.toolCallId, { sessionId, generation: this.sessionGeneration }) }
-              catch { return { block: true, reason: '项目操作已取消' } }
-              if (event.toolName === 'write' || event.toolName === 'edit')
-                this.captureCheckpoint(event.toolCallId, event.input)
-              this.updateToolNode(event.toolCallId, this.toolExecution.executionStarted(event.toolCallId, Date.now()))
-            }
-            return undefined
-          } finally {
-            this.approvalMetadata = null
-          }
+            tool: event.toolName,
+            category,
+            input: event.input,
+            cwd: ctx.sessionManager.getCwd(),
+            ...(readOnly === undefined ? {} : { readOnly })
+          })
+          return decision.decision === 'deny' ? { block: true, reason: decision.reason } : undefined
         })
       }
     }
@@ -1114,13 +1131,29 @@ class PiDesktopHost {
       sessionStartEvent?: SessionStartEvent
     }): Promise<CreateAgentSessionRuntimeResult> => {
       assertProjectSession(nextManager, projectPath, cwd)
-      const mcp = new McpRuntime(await this.mcpConfig.enabled().catch(() => ({})), cwd,
+      const plugins = await this.pluginAgent.contributions()
+      this.pluginContributions = plugins
+      this.pluginTools = new Map(
+        plugins.tools.map((tool) => [
+          tool.toolName,
+          {
+            pluginId: tool.pluginId,
+            pluginName: tool.pluginName,
+            title: tool.title,
+            readOnly: tool.readOnly
+          }
+        ])
+      )
+      const mcp = new McpRuntime({ ...(await this.mcpConfig.enabled().catch(() => ({}))), ...plugins.mcpServers }, cwd,
         (toolCallId, title, detail, signal) => {
           if (signal?.aborted) return Promise.resolve(false)
           if (this.permissionMode === 'open') return Promise.resolve(true)
           return this.approvalRegistry.request({ id: randomUUID(), generation: this.sessionGeneration,
             toolCallId, toolName: 'mcp', intent: 'generic', title: `MCP · ${title}`, detail }, signal)
         }, async (id, config) => {
+          // Plugin servers were current when Main answered; the user's own are re-read.
+          if (Object.hasOwn(plugins.mcpServers, id))
+            return JSON.stringify(plugins.mcpServers[id]) === JSON.stringify(config)
           const enabled = await this.mcpConfig.enabled().catch(() => ({} as Record<string, unknown>))
           return Object.hasOwn(enabled, id) && JSON.stringify(enabled[id]) === JSON.stringify(config)
         }, async (callId, signal) => {
@@ -1138,6 +1171,7 @@ class PiDesktopHost {
         modelRuntime: fixedModelRuntime,
         resourceLoaderOptions: {
           additionalExtensionPaths: extensionPath ? [extensionPath] : [],
+          additionalSkillPaths: plugins.skillPaths,
           extensionFactories: [
             // Reject unavailable-desktop fallbacks before requesting tool approval.
             this.computerUseExtension(),
@@ -1145,7 +1179,11 @@ class PiDesktopHost {
             this.browserExtension(),
             this.historyExtension(),
             createSessionTaskExtension(),
-            mcp.extension()
+            mcp.extension(),
+            pluginToolsExtension(plugins.tools, this.pluginAgent, () => ({
+              cwd: this.projectPath,
+              sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null
+            }))
           ]
         }
       })
@@ -1186,7 +1224,7 @@ class PiDesktopHost {
         sessionManager: nextManager,
         sessionStartEvent,
         model: selected,
-        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'computer', 'mcp', 'session_task']
+        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'browser', 'computer', 'mcp', 'session_task', ...plugins.tools.map((tool) => tool.toolName)]
       })
       // Pi's parallel batch prepares every tool before executing any. Acquiring a
       // project lease during preparation would otherwise deadlock the second tool.
@@ -1450,11 +1488,13 @@ class PiDesktopHost {
         break
       }
       case 'tool_execution_end': {
-        if (event.toolName === 'write' || event.toolName === 'edit') {
-          const sessionId = this.runtime?.session.sessionManager.getSessionId()
-          if (sessionId) this.checkpoints.settle(sessionId, event.toolCallId)
-        }
-        if (event.toolName !== 'mcp') this.mutations.release(event.toolCallId)
+        this.toolGate.after({
+          sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
+          toolCallId: event.toolCallId,
+          // The end event carries no input; categories that matter after a call do not depend on it.
+          category: this.toolCategory(event.toolName, undefined).category,
+          ok: !event.isError
+        })
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
         const change = event.isError
           ? undefined
@@ -2557,6 +2597,8 @@ const host = new PiDesktopHost()
 process.parentPort.on('message', (event) => {
   const mutationResponse = mutationResponseSchema.safeParse(event.data)
   if (mutationResponse.success) { host.mutations.accept(mutationResponse.data); return }
+  const pluginResponse = pluginAgentResponseSchema.safeParse(event.data)
+  if (pluginResponse.success) { host.pluginAgent.accept(pluginResponse.data); return }
   const capabilityResponse = browserCapabilityResponseSchema.safeParse(event.data)
   if (capabilityResponse.success) {
     host.acceptBrowserCapabilityResponse(capabilityResponse.data)

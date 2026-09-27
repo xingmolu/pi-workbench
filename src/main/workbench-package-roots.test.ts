@@ -180,6 +180,38 @@ describe('Pi package-roots lifecycle', () => {
     expect(replacementHost.setPackageRoots).not.toHaveBeenCalled()
   })
 
+  it('does not reload the registry when a session republishes the same roots', () => {
+    const lifecycle = createPiPackageRootsLifecycle({
+      initialIdentity: { sessionId: 'session-current', generation: 7 },
+      warn: vi.fn()
+    })
+    lifecycle.hostStarted()
+    const host = { setPackageRoots: vi.fn(() => Promise.resolve()) }
+    lifecycle.attachHost(host)
+    const publish = (roots: PiPackageRoot[]) =>
+      lifecycle.handleMessage({
+        type: 'desktop-plugin-roots',
+        sessionId: 'session-current',
+        generation: 7,
+        roots
+      })
+    publish([])
+    publish([])
+    publish([validRoot])
+    publish([validRoot])
+    expect(host.setPackageRoots.mock.calls).toEqual([[[]], [[validRoot]]])
+
+    // A new identity starts from a clean cache, so its first publication always applies.
+    lifecycle.transitionIdentity({ sessionId: 'session-next', generation: 8 }, () => undefined)
+    lifecycle.handleMessage({
+      type: 'desktop-plugin-roots',
+      sessionId: 'session-next',
+      generation: 8,
+      roots: [validRoot]
+    })
+    expect(host.setPackageRoots.mock.calls.at(-1)).toEqual([[validRoot]])
+  })
+
   it('clears views/cache on Agent exit and ignores late roots or duplicate exit signals', () => {
     const warn = vi.fn()
     const lifecycle = createPiPackageRootsLifecycle({

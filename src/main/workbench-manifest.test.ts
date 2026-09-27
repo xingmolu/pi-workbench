@@ -97,6 +97,9 @@ describe('discoverWorkbenchManifests', () => {
     expect(result.plugins).toEqual([
       {
         commands: [],
+        agentTools: [],
+        skillPaths: [],
+        mcpServers: {},
         pluginId: 'acme.notes',
         name: 'Acme Notes',
         version: '1.2.3',
@@ -754,6 +757,89 @@ describe('discoverWorkbenchManifests', () => {
     ])
     expect(discovery.diagnostics).toEqual([
       expect.objectContaining({ code: 'duplicate-plugin-id', pluginId: 'acme.notes' })
+    ])
+  })
+
+  it('validates agent tools, skills and MCP servers, expanding the plugin root', async () => {
+    const root = await temporaryPluginRoot()
+    const canonicalRoot = await realpath(root)
+    await mkdir(join(root, 'skills', 'review'), { recursive: true })
+    await writeFile(join(root, 'main.js'), 'module.exports = {}')
+    await writeManifest(root, {
+      main: 'main.js',
+      permissions: ['agent.tools', 'agent.skills', 'mcp.local'],
+      contributes: {
+        agentTools: [
+          {
+            name: 'lookup',
+            title: { en: 'Lookup', 'zh-CN': '查询' },
+            description: 'Look something up',
+            parameters: { type: 'object', properties: { q: { type: 'string' } } },
+            readOnly: true
+          },
+          { name: 'save', description: 'Save a note' }
+        ],
+        skills: ['skills'],
+        mcpServers: {
+          notes: {
+            command: 'node',
+            args: ['${pluginRoot}/server.js'],
+            env: { ROOT: '${pluginRoot}' }
+          }
+        }
+      }
+    })
+    const { plugins, diagnostics } = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [{ path: root, source: 'test', scope: 'user', hasExecutablePiResources: false }]
+    })
+    expect(diagnostics).toEqual([])
+    expect(plugins[0].agentTools).toEqual([
+      {
+        name: 'lookup',
+        title: '查询',
+        description: 'Look something up',
+        parameters: { type: 'object', properties: { q: { type: 'string' } } },
+        readOnly: true
+      },
+      {
+        name: 'save',
+        title: 'save',
+        description: 'Save a note',
+        parameters: { type: 'object', properties: {} },
+        readOnly: false
+      }
+    ])
+    expect(plugins[0].skillPaths).toEqual([join(canonicalRoot, 'skills')])
+    expect(plugins[0].mcpServers).toEqual({
+      notes: {
+        command: 'node',
+        args: [`${canonicalRoot}/server.js`],
+        env: { ROOT: canonicalRoot }
+      }
+    })
+  })
+
+  it('rejects agent tools without main and skills outside the plugin', async () => {
+    const withoutMain = await temporaryPluginRoot('no-main')
+    await writeManifest(withoutMain, {
+      contributes: { agentTools: [{ name: 'lookup', description: 'x' }] }
+    })
+    const outside = await temporaryPluginRoot('outside')
+    await writeManifest(outside, { id: 'acme.outside', contributes: { skills: ['../'] } })
+    const { plugins, diagnostics } = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [withoutMain, outside].map((path) => ({
+        path,
+        source: 'test',
+        scope: 'user' as const,
+        hasExecutablePiResources: false
+      }))
+    })
+    expect(plugins).toEqual([])
+    expect(diagnostics.map(({ code }) => code).sort()).toEqual([
+      'manifest-invalid',
+      'skill-invalid'
     ])
   })
 })

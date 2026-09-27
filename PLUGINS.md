@@ -128,7 +128,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | `pi.project` | `current()`、`onDidChange` | 无 |
 | `pi.fs` | `readText`、`list`、`stat`；`writeText`（经工具闸门，可撤销） | `fs.read` / `fs.write` |
 | `pi.git` | `status`、`diff`、`log`；`stage`、`unstage`、`discard`（可撤销）、`commit`；`push`（始终确认） | `git.read` / `git.write` / `git.push` |
-| `pi.agent` | `registerTool`（与 manifest 声明对应）、`onTurnEnd`（只读：本轮改动摘要） | `agent.tools` |
+| `pi.agent` | `registerTool`（与 manifest 声明对应，已实现）、`onTurnEnd`（只读：本轮改动摘要，未实现） | `agent.tools` |
 
 约定：
 
@@ -195,7 +195,7 @@ interface ToolGate {
 | P1 运行时骨架 | manifest v1（zod）、插件进程与 RPC、权限网关与授权界面、审计、崩溃隔离、`commands` / `views` 合并 | 示例插件能注册命令和视图；未授权调用被拒；插件崩溃不影响会话（Electron E2E） |
 | P2 宿主 API | `pi.fs`、`pi.git`、`pi.storage`、`pi.ui`；视图可直接调用；插件写操作审批（Files 迁移推后，见 §14） | 视图读取项目文件、写入前审批、暂存与提交的 Electron E2E |
 | P3 Git 插件 | 随应用分发的内置插件机制；暂存、丢弃、提交、推送（确认） | 从改动到推送的完整 E2E；推送在"完全访问"下仍确认 |
-| P4 Agent 扩展 | `ToolGate` 抽取、`agentTools`（native）、`skills`、`mcpServers`、假运行时测试 | 插件工具在三个档位下行为正确；假运行时经 MCP 桥调用插件工具 |
+| P4 Agent 扩展（已完成，见 §16） | `ToolGate` 抽取、`agentTools`（native）、`skills`、`mcpServers`、假运行时测试 | 插件工具在三个档位下行为正确；假运行时经 MCP 桥调用插件工具 |
 
 
 - 对齐：manifest 核心字段、`contributes.views/commands/agentTools/skills/mcpServers`、权限名称、`pi.*` 中已实现方法的参数形状、错误码。
@@ -277,4 +277,25 @@ module.exports = {
 - 审计调整：拒绝和失败都记录；成功的调用只记录高风险方法（写入、暂存、提交、丢弃、推送等）。面板会定时读取状态，逐条记录读操作会淹没真正重要的写操作。
 - Git 插件（`works.pi.git`）只有视图、没有 `main`，不会常驻进程。面板显示分支与领先/落后提交数、已暂存与未暂存改动（点开看差异）、逐个或全部暂存/取消暂存、丢弃、提交（没有暂存时"暂存全部并提交"，⌘/Ctrl+Enter）、推送和最近提交；在面板获得焦点、切回可见和每 4 秒刷新一次，列表内容没变时不重建，以免打断悬停和已展开的差异。
 - 提交信息起草（§12 第 3 条）仍待定，留到提供一次性补全 API 时再做。
+
+## 16. 第四阶段实现说明
+
+- **ToolGate**（`src/agent-host/tool-gate.ts`）：与运行时无关的工具闸门。工具先归入语义类别（`read`、`shell`、`file.write`、`file.edit`、`browser`、`computer`、`mcp`、`plugin`、`task`），权限只看类别：
+  - `shell` / `file.*`：完全访问直接放行；否则先看项目规则（"帮我批准"下包括安全命令和项目内编辑），不命中就确认。放行后取项目写锁，文件写入前保存检查点，结束后结算检查点、释放写锁。
+  - `browser`（会改变页面的动作）：完全访问放行，其余确认。`computer`（act）：任何档位都确认。
+  - `plugin`：请求批准下确认（声明 `readOnly` 的工具除外）；帮我批准和完全访问直接放行。插件工具内部再调用 `pi.fs` / `pi.git` 写入时，仍按插件 API 自己的审批规则确认。
+  - `mcp`：服务器和工具要到调用时才知道，审批和写锁仍在 MCP 运行时内部完成，闸门直接放行。
+  - pi 适配器只做两件事：`piToolCategory` 把 pi 的工具名映射到类别；`tool_call` 钩子调用 `ToolGate.before`，`tool_execution_end` 调用 `after`。
+- **manifest 新增**：
+  - `contributes.agentTools`：`{ name, title?, description, parameters(JSON Schema, object), readOnly? }`，需要 `main`，工具名在插件内唯一。
+  - `contributes.skills`：插件目录内的 SKILL.md 技能目录（相对路径，必须在插件根目录内）。
+  - `contributes.mcpServers`：与用户 MCP 配置同一格式（stdio 命令或 HTTPS 地址），`command`、`args`、`env` 中的 `${pluginRoot}` 展开为插件目录。
+  - 分别受 `agent.tools`、`agent.skills`、`mcp.local`（stdio）/ `mcp.remote`（HTTP）权限约束，未授予的贡献不会交给 Agent。
+- **插件进程**：`pi.agent.registerTool({ name, run })` 把处理函数绑定到 manifest 中声明的工具；`run(input)` 可以返回字符串、`{ content: [{ type: 'text', text }] }` 或任意 JSON。结果转为文本（≤ 128 KiB），超时 120 秒。面板不能注册工具。另补上了进程侧的 `pi.git.push`。
+- **交付给 pi 会话**：Agent Host 在创建会话运行时向 Main 取一次贡献（Main 会等注册表重载完成）；插件工具以 `<插件 id>__<工具名>` 原生注册（`toolDelivery: 'native'`），技能通过 `additionalSkillPaths` 加入，MCP 服务器以 `<插件 id>_<服务器 id>` 并入 MCP 运行时，调用走现有 MCP 审批。插件启用、停用后对新建的会话生效。
+- **调用路径**：pi → ToolGate → Agent Host → Main（按声明的 schema 再校验一次、检查授权）→ 插件进程 → 结果以"不可信数据"标注返回模型；每次调用写入审计（`tool:<名称>`）。插件的 `pi.fs` / `pi.git` 作用于窗口当前打开的项目，因此只有该项目中的会话可以调用插件工具，其他项目的后台会话会被拒绝。
+- **MCP 桥**（`src/agent-host/plugin-tool-mcp-bridge.ts`）：给 `toolDelivery: 'mcp'` 的运行时用，把插件工具作为 MCP 服务器暴露（`tools/list`、`tools/call`），每次调用同样经过 ToolGate。运行时描述符增加 `toolDelivery` 与 `skills` 字段，pi 为 `native` / `native`。
+- **假运行时契约测试**（`src/agent-host/fake-runtime.test.ts`）：一个不依赖 pi 的运行时，用自己的工具名（`RunShell`、`WriteFile`、MCP 工具），通过类别映射进入 ToolGate，经 MCP 桥调用插件工具，并把原生事件归一化为 `ConversationNode`；覆盖三个档位和拒绝。
+- **顺带修复**：会话会反复重发相同的包根目录，此前每次都会清空注册表、销毁面板并重启所有插件进程（插件工具调用时尤其明显）。现在同一会话身份下重复的根目录被忽略；注册表重载期间插件进程保持运行，重载完成后只重启真正变化的插件。
+- 未做：`pi.agent.onTurnEnd`、插件 MCP 服务器在 MCP 设置页中的展示、接入第二个真实运行时。
 

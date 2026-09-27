@@ -36,6 +36,9 @@ function plugin(
 ): ValidatedWorkbenchPlugin {
   return {
     commands: [],
+    agentTools: [],
+    skillPaths: [],
+    mcpServers: {},
     pluginId,
     name: pluginId,
     version: '1.0.0',

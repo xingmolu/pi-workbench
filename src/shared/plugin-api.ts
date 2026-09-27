@@ -159,12 +159,17 @@ export const PLUGIN_HOST_METHODS = {
   'git.push': {
     permission: 'git.push',
     params: z.object({}).strict()
+  },
+  /** Binds a handler to a tool declared in `contributes.agentTools`. Process only. */
+  'agent.registerTool': {
+    permission: 'agent.tools',
+    params: z.object({ name: localIdSchema }).strict()
   }
 } as const satisfies Record<string, { permission: PluginPermission | null; params: z.ZodType }>
 
 /** Methods a sandboxed view may call directly; command registration stays in the process. */
 export function isViewCallable(method: PluginHostMethod): boolean {
-  return !method.startsWith('commands.')
+  return !method.startsWith('commands.') && method !== 'agent.registerTool'
 }
 
 export type PluginHostMethod = keyof typeof PLUGIN_HOST_METHODS
@@ -204,15 +209,46 @@ export const pluginProcessMessageSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('invoke'),
       id: z.number().int().nonnegative(),
-      target: z.enum(['command']),
-      name: z.string().max(128)
+      target: z.enum(['command', 'tool']),
+      name: z.string().max(128),
+      /** Tool input, already validated against the declared schema by the agent host. */
+      input: z.unknown().optional()
     })
     .strict(),
   z.object({ kind: z.literal('unload') }).strict()
 ])
 export type PluginProcessMessage = z.infer<typeof pluginProcessMessageSchema>
 
-export const PLUGIN_TIMEOUTS = { load: 15_000, command: 30_000, unload: 5_000, call: 30_000 }
+export const PLUGIN_TIMEOUTS = {
+  load: 15_000,
+  command: 30_000,
+  tool: 120_000,
+  unload: 5_000,
+  call: 30_000
+}
+
+/** Tool results returned to the model are bounded like MCP results. */
+export const PLUGIN_TOOL_MAX_RESULT_CHARS = 128 * 1024
+
+/** Plugin tool results become plain text for the model: strings pass, `{ content: [{ type:
+ * 'text', text }] }` is joined, anything else is shown as JSON. */
+export function pluginToolResultText(value: unknown): string {
+  let text: string
+  if (typeof value === 'string') text = value
+  else if (
+    value &&
+    typeof value === 'object' &&
+    Array.isArray((value as { content?: unknown }).content)
+  )
+    text = ((value as { content: unknown[] }).content as { type?: unknown; text?: unknown }[])
+      .map((part) => (part?.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('\n')
+  else text = value === undefined ? '' : (JSON.stringify(value) ?? '')
+  if (text.length > PLUGIN_TOOL_MAX_RESULT_CHARS)
+    throw new PluginApiError('INVALID_ARGUMENT', '插件工具结果超过上限')
+  return text || '（插件工具没有返回内容）'
+}
 
 /** Storage values are bounded like panel state. */
 export const PLUGIN_STORAGE_MAX_BYTES = 32 * 1024

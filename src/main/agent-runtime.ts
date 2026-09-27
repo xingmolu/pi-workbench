@@ -9,6 +9,11 @@ export type AgentRuntimeProviderDescriptor = {
   hostCapabilities: boolean
   /** Runtime can keep one durable session per desktop worker. */
   residentSessions: boolean
+  /** How plugin agent tools reach this runtime: registered natively, or through the host's
+   * MCP bridge (see `src/agent-host/plugin-tool-mcp-bridge.ts`). Both pass the ToolGate. */
+  toolDelivery?: 'native' | 'mcp'
+  /** How plugin skills reach this runtime. */
+  skills?: 'native' | 'prompt' | 'none'
 }
 
 /** Stable identity used to fence stale commands and responses across session transitions. */

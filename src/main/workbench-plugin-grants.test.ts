@@ -17,6 +17,9 @@ function codePlugin(permissions: string[]): ValidatedWorkbenchPlugin {
     manifestPath: '/plugins/git/pi-desktop.json',
     canonicalMainPath: '/plugins/git/main.js',
     commands: [{ id: 'commit', title: 'Commit', keywords: [] }],
+    agentTools: [],
+    skillPaths: [],
+    mcpServers: {},
     workbench: [
       {
         contribution: {
@@ -220,5 +223,74 @@ describe('plugin grants', () => {
       { path: '/app/plugins/git', scope: 'bundled' },
       { path: '/home/me/plugins/x', scope: 'user' }
     ])
+  })
+
+  it('contributes agent tools, skills and MCP servers only behind their grants', async () => {
+    const agentPlugin = {
+      ...codePlugin(['agent.tools', 'mcp.local']),
+      agentTools: [
+        {
+          name: 'lookup',
+          title: 'Lookup',
+          description: 'Look up',
+          parameters: { type: 'object' },
+          readOnly: true
+        }
+      ],
+      skillPaths: ['/plugins/git/skills'],
+      mcpServers: {
+        local: { command: 'node', args: ['/plugins/git/server.js'] },
+        remote: { url: 'https://example.com/mcp' }
+      }
+    }
+    const { state } = setup([agentPlugin])
+    await state.reload()
+    expect(state.agentContributions()).toEqual({ tools: [], skillPaths: [], mcpServers: {} })
+
+    await state.dispatch({ type: 'plugin:set-enabled', pluginId: 'acme.git', desktopEnabled: true })
+    expect(state.agentContributions()).toEqual({
+      tools: [
+        {
+          pluginId: 'acme.git',
+          pluginName: 'Git',
+          name: 'lookup',
+          toolName: 'acme_git__lookup',
+          title: 'Lookup',
+          description: 'Look up',
+          parameters: { type: 'object' },
+          readOnly: true
+        }
+      ],
+      // Not granted agent.skills or mcp.remote.
+      skillPaths: [],
+      mcpServers: { acme_git_local: { command: 'node', args: ['/plugins/git/server.js'] } }
+    })
+  })
+
+  it('lets callers wait for a registry reload in flight', async () => {
+    let finish: () => void = () => undefined
+    const state = createWorkbenchHostState({
+      appVersion: '0.1.0',
+      userRoots: async () => [],
+      discover: () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ plugins: [], diagnostics: [] })
+        }),
+      store: { get: () => undefined, set: () => undefined },
+      createView: async () => {
+        throw new Error('unused')
+      },
+      nativeViews: { browser: { setView: () => undefined } }
+    })
+    void state.reload()
+    let waited = false
+    const waiting = state.whenLoaded().then(() => {
+      waited = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(waited).toBe(false)
+    finish()
+    await waiting
+    expect(waited).toBe(true)
   })
 })

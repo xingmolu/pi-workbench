@@ -89,6 +89,14 @@ export function createPiPackageRootsLifecycle(dependencies: PiPackageRootsLifecy
         accepting: hostRunning,
         setPackageRoots: (roots) => {
           const copiedRoots = roots.map((root) => ({ ...root }))
+          // Sessions republish their roots on every refresh. Reloading an unchanged set would
+          // tear down open panels and restart plugin processes in the middle of a turn.
+          if (
+            cachedRoots &&
+            sameIdentity(cachedRoots.identity, activeIdentity) &&
+            JSON.stringify(cachedRoots.roots) === JSON.stringify(copiedRoots)
+          )
+            return
           cachedRoots = { identity: { ...activeIdentity }, roots: copiedRoots }
           replaceRoots(host, copiedRoots, dependencies.warn)
         },

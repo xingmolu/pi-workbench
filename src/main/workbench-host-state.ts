@@ -22,6 +22,11 @@ import { mergeWorkbenchPackageRoots } from './workbench-package-root-merge'
 import { IMPLICIT_PLUGIN_PERMISSIONS, isKnownPluginPermission } from '../shared/plugin-api'
 import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
 import type { GatewayPlugin, RuntimePlugin } from './plugin-runtime'
+import {
+  pluginMcpServerId,
+  pluginToolName,
+  type PluginAgentContributions
+} from '../shared/plugin-agent'
 
 /** The part of PluginRuntime the Workbench state depends on. */
 export type WorkbenchPluginRuntime = {
@@ -91,6 +96,10 @@ export type WorkbenchHostState = {
   runtimeChanged(): void
   /** The enabled plugin that owns a view, as the gateway sees it. */
   pluginForView(viewId: string): GatewayPlugin | null
+  /** Agent tools, skills and MCP servers from enabled plugins, each behind its grant. */
+  agentContributions(): PluginAgentContributions
+  /** Waits for registry reloads in flight, e.g. the one a session switch starts. */
+  whenLoaded(): Promise<void>
   dispose(): void
 }
 
@@ -303,6 +312,7 @@ export function createWorkbenchHostState(
       ...grantedTo(plugin).filter(isKnownPluginPermission)
     ]),
     commands: plugin.commands,
+    agentTools: plugin.agentTools.map(({ name }) => name),
     views: new Map(
       plugin.workbench.map(({ contribution }) => [
         contribution.viewId.startsWith(`${plugin.pluginId}.`)
@@ -544,13 +554,22 @@ export function createWorkbenchHostState(
     )
   })
 
+  /** Resolves once the most recent registry reload has finished (successfully or not). */
+  let loaded: Promise<unknown> = Promise.resolve()
+  const trackLoad = (reload: Promise<WorkbenchSnapshot>): Promise<WorkbenchSnapshot> => {
+    const settled = reload.catch(() => undefined)
+    loaded = settled
+    return reload
+  }
+
   const beginRegistryReload = (): number => {
     registryEpoch += 1
     invalidatePendingCreations()
     abortOperations()
     destroyAllViews()
     discovery = { plugins: [], diagnostics: [] }
-    syncRuntime()
+    // Plugin processes keep running until the new registry is known; `syncRuntime` then
+    // restarts only plugins that changed, so a reload does not interrupt tool calls.
     revision += 1
     dependencies.onState?.(snapshot())
     return registryEpoch
@@ -672,7 +691,7 @@ export function createWorkbenchHostState(
       assertNotDisposed()
       const requestedPackageRoots = packageRoots.map((root) => ({ ...root }))
       const requestEpoch = beginRegistryReload()
-      return reloadRegistry(requestEpoch, requestedPackageRoots)
+      return trackLoad(reloadRegistry(requestEpoch, requestedPackageRoots))
     },
     async dispatch(command) {
       assertNotDisposed()
@@ -866,7 +885,7 @@ export function createWorkbenchHostState(
       const requestedPackageRoots = roots.map((root) => ({ ...root }))
       packageRoots = requestedPackageRoots
       const requestEpoch = beginRegistryReload()
-      return reloadRegistry(requestEpoch, requestedPackageRoots)
+      return trackLoad(reloadRegistry(requestEpoch, requestedPackageRoots))
     },
     panelContext(viewId) {
       assertNotDisposed()
@@ -896,6 +915,50 @@ export function createWorkbenchHostState(
     async runPanelOperation(panelContext, operation) {
       assertNotDisposed()
       return runTrackedPanelOperation(panelContext, operation)
+    },
+    async whenLoaded() {
+      // A reload can start while waiting for another; wait until none is newer.
+      for (let current = loaded; ;) {
+        await current
+        if (current === loaded) return
+        current = loaded
+      }
+    },
+    agentContributions() {
+      const contributions: PluginAgentContributions = {
+        tools: [],
+        skillPaths: [],
+        mcpServers: {}
+      }
+      for (const plugin of discovery.plugins) {
+        if (!isDesktopEnabled(plugin.pluginId)) continue
+        const granted = gatewayPlugin(plugin).granted
+        if (granted.has('agent.tools') && plugin.canonicalMainPath !== undefined)
+          for (const tool of plugin.agentTools) {
+            const toolName = pluginToolName(plugin.pluginId, tool.name)
+            // Ids like `a.b` and `a_b` share a slug; the first plugin keeps the name.
+            if (!toolName || contributions.tools.some((known) => known.toolName === toolName))
+              continue
+            contributions.tools.push({
+              pluginId: plugin.pluginId,
+              pluginName: plugin.name,
+              name: tool.name,
+              toolName,
+              title: tool.title,
+              description: tool.description,
+              parameters: tool.parameters,
+              readOnly: tool.readOnly
+            })
+          }
+        if (granted.has('agent.skills')) contributions.skillPaths.push(...plugin.skillPaths)
+        for (const [id, server] of Object.entries(plugin.mcpServers)) {
+          const serverId = pluginMcpServerId(plugin.pluginId, id)
+          if (!serverId || server.disabled) continue
+          if (server.command ? granted.has('mcp.local') : granted.has('mcp.remote'))
+            contributions.mcpServers[serverId] = server
+        }
+      }
+      return contributions
     },
     pluginForView(viewId) {
       const plugin = discovery.plugins.find((candidate) =>
