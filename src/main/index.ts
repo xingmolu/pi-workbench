@@ -1367,6 +1367,10 @@ function createWindow(): void {
     window: mainWindow,
     browser: browserManager,
     panelSenderBinding: workbenchPanelIpc,
+    pluginHostPath: join(__dirname, 'plugin-host.js'),
+    onEvent: (event) => {
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, event)
+    },
     onState: (state) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, {

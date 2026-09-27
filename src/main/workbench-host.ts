@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto'
+import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { readdir, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import {
   session,
+  utilityProcess,
   WebContentsView,
   type BrowserWindow,
   type OnBeforeRequestListenerDetails,
@@ -15,8 +18,15 @@ import type {
   PluginPanelContext,
   WorkbenchCommand,
   WorkbenchCommandResult,
+  WorkbenchEvent,
   WorkbenchSnapshot
 } from '../shared/workbench-contracts'
+import {
+  PluginRuntime,
+  type PluginAuditEntry,
+  type PluginProcessHandle,
+  type PluginRuntimeDependencies
+} from './plugin-runtime'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { discoverWorkbenchManifests } from './workbench-manifest'
 import { loadAbortableWorkbenchPanel } from './workbench-panel-lifecycle'
@@ -73,8 +83,64 @@ export type WorkbenchHostDependencies = {
   window: BrowserWindow
   browser: { setView(visible: boolean, bounds?: Electron.Rectangle): void | Promise<void> }
   onState?: (snapshot: WorkbenchSnapshot) => void
+  /** Plugin-originated toasts and view reveals for the main window. */
+  onEvent?: (event: WorkbenchEvent) => void
+  /** Absolute path of the bundled plugin process entry; plugins with `main` stay stopped without it. */
+  pluginHostPath?: string
+  spawnPlugin?: PluginRuntimeDependencies['spawn']
   createView?: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
   panelSenderBinding?: WorkbenchPanelSenderBinding
+}
+
+const PLUGIN_AUDIT_MAX_BYTES = 1024 * 1024
+
+/** Append-only JSONL with one rotation; records method and outcome, never arguments. */
+function pluginAuditWriter(file: string): (entry: PluginAuditEntry) => void {
+  return (entry) => {
+    try {
+      mkdirSync(dirname(file), { recursive: true })
+      try {
+        if (statSync(file).size > PLUGIN_AUDIT_MAX_BYTES) renameSync(file, `${file}.1`)
+      } catch {
+        /* First write. */
+      }
+      appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`, {
+        mode: 0o600
+      })
+    } catch {
+      /* Auditing must not break the plugin call it describes. */
+    }
+  }
+}
+
+/** Plugin processes get only what they need to run tools, never provider keys or app env. */
+export function pluginProcessEnv(pluginId: string, source = process.env): Record<string, string> {
+  const env: Record<string, string> = { PI_PLUGIN_ID: pluginId, NODE_ENV: 'production' }
+  for (const key of ['PATH', 'HOME', 'USER', 'USERPROFILE', 'LANG', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot'])
+    if (source[key]) env[key] = source[key]!
+  if (!env.HOME) env.HOME = homedir()
+  return env
+}
+
+function electronPluginSpawner(entry: string): PluginRuntimeDependencies['spawn'] {
+  return (pluginId) => {
+    const child = utilityProcess.fork(entry, [], {
+      serviceName: `Pi Plugin ${pluginId}`,
+      stdio: 'pipe',
+      env: pluginProcessEnv(pluginId)
+    })
+    child.stdout?.resume()
+    child.stderr?.resume()
+    const handle: PluginProcessHandle = {
+      postMessage: (message) => child.postMessage(message),
+      onMessage: (listener) => child.on('message', listener),
+      onExit: (listener) => child.on('exit', listener),
+      kill: () => {
+        child.kill()
+      }
+    }
+    return handle
+  }
 }
 
 const panelStates = new WeakMap<WorkbenchHost, WorkbenchHostState>()
@@ -313,7 +379,38 @@ class WorkbenchHostImplementation implements WorkbenchHost {
 export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): WorkbenchHost {
   const sessionOwnership = createWorkbenchPanelSessionOwnership()
   const panelSenderBinding = dependencies.panelSenderBinding
+  let projectPath: string | null = null
+  let notifyRuntime = (): void => undefined
+  const spawn =
+    dependencies.spawnPlugin ??
+    (dependencies.pluginHostPath ? electronPluginSpawner(dependencies.pluginHostPath) : undefined)
+  const storageKey = 'workbenchPluginStorage'
+  const runtime = spawn
+    ? new PluginRuntime({
+        spawn,
+        context: () => ({ projectPath }),
+        storage: {
+          get: (key) => {
+            const all = dependencies.store.get(storageKey)
+            return all && typeof all === 'object' ? (all as Record<string, unknown>)[key] : undefined
+          },
+          set: (key, value) => {
+            const all = dependencies.store.get(storageKey)
+            dependencies.store.set(storageKey, {
+              ...(all && typeof all === 'object' ? all : {}),
+              [key]: value
+            })
+          }
+        },
+        toast: (pluginId, message) =>
+          dependencies.onEvent?.({ type: 'toast', pluginId, message: message.slice(0, 600) }),
+        openView: (viewId) => dependencies.onEvent?.({ type: 'reveal', viewId }),
+        audit: pluginAuditWriter(join(dependencies.agentDir, 'pi-desktop', 'plugin-audit.jsonl')),
+        onChange: () => notifyRuntime()
+      })
+    : undefined
   const state = createWorkbenchHostState({
+    ...(runtime ? { runtime } : {}),
     appVersion: dependencies.appVersion,
     userRoots: () => userDesktopPluginRoots(dependencies.agentDir),
     discover: discoverWorkbenchManifests,
@@ -333,8 +430,19 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     nativeViews: { browser: dependencies.browser },
     ...(dependencies.onState === undefined ? {} : { onState: dependencies.onState })
   })
+  notifyRuntime = () => state.runtimeChanged()
+  const trackedState = Object.assign(Object.create(state) as typeof state, {
+    setContext(context: Parameters<typeof state.setContext>[0]) {
+      projectPath = context.projectPath
+      state.setContext(context)
+    },
+    dispose() {
+      state.dispose()
+      runtime?.dispose()
+    }
+  })
   const host = new WorkbenchHostImplementation(
-    state,
+    trackedState,
     () => cleanupWorkbenchPanelSessions(sessionOwnership),
     (owner) => panelSenderBinding?.unbindHost(owner)
   )

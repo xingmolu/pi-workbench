@@ -45,6 +45,16 @@ export type WorkbenchDiagnostic = {
   viewId?: string
 }
 
+export type PluginRuntimeStatus = 'stopped' | 'starting' | 'running' | 'crashed' | 'failed'
+
+export type PluginCommandSummary = {
+  pluginId: string
+  pluginName: string
+  commandId: string
+  title: string
+  keywords: string[]
+}
+
 export type DesktopPluginSummary = {
   pluginId: string
   name: string
@@ -57,6 +67,14 @@ export type DesktopPluginSummary = {
   hasExecutablePiResources: boolean
   requestedPermissions: string[]
   diagnostics: WorkbenchDiagnostic[]
+  /** Present for plugins that run code or request grantable permissions. */
+  runtime?: {
+    hasMain: boolean
+    status: PluginRuntimeStatus
+    grantedPermissions: string[]
+    /** Requested permissions changed since the last grant; the plugin stays off until re-granted. */
+    needsGrant: boolean
+  }
 }
 
 export type WorkbenchSnapshot = {
@@ -64,6 +82,7 @@ export type WorkbenchSnapshot = {
   plugins: DesktopPluginSummary[]
   contributions: WorkbenchContribution[]
   diagnostics: WorkbenchDiagnostic[]
+  commands?: PluginCommandSummary[]
 }
 
 export type WorkbenchCommand =
@@ -71,12 +90,14 @@ export type WorkbenchCommand =
   | { type: 'plugins:reload' }
   | { type: 'plugin:set-enabled'; pluginId: string; desktopEnabled: boolean }
   | { type: 'view:set'; viewId: string; visible: boolean; bounds?: WorkbenchBounds }
+  | { type: 'plugin:command:run'; pluginId: string; commandId: string }
 
 export type WorkbenchCommandResult = { state: WorkbenchSnapshot }
 
 export type WorkbenchEvent =
   | { type: 'state'; data: WorkbenchSnapshot }
   | { type: 'reveal'; viewId: string; context?: JsonValue }
+  | { type: 'toast'; pluginId: string; message: string }
 
 export type PluginPanelContext = {
   pluginId: string

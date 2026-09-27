@@ -18,6 +18,20 @@ import type {
   WorkbenchManifestDiscoveryOptions
 } from './workbench-manifest'
 import { mergeWorkbenchPackageRoots } from './workbench-package-root-merge'
+import {
+  IMPLICIT_PLUGIN_PERMISSIONS,
+  isKnownPluginPermission
+} from '../shared/plugin-api'
+import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbench-contracts'
+import type { RuntimePlugin } from './plugin-runtime'
+
+/** The part of PluginRuntime the Workbench state depends on. */
+export type WorkbenchPluginRuntime = {
+  sync(plugins: readonly RuntimePlugin[]): void
+  status(pluginId: string): PluginRuntimeStatus
+  commands(): PluginCommandSummary[]
+  runCommand(pluginId: string, commandId: string): Promise<void>
+}
 
 export type WorkbenchHostContext = Pick<
   PluginPanelContext,
@@ -57,6 +71,7 @@ export type WorkbenchHostStateDependencies = {
   createView: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
   nativeViews: { browser: WorkbenchNativeView }
   onState?: (snapshot: WorkbenchSnapshot) => void
+  runtime?: WorkbenchPluginRuntime
 }
 
 export type WorkbenchHostState = {
@@ -72,6 +87,8 @@ export type WorkbenchHostState = {
     context: PluginPanelContext,
     operation: (signal: AbortSignal) => Promise<Result>
   ): Promise<Result>
+  /** Plugin processes started, stopped or registered commands. */
+  runtimeChanged(): void
   dispose(): void
 }
 
@@ -126,6 +143,30 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
 
 const DESKTOP_ENABLED_STORE_KEY = 'workbenchDesktopEnabled'
 const PANEL_STATE_STORE_KEY = 'workbenchPanelState'
+const GRANTS_STORE_KEY = 'workbenchPluginGrants'
+
+function readGrants(store: WorkbenchStateStore): Record<string, string[]> {
+  const stored = store.get(GRANTS_STORE_KEY)
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
+  return Object.fromEntries(
+    Object.entries(stored).filter((entry): entry is [string, string[]] =>
+      Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string')
+    )
+  )
+}
+
+/** Only names this version implements are grantable; the rest are shown as unsupported. */
+function knownRequested(plugin: ValidatedWorkbenchPlugin): string[] {
+  return plugin.requestedPermissions.filter(isKnownPluginPermission)
+}
+
+/** Plugins that run code or ask for more than a view need an explicit, reviewed grant. */
+function requiresGrant(plugin: ValidatedWorkbenchPlugin): boolean {
+  return (
+    plugin.canonicalMainPath !== undefined ||
+    knownRequested(plugin).some((permission) => !IMPLICIT_PLUGIN_PERMISSIONS.has(permission))
+  )
+}
 
 function readDesktopEnabled(store: WorkbenchStateStore): Record<string, boolean> {
   const stored = store.get(DESKTOP_ENABLED_STORE_KEY)
@@ -192,6 +233,7 @@ export function createWorkbenchHostState(
   let desiredViewId: string | null = null
   let disposed = false
   const desktopEnabled = readDesktopEnabled(dependencies.store)
+  const grants = readGrants(dependencies.store)
   const panelStates = readPanelStates(dependencies.store)
   type PendingCreation = {
     pluginId: string
@@ -223,7 +265,54 @@ export function createWorkbenchHostState(
   let desiredBrowserBounds: WorkbenchBounds | undefined
   let activeViewId: string | null = null
 
-  const isDesktopEnabled = (pluginId: string): boolean => desktopEnabled[pluginId] !== false
+  const discovered = (pluginId: string): ValidatedWorkbenchPlugin | undefined =>
+    discovery.plugins.find((plugin) => plugin.pluginId === pluginId)
+
+  const needsGrant = (plugin: ValidatedWorkbenchPlugin): boolean =>
+    requiresGrant(plugin) &&
+    desktopEnabled[plugin.pluginId] === true &&
+    !knownRequested(plugin).every(
+      (permission) =>
+        IMPLICIT_PLUGIN_PERMISSIONS.has(permission) ||
+        (grants[plugin.pluginId] ?? []).includes(permission)
+    )
+
+  /** View-only plugins keep their historical default-on behavior; code needs an opt-in. */
+  const isDesktopEnabled = (pluginId: string): boolean => {
+    const plugin = discovered(pluginId)
+    if (plugin && requiresGrant(plugin))
+      return desktopEnabled[pluginId] === true && !needsGrant(plugin)
+    return desktopEnabled[pluginId] !== false
+  }
+
+  const syncRuntime = (): void => {
+    dependencies.runtime?.sync(
+      discovery.plugins.flatMap((plugin) =>
+        plugin.canonicalMainPath !== undefined && isDesktopEnabled(plugin.pluginId)
+          ? [
+              {
+                pluginId: plugin.pluginId,
+                name: plugin.name,
+                canonicalMainPath: plugin.canonicalMainPath,
+                granted: new Set([
+                  ...IMPLICIT_PLUGIN_PERMISSIONS,
+                  ...(grants[plugin.pluginId] ?? []).filter(isKnownPluginPermission)
+                ]),
+                commands: plugin.commands,
+                views: new Map(
+                  plugin.workbench.map(({ contribution }) => [
+                    contribution.viewId.startsWith(`${plugin.pluginId}.`)
+                      ? contribution.viewId.slice(plugin.pluginId.length + 1)
+                      : contribution.viewId,
+                    contribution.viewId
+                  ])
+                )
+              }
+            ]
+          : []
+      )
+    )
+  }
 
   const assertNotDisposed = (): void => {
     if (disposed) throw new Error('Workbench host has been disposed')
@@ -417,7 +506,17 @@ export function createWorkbenchHostState(
         desktopEnabled: isDesktopEnabled(plugin.pluginId),
         hasExecutablePiResources: plugin.hasExecutablePiResources,
         requestedPermissions: plugin.requestedPermissions,
-        diagnostics: pluginDiagnostics(plugin.pluginId)
+        diagnostics: pluginDiagnostics(plugin.pluginId),
+        ...(requiresGrant(plugin)
+          ? {
+              runtime: {
+                hasMain: plugin.canonicalMainPath !== undefined,
+                status: dependencies.runtime?.status(plugin.pluginId) ?? 'stopped',
+                grantedPermissions: grants[plugin.pluginId] ?? [],
+                needsGrant: needsGrant(plugin)
+              }
+            }
+          : {})
       }))
     ],
     contributions: [
@@ -430,7 +529,10 @@ export function createWorkbenchHostState(
           : []
       )
     ],
-    diagnostics: [...discovery.diagnostics, ...crashDiagnostics.values()]
+    diagnostics: [...discovery.diagnostics, ...crashDiagnostics.values()],
+    commands: (dependencies.runtime?.commands() ?? []).filter(({ pluginId }) =>
+      isDesktopEnabled(pluginId)
+    )
   })
 
   const beginRegistryReload = (): number => {
@@ -439,6 +541,7 @@ export function createWorkbenchHostState(
     abortOperations()
     destroyAllViews()
     discovery = { plugins: [], diagnostics: [] }
+    syncRuntime()
     revision += 1
     dependencies.onState?.(snapshot())
     return registryEpoch
@@ -463,6 +566,7 @@ export function createWorkbenchHostState(
       if (disposed || requestEpoch !== registryEpoch) return snapshot()
 
       discovery = reserveBuiltinRegistry(discovered)
+      syncRuntime()
       revision += 1
       const nextSnapshot = snapshot()
       dependencies.onState?.(nextSnapshot)
@@ -572,12 +676,24 @@ export function createWorkbenchHostState(
           }
           desktopEnabled[command.pluginId] = command.desktopEnabled
           dependencies.store.set(DESKTOP_ENABLED_STORE_KEY, { ...desktopEnabled })
+          // Enabling is the grant: the settings UI shows the requested permissions first.
+          const plugin = discovered(command.pluginId)!
+          if (command.desktopEnabled) grants[command.pluginId] = knownRequested(plugin)
+          else delete grants[command.pluginId]
+          dependencies.store.set(GRANTS_STORE_KEY, { ...grants })
           if (!command.desktopEnabled) {
             invalidatePendingCreations(command.pluginId)
             destroyPluginViews(command.pluginId)
           }
+          syncRuntime()
           revision += 1
           dependencies.onState?.(snapshot())
+          break
+        }
+        case 'plugin:command:run': {
+          if (!dependencies.runtime || !isDesktopEnabled(command.pluginId))
+            throw new Error('插件未启用')
+          await dependencies.runtime.runCommand(command.pluginId, command.commandId)
           break
         }
         case 'view:set': {
@@ -760,9 +876,15 @@ export function createWorkbenchHostState(
       assertNotDisposed()
       return runTrackedPanelOperation(panelContext, operation)
     },
+    runtimeChanged() {
+      if (disposed) return
+      revision += 1
+      dependencies.onState?.(snapshot())
+    },
     dispose() {
       if (disposed) return
       disposed = true
+      dependencies.runtime?.sync([])
       registryEpoch += 1
       selectionEpoch += 1
       desiredViewId = null

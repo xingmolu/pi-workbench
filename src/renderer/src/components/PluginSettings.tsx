@@ -1,4 +1,4 @@
-import { useReducer } from 'react'
+import { useReducer, useState } from 'react'
 import { CircleAlert, Puzzle, RefreshCw, ShieldAlert, TriangleAlert } from 'lucide-react'
 import type {
   DesktopPluginSummary,
@@ -13,6 +13,65 @@ import {
   pluginSettingsErrorMessage,
   pluginSettingsOperationReducer
 } from '../store/plugin-settings'
+import {
+  PLUGIN_PERMISSIONS,
+  isKnownPluginPermission,
+  type PluginPermissionRisk
+} from '../../../shared/plugin-api'
+
+const RISK_LABEL: Record<PluginPermissionRisk, string> = { low: '低', medium: '中', high: '高' }
+const STATUS_LABEL = {
+  stopped: '未运行',
+  starting: '正在启动',
+  running: '运行中',
+  crashed: '已崩溃',
+  failed: '加载失败'
+} as const
+
+/** Shown before a plugin that runs code (or asks for more than a view) is enabled. */
+function GrantReview({
+  plugin,
+  pending,
+  onCancel,
+  onConfirm
+}: {
+  plugin: DesktopPluginSummary
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}): React.JSX.Element {
+  return (
+    <div className="plugin-grant" role="group" aria-label={`授权 ${plugin.name}`}>
+      {plugin.runtime?.hasMain ? (
+        <p>
+          该插件会在独立进程中运行代码。权限只约束它调用 Pi Desktop 的接口，
+          不能阻止它直接访问本机文件或网络，请只启用来源可信的插件。
+        </p>
+      ) : null}
+      <ul>
+        {plugin.requestedPermissions.map((permission) => {
+          const known = isKnownPluginPermission(permission)
+          const risk = known ? PLUGIN_PERMISSIONS[permission] : null
+          return (
+            <li key={permission} className={risk ? `is-${risk}` : 'is-unsupported'}>
+              <code>{permission}</code>
+              <span>{risk ? `风险：${RISK_LABEL[risk]}` : '此版本不支持，不会授予'}</span>
+            </li>
+          )
+        })}
+        {plugin.requestedPermissions.length === 0 ? <li>不请求额外权限</li> : null}
+      </ul>
+      <div className="plugin-grant-actions">
+        <button type="button" className="secondary-button" disabled={pending} onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="primary-button" disabled={pending} onClick={onConfirm}>
+          授权并启用
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function pluginScope(plugin: DesktopPluginSummary): string {
   if (plugin.scope === 'builtin') return '内置'
@@ -69,12 +128,18 @@ export default function PluginSettings({
     pluginSettingsOperationReducer,
     INITIAL_PLUGIN_SETTINGS_OPERATION_STATE
   )
+  const [reviewing, setReviewing] = useState<string | null>(null)
   const knownPluginIds = new Set(snapshot.plugins.map(({ pluginId }) => pluginId))
   const registryDiagnostics = snapshot.diagnostics.filter(
     ({ pluginId }) => !pluginId || !knownPluginIds.has(pluginId)
   )
 
-  const toggle = async (plugin: DesktopPluginSummary): Promise<void> => {
+  const toggle = async (plugin: DesktopPluginSummary, reviewed = false): Promise<void> => {
+    if (!plugin.desktopEnabled && plugin.runtime && !reviewed) {
+      setReviewing(plugin.pluginId)
+      return
+    }
+    setReviewing(null)
     const command = pluginDesktopToggleCommand(plugin, !plugin.desktopEnabled)
     if (!command) return
     dispatch({ type: 'toggle:start', pluginId: plugin.pluginId })
@@ -121,6 +186,7 @@ export default function PluginSettings({
 
       <p className="plugin-settings-note">
         这里的开关只隐藏并销毁右侧 Desktop 贡献；不会禁用 Pi 已加载的 Skills/Extensions。
+        会运行代码的插件需要查看权限并授权后才会启动。
       </p>
 
       {operation.reloadError ? (
@@ -168,7 +234,26 @@ export default function PluginSettings({
                     Desktop：
                     {plugin.builtin ? '内置锁定' : plugin.desktopEnabled ? '已启用' : '已隐藏'}
                   </span>
+                  {plugin.runtime?.hasMain && plugin.desktopEnabled ? (
+                    <span className={`plugin-runtime is-${plugin.runtime.status}`}>
+                      进程：{STATUS_LABEL[plugin.runtime.status]}
+                    </span>
+                  ) : null}
                 </div>
+                {plugin.runtime?.needsGrant ? (
+                  <div className="plugin-executable-warning" role="note">
+                    <TriangleAlert size={13} aria-hidden="true" />
+                    <span>插件请求的权限有变化，已暂停运行。重新打开开关以查看并授权。</span>
+                  </div>
+                ) : null}
+                {reviewing === plugin.pluginId ? (
+                  <GrantReview
+                    plugin={plugin}
+                    pending={pending}
+                    onCancel={() => setReviewing(null)}
+                    onConfirm={() => void toggle(plugin, true)}
+                  />
+                ) : null}
 
                 {plugin.description ? (
                   <p className="plugin-description">{plugin.description}</p>

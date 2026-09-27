@@ -6,6 +6,7 @@ type WorkbenchEventCoordinatorOptions = {
   onSnapshot(snapshot: WorkbenchSnapshot): void
   onReveal(viewId: string): void
   onError(message: string): void
+  onToast?(pluginId: string, message: string): void
 }
 
 function errorMessage(error: unknown): string {
@@ -59,7 +60,9 @@ export function startWorkbenchEventCoordinator(
 
   const unsubscribe = options.subscribe((event) => {
     if (event.type === 'state') acceptSnapshot(event.data)
-    else if (!initialized) {
+    else if (event.type === 'toast') {
+      if (!cancelled) options.onToast?.(event.pluginId, event.message)
+    } else if (!initialized) {
       pendingReveals.push(event.viewId)
       refresh()
     } else acceptReveal(event.viewId)

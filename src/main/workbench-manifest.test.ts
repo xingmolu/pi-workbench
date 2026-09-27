@@ -96,6 +96,7 @@ describe('discoverWorkbenchManifests', () => {
     expect(result.diagnostics).toEqual([])
     expect(result.plugins).toEqual([
       {
+        commands: [],
         pluginId: 'acme.notes',
         name: 'Acme Notes',
         version: '1.2.3',
@@ -165,6 +166,63 @@ describe('discoverWorkbenchManifests', () => {
       'onProject',
       'onProject'
     ])
+  })
+
+  it('accepts manifest.json style views, commands and a main entry', async () => {
+    const root = await temporaryPluginRoot()
+    await writeFile(join(root, 'main.js'), 'module.exports = {}')
+    await writeManifest(root, {
+      main: 'main.js',
+      permissions: ['ui.view', 'notify', 'net.websocket'],
+      contributes: {
+        views: [
+          { id: 'later', title: 'Later', entry: 'web/index.html', order: 20 },
+          {
+            id: 'changes',
+            title: { en: 'Changes', 'zh-CN': '改动' },
+            icon: 'diff',
+            entry: 'web/index.html',
+            order: 10
+          }
+        ],
+        commands: [{ id: 'open', title: { en: 'Open' }, keywords: ['notes'] }]
+      }
+    })
+    const canonicalRoot = await realpath(root)
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        { path: root, source: 'user-directory', scope: 'user', hasExecutablePiResources: false }
+      ]
+    })
+    expect(result.diagnostics).toEqual([])
+    const [plugin] = result.plugins
+    expect(plugin.canonicalMainPath).toBe(join(canonicalRoot, 'main.js'))
+    expect(plugin.commands).toEqual([{ id: 'open', title: 'Open', keywords: ['notes'] }])
+    expect(plugin.requestedPermissions).toEqual(['ui.view', 'notify', 'net.websocket'])
+    expect(
+      plugin.workbench.map(({ contribution }) => [
+        contribution.viewId,
+        contribution.title,
+        contribution.icon
+      ])
+    ).toEqual([
+      ['acme.notes.changes', '改动', 'git-review'],
+      ['acme.notes.later', 'Later', 'plugin']
+    ])
+  })
+
+  it('rejects a main entry outside the plugin root', async () => {
+    const root = await temporaryPluginRoot()
+    await writeManifest(root, { main: '../main.js' })
+    const result = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        { path: root, source: 'user-directory', scope: 'user', hasExecutablePiResources: false }
+      ]
+    })
+    expect(result.plugins).toEqual([])
+    expect(result.diagnostics.map(({ code }) => code)).toEqual(['main-invalid'])
   })
 
   it('accepts manifests without workbench contributions', async () => {
@@ -349,14 +407,14 @@ describe('discoverWorkbenchManifests', () => {
         code: 'commands-not-supported'
       },
       {
-        name: 'contributes-commands',
+        name: 'contributes-commands-without-main',
         overrides: {
           contributes: {
             workbench: [],
-            commands: [{ id: 'acme.notes.run', title: 'Run' }]
+            commands: [{ id: 'run', title: 'Run' }]
           }
         },
-        code: 'commands-not-supported'
+        code: 'manifest-invalid'
       }
     ]
 

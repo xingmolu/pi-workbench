@@ -31,6 +31,8 @@ import { useSessionEdit } from './store/session-edit'
 import { commandOrigin, usePiStore } from './store/pi-store'
 import { sameSelectedScope } from '../../shared/session-runtime'
 import { startWorkbenchEventCoordinator } from './store/workbench-event-coordinator'
+import { useNavigationFeedback } from './store/navigation-feedback'
+import type { PluginCommandSummary } from '../../shared/workbench-contracts'
 import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/workbench-selection'
 import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbench-status'
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
@@ -118,6 +120,8 @@ export default function App(): React.JSX.Element {
   )
   const workbenchRevision = useRef(-1)
   const availableWorkbenchViews = useRef<readonly string[]>([])
+  const pluginNames = useRef(new Map<string, string>())
+  const [pluginCommands, setPluginCommands] = useState<PluginCommandSummary[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
   useEffect(() => { void useNavigationLibrary.getState().hydrate() }, [])
   useEffect(() => { if (!snapshot.project) setWorkbenchOpen(false) }, [snapshot.project?.path])
@@ -141,6 +145,8 @@ export default function App(): React.JSX.Element {
     if (state.revision <= workbenchRevision.current) return
     workbenchRevision.current = state.revision
     availableWorkbenchViews.current = state.contributions.map(({ viewId }) => viewId)
+    pluginNames.current = new Map(state.plugins.map((plugin) => [plugin.pluginId, plugin.name]))
+    setPluginCommands(state.commands ?? [])
     dispatchWorkbenchStatus({ type: 'snapshot', snapshot: state })
     dispatchWorkbenchSelection({ type: 'snapshot', contributions: state.contributions })
   }, [])
@@ -206,7 +212,11 @@ export default function App(): React.JSX.Element {
           dispatchWorkbenchSelection({ type: 'reveal', viewId })
           setWorkbenchOpen(true)
         },
-        onError: reportWorkbenchError
+        onError: reportWorkbenchError,
+        onToast: (pluginId, message) =>
+          useNavigationFeedback.getState().notify({
+            message: `${pluginNames.current.get(pluginId) ?? '插件'}：${message}`
+          })
       }),
     [acceptWorkbenchSnapshot, reportWorkbenchError]
   )
@@ -522,6 +532,22 @@ export default function App(): React.JSX.Element {
           onClose={closePalette}
           onNavigate={navigateProject}
           onChooseProject={chooseProject}
+          pluginCommands={pluginCommands}
+          onRunPluginCommand={(command) => {
+            void window.pi
+              .workbench({
+                type: 'plugin:command:run',
+                pluginId: command.pluginId,
+                commandId: command.commandId
+              })
+              .then(({ state }) => acceptWorkbenchSnapshot(state))
+              .catch((error: unknown) =>
+                useNavigationFeedback.getState().notify({
+                  message: `${command.pluginName}：${(error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')}`,
+                  error: true
+                })
+              )
+          }}
           onSearchFiles={() => {
             const files = workbenchStatus.snapshot.contributions.find(
               (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'

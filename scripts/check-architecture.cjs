@@ -87,7 +87,7 @@ function checkSource(filename, text, root = process.cwd()) {
       !reason &&
       restricted &&
       targets(specifier, file, root).some((target) =>
-        /^src\/(main|agent-host|preload|terminal-host)(\/|$)/.test(target)
+        /^src\/(main|agent-host|preload|terminal-host|plugin-host)(\/|$)/.test(target)
       )
     ) {
       reason = 'renderer/shared must not cross into another process implementation'

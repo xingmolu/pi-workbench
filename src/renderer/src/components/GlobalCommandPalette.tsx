@@ -9,9 +9,11 @@ import {
   MessageSquare,
   MessageSquarePlus,
   Search,
-  X
+  X,
+  Puzzle
 } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
+import type { PluginCommandSummary } from '../../../shared/workbench-contracts'
 import type { ProjectSearchResult, SessionSearchResult } from '../../../shared/session-search'
 import { projectNavigationReason } from '../../../shared/project-catalog'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
@@ -29,6 +31,8 @@ type Props = {
   onNavigate: (cwd: string, path?: string) => Promise<void>
   onChooseProject: () => Promise<void>
   onSearchFiles: () => void
+  pluginCommands?: readonly PluginCommandSummary[]
+  onRunPluginCommand?: (command: PluginCommandSummary) => void
 }
 const identityOf = (snapshot: AgentSnapshot): string =>
   JSON.stringify([snapshot.sessionId, snapshot.generation, snapshot.project?.path, snapshot.ready])
@@ -45,7 +49,9 @@ export default function GlobalCommandPalette({
   onClose,
   onNavigate,
   onChooseProject,
-  onSearchFiles
+  onSearchFiles,
+  pluginCommands = [],
+  onRunPluginCommand
 }: Props): React.JSX.Element {
   const [includeRemoved, setIncludeRemoved] = useState(false)
   const libraryRevision = useNavigationLibrary((state) => state.library.revision)
@@ -201,9 +207,21 @@ export default function GlobalCommandPalette({
   const matchingActions = actions.filter(
     (action) => !term || `${action.label} ${action.detail}`.includes(term)
   )
+  const matchingPluginCommands = pluginCommands.filter(
+    (command) =>
+      !term ||
+      [command.title, command.pluginName, ...command.keywords].some((text) =>
+        text.toLocaleLowerCase().includes(term)
+      )
+  )
+  const pluginValue = (command: PluginCommandSummary): string =>
+    `plugin:${JSON.stringify([command.pluginId, command.commandId])}`
   enabledActions.current = new Set(
     mode === 'sessions'
-      ? matchingActions.filter((action) => !action.reason).map((action) => `action:${action.id}`)
+      ? [
+          ...matchingActions.filter((action) => !action.reason).map((action) => `action:${action.id}`),
+          ...matchingPluginCommands.map(pluginValue)
+        ]
       : []
   )
   return (
@@ -402,6 +420,28 @@ export default function GlobalCommandPalette({
                       <span className="command-item-copy">
                         <span>{action.label}</span>
                         <small>{action.reason ?? action.detail}</small>
+                      </span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+              {mode === 'sessions' && onRunPluginCommand && matchingPluginCommands.length > 0 && (
+                <Command.Group heading="插件命令">
+                  {matchingPluginCommands.map((command) => (
+                    <Command.Item
+                      key={pluginValue(command)}
+                      value={pluginValue(command)}
+                      onSelect={() => {
+                        restoreNative.current = false
+                        close()
+                        onRunPluginCommand(command)
+                      }}
+                      title={command.pluginName}
+                    >
+                      <Puzzle size={15} aria-hidden="true" />
+                      <span className="command-item-copy">
+                        <span>{command.title}</span>
+                        <small>{command.pluginName}</small>
                       </span>
                     </Command.Item>
                   ))}

@@ -180,7 +180,16 @@ export const desktopPluginSummarySchema: z.ZodType<DesktopPluginSummary> = z
     desktopEnabled: z.boolean(),
     hasExecutablePiResources: z.boolean(),
     requestedPermissions: z.array(identifierSchema).max(128),
-    diagnostics: z.array(workbenchDiagnosticSchema).max(256)
+    diagnostics: z.array(workbenchDiagnosticSchema).max(256),
+    runtime: z
+      .object({
+        hasMain: z.boolean(),
+        status: z.enum(['stopped', 'starting', 'running', 'crashed', 'failed']),
+        grantedPermissions: z.array(identifierSchema).max(128),
+        needsGrant: z.boolean()
+      })
+      .strict()
+      .optional()
   })
   .strict()
 
@@ -189,7 +198,21 @@ export const workbenchSnapshotSchema: z.ZodType<WorkbenchSnapshot> = z
     revision: nonNegativeInteger,
     plugins: z.array(desktopPluginSummarySchema),
     contributions: z.array(workbenchContributionSchema),
-    diagnostics: z.array(workbenchDiagnosticSchema)
+    diagnostics: z.array(workbenchDiagnosticSchema),
+    commands: z
+      .array(
+        z
+          .object({
+            pluginId: identifierSchema,
+            pluginName: z.string().trim().min(1).max(256),
+            commandId: z.string().min(1).max(128),
+            title: z.string().trim().min(1).max(256),
+            keywords: z.array(z.string().max(64)).max(16)
+          })
+          .strict()
+      )
+      .max(512)
+      .optional()
   })
   .strict()
   .superRefine((snapshot, context) => {
@@ -251,6 +274,13 @@ export const workbenchCommandSchema: z.ZodType<WorkbenchCommand> = z.discriminat
       visible: z.boolean(),
       bounds: workbenchBoundsSchema.optional()
     })
+    .strict(),
+  z
+    .object({
+      type: z.literal('plugin:command:run'),
+      pluginId: identifierSchema,
+      commandId: z.string().min(1).max(128)
+    })
     .strict()
 ])
 
@@ -265,6 +295,13 @@ export const workbenchEventSchema: z.ZodType<WorkbenchEvent> = z.discriminatedUn
       type: z.literal('reveal'),
       viewId: identifierSchema,
       context: jsonValueSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('toast'),
+      pluginId: identifierSchema,
+      message: z.string().min(1).max(600)
     })
     .strict()
 ])

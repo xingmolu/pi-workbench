@@ -35,6 +35,7 @@ function plugin(
   workbench: ValidatedWorkbenchEntry[] = [entry('example.plugin.panel')]
 ): ValidatedWorkbenchPlugin {
   return {
+    commands: [],
     pluginId,
     name: pluginId,
     version: '1.0.0',

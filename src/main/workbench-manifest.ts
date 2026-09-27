@@ -32,7 +32,12 @@ export type ValidatedWorkbenchPlugin = {
   canonicalRootPath: string
   manifestPath: string
   workbench: ValidatedWorkbenchEntry[]
+  /** Discovery-time snapshot of the plugin process entry; revalidated before spawning. */
+  canonicalMainPath?: string
+  commands: ValidatedPluginCommand[]
 }
+
+export type ValidatedPluginCommand = { id: string; title: string; keywords: string[] }
 
 export type WorkbenchManifestDiscovery = {
   plugins: ValidatedWorkbenchPlugin[]
@@ -69,6 +74,66 @@ const manifestWorkbenchEntrySchema = z
   })
   .strict()
 
+const localIdentifierSchema = z
+  .string()
+  .regex(/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/, 'Expected a lowercase local identifier')
+
+/** `{ en, "zh-CN" }` titles as in the common manifest.json format manifest; the UI is Chinese-first. */
+const localizedTitleSchema = z.union([
+  z.string().trim().min(1).max(256),
+  z
+    .object({
+      en: z.string().trim().min(1).max(256),
+      'zh-CN': z.string().trim().min(1).max(256).optional()
+    })
+    .strict()
+])
+type LocalizedTitle = z.infer<typeof localizedTitleSchema>
+function resolveTitle(title: LocalizedTitle): string {
+  return typeof title === 'string' ? title : (title['zh-CN'] ?? title.en)
+}
+
+/** Icon tokens from the manifest.json vocabulary map onto the host's own icon set. */
+function resolveIcon(token: string | undefined): WorkbenchContribution['icon'] {
+  switch (token) {
+    case 'files':
+    case 'folder':
+      return 'files'
+    case 'diff':
+    case 'branch':
+    case 'pull-request':
+    case 'git-review':
+      return 'git-review'
+    case 'terminal':
+      return 'terminal'
+    case 'browser':
+      return 'browser'
+    case 'flask':
+      return 'flask'
+    default:
+      return 'plugin'
+  }
+}
+
+const manifestViewSchema = z
+  .object({
+    id: localIdentifierSchema,
+    title: localizedTitleSchema,
+    icon: z.string().max(64).optional(),
+    entry: z.string().min(1).max(4096),
+    order: z.number().int().min(0).max(10_000).optional(),
+    activation: workbenchActivationSchema.default('onProject')
+  })
+  .strict()
+
+const manifestCommandSchema = z
+  .object({
+    id: localIdentifierSchema,
+    title: localizedTitleSchema,
+    keywords: z.array(z.string().trim().min(1).max(64)).max(16).default([])
+  })
+  .strict()
+
 const workbenchManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -78,12 +143,21 @@ const workbenchManifestSchema = z
     description: z.string().max(4096).optional(),
     engines: z.object({ piDesktop: z.string().trim().min(1).max(128) }).strict(),
     permissions: z.array(z.string().trim().min(1).max(256)).max(128).optional(),
+    main: z.string().min(1).max(4096).optional(),
     contributes: z
-      .object({ workbench: z.array(manifestWorkbenchEntrySchema).max(256).default([]) })
+      .object({
+        /** Legacy Pi Desktop form, still accepted. */
+        workbench: z.array(manifestWorkbenchEntrySchema).max(256).default([]),
+        views: z.array(manifestViewSchema).max(64).default([]),
+        commands: z.array(manifestCommandSchema).max(128).default([])
+      })
       .strict()
-      .default({ workbench: [] })
+      .default({ workbench: [], views: [], commands: [] })
   })
   .strict()
+  .refine((manifest) => manifest.main !== undefined || manifest.contributes.commands.length === 0, {
+    message: 'Commands require a main entry'
+  })
 
 type WorkbenchManifest = z.infer<typeof workbenchManifestSchema>
 
@@ -97,13 +171,24 @@ function diagnosticPluginId(value: unknown): string | undefined {
   return pluginId.length > 0 && pluginId.length <= 256 ? pluginId : undefined
 }
 
+/** Top-level `commands` was never a supported shape; commands live under `contributes`. */
 function hasUnsupportedCommands(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  if (Object.prototype.hasOwnProperty.call(value, 'commands')) return true
-  return (
-    isRecord(value.contributes) &&
-    Object.prototype.hasOwnProperty.call(value.contributes, 'commands')
-  )
+  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, 'commands')
+}
+
+async function resolvePluginFile(
+  canonicalRootPath: string,
+  entry: string
+): Promise<string | undefined> {
+  if (!isLocalRelativeEntry(entry)) return undefined
+  try {
+    const candidate = await realpath(join(canonicalRootPath, entry))
+    if (isPathWithinRoot(canonicalRootPath, candidate) && (await stat(candidate)).isFile())
+      return candidate
+  } catch {
+    // Missing or unreadable files are reported by the caller.
+  }
+  return undefined
 }
 
 function isLocalRelativeEntry(value: string): boolean {
@@ -333,7 +418,51 @@ export async function discoverWorkbenchManifests({
         canonicalEntryPath
       })
     }
+    for (const view of [...manifest.contributes.views].sort(
+      (left, right) => (left.order ?? 0) - (right.order ?? 0)
+    )) {
+      const canonicalEntryPath = await resolvePluginFile(canonicalRootPath, view.entry)
+      if (canonicalEntryPath === undefined) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'entry-invalid',
+          message: 'Workbench entry must resolve to a regular file inside its plugin root.',
+          pluginId: manifest.id,
+          viewId: `${manifest.id}.${view.id}`
+        })
+        invalidEntry = true
+        break
+      }
+      workbench.push({
+        contribution: {
+          pluginId: manifest.id,
+          viewId: `${manifest.id}.${view.id}`,
+          title: resolveTitle(view.title),
+          icon: resolveIcon(view.icon),
+          activation: view.activation,
+          surface: { kind: 'sandboxed-web' }
+        },
+        canonicalEntryPath
+      })
+    }
     if (invalidEntry) continue
+
+    let canonicalMainPath: string | undefined
+    if (manifest.main !== undefined) {
+      canonicalMainPath = await resolvePluginFile(canonicalRootPath, manifest.main)
+      if (canonicalMainPath === undefined) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'main-invalid',
+          message: 'Plugin main must resolve to a regular file inside its plugin root.',
+          pluginId: manifest.id
+        })
+        continue
+      }
+    }
+
+    // Unknown names stay visible in settings; the grant gateway only ever honors known ones.
+    const requestedPermissions = [...new Set(manifest.permissions ?? [])]
 
     const currentViewIds = new Set<string>()
     const duplicateViewId = workbench.find(({ contribution }) => {
@@ -357,13 +486,19 @@ export async function discoverWorkbenchManifests({
       name: manifest.name,
       version: manifest.version,
       ...(manifest.description === undefined ? {} : { description: manifest.description }),
-      requestedPermissions: manifest.permissions ?? [],
+      requestedPermissions,
       source: root.source,
       scope: root.scope,
       hasExecutablePiResources: root.hasExecutablePiResources,
       canonicalRootPath,
       manifestPath,
-      workbench
+      workbench,
+      ...(canonicalMainPath === undefined ? {} : { canonicalMainPath }),
+      commands: manifest.contributes.commands.map((command) => ({
+        id: command.id,
+        title: resolveTitle(command.title),
+        keywords: command.keywords
+      }))
     })
     pluginIds.add(manifest.id)
     currentViewIds.forEach((viewId) => viewIds.add(viewId))

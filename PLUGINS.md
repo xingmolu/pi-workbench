@@ -1,6 +1,6 @@
 # Pi Desktop 插件体系与 Agent 运行时设计
 
-状态：草案 v1（待评审）。本文定义插件体系第一阶段的边界、manifest、进程与权限模型、公开 API，以及与之配套的 Agent 运行时（runtime provider）契约。实现按第 10 节分阶段推进，每阶段有独立验收标准。
+状态：v1。第一阶段（插件运行时骨架）已实现，见第 13 节；其余阶段按第 10 节推进。本文定义插件体系第一阶段的边界、manifest、进程与权限模型、公开 API，以及与之配套的 Agent 运行时（runtime provider）契约。实现按第 10 节分阶段推进，每阶段有独立验收标准。
 
 ## 1. 目标与非目标
 
@@ -207,3 +207,47 @@ interface ToolGate {
 2. 插件目录：沿用现有 `~/.pi/agent/desktop-plugins/<id>/`，还是改为 Pi Desktop 自己的数据目录？
 3. 内置 Git 插件的提交信息起草：直接调用当前会话模型，还是提供独立的一次性补全 API（`pi.agent.complete`）？
 4. 审计日志的保留期与查看入口。
+
+## 13. 第一阶段实现说明
+
+已实现：
+
+- 授权：含 `main` 或申请 `ui.view` 以外已知权限的插件默认关闭；在设置 → Desktop 插件中打开开关时先展示所请求的权限及风险，确认即授予。之后 manifest 申请了新权限，插件自动暂停，需重新授权。关闭即撤销授权。仅含视图的插件保持原有的默认启用行为。未知权限名照常显示，标注"此版本不支持，不会授予"。
+- 进程：每个启用的插件一个 `utilityProcess`（`out/main/plugin-host.js`），只继承 `PATH`、`HOME`、`USER`、`LANG`、临时目录与 `PI_PLUGIN_ID`。
+- 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。每次调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次）。
+- 命令出现在 ⌘K 的"插件命令"分组中；执行超时 30 秒，加载超时 15 秒。
+- 崩溃隔离：插件进程退出时，挂起的命令以 `PLUGIN_CRASHED` 失败，命令从 ⌘K 移除，界面提示，不自动重启；在设置中关开一次即可重新启动。
+
+最小示例：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "acme.hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "engines": { "piDesktop": "^0.1.0" },
+  "main": "main.js",
+  "permissions": ["ui.view", "notify"],
+  "contributes": {
+    "views": [{ "id": "panel", "title": "Hello", "icon": "flask", "entry": "views/panel.html" }],
+    "commands": [{ "id": "greet", "title": "Say hello" }]
+  }
+}
+```
+
+```js
+module.exports = {
+  async onLoad() {
+    await pi.commands.register({
+      id: 'greet',
+      run: async () => {
+        await pi.ui.showToast('Hello')
+        await pi.ui.openView('panel')
+      }
+    })
+  }
+}
+```
+
+放到 `~/.pi/agent/desktop-plugins/hello/` 下，在设置 → Desktop 插件中重新加载并授权即可。

@@ -100,6 +100,7 @@ export default defineConfig({
           index: resolve(__dirname, 'src/main/index.ts'),
           'agent-host': resolve(__dirname, 'src/agent-host/index.ts'),
           'terminal-host': resolve(__dirname, 'src/terminal-host/index.ts'),
+          'plugin-host': resolve(__dirname, 'src/plugin-host/index.ts'),
           'browser-targets': resolve(__dirname, 'src/main/browser-targets.ts'),
           'browser-manager': resolve(__dirname, 'src/main/browser-manager.ts'),
           'electron-store-interop': resolve(__dirname, 'src/main/electron-store-interop.ts')
