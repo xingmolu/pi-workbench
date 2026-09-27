@@ -698,6 +698,8 @@ class PiDesktopHost {
         break
       case 'permission:set':
         this.permissionMode = request.mode
+        // Remembered per project, so the chosen level survives restarts.
+        if (this.projectPath) this.permissionRules.setMode(this.projectPath, request.mode)
         break
       case 'permission:respond':
         this.resolveApproval(request.approvalId, request.allow)
@@ -824,7 +826,8 @@ class PiDesktopHost {
                 this.projectPath,
                 event.toolName,
                 event.input,
-                ctx.sessionManager.getCwd()
+                ctx.sessionManager.getCwd(),
+                this.permissionMode === 'auto'
               )
             const allowed =
               (!alwaysAsk && (this.permissionMode === 'open' || ruleAllowed)) ||
@@ -1242,6 +1245,7 @@ class PiDesktopHost {
       commit: async (runtime) => {
         await this.disposeRuntime()
         this.projectPath = cwd
+        this.permissionMode = this.permissionRules.mode(cwd)
         this.activeExplicitModel = null
         this.pendingNewSessionModel = null
         this.pendingNewSessionRuntimeModel = null

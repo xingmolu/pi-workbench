@@ -53,4 +53,20 @@ describe('permission rules store', () => {
       projectEdits: false
     })
   })
+
+  it('remembers the approval level per project and applies auto only when asked', () => {
+    const store = new PermissionRulesStore(file)
+    expect(store.mode(project)).toBe('ask')
+    store.setMode(project, 'open')
+    expect(new PermissionRulesStore(file).mode(project)).toBe('open')
+    expect(new PermissionRulesStore(file).mode(join(root, 'other'))).toBe('ask')
+    store.setMode(project, 'auto')
+    expect(store.mode(project)).toBe('auto')
+    expect(store.allows(project, 'edit', { path: 'src/a.ts' }, project)).toBe(false)
+    expect(store.allows(project, 'edit', { path: 'src/a.ts' }, project, true)).toBe(true)
+    expect(store.allows(project, 'edit', { path: '../a.ts' }, project, true)).toBe(false)
+    expect(store.allows(project, 'bash', { command: 'git status' }, project, true)).toBe(true)
+    expect(store.allows(project, 'bash', { command: 'git push' }, project, true)).toBe(false)
+    expect(store.allows(project, 'browser', { action: 'click' }, project, true)).toBe(false)
+  })
 })

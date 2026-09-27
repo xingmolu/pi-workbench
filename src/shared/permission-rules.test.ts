@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  autoApprovesCommand,
   commandMatchesRule,
   isCompoundCommand,
   permissionRulesSchema,
@@ -50,5 +51,33 @@ describe('permission rules', () => {
     expect(suggestCommandRule('python script.py')).toBeNull()
     expect(suggestCommandRule('/usr/bin/sudo ls')).toBeNull()
     expect(suggestCommandRule('npm test && echo ok')).toBeNull()
+  })
+
+  it('auto-approves only routine commands and asks for anything else', () => {
+    for (const command of [
+      'ls -la',
+      'git status',
+      'git diff HEAD~1',
+      'npm test',
+      'pnpm run lint',
+      'cargo test',
+      'rg foo src',
+      'printf ok'
+    ])
+      expect(autoApprovesCommand(command), command).toBe(true)
+    for (const command of [
+      'rm -rf dist',
+      'git push',
+      'git reset --hard',
+      'git commit --amend',
+      'npm install left-pad',
+      'curl https://x',
+      'sort -o out in',
+      'npm test && git push',
+      './script.sh',
+      'python -c 1',
+      'find . -delete'
+    ])
+      expect(autoApprovesCommand(command), command).toBe(false)
   })
 })

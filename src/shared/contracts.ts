@@ -34,7 +34,9 @@ import type { ComputerUseOperation, ComputerUseResult } from './computer-use'
 
 export const AGENT_ENGINE = '@earendil-works/pi-coding-agent' as const
 
-export type PermissionMode = 'open' | 'ask'
+/** `ask`: request approval; `auto`: approve routine, undoable work and ask for the rest;
+ * `open`: full access. */
+export type PermissionMode = 'open' | 'auto' | 'ask'
 
 export type ToolIntent = 'terminal' | 'read' | 'diff' | 'search' | 'web' | 'desktop' | 'generic'
 

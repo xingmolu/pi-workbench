@@ -58,7 +58,7 @@ import {
 } from './computer-use'
 
 const nonNegativeInteger = z.number().int().nonnegative()
-const permissionModeSchema = z.enum(['open', 'ask'])
+const permissionModeSchema = z.enum(['open', 'auto', 'ask'])
 const sessionStatusSchema = z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped'])
 const toolIntentSchema = z.enum(['terminal', 'read', 'diff', 'search', 'web', 'desktop', 'generic'])
 const toolStatusSchema = z.enum([

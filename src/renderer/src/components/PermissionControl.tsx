@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
-import { Check, ChevronDown, Plus, ShieldCheck, ShieldAlert, X } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Hand,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  X
+} from 'lucide-react'
 import type { AgentSnapshot, PermissionMode } from '../../../shared/contracts'
 import {
   EMPTY_PERMISSION_RULES,
@@ -9,8 +18,29 @@ import {
 } from '../../../shared/permission-rules'
 import { savePermissionRules } from '../store/permission-rules'
 
-/** One compact chip for how much Pi may do without asking: the run-wide mode plus the
- * project's persistent allow rules. */
+const LEVELS = [
+  {
+    mode: 'ask',
+    icon: Hand,
+    title: '请求批准',
+    description: '写文件、运行命令和网页操作前都会询问'
+  },
+  {
+    mode: 'auto',
+    icon: ShieldCheck,
+    title: '帮我批准',
+    description: '自动批准项目内可撤销的编辑和常规命令，其余仍会询问'
+  },
+  {
+    mode: 'open',
+    icon: ShieldAlert,
+    title: '完全访问权限',
+    description: '不再询问，可运行任何命令、访问项目外文件和网络'
+  }
+] as const
+
+/** How much Pi may do without asking, remembered per project, plus the project's custom
+ * allow rules. Computer Use keeps asking at every level. */
 export default function PermissionControl({
   snapshot,
   onPermissionChange
@@ -23,8 +53,8 @@ export default function PermissionControl({
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const ruleCount = rules.commands.length + (rules.projectEdits ? 1 : 0)
-  const open = snapshot.permissionMode === 'open'
-  const label = open ? '已开放' : ruleCount ? `需确认 · ${ruleCount} 条规则` : '需确认'
+  const level = LEVELS.find((item) => item.mode === snapshot.permissionMode) ?? LEVELS[0]
+  const LevelIcon = level.icon
 
   const update = async (next: PermissionRules): Promise<boolean> => {
     if (!project) return false
@@ -62,18 +92,12 @@ export default function PermissionControl({
           type="button"
           className={`tool-chip permission-chip is-${snapshot.permissionMode}`}
           disabled={!project}
-          title={
-            open
-              ? '本次运行允许 Pi 直接使用工具'
-              : '写文件、运行命令和网页交互需要确认；规则内的操作除外'
-          }
+          title={level.description}
         >
-          {open ? (
-            <ShieldAlert size={14} aria-hidden="true" />
-          ) : (
-            <ShieldCheck size={14} aria-hidden="true" />
-          )}
-          <span className="chip-label">{label}</span>
+          <LevelIcon size={14} aria-hidden="true" />
+          <span className="chip-label">
+            {level.title === '完全访问权限' ? '完全访问' : level.title}
+          </span>
           <ChevronDown size={12} aria-hidden="true" />
         </button>
       </Popover.Trigger>
@@ -85,21 +109,21 @@ export default function PermissionControl({
           sideOffset={8}
           aria-label="工具权限"
         >
+          <p className="permission-heading">
+            Pi 可以做什么？
+            {project ? <span title={project.path}>{project.name}</span> : null}
+          </p>
           <div className="permission-modes" role="radiogroup" aria-label="工具权限">
-            {(
-              [
-                ['ask', '操作需确认', '写文件、运行命令和网页交互需要确认，规则内的除外'],
-                ['open', '本次运行开放工具', '本次运行允许 Pi 直接使用工具，重启后恢复为需确认']
-              ] as const
-            ).map(([mode, title, description]) => (
+            {LEVELS.map(({ mode, icon: Icon, title, description }) => (
               <button
                 key={mode}
                 type="button"
                 role="radio"
                 aria-checked={snapshot.permissionMode === mode}
-                className="permission-mode"
+                className={`permission-mode is-${mode}`}
                 onClick={() => onPermissionChange(mode)}
               >
+                <Icon size={16} aria-hidden="true" />
                 <span>
                   <strong>{title}</strong>
                   <small>{description}</small>
@@ -108,11 +132,12 @@ export default function PermissionControl({
               </button>
             ))}
           </div>
-          <section className="permission-rules" aria-label="项目规则">
-            <header>
-              <strong>项目规则</strong>
-              {project ? <span title={project.path}>{project.name}</span> : null}
-            </header>
+          <details className="permission-rules">
+            <summary>
+              <ChevronRight size={13} aria-hidden="true" />
+              自定义规则
+              {ruleCount ? <span>{ruleCount}</span> : null}
+            </summary>
             <label className="permission-edits">
               <input
                 type="checkbox"
@@ -121,7 +146,7 @@ export default function PermissionControl({
               />
               <span>
                 <strong>自动允许编辑项目内文件</strong>
-                <small>每轮改动都可以在改动汇总中撤销</small>
+                <small>在「请求批准」下也生效；每轮改动都可以撤销</small>
               </span>
             </label>
             <div className="permission-commands">
@@ -182,7 +207,7 @@ export default function PermissionControl({
                 {error}
               </p>
             ) : null}
-          </section>
+          </details>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

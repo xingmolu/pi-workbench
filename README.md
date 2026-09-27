@@ -156,14 +156,18 @@ MCP 包内依赖可另外用 `npx electron scripts/mcp-bundle-smoke.cjs "/absolu
 4. 登录后在 composer 先选账号、再选模型。浏览账号不会创建会话；已有 transcript
    时选择另一模型会在同一 Pi session 追加 canonical `model_change`，保留全部上下文。
    新会话仍从当前 active 账号与模型开始，模型不可用时不会静默切换。
-5. Ask 是本次应用运行期的审批策略，会在 bash、powershell、write、edit 前显示确认；
-   Open 允许 Pi 在本次运行中直接调用工具。重启后恢复为 Ask；它们不是 OS sandbox。
-   Ask 模式下可为每个项目保存持久规则：输入框里的权限按钮可管理「始终允许的命令」
-   和「自动允许编辑项目内文件」，确认卡片上的「总是允许 …」会保存规则并允许本次操作。
+5. 输入框里的权限按钮提供三档，按项目记住，重启后保持：
+   - 请求批准：bash、powershell、write、edit 和网页交互前询问；
+   - 帮我批准：自动批准项目内的 write / edit（每轮可撤销）和常规命令（如 `ls`、`git status`、
+     `git diff`、`npm test`、`cargo build`），项目外写入、组合命令、`rm`、`git push`、安装依赖、
+     联网下载等仍会询问。这是静态规则判断，不是 OS sandbox；`npm run` 等会执行项目脚本；
+   - 完全访问权限：不再询问。
+   Computer Use 每次都询问，MCP 仅在完全访问下免确认。「自定义规则」可保存始终允许的命令前缀和
+   「自动允许编辑项目内文件」，在请求批准和帮我批准下都生效；确认卡片上的「总是允许 …」会保存规则并允许本次操作。
    命令规则按开头的完整单词匹配（`npm test` 允许 `npm test -- x`，不允许 `npm testing`）；
    含 `;`、`&`、`|`、重定向、`$`、反引号、括号、反斜杠或换行的命令始终需要确认。
-   编辑规则只放行解析符号链接后仍位于项目内的路径；Computer Use 与 MCP 不受规则影响。
-   规则保存在 `~/.pi/agent/pi-desktop/permissions.json`，不写入项目目录。
+   编辑规则只放行解析符号链接后仍位于项目内的路径。档位和规则保存在
+   `~/.pi/agent/pi-desktop/permissions.json`，不写入项目目录；新项目默认请求批准。
 6. agent 运行中发送的新输入进入 Pi follow-up 队列；界面显示完整待发送文本，并支持清空全部队列。单项编辑、删除和 steer 尚未实现。
 7. 点击右栏 Browser 后可以手动浏览；Pi agent 使用同一个可见 tab。Ask 模式下交互动作会进入现有审批卡，Open 模式下直接执行；浏览器工具条会显示控制方，用户可随时 Stop 或直接接管。
 8. 未发送草稿在本次窗口运行期间按项目和会话隔离，切换模型不清空。发送确认前保留原文，失败可直接重试；确认期间的新编辑不会被旧请求清空。草稿仅存内存，不另建 transcript，关闭应用后不保留。

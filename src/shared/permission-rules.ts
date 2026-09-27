@@ -94,3 +94,74 @@ export function suggestCommandRule(command: string): string | null {
   if (!program || NO_SUGGESTION.has(program.replace(/^.*\//, ''))) return null
   return sub && /^[a-z][a-z0-9:._-]*$/.test(sub) ? `${program} ${sub}` : program
 }
+
+/** Read-only inspection commands, any arguments. */
+const AUTO_PROGRAMS = new Set([
+  'cat',
+  'cut',
+  'date',
+  'df',
+  'diff',
+  'du',
+  'echo',
+  'false',
+  'file',
+  'grep',
+  'head',
+  'ls',
+  'printf',
+  'pwd',
+  'rg',
+  'sort',
+  'stat',
+  'tail',
+  'tr',
+  'tree',
+  'true',
+  'uniq',
+  'wc',
+  'which',
+  'pytest',
+  'tsc',
+  'eslint',
+  'vitest',
+  'jest'
+])
+
+/** Routine development subcommands: builds, tests and local version control. */
+const AUTO_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
+  git: new Set([
+    'status',
+    'diff',
+    'log',
+    'show',
+    'rev-parse',
+    'ls-files',
+    'blame',
+    'add',
+    'commit'
+  ]),
+  npm: new Set(['test', 'run', 'lint', 'build']),
+  pnpm: new Set(['test', 'run', 'lint', 'build', 'typecheck']),
+  yarn: new Set(['test', 'run', 'lint', 'build', 'typecheck']),
+  cargo: new Set(['build', 'test', 'check', 'clippy', 'fmt']),
+  go: new Set(['build', 'test', 'vet', 'fmt']),
+  prettier: new Set(['--check', '-c'])
+}
+
+/** Arguments that turn an otherwise routine command into a destructive or executing one. */
+const RISKY_ARGUMENTS =
+  /(^|\s)(-delete|-exec|-execdir|-ok|-okdir|-o|--output|--amend|--no-verify)(\s|=|$)/
+
+/** Whether "帮我批准" may run a shell command without asking. This is a conservative,
+ * static classifier, not a sandbox: anything unrecognized still asks. */
+export function autoApprovesCommand(command: string): boolean {
+  if (isCompoundCommand(command)) return false
+  const text = normalize(command)
+  if (RISKY_ARGUMENTS.test(text)) return false
+  const [program, sub] = text.split(' ')
+  if (!program || program.includes('/')) return false
+  if (AUTO_PROGRAMS.has(program)) return true
+  const subs = AUTO_SUBCOMMANDS[program]
+  return Boolean(subs && sub && subs.has(sub))
+}

@@ -89,6 +89,12 @@ test.beforeEach(async () => {
           fauxAssistantMessage('命令已运行。')
         ]);
       }});
+      pi.registerCommand('risky-fixture', { description:'Risky command', handler:async () => {
+        faux.setResponses([
+          fauxAssistantMessage([fauxToolCall('bash', {command:'git push'}, {id:'risky-' + Date.now()})], {stopReason:'toolUse'}),
+          fauxAssistantMessage('已处理。')
+        ]);
+      }});
       pi.registerCommand('approval-fixture', { description:'Offline approval flow', handler:async () => {
         faux.setResponses([
           fauxAssistantMessage([fauxToolCall('edit', {path:${JSON.stringify(file)}, edits:[
@@ -254,9 +260,10 @@ test('always-allow turns an approval into a project rule the next run honors', a
   await expect(page.locator('.tool-node').last()).toContainText('printf RULE_OK')
 
   const chip = page.locator('.composer .permission-chip')
-  await expect(chip).toContainText('需确认 · 1 条规则')
+  await expect(chip).toContainText('请求批准')
   await chip.click()
   const popover = page.getByRole('dialog', { name: '工具权限' })
+  await popover.locator('summary').click()
   await expect(popover.locator('code')).toHaveText('printf')
   await popover.getByLabel('添加始终允许的命令').fill('npm test && rm x')
   await popover.getByRole('button', { name: '添加规则' }).click()
@@ -269,4 +276,31 @@ test('always-allow turns an approval into a project rule the next run honors', a
   await expect(popover.locator('code')).toHaveText(['npm test'])
   await page.keyboard.press('Escape')
   await page.screenshot({ path: join(artifacts, 'composer-compact.png'), animations: 'disabled' })
+})
+
+test('"帮我批准" runs undoable project edits and routine commands, asks for risky ones, and is remembered', async () => {
+  const chip = page.locator('.composer .permission-chip')
+  await chip.click()
+  const popover = page.getByRole('dialog', { name: '工具权限' })
+  await expect(popover.getByRole('radio')).toHaveCount(3)
+  await page.screenshot({ path: join(artifacts, 'permission-levels.png'), animations: 'disabled' })
+  await popover.getByRole('radio', { name: /帮我批准/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(chip).toContainText('帮我批准')
+
+  await run('/coding-fixture', '修一下金额')
+  await expect(page.locator('.assistant-node').last()).toContainText('回归测试')
+  await expect(page.locator('.approval-card')).toHaveCount(0)
+  expect(await readFile(join(project, 'src', 'cart.ts'), 'utf8')).toContain('item.qty')
+
+  await run('/risky-fixture', '推送一下')
+  await expect(page.locator('.approval-card')).toBeVisible()
+  await expect(page.locator('.approval-card')).toContainText('git push')
+  await page.locator('.approval-card').getByRole('button', { name: '拒绝', exact: true }).click()
+  await expect(page.locator('.assistant-node').last()).toContainText('已处理')
+
+  const stored = JSON.parse(
+    await readFile(join(root, 'agent', 'pi-desktop', 'permissions.json'), 'utf8')
+  )
+  expect(stored.modes[project]).toBe('auto')
 })

@@ -10,8 +10,10 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import type { PermissionMode } from '../shared/contracts'
 import {
   EMPTY_PERMISSION_RULES,
+  autoApprovesCommand,
   commandMatchesRule,
   permissionRulesSchema,
   type PermissionRules
@@ -22,12 +24,29 @@ import { resolveToolPath } from './checkpoints'
  * Stored outside the project so they never end up in a repository. */
 export class PermissionRulesStore {
   /** Every session worker has its own store; the file stamp keeps them in agreement. */
-  private cache: { stamp: string; rules: Record<string, PermissionRules> } | null = null
+  private cache: {
+    stamp: string
+    rules: Record<string, PermissionRules>
+    modes: Record<string, PermissionMode>
+  } | null = null
 
   constructor(private readonly file: string) {}
 
   get(projectPath: string): PermissionRules {
-    return this.read()[projectPath] ?? EMPTY_PERMISSION_RULES
+    return this.read().rules[projectPath] ?? EMPTY_PERMISSION_RULES
+  }
+
+  /** The project's remembered approval level; new projects start by asking. */
+  mode(projectPath: string): PermissionMode {
+    return this.read().modes[projectPath] ?? 'ask'
+  }
+
+  setMode(projectPath: string, mode: PermissionMode): void {
+    const { rules, modes } = this.read()
+    const next = { ...modes }
+    if (mode === 'ask') delete next[projectPath]
+    else next[projectPath] = mode
+    this.write(rules, next)
   }
 
   set(projectPath: string, rules: PermissionRules): PermissionRules {
@@ -36,13 +55,22 @@ export class PermissionRulesStore {
       commands: [...new Set(parsed.commands.map((rule) => rule.trim()))],
       projectEdits: parsed.projectEdits
     }
-    const all = { ...this.read() }
+    const stored = this.read()
+    const all = { ...stored.rules }
     if (!next.commands.length && !next.projectEdits) delete all[projectPath]
     else all[projectPath] = next
+    this.write(all, stored.modes)
+    return next
+  }
+
+  private write(
+    projects: Record<string, PermissionRules>,
+    modes: Record<string, PermissionMode>
+  ): void {
     mkdirSync(dirname(this.file), { recursive: true })
     const temporary = `${this.file}.${randomUUID()}.tmp`
     try {
-      writeFileSync(temporary, JSON.stringify({ projects: all }, null, 2), {
+      writeFileSync(temporary, JSON.stringify({ projects, modes }, null, 2), {
         mode: 0o600,
         flag: 'wx'
       })
@@ -51,14 +79,28 @@ export class PermissionRulesStore {
       rmSync(temporary, { force: true })
     }
     this.cache = null
-    return next
   }
 
-  /** Whether a tool call may skip confirmation under the project's rules. */
-  allows(projectPath: string, toolName: string, input: unknown, cwd: string): boolean {
+  /** Whether a tool call may skip confirmation under the project's rules, or under the
+   * "帮我批准" level when `auto` is set. */
+  allows(
+    projectPath: string,
+    toolName: string,
+    input: unknown,
+    cwd: string,
+    auto = false
+  ): boolean {
     const rules = this.get(projectPath)
     const args = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
-    if (toolName === 'bash' || toolName === 'powershell') {
+    if (toolName === 'bash') {
+      const command = args.command
+      return (
+        typeof command === 'string' &&
+        ((auto && autoApprovesCommand(command)) ||
+          rules.commands.some((rule) => commandMatchesRule(command, rule)))
+      )
+    }
+    if (toolName === 'powershell') {
       const command = args.command
       return (
         typeof command === 'string' &&
@@ -68,7 +110,7 @@ export class PermissionRulesStore {
     if (toolName === 'write' || toolName === 'edit') {
       const path = args.path
       return (
-        rules.projectEdits &&
+        (auto || rules.projectEdits) &&
         typeof path === 'string' &&
         isInside(resolveToolPath(path, cwd), projectPath)
       )
@@ -76,25 +118,33 @@ export class PermissionRulesStore {
     return false
   }
 
-  private read(): Record<string, PermissionRules> {
+  private read(): {
+    rules: Record<string, PermissionRules>
+    modes: Record<string, PermissionMode>
+  } {
     const stamp = this.stamp()
-    if (this.cache?.stamp === stamp) return this.cache.rules
-    const all: Record<string, PermissionRules> = {}
+    if (this.cache?.stamp === stamp) return this.cache
+    const rules: Record<string, PermissionRules> = {}
+    const modes: Record<string, PermissionMode> = {}
     try {
-      const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
-      const projects =
-        parsed && typeof parsed === 'object' ? (parsed as { projects?: unknown }).projects : null
-      if (projects && typeof projects === 'object')
-        for (const [path, value] of Object.entries(projects)) {
-          const rules = permissionRulesSchema.safeParse(value)
+      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as {
+        projects?: unknown
+        modes?: unknown
+      } | null
+      if (parsed?.projects && typeof parsed.projects === 'object')
+        for (const [path, value] of Object.entries(parsed.projects)) {
+          const entry = permissionRulesSchema.safeParse(value)
           // A malformed entry grants nothing rather than failing open.
-          if (rules.success) all[path] = rules.data
+          if (entry.success) rules[path] = entry.data
         }
+      if (parsed?.modes && typeof parsed.modes === 'object')
+        for (const [path, value] of Object.entries(parsed.modes))
+          if (value === 'auto' || value === 'open') modes[path] = value
     } catch {
-      /* Missing or unreadable: no rules. */
+      /* Missing or unreadable: no rules, ask for everything. */
     }
-    this.cache = { stamp, rules: all }
-    return all
+    this.cache = { stamp, rules, modes }
+    return this.cache
   }
 
   private stamp(): string {
