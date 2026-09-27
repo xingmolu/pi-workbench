@@ -53,6 +53,8 @@ Composer：`+` · 权限芯片（Open / Ask）· 账号 · 模型 · ContextMete
 
 ## 4. 右侧 Workbench
 
+插件体系与 Agent 运行时契约的下一阶段设计见 [PLUGINS.md](./PLUGINS.md)。
+
 Workbench 已从 Renderer 写死的 mode union 改为 Main-owned contribution registry。Main 发布可序列化的 plugin/contribution/snapshot DTO；主 Renderer 只负责 rail、设置和 surface chrome，不接收插件 root 或 entry path。内置 Files / Review / Terminal / Browser 也走同一 registry。Files 已提供当前项目的只读目录与单文件预览；Terminal 是独立的**用户 PTY**（Pi bash 仍走对话卡片）。跟随产物继续克制：不因每次 write 切 Review。
 
 Terminal 采用持久挂载的 stage 和独立 controller，沿用中文、深灰画布与蓝色状态点。只有明确点击新建才启动本机 shell；无需 Pi 登录。按项目展示 tabs，折叠/切模式/切项目不销毁 emulator DOM、parser 或 PTY，Browser/plugin 则继续按原有逻辑卸载，避免 native view 盖住终端。每项目 4 个、全局 8 个运行终端；Renderer 最多保留 8 个屏幕（含已退出屏幕），第 9 个须先显式关闭旧终端；单屏 scrollback 2,000 行。标题限制 64 code point 且去除控制及方向覆盖字符，只影响展示。
