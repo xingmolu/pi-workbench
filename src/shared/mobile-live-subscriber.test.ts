@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { createMobileLiveSubscriber } from './mobile-live-subscriber'
-import type { MobileConversationSnapshot } from '../shared/mobile-gateway'
+import type { MobileConversationSnapshot } from './mobile-gateway'
 
 function fixture() {
   const sources: Array<{

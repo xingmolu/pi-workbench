@@ -1,4 +1,4 @@
-import type { MobileConversationSnapshot } from '../shared/mobile-gateway'
+import type { MobileConversationSnapshot } from './mobile-gateway'
 
 type Source = {
   close(): void

@@ -1,46 +1,45 @@
-import { describe, expect, it } from 'vitest'
-import { mobileClientScript, mobilePageCss, mobilePageHtml } from './mobile-web-page'
+import { afterEach, expect, it } from 'vitest'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { MOBILE_PAGE_CSP, mobileAsset, mobileManifest, mobilePageHtml } from './mobile-web-page'
 
-describe('mobile conversation page', () => {
-  it('serves a responsive shell with list + chat panes and no desktop workbench chrome', () => {
-    const html = mobilePageHtml()
-    const css = mobilePageCss()
-    const js = mobileClientScript()
-    expect(html).toContain('/mobile.css')
-    expect(html).toContain('/mobile.js')
-    expect(html).toContain('pi-mobile-theme')
-    expect(css).toContain('.pane-list')
-    expect(css).toContain('.pane-chat')
-    expect(css).toContain('@media (min-width: 900px)')
-    expect(css).toContain('.composer-toolbar')
-    expect(css).toContain('.composer-chip')
-    expect(css).toContain('env(safe-area-inset-bottom)')
-    expect(js).toContain('session-row')
-    expect(js).toContain('project-head')
-    expect(js).toContain('已连接到')
-    expect(js).toContain('已完成')
-    expect(js).toContain('renderMarkdown')
-    expect(js).toContain('pi-mobile-theme')
-    expect(js).toContain('composerShouldSend')
-    expect(js).toContain('仅扫自己的码')
-    expect(js).toContain('composer-toolbar')
-    expect(js).toContain('提出后续要求')
-    expect(js).toContain('加入队列')
-    expect(js).toContain('composer-stop')
-    expect(js).toContain('composer-model')
-    expect(js).not.toContain('插件市场')
-    expect(js).not.toContain('Files')
-    expect(js + css).not.toContain('session.modified')
-  })
+const dirs: string[] = []
+afterEach(async () => {
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
+async function root(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'pi-mobile-web-'))
+  dirs.push(dir)
+  await mkdir(join(dir, 'assets'))
+  await writeFile(join(dir, 'mobile.html'), '<div id="app"></div>')
+  await writeFile(join(dir, 'assets', 'mobile-abc123.js'), 'export {}')
+  await writeFile(join(dir, 'secret.txt'), 'nope')
+  return dir
+}
 
-  it('emits syntactically valid browser JavaScript', async () => {
-    const { writeFileSync, mkdtempSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const { execFileSync } = await import('node:child_process')
-    const dir = mkdtempSync(join(tmpdir(), 'pi-mobile-js-'))
-    const file = join(dir, 'mobile.js')
-    writeFileSync(file, mobileClientScript())
-    execFileSync(process.execPath, ['--check', file])
-  })
+it('serves the built page and only hashed assets of known types from assets/', async () => {
+  const dir = await root()
+  expect(await mobilePageHtml(dir)).toContain('id="app"')
+  expect(await mobilePageHtml(join(dir, 'missing'))).toBeNull()
+  const asset = await mobileAsset('/assets/mobile-abc123.js', dir)
+  expect(asset?.type).toContain('javascript')
+  expect(asset?.body.toString()).toBe('export {}')
+  for (const path of [
+    '/assets/../secret.txt',
+    '/assets/%2e%2e/secret.txt',
+    '/assets/.hidden.js',
+    '/assets/missing.js',
+    '/assets/mobile-abc123.exe',
+    '/secret.txt'
+  ])
+    expect(await mobileAsset(path, dir)).toBeNull()
+})
+
+it('locks the page to its own origin', () => {
+  expect(MOBILE_PAGE_CSP).toContain("script-src 'self'")
+  expect(MOBILE_PAGE_CSP).not.toContain("script-src 'self' 'unsafe-inline'")
+  expect(MOBILE_PAGE_CSP).toContain("connect-src 'self'")
+  expect(MOBILE_PAGE_CSP).toContain("frame-ancestors 'none'")
+  expect(JSON.parse(mobileManifest()).start_url).toBe('/')
 })

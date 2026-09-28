@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { request as httpRequest } from 'node:http'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { AGENT_ENGINE, type AgentSnapshot } from '../shared/contracts'
 import type { MobileCatalogProject, MobileConversationSnapshot } from '../shared/mobile-gateway'
 import { MobileGatewayServer } from './mobile-gateway'
@@ -412,31 +415,49 @@ describe('mobile gateway http', () => {
     expect(status).toBe(421)
   })
 
-  it('serves the responsive PWA shell assets without pairing', async () => {
-    const devices: PairedDeviceRecord[] = []
-    const pairing = new MobilePairingStore({
-      load: () => devices,
-      save: () => undefined
-    })
+  it('serves the built mobile page and its assets without pairing', async () => {
+    const webRoot = mkdtempSync(join(tmpdir(), 'pi-mobile-root-'))
+    mkdirSync(join(webRoot, 'assets'))
+    writeFileSync(join(webRoot, 'mobile.html'), '<script type="module" src="./assets/mobile-x1.js"></script>')
+    writeFileSync(join(webRoot, 'assets', 'mobile-x1.js'), 'console.log(1)')
+    const pairing = new MobilePairingStore({ load: () => [], save: () => undefined })
     const gateway = new MobileGatewayServer({
       pairing,
       sessions: fakeSessions([]),
       port: 18767,
-      lanAddress: () => null
+      lanAddress: () => null,
+      webRoot
     })
     servers.push(gateway)
     await gateway.start()
-    const css = await fetch('http://127.0.0.1:18767/mobile.css')
-    const js = await fetch('http://127.0.0.1:18767/mobile.js')
-    const page = await fetch('http://127.0.0.1:18767/')
-    expect(css.status).toBe(200)
-    expect(js.status).toBe(200)
-    expect(page.status).toBe(200)
-    expect(await css.text()).toContain('.pane-chat')
-    const script = await js.text()
-    expect(script).toContain('已连接到')
-    expect(script).toContain('composer-toolbar')
-    expect(await page.text()).toContain('/mobile.js')
+    try {
+      const page = await fetch('http://127.0.0.1:18767/')
+      expect(page.status).toBe(200)
+      expect(page.headers.get('content-security-policy')).toContain("script-src 'self'")
+      expect(await page.text()).toContain('mobile-x1.js')
+      const script = await fetch('http://127.0.0.1:18767/assets/mobile-x1.js')
+      expect(script.status).toBe(200)
+      expect(script.headers.get('content-type')).toContain('javascript')
+      expect((await fetch('http://127.0.0.1:18767/assets/nope.js')).status).toBe(404)
+    } finally {
+      rmSync(webRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('explains an unbuilt mobile page instead of failing silently', async () => {
+    const pairing = new MobilePairingStore({ load: () => [], save: () => undefined })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      port: 18793,
+      lanAddress: () => null,
+      webRoot: join(tmpdir(), 'pi-mobile-missing-root')
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const page = await fetch('http://127.0.0.1:18793/')
+    expect(page.status).toBe(503)
+    expect(await page.text()).toContain('npm run build')
   })
 
   it('encodes a Tailscale Serve URL in the pairing QR instead of LAN-only', () => {

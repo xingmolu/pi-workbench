@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { createContext, useContext, useSyncExternalStore } from 'react'
 import { useDesktopSettings } from './desktop-settings'
 import type { DesktopSettings } from '../../../shared/desktop-settings'
 
@@ -22,10 +22,13 @@ function subscribe(onChange: () => void): () => void {
 export function systemIsDark(): boolean {
   return systemMedia()?.matches ?? true
 }
+/** Lets a surface with its own theme choice (the mobile page) drive shared components. */
+export const ResolvedThemeOverride = createContext<ResolvedTheme | null>(null)
 export function useResolvedTheme(): ResolvedTheme {
+  const override = useContext(ResolvedThemeOverride)
   const preference = useDesktopSettings((state) => state.settings.theme)
   const dark = useSyncExternalStore(subscribe, systemIsDark, () => true)
-  return resolveTheme(preference, dark)
+  return override ?? resolveTheme(preference, dark)
 }
 export function applyDocumentTheme(theme: ResolvedTheme): void {
   document.documentElement.dataset.theme = theme

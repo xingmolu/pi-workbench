@@ -133,6 +133,15 @@ export default defineConfig({
         { find: /^shiki$/, replacement: resolve('src/renderer/src/lib/shiki-bundle.ts') }
       ]
     },
-    plugins: [react()]
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        // The phone page is a second entry, served by the mobile gateway from out/renderer.
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          mobile: resolve(__dirname, 'src/renderer/mobile.html')
+        }
+      }
+    }
   }
 })

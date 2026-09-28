@@ -8,17 +8,11 @@ import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { Check, Copy, WrapText } from 'lucide-react'
 import { ActionIcon } from './MessageActions'
 import { HighlightedCode } from './HighlightedCode'
+import { codeBlockText } from './markdown-code'
 
 type PreProps = ComponentProps<Exclude<Components['pre'], string | undefined>>
-type PreNode = PreProps['node']
 
-export function codeBlockText(node: PreNode): string {
-  const code = node?.children.find((child) => child.type === 'element' && child.tagName === 'code')
-  if (!code || code.type !== 'element') return ''
-  const value = code.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
-  // mdast-to-hast appends one LF to a nonempty code value. Preserve all source whitespace.
-  return value.endsWith('\n') ? value.slice(0, -1) : value
-}
+export { codeBlockText }
 
 function CodeBlock({ node }: PreProps): React.JSX.Element {
   const value = codeBlockText(node)

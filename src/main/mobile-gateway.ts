@@ -8,10 +8,12 @@ import type { MobilePairingStore } from './mobile-pairing'
 import type { MobileSessionBridge } from './mobile-session-bridge'
 import { MobileSnapshotStream, type MobileSnapshotStreamOptions } from './mobile-snapshot-stream'
 import {
-  mobileClientScript,
+  MOBILE_PAGE_CSP,
+  MOBILE_WEB_ROOT,
+  mobileAsset,
   mobileManifest,
-  mobilePageCss,
-  mobilePageHtml
+  mobilePageHtml,
+  mobileUnavailableHtml
 } from './mobile-web-page'
 
 const BODY_LIMIT = 64 * 1024
@@ -27,6 +29,8 @@ export type MobileGatewayOptions = {
   lanAddress?: () => string | null
   hostName?: () => string
   listen?: (server: Server, port: number, host: string) => Promise<void>
+  /** Directory holding the built mobile.html and assets/ (defaults to out/renderer). */
+  webRoot?: string
 }
 
 type SseClient = {
@@ -257,31 +261,30 @@ export class MobileGatewayServer {
       }
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        response.writeHead(200, {
+        const html = await mobilePageHtml(this.options.webRoot ?? MOBILE_WEB_ROOT)
+        response.writeHead(html ? 200 : 503, {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
-          'content-security-policy':
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'",
+          'content-security-policy': MOBILE_PAGE_CSP,
           'referrer-policy': 'no-referrer',
           'x-content-type-options': 'nosniff'
         })
-        response.end(mobilePageHtml())
+        response.end(html ?? mobileUnavailableHtml())
         return
       }
-      if (request.method === 'GET' && url.pathname === '/mobile.css') {
+      if (request.method === 'GET' && url.pathname.startsWith('/assets/')) {
+        const asset = await mobileAsset(url.pathname, this.options.webRoot ?? MOBILE_WEB_ROOT)
+        if (!asset) {
+          json(response, 404, { error: '未知资源' })
+          return
+        }
+        // Build assets carry a content hash in their names.
         response.writeHead(200, {
-          'content-type': 'text/css; charset=utf-8',
-          'cache-control': 'no-store'
+          'content-type': asset.type,
+          'cache-control': 'public, max-age=31536000, immutable',
+          'x-content-type-options': 'nosniff'
         })
-        response.end(mobilePageCss())
-        return
-      }
-      if (request.method === 'GET' && url.pathname === '/mobile.js') {
-        response.writeHead(200, {
-          'content-type': 'text/javascript; charset=utf-8',
-          'cache-control': 'no-store'
-        })
-        response.end(mobileClientScript())
+        response.end(asset.body)
         return
       }
       if (request.method === 'GET' && url.pathname === '/manifest.webmanifest') {
