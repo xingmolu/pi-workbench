@@ -169,7 +169,7 @@ const manifestViewSchema = z
      * A view the host draws natively instead of a page. Only bundled plugins that declare the
      * matching permission may use it; see `hostViewAllowed`.
      */
-    host: z.literal('browser').optional(),
+    host: z.enum(['browser', 'terminal']).optional(),
     order: z.number().int().min(0).max(10_000).optional(),
     activation: workbenchActivationSchema.default('onProject')
   })
@@ -349,12 +349,29 @@ function isLocalRelativeEntry(value: string): boolean {
   return value.split('/').every((segment) => segment !== '..')
 }
 
-/** The native browser carries the user's web sessions, so only a shipped package may host it. */
+export type HostView = 'browser' | 'terminal'
+
+/** The permission a package must request to host each view the host draws itself. */
+const HOST_VIEW_PERMISSION: Record<HostView, string> = {
+  browser: 'browser.control',
+  terminal: 'terminal.shell'
+}
+
+const HOST_VIEW_SURFACE: Record<HostView, WorkbenchContribution['surface']> = {
+  browser: { kind: 'native-view', adapter: 'browser' },
+  terminal: { kind: 'first-party', adapter: 'terminal' }
+}
+
+/**
+ * The browser carries the user's web sessions and the terminal runs their login shell, so
+ * only a shipped package that asks for the matching permission may host either.
+ */
 export function hostViewAllowed(
+  host: HostView,
   scope: PiPackageRoot['scope'],
   permissions: readonly string[]
 ): boolean {
-  return scope === 'bundled' && permissions.includes('browser.control')
+  return scope === 'bundled' && permissions.includes(HOST_VIEW_PERMISSION[host])
 }
 
 function isPathWithinRoot(canonicalRootPath: string, canonicalEntryPath: string): boolean {
@@ -619,11 +636,11 @@ export async function discoverWorkbenchManifests({
       (left, right) => (left.order ?? 0) - (right.order ?? 0)
     )) {
       if (view.host !== undefined) {
-        if (!hostViewAllowed(root.scope, manifest.permissions ?? [])) {
+        if (!hostViewAllowed(view.host, root.scope, manifest.permissions ?? [])) {
           diagnostics.push({
             severity: 'error',
             code: 'host-view-denied',
-            message: 'Only bundled plugins that request browser.control may host the browser view.',
+            message: `Only bundled plugins that request ${HOST_VIEW_PERMISSION[view.host]} may host the ${view.host} view.`,
             pluginId: manifest.id,
             viewId: `${manifest.id}.${view.id}`
           })
@@ -637,7 +654,7 @@ export async function discoverWorkbenchManifests({
             title: resolveTitle(view.title),
             icon: resolveIcon(view.icon),
             activation: view.activation,
-            surface: { kind: 'native-view', adapter: view.host }
+            surface: HOST_VIEW_SURFACE[view.host]
           }
         })
         continue

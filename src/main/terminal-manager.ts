@@ -344,6 +344,15 @@ export class TerminalManager {
       this.entries.delete(entry.metadata.terminalId)
     }
   }
+  /** Closes every live terminal, e.g. when the terminal plugin is turned off. */
+  closeAll(): void {
+    for (const entry of this.entries.values()) {
+      const t = entry.metadata
+      if (t.exitConfirmed || t.state === 'closing') continue
+      if (!t.failure) t.state = 'closing'
+      this.send(entry, { type: 'command', command: { type: 'close', ...this.identity(t) } })
+    }
+  }
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise
     this.lifecycleGeneration++

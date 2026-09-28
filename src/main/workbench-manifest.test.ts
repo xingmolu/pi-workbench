@@ -270,6 +270,61 @@ describe('discoverWorkbenchManifests', () => {
     expect(both.plugins).toEqual([])
   })
 
+  it('lets only a bundled plugin that requests terminal.shell host the terminal view', async () => {
+    const terminalView = (permissions: string[]): Record<string, unknown> => ({
+      permissions,
+      contributes: {
+        views: [{ id: 'view', title: 'Terminal', icon: 'terminal', host: 'terminal' }]
+      }
+    })
+    const discover = async (
+      scope: 'bundled' | 'user',
+      overrides: Record<string, unknown>
+    ): ReturnType<typeof discoverWorkbenchManifests> => {
+      const root = await temporaryPluginRoot()
+      await writeManifest(root, overrides)
+      return discoverWorkbenchManifests({
+        appVersion: '0.1.0',
+        roots: [{ path: root, source: 'test', scope, hasExecutablePiResources: false }]
+      })
+    }
+
+    const bundled = await discover('bundled', terminalView(['ui.view', 'terminal.shell']))
+    expect(bundled.diagnostics).toEqual([])
+    expect(bundled.plugins[0].workbench[0].contribution.surface).toEqual({
+      kind: 'first-party',
+      adapter: 'terminal'
+    })
+    // Asking for the browser permission does not unlock the terminal.
+    const wrong = await discover('bundled', terminalView(['ui.view', 'browser.control']))
+    expect(wrong.diagnostics).toEqual([expect.objectContaining({ code: 'host-view-denied' })])
+    const user = await discover('user', terminalView(['ui.view', 'terminal.shell']))
+    expect(user.diagnostics).toEqual([expect.objectContaining({ code: 'host-view-denied' })])
+  })
+
+  it('ships the terminal as a bundled package that hosts the terminal view', async () => {
+    const discovery = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: join(process.cwd(), 'resources', 'plugins', 'terminal'),
+          source: '内置插件',
+          scope: 'bundled',
+          hasExecutablePiResources: false
+        }
+      ]
+    })
+    expect(discovery.diagnostics).toEqual([])
+    expect(discovery.plugins[0].workbench.map(({ contribution }) => contribution)).toEqual([
+      expect.objectContaining({
+        pluginId: 'works.pi.terminal',
+        viewId: 'works.pi.terminal.view',
+        activation: 'onProject',
+        surface: { kind: 'first-party', adapter: 'terminal' }
+      })
+    ])
+  })
+
   it('ships the browser as a bundled package that hosts the browser view', async () => {
     const discovery = await discoverWorkbenchManifests({
       appVersion: '0.1.0',

@@ -231,6 +231,28 @@ describe('Main terminal authority', () => {
     })
     expect(attempts).toBe(2)
   })
+  it('closeAll asks the host to close every live terminal once', async () => {
+    const f = fixture()
+    f.release()
+    const first = terminal(await f.manager.dispatch(1, create))
+    const second = terminal(await f.manager.dispatch(1, create))
+    f.sent.length = 0
+
+    f.manager.closeAll()
+    f.manager.closeAll()
+
+    const closed = f.sent.flatMap((message) =>
+      message.type === 'command' && message.command.type === 'close'
+        ? [message.command.terminalId]
+        : []
+    )
+    expect(closed).toEqual([first.terminalId, second.terminalId])
+    const listed = await f.manager.dispatch(1, { type: 'list', projectPath: '/tmp/a' })
+    expect(listed.type === 'list' && listed.terminals.map(({ state }) => state)).toEqual([
+      'closing',
+      'closing'
+    ])
+  })
   it('keeps background consumer I/O bound to its original project and rejects forged identities', async () => {
     const f = fixture()
     f.release()

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "works.pi.terminal",
+  "version": "0.1.0",
+  "name": "终端",
+  "description": "在项目目录里打开本机 shell，不经过 Agent 审批，输出也不会发送给模型。关闭后面板隐藏，正在运行的终端会被关闭。随 Pi Desktop 分发。",
+  "engines": { "piDesktop": ">=0.1.0" },
+  "permissions": ["ui.view", "terminal.shell"],
+  "contributes": {
+    "views": [
+      {
+        "id": "view",
+        "title": { "zh-CN": "终端", "en": "Terminal" },
+        "icon": "terminal",
+        "host": "terminal",
+        "activation": "onProject"
+      }
+    ]
+  }
+}

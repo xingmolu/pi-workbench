@@ -10,7 +10,18 @@ import type {
   WorkbenchContribution
 } from '../shared/workbench-contracts'
 import { resolveSettingPlaceholders } from './manifest-compat'
-import { BROWSER_PLUGIN_ID, BROWSER_VIEW_ID } from '../shared/workbench-contracts'
+import {
+  BROWSER_PLUGIN_ID,
+  BROWSER_VIEW_ID,
+  TERMINAL_PLUGIN_ID,
+  TERMINAL_VIEW_ID
+} from '../shared/workbench-contracts'
+
+/** Views the host draws itself, each reserved for the bundled package that ships it. */
+const HOST_VIEW_OWNERS = new Map([
+  [BROWSER_VIEW_ID, BROWSER_PLUGIN_ID],
+  [TERMINAL_VIEW_ID, TERMINAL_PLUGIN_ID]
+])
 import { pluginPanelStateSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import type {
@@ -144,14 +155,6 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
     icon: 'git-review',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'review' }
-  },
-  {
-    pluginId: BUILTIN_PLUGIN.pluginId,
-    viewId: 'works.pi.desktop.terminal',
-    title: '终端',
-    icon: 'terminal',
-    activation: 'onProject',
-    surface: { kind: 'first-party', adapter: 'terminal' }
   }
 ]
 
@@ -271,9 +274,10 @@ function reserveBuiltinRegistry(discovery: WorkbenchManifestDiscovery): Workbenc
     const reservedView = plugin.workbench.find(
       ({ contribution }) =>
         reservedViewIds.has(contribution.viewId) ||
-        // The browser view belongs to the bundled browser package and nothing else.
-        (contribution.viewId === BROWSER_VIEW_ID &&
-          (plugin.pluginId !== BROWSER_PLUGIN_ID || plugin.scope !== 'bundled'))
+        // Host views belong to their bundled packages and nothing else.
+        (HOST_VIEW_OWNERS.has(contribution.viewId) &&
+          (plugin.pluginId !== HOST_VIEW_OWNERS.get(contribution.viewId) ||
+            plugin.scope !== 'bundled'))
     )
     if (reservedView) {
       diagnostics.push({
@@ -440,7 +444,7 @@ export function createWorkbenchHostState(
       if (!isDesktopEnabled(plugin.pluginId)) continue
       const entry = plugin.workbench.find(
         ({ contribution }) =>
-          contribution.viewId === viewId && contribution.surface.kind === 'native-view'
+          contribution.viewId === viewId && contribution.surface.kind !== 'sandboxed-web'
       )
       if (entry) return entry.contribution
     }
@@ -695,7 +699,7 @@ export function createWorkbenchHostState(
       plugins: discovery.plugins.filter(
         (plugin) =>
           bundled(plugin) &&
-          plugin.workbench.some(({ contribution }) => contribution.surface.kind === 'native-view')
+          plugin.workbench.some(({ contribution }) => contribution.surface.kind !== 'sandboxed-web')
       ),
       diagnostics: []
     }

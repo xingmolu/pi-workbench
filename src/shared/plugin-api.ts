@@ -20,7 +20,9 @@ export const PLUGIN_PERMISSIONS = {
   'mcp.remote': 'high',
   'net.fetch': 'high',
   /** Host a native browser view that Pi can drive; bundled plugins only. */
-  'browser.control': 'high'
+  'browser.control': 'high',
+  /** Host terminal panels that start the user's login shell; bundled plugins only. */
+  'terminal.shell': 'high'
 } as const satisfies Record<string, 'low' | 'medium' | 'high'>
 
 export type PluginPermission = keyof typeof PLUGIN_PERMISSIONS

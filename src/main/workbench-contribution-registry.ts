@@ -1,6 +1,8 @@
 import {
   BROWSER_PLUGIN_ID,
   BROWSER_VIEW_ID,
+  TERMINAL_PLUGIN_ID,
+  TERMINAL_VIEW_ID,
   type DesktopPluginSummary,
   type WorkbenchActivation,
   type WorkbenchContribution,
@@ -12,6 +14,11 @@ import type {
   ValidatedWorkbenchPlugin,
   WorkbenchManifestDiscovery
 } from './workbench-manifest'
+
+const HOST_VIEW_OWNERS = new Map([
+  [BROWSER_VIEW_ID, BROWSER_PLUGIN_ID],
+  [TERMINAL_VIEW_ID, TERMINAL_PLUGIN_ID]
+])
 
 export const BUILTIN_WORKBENCH_PLUGIN_ID = 'works.pi.desktop.builtin'
 
@@ -44,14 +51,6 @@ export const BUILTIN_WORKBENCH_CONTRIBUTIONS: readonly WorkbenchContribution[] =
     icon: 'git-review',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'review' }
-  },
-  {
-    pluginId: BUILTIN_WORKBENCH_PLUGIN_ID,
-    viewId: 'works.pi.desktop.terminal',
-    title: '终端',
-    icon: 'terminal',
-    activation: 'onProject',
-    surface: { kind: 'first-party', adapter: 'terminal' }
   }
 ]
 
@@ -107,9 +106,10 @@ export function reserveBuiltinWorkbenchRegistry(
     const reservedView = plugin.workbench.find(
       ({ contribution }) =>
         RESERVED_WORKBENCH_VIEW_IDS.has(contribution.viewId) ||
-        // The browser view belongs to the bundled browser package and nothing else.
-        (contribution.viewId === BROWSER_VIEW_ID &&
-          (plugin.pluginId !== BROWSER_PLUGIN_ID || plugin.scope !== 'bundled'))
+        // Host views belong to their bundled packages and nothing else.
+        (HOST_VIEW_OWNERS.has(contribution.viewId) &&
+          (plugin.pluginId !== HOST_VIEW_OWNERS.get(contribution.viewId) ||
+            plugin.scope !== 'bundled'))
     )
     if (reservedView) {
       diagnostics.push({

@@ -133,10 +133,36 @@ function browserPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   }
 }
 
+/** The bundled terminal package, a host view drawn by the Renderer. */
+function terminalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
+  const plugin = browserPlugin()
+  plugin.pluginId = 'works.pi.terminal'
+  plugin.name = '终端'
+  plugin.source = 'desktop-plugin:works.pi.terminal'
+  plugin.requestedPermissions = ['ui.view', 'terminal.shell']
+  plugin.canonicalRootPath = '/bundled/terminal'
+  plugin.manifestPath = '/bundled/terminal/pi-desktop.json'
+  plugin.workbench = [
+    {
+      contribution: {
+        pluginId: 'works.pi.terminal',
+        viewId: 'works.pi.terminal.view',
+        title: '终端',
+        icon: 'terminal',
+        activation: 'onProject',
+        surface: { kind: 'first-party', adapter: 'terminal' }
+      }
+    }
+  ]
+  return plugin
+}
+
+/** Every real registry discovers the bundled browser and terminal packages. */
 function withBrowser(discovery: WorkbenchManifestDiscovery): WorkbenchManifestDiscovery {
-  return discovery.plugins.some(({ pluginId }) => pluginId === 'works.pi.browser')
-    ? discovery
-    : { ...discovery, plugins: [...discovery.plugins, browserPlugin()] }
+  const missing = [browserPlugin(), terminalPlugin()].filter(
+    (bundled) => !discovery.plugins.some(({ pluginId }) => pluginId === bundled.pluginId)
+  )
+  return { ...discovery, plugins: [...discovery.plugins, ...missing] }
 }
 
 function externalPluginAt(
@@ -308,6 +334,46 @@ describe('Workbench host state', () => {
     expect(browserCalls.at(-1)).toEqual({ visible: true })
   })
 
+  it('disabling the bundled terminal package removes the terminal view', async () => {
+    const { state } = createHarness([{ plugins: [], diagnostics: [] }])
+    await state.reload()
+    state.setContext({ projectPath: '/projects/one', sessionId: 'session-1', generation: 1 })
+    await expect(
+      state.dispatch({ type: 'view:set', viewId: 'works.pi.terminal.view', visible: true })
+    ).resolves.toBeDefined()
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'works.pi.terminal',
+      desktopEnabled: false
+    })
+
+    expect(state.snapshot().contributions.map(({ viewId }) => viewId)).not.toContain(
+      'works.pi.terminal.view'
+    )
+    await expect(
+      state.dispatch({ type: 'view:set', viewId: 'works.pi.terminal.view', visible: true })
+    ).rejects.toThrow('unavailable')
+  })
+
+  it('reserves the terminal view for the bundled terminal package', async () => {
+    const impostor = terminalPlugin()
+    impostor.pluginId = 'acme.terminal'
+    impostor.scope = 'user'
+    impostor.workbench = impostor.workbench.map((entry) => ({
+      ...entry,
+      contribution: { ...entry.contribution, pluginId: 'acme.terminal' }
+    }))
+    const { state } = createHarness([{ plugins: [impostor], diagnostics: [] }])
+
+    await state.reload()
+
+    expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).not.toContain('acme.terminal')
+    expect(state.snapshot().diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'reserved-view-id', pluginId: 'acme.terminal' })
+    )
+  })
+
   it('reserves the browser view for the bundled browser package', async () => {
     const impostor = browserPlugin()
     impostor.pluginId = 'acme.browser'
@@ -340,6 +406,11 @@ describe('Workbench host state', () => {
       expect.objectContaining({ pluginId: 'acme.notes', builtin: false, desktopEnabled: true }),
       expect.objectContaining({
         pluginId: 'works.pi.browser',
+        builtin: false,
+        desktopEnabled: true
+      }),
+      expect.objectContaining({
+        pluginId: 'works.pi.terminal',
         builtin: false,
         desktopEnabled: true
       })
@@ -376,7 +447,8 @@ describe('Workbench host state', () => {
 
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
       'works.pi.desktop.builtin',
-      'works.pi.browser'
+      'works.pi.browser',
+      'works.pi.terminal'
     ])
     expect(state.snapshot().diagnostics.map(({ code }) => code)).toEqual([
       'reserved-plugin-id',
@@ -394,10 +466,10 @@ describe('Workbench host state', () => {
     expect(state.snapshot().contributions.map(({ viewId }) => viewId)).toEqual([
       'works.pi.desktop.files',
       'works.pi.desktop.review',
-      'works.pi.desktop.terminal',
       'acme.notes.panel',
       'acme.notes.project-panel',
-      'works.pi.browser.view'
+      'works.pi.browser.view',
+      'works.pi.terminal.view'
     ])
     expect(state.panelContext('acme.notes.project-panel')).toEqual({
       pluginId: 'acme.notes',
@@ -450,7 +522,8 @@ describe('Workbench host state', () => {
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
       'works.pi.desktop.builtin',
       'acme.tasks',
-      'works.pi.browser'
+      'works.pi.browser',
+      'works.pi.terminal'
     ])
   })
 
@@ -467,7 +540,8 @@ describe('Workbench host state', () => {
     // The bundled browser package stays across the reload barrier; external plugins do not.
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
       'works.pi.desktop.builtin',
-      'works.pi.browser'
+      'works.pi.browser',
+      'works.pi.terminal'
     ])
 
     await expect(

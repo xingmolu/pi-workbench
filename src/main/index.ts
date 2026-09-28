@@ -65,7 +65,9 @@ import type {
   WorkbenchEvent
 } from '../shared/contracts'
 import {
+  BROWSER_PLUGIN_ID,
   BROWSER_VIEW_ID,
+  TERMINAL_PLUGIN_ID,
   WORKBENCH_CHANNEL,
   WORKBENCH_EVENT_CHANNEL,
   WORKBENCH_PANEL_CHANNEL
@@ -137,11 +139,23 @@ let desktopControl: DesktopControlService | null = null
 let computerUse: ComputerUseService | null = null
 let lobbyOwnerId: string | null = null
 const browserScopeOwners = new Map<string, object>()
-/** The browser ships as the bundled `works.pi.browser` package; off means no view and no tool. */
-function browserPluginEnabled(): boolean {
+/** Whether a bundled package is enabled. Before the registry exists, assume on. */
+function bundledPluginEnabled(owner: string): boolean {
   const snapshot = workbenchHost?.snapshot()
   if (!snapshot) return true
-  return snapshot.contributions.some(({ viewId }) => viewId === BROWSER_VIEW_ID)
+  return snapshot.plugins.some(
+    ({ pluginId, desktopEnabled }) => pluginId === owner && desktopEnabled
+  )
+}
+
+/** The terminal ships as the bundled `works.pi.terminal` package; off means no new shells. */
+function terminalPluginEnabled(): boolean {
+  return bundledPluginEnabled(TERMINAL_PLUGIN_ID)
+}
+
+/** The browser ships as the bundled `works.pi.browser` package; off means no view and no tool. */
+function browserPluginEnabled(): boolean {
+  return bundledPluginEnabled(BROWSER_PLUGIN_ID)
 }
 
 const foregroundCapabilities = new ForegroundCapabilityRouter({
@@ -1194,6 +1208,16 @@ function registerIpc(): void {
     } catch {
       return { type: 'unavailable', message: '拒绝非可信主窗口终端请求' }
     }
+    if (
+      !terminalPluginEnabled() &&
+      typeof command === 'object' &&
+      command !== null &&
+      (command as { type?: unknown }).type === 'create'
+    )
+      return {
+        type: 'unavailable',
+        message: '终端插件已关闭。在「设置 › Desktop 插件」中打开「终端」后才能新建终端。'
+      }
     return terminalManager.dispatch(event.sender.id, command)
   })
   ipcMain.handle(GIT_REVIEW_CHANNEL, async (event, command: unknown) => {
@@ -1454,6 +1478,12 @@ function createWindow(): void {
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, event)
     },
     onState: (state) => {
+      // Turning the terminal plugin off ends its shells instead of leaving them hidden.
+      const terminalOn = state.plugins.some(
+        ({ pluginId, desktopEnabled }) => pluginId === TERMINAL_PLUGIN_ID && desktopEnabled
+      )
+      if (!terminalOn && state.plugins.some(({ pluginId }) => pluginId === TERMINAL_PLUGIN_ID))
+        terminalManager.closeAll()
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, {
           type: 'state',

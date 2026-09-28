@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-const artifacts = resolve('artifacts/e2e/browser-plugin')
+const artifacts = resolve('artifacts/e2e/bundled-host-plugins')
 let app: ElectronApplication, page: Page, root: string
 
 test.beforeEach(async () => {
@@ -105,14 +105,18 @@ async function askForBrowser(prompt: string): Promise<void> {
 }
 
 async function setBrowserPlugin(on: boolean): Promise<void> {
+  await setBundledPlugin('浏览器', on)
+}
+
+async function setBundledPlugin(name: string, on: boolean): Promise<void> {
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
-  const row = page.locator('.plugin-row').filter({ hasText: '浏览器' })
+  const toggle = page.getByRole('switch', { name: `${name} Desktop 面板`, exact: true })
+  const row = page.locator('.plugin-row').filter({ has: toggle })
   await expect(row.locator('.plugin-badge').first()).toHaveText('内置')
-  const toggle = row.getByRole('switch', { name: '浏览器 Desktop 面板' })
   if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', String(on))
-  if (!on) await page.screenshot({ path: join(artifacts, 'settings-off.png') })
+  if (!on) await page.screenshot({ path: join(artifacts, `settings-${name}-off.png`) })
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
 }
 
@@ -132,4 +136,29 @@ test('the browser ships as a bundled plugin that gates both its panel and the ag
   await expect(launcher.getByRole('button', { name: '浏览器', exact: true })).toBeVisible()
   await askForBrowser('再看一次')
   await expect(page.locator('.tool-node').last()).not.toHaveClass(/is-error/)
+})
+
+test('the terminal ships as a bundled plugin; turning it off hides it and refuses new shells', async () => {
+  const launcher = page.getByRole('navigation', { name: '打开工作台工具' })
+  await page.getByRole('button', { name: '展开工作台', exact: true }).click()
+  await expect(launcher.getByRole('button', { name: '终端', exact: true })).toBeVisible()
+
+  await setBundledPlugin('终端', false)
+  await expect(launcher.getByRole('button', { name: '终端', exact: true })).toHaveCount(0)
+  const refused = await page.evaluate(async () => {
+    const { project } = await window.pi.getState()
+    return window.pi.terminal({ type: 'create', projectPath: project!.path, cols: 80, rows: 24 })
+  })
+  expect(refused).toEqual({
+    type: 'unavailable',
+    message: expect.stringContaining('终端插件已关闭')
+  })
+
+  await setBundledPlugin('终端', true)
+  await expect(launcher.getByRole('button', { name: '终端', exact: true })).toBeVisible()
+  const allowed = await page.evaluate(async () => {
+    const { project } = await window.pi.getState()
+    return window.pi.terminal({ type: 'create', projectPath: project!.path, cols: 80, rows: 24 })
+  })
+  expect(JSON.stringify(allowed)).not.toContain('终端插件已关闭')
 })

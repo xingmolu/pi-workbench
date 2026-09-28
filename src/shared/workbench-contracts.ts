@@ -10,6 +10,9 @@ export const WORKBENCH_PANEL_CONTEXT_CHANNEL = 'pi:workbench-panel:context'
 /** The browser view, contributed by the bundled `works.pi.browser` package. */
 export const BROWSER_PLUGIN_ID = 'works.pi.browser'
 export const BROWSER_VIEW_ID = 'works.pi.browser.view'
+/** The terminal view, contributed by the bundled `works.pi.terminal` package. */
+export const TERMINAL_PLUGIN_ID = 'works.pi.terminal'
+export const TERMINAL_VIEW_ID = 'works.pi.terminal.view'
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
