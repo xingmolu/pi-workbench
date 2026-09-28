@@ -1266,3 +1266,130 @@ body.is-sidebar-resizing * {
   color: var(--text-tertiary);
   font-size: 11px;
 }
+
+/* Running: how long the run has taken, and a stop that reads as the primary action. */
+.conversation .composer-elapsed,
+.conversation .conversation-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+.conversation .composer-elapsed {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.conversation .composer-stop {
+  border-color: transparent;
+  background: var(--text-strong);
+  color: var(--canvas);
+  font-weight: 500;
+}
+.conversation .composer-stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-strong) 86%, var(--canvas));
+}
+
+/* Holding ⌘ reveals the shortcut of each control that has one. */
+.show-shortcuts [data-shortcut]:not(.workbench-toggle) {
+  position: relative;
+}
+.show-shortcuts [data-shortcut]::after {
+  position: absolute;
+  z-index: 40;
+  top: 50%;
+  right: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-secondary);
+  content: attr(data-shortcut);
+  font: 500 11px/1.5 var(--font);
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: shortcut-hint-in 120ms ease-out;
+}
+.show-shortcuts .workbench-toggle[data-shortcut]::after {
+  top: calc(100% + 6px);
+  right: 0;
+  transform: none;
+}
+@keyframes shortcut-hint-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Command palette: denser results; the archive toggle is a footer option, not a header. */
+.command-dialog {
+  border-radius: 14px;
+  animation: palette-in 140ms ease-out;
+}
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px) scale(0.99);
+  }
+}
+.command-dialog .command-input-row {
+  padding: 12px 14px;
+}
+.command-dialog [cmdk-list] {
+  min-height: 220px;
+  padding: 6px;
+}
+.command-dialog [cmdk-group-heading] {
+  padding: 10px 8px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.command-dialog [cmdk-item] {
+  min-height: 40px;
+  margin: 1px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  outline: 0;
+  transition: background 100ms ease;
+}
+.command-dialog [cmdk-item][data-selected='true'] {
+  background: var(--surface-selected);
+  outline: 0;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.command-dialog .command-item-copy {
+  gap: 1px;
+}
+.command-dialog .command-item-copy > small {
+  color: var(--text-tertiary);
+}
+.command-dialog .command-footer {
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.command-dialog .command-footer .command-include-removed {
+  gap: 5px;
+  padding: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.command-dialog .command-footer .command-include-removed:hover {
+  color: var(--text-secondary);
+}
+
+/* Motion: one short, consistent easing for hover and state changes across the shell. */
+.shell :is(button, [role='tab'], [role='menuitem'], .session-row) {
+  transition-property: background-color, border-color, color, box-shadow, opacity;
+  transition-duration: 120ms;
+  transition-timing-function: ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell *,
+  .command-dialog {
+    animation: none !important;
+    transition: none !important;
+  }
+}

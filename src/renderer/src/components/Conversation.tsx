@@ -65,6 +65,8 @@ import { usePiStore } from '../store/pi-store'
 import { useComposerPrefill } from '../store/composer-prefill'
 import QuestionNavigation from './QuestionNavigation'
 import { relativeTime } from './relative-time'
+import { useRevealOnOpen } from './use-reveal-on-open'
+import { formatElapsed, useRunElapsed } from '../store/run-clock'
 import ModelPicker from './ModelPicker'
 import PermissionControl from './PermissionControl'
 import {
@@ -165,6 +167,7 @@ const ToolNode = memo(function ToolNode({
   onApproval: ApprovalHandler
 }): React.JSX.Element {
   const [open, setOpen] = useState<boolean | null>(null)
+  const detail = useRevealOnOpen<HTMLDivElement>(open === true)
   const Icon = TOOL_ICON[node.intent]
   const meta = toolMetaDisplay(node)
   const change = node.change
@@ -195,7 +198,7 @@ const ToolNode = memo(function ToolNode({
         ))}
         <ChevronRight className="tool-chevron" size={14} />
       </Collapsible.Trigger>}
-      <Collapsible.Content className="tool-detail">
+      <Collapsible.Content className="tool-detail" ref={detail}>
         {activeApproval ? (
           <ApprovalCard
             key={`${activeApproval.generation}:${activeApproval.id}`}
@@ -621,6 +624,7 @@ function Composer({
   | 'onOpenSettings'
 >): React.JSX.Element {
   const draftKey = JSON.stringify([snapshot.project?.path, snapshot.sessionId])
+  const runElapsed = useRunElapsed(snapshot.sessionId, snapshot.busy)
   const desktopSettings = useDesktopSettings(state => state.settings)
   const preferencesLoaded = useDesktopSettings(state => state.hasLoaded)
   const forkPending = usePiStore((state) => state.forkPending)
@@ -907,6 +911,11 @@ function Composer({
           <span className="composer-spacer" />
           <ContextMeter metrics={snapshot.metrics} />
           <QueuePopover followUp={snapshot.followUp} onClear={onClearQueue} />
+          {runElapsed !== null ? (
+            <span className="composer-elapsed" title="本次运行已用时间">
+              {formatElapsed(runElapsed)}
+            </span>
+          ) : null}
           {snapshot.busy && <button className="composer-stop" type="button" title="停止当前运行" aria-label="停止当前运行"
             disabled={!snapshot.ready} onClick={onAbort}><Square size={12} fill="currentColor" /><span>停止</span></button>}
           <button className="send" type="button" title={snapshot.busy ? '加入发送队列' : '发送任务'}
@@ -929,6 +938,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   // A model choice made before the first message is setup, not conversation content.
   const hasNodes = snapshot.nodes.some((node) => node.type !== 'model')
   const home = Boolean(snapshot.project) && !hasNodes && !loading
+  const elapsed = useRunElapsed(snapshot.sessionId, snapshot.busy)
   const recentSessions = useMemo(
     () =>
       home
@@ -949,6 +959,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   )
   const scrollEnd = useRef<HTMLDivElement>(null)
   const scrollContainer = useRef<HTMLDivElement>(null)
+  const contentAxis = useRef<HTMLDivElement>(null)
   const following = useRef(true)
   const navigationScroll = useRef(false)
   const navigationFrame = useRef<number | null>(null)
@@ -979,6 +990,20 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
     return () => window.cancelAnimationFrame(frame)
   }, [scrollIdentity, snapshot.busy, streamKey, approvals])
 
+  // While a run is live, content keeps growing after render (diffs and approval cards lay
+  // out asynchronously). A reader who is following stays pinned to the end through that.
+  useEffect(() => {
+    const content = contentAxis.current
+    const scroller = scrollContainer.current
+    if (!snapshot.busy || !content || !scroller) return undefined
+    const observer = new ResizeObserver(() => {
+      if (following.current && !navigationScroll.current)
+        scroller.scrollTop = scroller.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [snapshot.busy])
+
   return (
     <main className={`conversation${hasNodes ? ' has-session' : home ? ' is-home' : ''}`}>
       {snapshot.project ? (
@@ -993,6 +1018,9 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                 aria-hidden="true"
               />
               {sessionHeader.status.label}
+              {elapsed !== null && sessionHeader.status.tone === 'running' ? (
+                <span className="conversation-elapsed"> · {formatElapsed(elapsed)}</span>
+              ) : null}
             </span>
           </span>
           <div className="conversation-actions">
@@ -1071,7 +1099,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           setAwayFromBottom(!nearBottom)
         }}
       >
-        <div className="content-axis">
+        <div className="content-axis" ref={contentAxis}>
           {!hasNodes ? (
             <div className="hero-copy">
               <h1>

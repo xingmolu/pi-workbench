@@ -15,6 +15,7 @@ import type {
   WorkbenchSnapshot
 } from '../../shared/contracts'
 import Sidebar from './components/Sidebar'
+import { shortcutLabel } from './components/shortcut-label'
 import Conversation from './components/Conversation'
 import Workbench from './components/Workbench'
 import WorkspacePanels from './components/WorkspacePanels'
@@ -242,6 +243,7 @@ export default function App(): React.JSX.Element {
     [acceptWorkbenchSnapshot, reportWorkbenchError]
   )
 
+  const shortcuts = useRef({ newSession: () => {}, openTerminal: () => {} })
   useEffect(() => {
     let composing = false
     const startComposition = (): void => {
@@ -275,12 +277,60 @@ export default function App(): React.JSX.Element {
       if (event.metaKey && event.key.toLowerCase() === 'b' && !event.altKey && !event.shiftKey) {
         event.preventDefault()
         dispatchLayout({ type: 'sidebar:toggle' })
+        return
+      }
+      // ⌘ on macOS, Ctrl elsewhere; a focused terminal keeps its own Ctrl keys.
+      const mac = navigator.platform.includes('Mac')
+      const mod = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+      if (!mod || event.altKey || event.shiftKey) return
+      if (!mac && (event.target as Element | null)?.closest?.('.xterm, .terminal-pane')) return
+      if (
+        useOverlayState.getState().active ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
+      )
+        return
+      const key = event.key.toLowerCase()
+      if (key === 'n') {
+        event.preventDefault()
+        shortcuts.current.newSession()
+      } else if (key === '\\') {
+        event.preventDefault()
+        setWorkbenchOpen((open) => !open)
+      } else if (key === 'j') {
+        event.preventDefault()
+        shortcuts.current.openTerminal()
       }
     }
+    // Holding the modifier for a moment reveals the shortcuts on the controls that have one.
+    const modifier = navigator.platform.includes('Mac') ? 'Meta' : 'Control'
+    let hintTimer: ReturnType<typeof setTimeout> | null = null
+    const hideHints = (): void => {
+      if (hintTimer) clearTimeout(hintTimer)
+      hintTimer = null
+      document.documentElement.classList.remove('show-shortcuts')
+    }
+    const onHintKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== modifier) {
+        hideHints()
+        return
+      }
+      if (!event.repeat && !hintTimer)
+        hintTimer = setTimeout(() => document.documentElement.classList.add('show-shortcuts'), 450)
+    }
+    const onHintKeyUp = (event: KeyboardEvent): void => {
+      if (event.key === modifier) hideHints()
+    }
+    window.addEventListener('keydown', onHintKeyDown)
+    window.addEventListener('keyup', onHintKeyUp)
+    window.addEventListener('blur', hideHints)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('compositionstart', startComposition)
     window.addEventListener('compositionend', endComposition)
     return () => {
+      hideHints()
+      window.removeEventListener('keydown', onHintKeyDown)
+      window.removeEventListener('keyup', onHintKeyUp)
+      window.removeEventListener('blur', hideHints)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('compositionstart', startComposition)
       window.removeEventListener('compositionend', endComposition)
@@ -420,6 +470,20 @@ export default function App(): React.JSX.Element {
     [setClientError, setSnapshot]
   )
 
+  shortcuts.current = {
+    newSession: () => {
+      if (snapshot.ready && snapshot.project) void navigateProject(snapshot.project.path)
+    },
+    openTerminal: () => {
+      const terminal = workbenchStatus.snapshot.contributions.find(
+        (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'terminal'
+      )
+      if (!terminal || !snapshot.project) return
+      dispatchWorkbenchSelection({ type: 'select', viewId: terminal.viewId })
+      setWorkbenchOpen(true)
+    }
+  }
+
   const sendWorkbench = useCallback(
     async (command: WorkbenchCommand): Promise<void> => {
       const result = await window.pi.workbench(command)
@@ -463,6 +527,8 @@ export default function App(): React.JSX.Element {
       <button
         className="icon-btn workbench-toggle"
         aria-label={workbenchOpen ? '折叠工作台' : '展开工作台'}
+        title={`${workbenchOpen ? '折叠工作台' : '展开工作台'}（${shortcutLabel('\\')}）`}
+        data-shortcut={shortcutLabel('\\')}
         aria-expanded={workbenchOpen}
         onClick={() => setWorkbenchOpen((open) => !open)}
       >

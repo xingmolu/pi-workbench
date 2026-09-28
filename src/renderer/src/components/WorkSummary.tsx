@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useRevealOnOpen } from './use-reveal-on-open'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight } from 'lucide-react'
 import { useDesktopSettings } from '../store/desktop-settings'
@@ -20,6 +21,8 @@ export default function WorkSummary({
     (node) => node.type === 'tool' && node.status === 'awaiting-approval'
   )
   const digest = running || awaitingApproval ? null : workDigest(nodes)
+  const expandedByUser = expandedOverride === true
+  const reveal = useRevealOnOpen<HTMLDivElement>(expandedByUser)
   const expanded = awaitingApproval || (expandedOverride ?? (defaultExpanded || requiresAttention))
   return (
     <Collapsible.Root
@@ -41,7 +44,12 @@ export default function WorkSummary({
           </span>
         ) : null}
       </Collapsible.Trigger>
-      <Collapsible.Content className="work-summary-content" forceMount hidden={!expanded}>
+      <Collapsible.Content
+        ref={reveal}
+        className="work-summary-content"
+        forceMount
+        hidden={!expanded}
+      >
         {children}
       </Collapsible.Content>
     </Collapsible.Root>

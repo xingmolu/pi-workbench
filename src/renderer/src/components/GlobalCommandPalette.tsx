@@ -264,8 +264,6 @@ export default function GlobalCommandPalette({
           <Dialog.Description id="command-description" className="command-sr-only">
             搜索所有项目中的会话标题。上下键选择，回车打开，Escape 关闭。
           </Dialog.Description>
-          <label className="command-include-removed"><input type="checkbox" checked={includeRemoved}
-            onChange={(event) => { epoch.current.invalidate(); setIncludeRemoved(event.target.checked) }} />包含已移除项目与归档会话</label>
           <Command
             shouldFilter={false}
             loop
@@ -455,6 +453,8 @@ export default function GlobalCommandPalette({
               <span className="command-scope">
                 {mode === 'sessions' ? '所有项目 · 仅搜索标题' : '已有项目与最近目录'}
               </span>
+              <label className="command-include-removed"><input type="checkbox" checked={includeRemoved}
+                onChange={(event) => { epoch.current.invalidate(); setIncludeRemoved(event.target.checked) }} />包含已移除项目与归档会话</label>
             </footer>
           </Command>
         </Dialog.Content>

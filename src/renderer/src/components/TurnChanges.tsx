@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useRevealOnOpen } from './use-reveal-on-open'
 import { ChevronRight, FileDiff, LoaderCircle, RotateCcw } from 'lucide-react'
 import type { TurnFileChange } from '../store/turn-changes'
 import type { CheckpointPlan, CheckpointTurnState } from '../../../shared/checkpoints'
@@ -133,7 +134,7 @@ export default function TurnChanges({
         {files.map((file) => {
           const expanded = open === file.path
           return (
-            <li key={file.path} className={expanded ? 'is-open' : undefined}>
+            <ChangeItem key={file.path} expanded={expanded}>
               <button
                 type="button"
                 className="turn-change-row"
@@ -156,11 +157,26 @@ export default function TurnChanges({
                   ))}
                 </div>
               ) : null}
-            </li>
+            </ChangeItem>
           )
         })}
       </ul>
     </section>
+  )
+}
+
+function ChangeItem({
+  expanded,
+  children
+}: {
+  expanded: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  const item = useRevealOnOpen<HTMLLIElement>(expanded)
+  return (
+    <li ref={item} className={expanded ? 'is-open' : undefined}>
+      {children}
+    </li>
   )
 }
 

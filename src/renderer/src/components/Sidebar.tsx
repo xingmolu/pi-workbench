@@ -16,6 +16,7 @@ import { canCreateSession } from '../../../shared/session-presentation'
 import ProjectSessionList from './ProjectSessionList'
 import { projectNavigationReason } from '../../../shared/project-catalog'
 import type { ProjectCatalog, ProjectNavigationFailures } from '../../../shared/project-catalog'
+import { shortcutLabel } from './shortcut-label'
 
 type SidebarProps = {
   collapsed: boolean
@@ -134,7 +135,7 @@ export default function Sidebar({
           <span className="brand-mark">π</span>
           <span className="brand-name">Pi Desktop</span>
         </div>
-        <button className="icon-btn" type="button" onClick={onToggle} title="收起侧栏（⌘B）">
+        <button className="icon-btn" type="button" onClick={onToggle} title="收起侧栏（⌘B）" data-shortcut="⌘B">
           <ChevronsLeft size={16} />
         </button>
       </div>
@@ -143,6 +144,7 @@ export default function Sidebar({
         <button
           type="button"
           className="sidebar-new-session"
+          data-shortcut={shortcutLabel('N')}
           onClick={onNewSession}
           disabled={!newSessionEnabled}
           data-navigation-pending={snapshot.project ? pendingOnly : undefined}
