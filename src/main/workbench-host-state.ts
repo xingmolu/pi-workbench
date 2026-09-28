@@ -6,10 +6,11 @@ import type {
   WorkbenchCommand,
   WorkbenchCommandResult,
   WorkbenchDiagnostic,
-  WorkbenchSnapshot
+  WorkbenchSnapshot,
+  WorkbenchContribution
 } from '../shared/workbench-contracts'
 import { resolveSettingPlaceholders } from './manifest-compat'
-import { BUILTIN_BROWSER_VIEW_ID } from '../shared/workbench-contracts'
+import { BROWSER_PLUGIN_ID, BROWSER_VIEW_ID } from '../shared/workbench-contracts'
 import { pluginPanelStateSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import type {
@@ -151,14 +152,6 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
     icon: 'terminal',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'terminal' }
-  },
-  {
-    pluginId: BUILTIN_PLUGIN.pluginId,
-    viewId: BUILTIN_BROWSER_VIEW_ID,
-    title: '浏览器',
-    icon: 'browser',
-    activation: 'onApp',
-    surface: { kind: 'native-view', adapter: 'browser' }
   }
 ]
 
@@ -275,8 +268,12 @@ function reserveBuiltinRegistry(discovery: WorkbenchManifestDiscovery): Workbenc
       })
       continue
     }
-    const reservedView = plugin.workbench.find(({ contribution }) =>
-      reservedViewIds.has(contribution.viewId)
+    const reservedView = plugin.workbench.find(
+      ({ contribution }) =>
+        reservedViewIds.has(contribution.viewId) ||
+        // The browser view belongs to the bundled browser package and nothing else.
+        (contribution.viewId === BROWSER_VIEW_ID &&
+          (plugin.pluginId !== BROWSER_PLUGIN_ID || plugin.scope !== 'bundled'))
     )
     if (reservedView) {
       diagnostics.push({
@@ -438,6 +435,18 @@ export function createWorkbenchHostState(
     record.view.destroy()
   }
 
+  const hostDrawnContribution = (viewId: string): WorkbenchContribution | undefined => {
+    for (const plugin of discovery.plugins) {
+      if (!isDesktopEnabled(plugin.pluginId)) continue
+      const entry = plugin.workbench.find(
+        ({ contribution }) =>
+          contribution.viewId === viewId && contribution.surface.kind === 'native-view'
+      )
+      if (entry) return entry.contribution
+    }
+    return undefined
+  }
+
   const destroyPluginViews = (pluginId: string): void => {
     for (const [viewId, record] of views) {
       if (record.pluginId === pluginId) destroyView(viewId)
@@ -486,7 +495,7 @@ export function createWorkbenchHostState(
       browserReconcileQueued = false
       if (disposed) return
       const reconcileEpoch = selectionEpoch
-      const visible = desiredViewId === BUILTIN_BROWSER_VIEW_ID
+      const visible = desiredViewId === BROWSER_VIEW_ID
       const bounds = visible ? desiredBrowserBounds : undefined
       void startBrowserOperation(visible, bounds, reconcileEpoch).catch(() => undefined)
     })
@@ -520,8 +529,8 @@ export function createWorkbenchHostState(
   }
 
   const browserCouldBeVisible = (): boolean =>
-    activeViewId === BUILTIN_BROWSER_VIEW_ID ||
-    desiredViewId === BUILTIN_BROWSER_VIEW_ID ||
+    activeViewId === BROWSER_VIEW_ID ||
+    desiredViewId === BROWSER_VIEW_ID ||
     [...browserOperations.values()].some(Boolean)
 
   const hideBrowserAfterDispose = async (): Promise<void> => {
@@ -542,36 +551,32 @@ export function createWorkbenchHostState(
     if (changesDesired) {
       selectionEpoch += 1
       desiredViewId = visible ? viewId : null
-      desiredBrowserBounds = desiredViewId === BUILTIN_BROWSER_VIEW_ID ? bounds : undefined
+      desiredBrowserBounds = desiredViewId === BROWSER_VIEW_ID ? bounds : undefined
       if (visible) invalidatePendingCreations()
       else {
         const pending = pendingCreations.get(viewId)
         if (pending) invalidatePendingCreation(pending)
       }
-    } else if (visible && viewId === BUILTIN_BROWSER_VIEW_ID && bounds !== undefined) {
+    } else if (visible && viewId === BROWSER_VIEW_ID && bounds !== undefined) {
       desiredBrowserBounds = bounds
     }
 
     if (
       activeViewId !== null &&
       activeViewId !== desiredViewId &&
-      activeViewId !== BUILTIN_BROWSER_VIEW_ID
+      activeViewId !== BROWSER_VIEW_ID
     ) {
       views.get(activeViewId)?.view.setVisible(false)
       activeViewId = null
     }
 
     const browserBarrier =
-      viewId === BUILTIN_BROWSER_VIEW_ID ||
-      previousDesiredViewId === BUILTIN_BROWSER_VIEW_ID ||
+      viewId === BROWSER_VIEW_ID ||
+      previousDesiredViewId === BROWSER_VIEW_ID ||
       browserCouldBeVisible()
     const token = { epoch: selectionEpoch, viewId: desiredViewId }
     const browserOperation = browserBarrier
-      ? startBrowserOperation(
-          desiredViewId === BUILTIN_BROWSER_VIEW_ID,
-          desiredBrowserBounds,
-          token.epoch
-        )
+      ? startBrowserOperation(desiredViewId === BROWSER_VIEW_ID, desiredBrowserBounds, token.epoch)
       : undefined
     return browserOperation === undefined ? { token } : { token, browserOperation }
   }
@@ -684,7 +689,16 @@ export function createWorkbenchHostState(
     invalidatePendingCreations()
     abortOperations()
     destroyAllViews()
-    discovery = { plugins: [], diagnostics: [] }
+    // Host-drawn views of bundled packages (the browser) never depend on rediscovery, so
+    // they stay usable across the reload barrier exactly like built-in views.
+    discovery = {
+      plugins: discovery.plugins.filter(
+        (plugin) =>
+          bundled(plugin) &&
+          plugin.workbench.some(({ contribution }) => contribution.surface.kind === 'native-view')
+      ),
+      diagnostics: []
+    }
     // Plugin processes keep running until the new registry is known; `syncRuntime` then
     // restarts only plugins that changed, so a reload does not interrupt tool calls.
     revision += 1
@@ -841,6 +855,14 @@ export function createWorkbenchHostState(
           if (!command.desktopEnabled) {
             invalidatePendingCreations(command.pluginId)
             destroyPluginViews(command.pluginId)
+            const hostsBrowser = plugin.workbench.some(
+              ({ contribution }) => contribution.viewId === BROWSER_VIEW_ID
+            )
+            if (hostsBrowser && (desiredViewId === BROWSER_VIEW_ID || browserCouldBeVisible())) {
+              const selection = beginSelection(BROWSER_VIEW_ID, false)
+              if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
+              await selection.browserOperation?.catch(() => undefined)
+            }
           }
           syncRuntime()
           revision += 1
@@ -862,9 +884,11 @@ export function createWorkbenchHostState(
           break
         }
         case 'view:set': {
-          const builtinContribution = BUILTIN_CONTRIBUTIONS.find(
-            ({ viewId }) => viewId === command.viewId
-          )
+          // Views the host draws natively (the browser) take the built-in path even when an
+          // enabled bundled package contributes them.
+          const builtinContribution =
+            BUILTIN_CONTRIBUTIONS.find(({ viewId }) => viewId === command.viewId) ??
+            hostDrawnContribution(command.viewId)
           if (builtinContribution) {
             if (!isAvailable(builtinContribution.activation)) {
               if (!command.visible) break
@@ -900,7 +924,7 @@ export function createWorkbenchHostState(
           if (selection.browserOperation) {
             await selection.browserOperation
             assertCurrentSelection(selection.token)
-            if (activeViewId === BUILTIN_BROWSER_VIEW_ID) activeViewId = null
+            if (activeViewId === BROWSER_VIEW_ID) activeViewId = null
           }
           let record = views.get(command.viewId)
           const existingPending = pendingCreations.get(command.viewId)

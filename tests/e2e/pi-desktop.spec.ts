@@ -23,7 +23,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { createServer, type Server } from 'node:http'
 import {
-  BUILTIN_BROWSER_VIEW_ID,
+  BROWSER_VIEW_ID,
   WORKBENCH_PANEL_CONTEXT_CHANNEL,
   type PiDesktopAPI,
   type PluginPanelContext,
@@ -1374,10 +1374,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       }, paths.project)
     }
     const browserContribution = (await workbenchSnapshot(page)).contributions.find(
-      ({ viewId }) => viewId === BUILTIN_BROWSER_VIEW_ID
+      ({ viewId }) => viewId === BROWSER_VIEW_ID
     )
     expect(browserContribution).toMatchObject({
-      viewId: BUILTIN_BROWSER_VIEW_ID,
+      viewId: BROWSER_VIEW_ID,
       surface: { kind: 'native-view', adapter: 'browser' }
     })
     await openWorkbenchTool(page, browserContribution!.title)

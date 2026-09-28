@@ -100,6 +100,45 @@ function externalPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
   }
 }
 
+/** The bundled browser package, discovered in every real registry. */
+function browserPlugin(): WorkbenchManifestDiscovery['plugins'][number] {
+  return {
+    commands: [],
+    agentTools: [],
+    skillPaths: [],
+    mcpServers: {},
+    settings: [],
+    themes: [],
+    pluginId: 'works.pi.browser',
+    name: '浏览器',
+    version: '0.1.0',
+    source: 'desktop-plugin:works.pi.browser',
+    scope: 'bundled',
+    requestedPermissions: ['ui.view', 'browser.control'],
+    hasExecutablePiResources: false,
+    canonicalRootPath: '/bundled/browser',
+    manifestPath: '/bundled/browser/pi-desktop.json',
+    workbench: [
+      {
+        contribution: {
+          pluginId: 'works.pi.browser',
+          viewId: 'works.pi.browser.view',
+          title: '浏览器',
+          icon: 'browser',
+          activation: 'onApp',
+          surface: { kind: 'native-view', adapter: 'browser' }
+        }
+      }
+    ]
+  }
+}
+
+function withBrowser(discovery: WorkbenchManifestDiscovery): WorkbenchManifestDiscovery {
+  return discovery.plugins.some(({ pluginId }) => pluginId === 'works.pi.browser')
+    ? discovery
+    : { ...discovery, plugins: [...discovery.plugins, browserPlugin()] }
+}
+
 function externalPluginAt(
   canonicalRootPath: string,
   version: string
@@ -110,7 +149,7 @@ function externalPluginAt(
   plugin.manifestPath = `${canonicalRootPath}/pi-desktop.json`
   plugin.workbench = plugin.workbench.map((entry) => ({
     ...entry,
-    canonicalEntryPath: entry.canonicalEntryPath.replace('/plugins/acme.notes', canonicalRootPath)
+    canonicalEntryPath: entry.canonicalEntryPath?.replace('/plugins/acme.notes', canonicalRootPath)
   }))
   return plugin
 }
@@ -169,7 +208,7 @@ function createHarness(
     canonicalizeRoot: canonicalizeRoot ?? (async (path) => path),
     discover: async ({ roots }) => {
       rootsSeen.push([...roots])
-      return (await discoveries.shift()) ?? { plugins: [], diagnostics: [] }
+      return withBrowser((await discoveries.shift()) ?? { plugins: [], diagnostics: [] })
     },
     store: {
       get: (key) => persisted.get(key),
@@ -226,7 +265,7 @@ describe('Workbench host state', () => {
       pluginId: 'acme.notes',
       desktopEnabled: false
     })
-    await state.dispatch({ type: 'view:set', viewId: 'works.pi.desktop.browser', visible: true })
+    await state.dispatch({ type: 'view:set', viewId: 'works.pi.browser.view', visible: true })
     const count = browserCalls.length
     for (const viewId of ['acme.notes.panel', 'removed.plugin.panel']) {
       await expect(
@@ -238,6 +277,55 @@ describe('Workbench host state', () => {
     }
     expect(browserCalls).toHaveLength(count)
   })
+  it('disabling the bundled browser package hides the browser and makes its view unavailable', async () => {
+    const { state, browserCalls } = createHarness([{ plugins: [], diagnostics: [] }])
+    await state.reload()
+    await state.dispatch({ type: 'view:set', viewId: 'works.pi.browser.view', visible: true })
+    expect(browserCalls.at(-1)).toEqual({ visible: true })
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'works.pi.browser',
+      desktopEnabled: false
+    })
+
+    expect(browserCalls.at(-1)).toEqual({ visible: false })
+    expect(state.snapshot().contributions.map(({ viewId }) => viewId)).not.toContain(
+      'works.pi.browser.view'
+    )
+    await expect(
+      state.dispatch({ type: 'view:set', viewId: 'works.pi.browser.view', visible: true })
+    ).rejects.toThrow('unavailable')
+
+    await state.dispatch({
+      type: 'plugin:set-enabled',
+      pluginId: 'works.pi.browser',
+      desktopEnabled: true
+    })
+    await expect(
+      state.dispatch({ type: 'view:set', viewId: 'works.pi.browser.view', visible: true })
+    ).resolves.toBeDefined()
+    expect(browserCalls.at(-1)).toEqual({ visible: true })
+  })
+
+  it('reserves the browser view for the bundled browser package', async () => {
+    const impostor = browserPlugin()
+    impostor.pluginId = 'acme.browser'
+    impostor.scope = 'user'
+    impostor.workbench = impostor.workbench.map((entry) => ({
+      ...entry,
+      contribution: { ...entry.contribution, pluginId: 'acme.browser' }
+    }))
+    const { state } = createHarness([{ plugins: [impostor], diagnostics: [] }])
+
+    await state.reload()
+
+    expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).not.toContain('acme.browser')
+    expect(state.snapshot().diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'reserved-view-id', pluginId: 'acme.browser' })
+    )
+  })
+
   it('merges one locked built-in registry with discovered onApp contributions', async () => {
     const { state } = createHarness([{ plugins: [externalPlugin()], diagnostics: [] }])
 
@@ -249,11 +337,16 @@ describe('Workbench host state', () => {
         builtin: true,
         desktopEnabled: true
       }),
-      expect.objectContaining({ pluginId: 'acme.notes', builtin: false, desktopEnabled: true })
+      expect.objectContaining({ pluginId: 'acme.notes', builtin: false, desktopEnabled: true }),
+      expect.objectContaining({
+        pluginId: 'works.pi.browser',
+        builtin: false,
+        desktopEnabled: true
+      })
     ])
     expect(state.snapshot().contributions.map(({ viewId }) => viewId)).toEqual([
-      'works.pi.desktop.browser',
-      'acme.notes.panel'
+      'acme.notes.panel',
+      'works.pi.browser.view'
     ])
     expect(workbenchSnapshotSchema.parse(state.snapshot())).toEqual(state.snapshot())
   })
@@ -273,7 +366,7 @@ describe('Workbench host state', () => {
         contribution: {
           ...reservedView.workbench[0].contribution,
           pluginId: 'acme.reserved-view',
-          viewId: 'works.pi.desktop.browser'
+          viewId: 'works.pi.browser.view'
         }
       }
     ]
@@ -282,7 +375,8 @@ describe('Workbench host state', () => {
     await state.reload()
 
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
-      'works.pi.desktop.builtin'
+      'works.pi.desktop.builtin',
+      'works.pi.browser'
     ])
     expect(state.snapshot().diagnostics.map(({ code }) => code)).toEqual([
       'reserved-plugin-id',
@@ -301,9 +395,9 @@ describe('Workbench host state', () => {
       'works.pi.desktop.files',
       'works.pi.desktop.review',
       'works.pi.desktop.terminal',
-      'works.pi.desktop.browser',
       'acme.notes.panel',
-      'acme.notes.project-panel'
+      'acme.notes.project-panel',
+      'works.pi.browser.view'
     ])
     expect(state.panelContext('acme.notes.project-panel')).toEqual({
       pluginId: 'acme.notes',
@@ -355,7 +449,8 @@ describe('Workbench host state', () => {
     expect(rootsSeen).toEqual([[first], [second]])
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
       'works.pi.desktop.builtin',
-      'acme.tasks'
+      'acme.tasks',
+      'works.pi.browser'
     ])
   })
 
@@ -369,8 +464,10 @@ describe('Workbench host state', () => {
 
     const reload = state.reload()
     await vi.waitFor(() => expect(rootsSeen).toHaveLength(2))
+    // The bundled browser package stays across the reload barrier; external plugins do not.
     expect(state.snapshot().plugins.map(({ pluginId }) => pluginId)).toEqual([
-      'works.pi.desktop.builtin'
+      'works.pi.desktop.builtin',
+      'works.pi.browser'
     ])
 
     await expect(
@@ -379,7 +476,7 @@ describe('Workbench host state', () => {
     await expect(
       state.dispatch({
         type: 'view:set',
-        viewId: 'works.pi.desktop.browser',
+        viewId: 'works.pi.browser.view',
         visible: true,
         bounds: { x: 1, y: 2, width: 300, height: 200 }
       })
@@ -989,13 +1086,13 @@ describe('Workbench host state', () => {
 
     const first = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true,
       bounds: firstBounds
     })
     const latest = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true,
       bounds: latestBounds
     })
@@ -1071,7 +1168,7 @@ describe('Workbench host state', () => {
 
     const browserReveal = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void browserReveal.catch(() => undefined)
@@ -1112,14 +1209,14 @@ describe('Workbench host state', () => {
 
     const staleReveal = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void staleReveal.catch(() => undefined)
     await nativeStarts[0].promise
     const latestHide = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: false
     })
     const hideOperation = await nativeStarts[1].promise
@@ -1157,7 +1254,7 @@ describe('Workbench host state', () => {
 
     const staleResolveDispatch = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void staleResolveDispatch.catch(() => undefined)
@@ -1180,7 +1277,7 @@ describe('Workbench host state', () => {
 
     const staleRejectDispatch = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void staleRejectDispatch.catch(() => undefined)
@@ -1228,21 +1325,21 @@ describe('Workbench host state', () => {
 
     const staleShowA = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void staleShowA.catch(() => undefined)
     const operationA = await nativeStarts[0].promise
     const staleHide = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: false
     })
     void staleHide.catch(() => undefined)
     const operationB = await nativeStarts[1].promise
     const staleShowC = state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     void staleShowC.catch(() => undefined)
@@ -1518,7 +1615,7 @@ describe('Workbench host state', () => {
     await synchronous.state.reload()
     await synchronous.state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     expect(() => synchronous.state.dispose()).not.toThrow()
@@ -1532,7 +1629,7 @@ describe('Workbench host state', () => {
     await asynchronous.state.reload()
     await asynchronous.state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true
     })
     asynchronous.state.dispose()
@@ -1549,7 +1646,7 @@ describe('Workbench host state', () => {
 
     await state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: true,
       bounds
     })
@@ -1567,7 +1664,7 @@ describe('Workbench host state', () => {
     })
     await state.dispatch({
       type: 'view:set',
-      viewId: 'works.pi.desktop.browser',
+      viewId: 'works.pi.browser.view',
       visible: false
     })
     await state.dispatch({

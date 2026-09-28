@@ -7,7 +7,7 @@ import {
   hostResultSchema,
   hostRequestSchema
 } from './schemas'
-import { BUILTIN_BROWSER_VIEW_ID } from './workbench-contracts'
+import { BROWSER_VIEW_ID } from './workbench-contracts'
 import { workbenchEventSchema } from './workbench-schemas'
 
 it('accepts native identity only on the strict Main-to-Host envelope', () => {
@@ -265,9 +265,9 @@ describe('browser and Workbench event ownership', () => {
     expect(
       workbenchEventSchema.parse({
         type: 'reveal',
-        viewId: BUILTIN_BROWSER_VIEW_ID
+        viewId: BROWSER_VIEW_ID
       })
-    ).toEqual({ type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID })
+    ).toEqual({ type: 'reveal', viewId: BROWSER_VIEW_ID })
   })
 
   it('keeps native view placement on the Workbench command surface', () => {

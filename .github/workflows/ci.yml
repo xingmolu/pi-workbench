@@ -111,6 +111,7 @@ jobs:
           tests/e2e/coding-flow.spec.ts
           tests/e2e/plugin-runtime.spec.ts
           tests/e2e/git-plugin.spec.ts
+          tests/e2e/browser-plugin.spec.ts
           tests/e2e/plugin-agent.spec.ts
           tests/e2e/pi-compat.spec.ts
           tests/e2e/themes.spec.ts

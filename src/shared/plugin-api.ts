@@ -18,7 +18,9 @@ export const PLUGIN_PERMISSIONS = {
   'agent.skills': 'high',
   'mcp.local': 'high',
   'mcp.remote': 'high',
-  'net.fetch': 'high'
+  'net.fetch': 'high',
+  /** Host a native browser view that Pi can drive; bundled plugins only. */
+  'browser.control': 'high'
 } as const satisfies Record<string, 'low' | 'medium' | 'high'>
 
 export type PluginPermission = keyof typeof PLUGIN_PERMISSIONS

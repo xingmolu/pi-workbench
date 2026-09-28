@@ -205,6 +205,9 @@ async function revalidateEntry(
     throw new Error('Workbench plugin root is no longer a directory')
   }
 
+  if (request.entry.canonicalEntryPath === undefined) {
+    throw new Error('Workbench view is drawn by the host, not loaded from the plugin')
+  }
   const canonicalEntryPath = await realpath(request.entry.canonicalEntryPath)
   if (canonicalEntryPath !== request.entry.canonicalEntryPath) {
     throw new Error('Workbench plugin entry changed after discovery')

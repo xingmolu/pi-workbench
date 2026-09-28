@@ -1,5 +1,6 @@
 import {
-  BUILTIN_BROWSER_VIEW_ID,
+  BROWSER_PLUGIN_ID,
+  BROWSER_VIEW_ID,
   type DesktopPluginSummary,
   type WorkbenchActivation,
   type WorkbenchContribution,
@@ -51,14 +52,6 @@ export const BUILTIN_WORKBENCH_CONTRIBUTIONS: readonly WorkbenchContribution[] =
     icon: 'terminal',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'terminal' }
-  },
-  {
-    pluginId: BUILTIN_WORKBENCH_PLUGIN_ID,
-    viewId: BUILTIN_BROWSER_VIEW_ID,
-    title: '浏览器',
-    icon: 'browser',
-    activation: 'onApp',
-    surface: { kind: 'native-view', adapter: 'browser' }
   }
 ]
 
@@ -111,8 +104,12 @@ export function reserveBuiltinWorkbenchRegistry(
       continue
     }
 
-    const reservedView = plugin.workbench.find(({ contribution }) =>
-      RESERVED_WORKBENCH_VIEW_IDS.has(contribution.viewId)
+    const reservedView = plugin.workbench.find(
+      ({ contribution }) =>
+        RESERVED_WORKBENCH_VIEW_IDS.has(contribution.viewId) ||
+        // The browser view belongs to the bundled browser package and nothing else.
+        (contribution.viewId === BROWSER_VIEW_ID &&
+          (plugin.pluginId !== BROWSER_PLUGIN_ID || plugin.scope !== 'bundled'))
     )
     if (reservedView) {
       diagnostics.push({

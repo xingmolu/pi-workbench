@@ -96,14 +96,14 @@ describe('App Workbench event coordinator', () => {
       onError: vi.fn()
     })
 
-    emit({ type: 'reveal', viewId: 'works.pi.desktop.browser' })
+    emit({ type: 'reveal', viewId: 'works.pi.browser.view' })
     expect(order).toEqual([])
 
-    initial.resolve({ state: snapshot(1, ['works.pi.desktop.browser']) })
+    initial.resolve({ state: snapshot(1, ['works.pi.browser.view']) })
     await initial.promise
     await Promise.resolve()
 
-    expect(order).toEqual(['snapshot:1', 'reveal:works.pi.desktop.browser'])
+    expect(order).toEqual(['snapshot:1', 'reveal:works.pi.browser.view'])
   })
 
   it('ignores absent reveals both before and after the initial snapshot', async () => {
@@ -163,13 +163,13 @@ describe('App Workbench event coordinator', () => {
 
     expect(onError).toHaveBeenCalledWith('Workbench 尚未就绪')
     expect(status.error).toBe('工作台：Workbench 尚未就绪')
-    emit({ type: 'reveal', viewId: 'works.pi.desktop.browser' })
+    emit({ type: 'reveal', viewId: 'works.pi.browser.view' })
     expect(getState).toHaveBeenCalledTimes(2)
-    refreshed.resolve({ state: snapshot(1, ['works.pi.desktop.browser']) })
+    refreshed.resolve({ state: snapshot(1, ['works.pi.browser.view']) })
     await refreshed.promise
     await Promise.resolve()
 
-    expect(order).toEqual(['snapshot:1', 'reveal:works.pi.desktop.browser'])
+    expect(order).toEqual(['snapshot:1', 'reveal:works.pi.browser.view'])
     expect(status.error).toBeNull()
   })
 

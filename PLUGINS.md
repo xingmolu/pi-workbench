@@ -185,7 +185,8 @@ interface ToolGate {
 | Files | 内置插件（随应用分发，可禁用、不可卸载） | 只用 `pi.fs` 公开 API，作为 API 的第一个验证者 |
 | Git（暂存、提交、推送） | 内置插件（`resources/plugins/git`，已完成） | 只用 `pi.git`；提交信息可调用当前模型起草 |
 | 对话内改动、本轮汇总、撤销 | 宿主 | 属于对话证据，跟随消息存在，不做成插件 |
-| Terminal、Browser | 暂留宿主 | 依赖原生 PTY 与 WebContentsView，等公开 API 能覆盖后再评估 |
+| Terminal | 暂留宿主 | 依赖原生 PTY，等公开 API 能覆盖后再评估 |
+| Browser | 内置插件（`resources/plugins/browser`，已完成） | 以宿主视图 `host: "browser"` 贡献面板；原生视图与 Agent 的 `browser` 工具仍由宿主实现，见 §19 |
 | 权限档位与审批 | 宿主 | 属于工具闸门 |
 
 ## 10. 分阶段计划
@@ -327,3 +328,10 @@ module.exports = {
   - 渲染层把保留下来的变量设为根元素的内联自定义属性，不注入任何样式表，所以主题无法加载资源、添加选择器或改变布局。
   - 选择插件主题时，界面切到它声明的浅色或深色底色，强调色由主题决定；插件被停用或卸载后自动回落到对应的内置底色和用户选的强调色。
 
+## 19. 浏览器插件
+
+- 浏览器以内置插件 `works.pi.browser`（`resources/plugins/browser/pi-desktop.json`）分发，和 Git 一样出现在设置 → Desktop 插件中，默认启用，可以关闭，不能卸载。
+- 宿主视图：`contributes.views[]` 可以用 `"host": "browser"` 代替 `entry`，表示由宿主绘制的原生视图而不是沙箱页面；二者必须且只能写一个。只有内置插件并且声明了 `browser.control`（高风险）才允许，否则整个插件以 `host-view-denied` 拒绝。第三方插件仍只能使用沙箱页面。
+- 视图 id 固定为 `works.pi.browser.view`，保留给内置的 `works.pi.browser`；其他插件声明同一 id 会以 `reserved-view-id` 拒绝。注册表重新加载期间，内置插件的宿主视图保留，浏览器不会因切换会话而短暂不可用。
+- 原生视图（WebContentsView）、快照与点击、导航等能力仍由宿主的 `browser-manager` 实现；插件包只决定面板是否出现。
+- Agent 的 `browser` 工具与面板一起受开关控制：插件关闭时面板隐藏，正在显示的浏览器被收起，工具调用返回"浏览器插件已关闭"的错误；重新打开后立即恢复，无需重启会话。

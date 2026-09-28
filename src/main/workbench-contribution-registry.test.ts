@@ -125,10 +125,8 @@ describe('workbench contribution registry', () => {
     expect(snapshot.plugins.find(({ pluginId }) => pluginId === 'project.plugin')?.diagnostics).toEqual([
       pluginWarning
     ])
-    expect(snapshot.contributions.map(({ viewId }) => viewId)).toEqual([
-      'works.pi.desktop.browser',
-      'app.plugin.panel'
-    ])
+    // The browser is contributed by the bundled browser package, not the built-in list.
+    expect(snapshot.contributions.map(({ viewId }) => viewId)).toEqual(['app.plugin.panel'])
     expect(snapshot.diagnostics).toEqual([runtimeWarning])
   })
 

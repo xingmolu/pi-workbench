@@ -65,7 +65,7 @@ import type {
   WorkbenchEvent
 } from '../shared/contracts'
 import {
-  BUILTIN_BROWSER_VIEW_ID,
+  BROWSER_VIEW_ID,
   WORKBENCH_CHANNEL,
   WORKBENCH_EVENT_CHANNEL,
   WORKBENCH_PANEL_CHANNEL
@@ -137,6 +137,13 @@ let desktopControl: DesktopControlService | null = null
 let computerUse: ComputerUseService | null = null
 let lobbyOwnerId: string | null = null
 const browserScopeOwners = new Map<string, object>()
+/** The browser ships as the bundled `works.pi.browser` package; off means no view and no tool. */
+function browserPluginEnabled(): boolean {
+  const snapshot = workbenchHost?.snapshot()
+  if (!snapshot) return true
+  return snapshot.contributions.some(({ viewId }) => viewId === BROWSER_VIEW_ID)
+}
+
 const foregroundCapabilities = new ForegroundCapabilityRouter({
   authority: owner => ({
     selected: !browserOwner || quitInProgress ? null : sessionWorkers.selectedScope ?? (lobbyOwnerId
@@ -148,7 +155,9 @@ const foregroundCapabilities = new ForegroundCapabilityRouter({
       case 'browser': {
         const manager = browserManager
         if (!manager) throw new Error('浏览器工作台尚未就绪')
-        browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BUILTIN_BROWSER_VIEW_ID } satisfies WorkbenchEvent)
+        if (!browserPluginEnabled())
+          throw new Error('浏览器插件已关闭。在「设置 › Desktop 插件」中打开「浏览器」后，Pi 才能使用浏览器。')
+        browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, { type: 'reveal', viewId: BROWSER_VIEW_ID } satisfies WorkbenchEvent)
         const owner = browserScopeOwners.get(ownerId) ?? {}
         browserScopeOwners.set(ownerId, owner)
         const scope = { owner, projectPath: activeProjectPath ?? '', sessionId: request.sessionId, generation: request.generation }

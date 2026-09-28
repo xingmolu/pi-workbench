@@ -217,6 +217,81 @@ describe('discoverWorkbenchManifests', () => {
     ])
   })
 
+  it('lets only a bundled plugin that requests browser.control host the browser view', async () => {
+    const hostView = {
+      permissions: ['ui.view', 'browser.control'],
+      contributes: {
+        views: [
+          { id: 'view', title: 'Browser', icon: 'browser', host: 'browser', activation: 'onApp' }
+        ]
+      }
+    }
+    const discover = async (
+      scope: 'bundled' | 'user',
+      overrides: Record<string, unknown>
+    ): ReturnType<typeof discoverWorkbenchManifests> => {
+      const root = await temporaryPluginRoot()
+      await writeManifest(root, overrides)
+      return discoverWorkbenchManifests({
+        appVersion: '0.1.0',
+        roots: [{ path: root, source: 'test', scope, hasExecutablePiResources: false }]
+      })
+    }
+
+    const bundled = await discover('bundled', hostView)
+    expect(bundled.diagnostics).toEqual([])
+    expect(bundled.plugins[0].workbench).toEqual([
+      {
+        contribution: {
+          pluginId: 'acme.notes',
+          viewId: 'acme.notes.view',
+          title: 'Browser',
+          icon: 'browser',
+          activation: 'onApp',
+          surface: { kind: 'native-view', adapter: 'browser' }
+        }
+      }
+    ])
+
+    const user = await discover('user', hostView)
+    expect(user.plugins).toEqual([])
+    expect(user.diagnostics).toEqual([expect.objectContaining({ code: 'host-view-denied' })])
+
+    const undeclared = await discover('bundled', { ...hostView, permissions: ['ui.view'] })
+    expect(undeclared.plugins).toEqual([])
+    expect(undeclared.diagnostics).toEqual([expect.objectContaining({ code: 'host-view-denied' })])
+
+    const both = await discover('bundled', {
+      ...hostView,
+      contributes: {
+        views: [{ id: 'view', title: 'Browser', host: 'browser', entry: 'web/index.html' }]
+      }
+    })
+    expect(both.plugins).toEqual([])
+  })
+
+  it('ships the browser as a bundled package that hosts the browser view', async () => {
+    const discovery = await discoverWorkbenchManifests({
+      appVersion: '0.1.0',
+      roots: [
+        {
+          path: join(process.cwd(), 'resources', 'plugins', 'browser'),
+          source: '内置插件',
+          scope: 'bundled',
+          hasExecutablePiResources: false
+        }
+      ]
+    })
+    expect(discovery.diagnostics).toEqual([])
+    expect(discovery.plugins.map(({ pluginId }) => pluginId)).toEqual(['works.pi.browser'])
+    expect(discovery.plugins[0].workbench.map(({ contribution }) => contribution)).toEqual([
+      expect.objectContaining({
+        viewId: 'works.pi.browser.view',
+        surface: { kind: 'native-view', adapter: 'browser' }
+      })
+    ])
+  })
+
   it('rejects a main entry outside the plugin root', async () => {
     const root = await temporaryPluginRoot()
     await writeManifest(root, { main: '../main.js' })

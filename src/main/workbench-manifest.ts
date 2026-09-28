@@ -18,9 +18,10 @@ export type ValidatedWorkbenchEntry = {
   contribution: WorkbenchContribution
   /**
    * Discovery-time snapshot only. The Task 3 host must re-run realpath, regular-file, and
-   * canonical plugin-root containment checks before activation or loading.
+   * canonical plugin-root containment checks before activation or loading. Absent for views
+   * the host draws itself.
    */
-  canonicalEntryPath: string
+  canonicalEntryPath?: string
 }
 
 export type ValidatedWorkbenchPlugin = {
@@ -162,11 +163,20 @@ const manifestViewSchema = z
     id: localIdentifierSchema,
     title: localizedTitleSchema,
     icon: z.string().max(64).optional(),
-    entry: z.string().min(1).max(4096),
+    /** A page of the plugin, shown in a sandboxed panel. */
+    entry: z.string().min(1).max(4096).optional(),
+    /**
+     * A view the host draws natively instead of a page. Only bundled plugins that declare the
+     * matching permission may use it; see `hostViewAllowed`.
+     */
+    host: z.literal('browser').optional(),
     order: z.number().int().min(0).max(10_000).optional(),
     activation: workbenchActivationSchema.default('onProject')
   })
   .strict()
+  .refine((view) => (view.entry === undefined) !== (view.host === undefined), {
+    message: 'A view declares exactly one of entry or host'
+  })
 
 /** Command ids may be dotted (`hello.open`), as in manifest.json. */
 const commandIdentifierSchema = z
@@ -337,6 +347,14 @@ function isLocalRelativeEntry(value: string): boolean {
     return false
   }
   return value.split('/').every((segment) => segment !== '..')
+}
+
+/** The native browser carries the user's web sessions, so only a shipped package may host it. */
+export function hostViewAllowed(
+  scope: PiPackageRoot['scope'],
+  permissions: readonly string[]
+): boolean {
+  return scope === 'bundled' && permissions.includes('browser.control')
 }
 
 function isPathWithinRoot(canonicalRootPath: string, canonicalEntryPath: string): boolean {
@@ -600,7 +618,31 @@ export async function discoverWorkbenchManifests({
     for (const view of [...manifest.contributes.views].sort(
       (left, right) => (left.order ?? 0) - (right.order ?? 0)
     )) {
-      const canonicalEntryPath = await resolvePluginFile(canonicalRootPath, view.entry)
+      if (view.host !== undefined) {
+        if (!hostViewAllowed(root.scope, manifest.permissions ?? [])) {
+          diagnostics.push({
+            severity: 'error',
+            code: 'host-view-denied',
+            message: 'Only bundled plugins that request browser.control may host the browser view.',
+            pluginId: manifest.id,
+            viewId: `${manifest.id}.${view.id}`
+          })
+          invalidEntry = true
+          break
+        }
+        workbench.push({
+          contribution: {
+            pluginId: manifest.id,
+            viewId: `${manifest.id}.${view.id}`,
+            title: resolveTitle(view.title),
+            icon: resolveIcon(view.icon),
+            activation: view.activation,
+            surface: { kind: 'native-view', adapter: view.host }
+          }
+        })
+        continue
+      }
+      const canonicalEntryPath = await resolvePluginFile(canonicalRootPath, view.entry!)
       if (canonicalEntryPath === undefined) {
         diagnostics.push({
           severity: 'error',
