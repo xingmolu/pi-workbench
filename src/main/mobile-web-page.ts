@@ -20,14 +20,40 @@ const TYPES: Record<string, string> = {
 
 export function mobileManifest(): string {
   return JSON.stringify({
+    id: '/',
     name: 'Pi 远程对话',
     short_name: 'Pi',
+    description: '在手机上继续 Pi Desktop 的对话',
     display: 'standalone',
     start_url: '/',
+    scope: '/',
     background_color: '#0b0b0c',
     theme_color: '#0b0b0c',
-    lang: 'zh-CN'
+    lang: 'zh-CN',
+    icons: [
+      { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon.png', sizes: '192x192', type: 'image/png', purpose: 'any' }
+    ]
   })
+}
+
+/** Top-level files the page needs outside assets/: its service worker and home-screen icon. */
+const ROOT_FILES: Record<string, { file: string; type: string }> = {
+  '/sw.js': { file: 'mobile-sw.js', type: 'text/javascript; charset=utf-8' },
+  '/icon.png': { file: 'mobile-icon.png', type: 'image/png' }
+}
+
+export async function mobileRootFile(
+  pathname: string,
+  root = MOBILE_WEB_ROOT
+): Promise<{ body: Buffer; type: string } | null> {
+  const entry = Object.hasOwn(ROOT_FILES, pathname) ? ROOT_FILES[pathname] : undefined
+  if (!entry) return null
+  try {
+    return { body: await readFile(join(root, entry.file)), type: entry.type }
+  } catch {
+    return null
+  }
 }
 
 /** Shown when the renderer was never built, e.g. a dev run before `npm run build`. */

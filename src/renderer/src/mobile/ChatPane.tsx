@@ -15,6 +15,7 @@ export function ChatPane({
   host,
   error,
   paused,
+  offline,
   theme,
   onTheme,
   onBack,
@@ -27,6 +28,7 @@ export function ChatPane({
   host: string
   error: string
   paused: boolean
+  offline: boolean
   theme: MobileThemeChoice
   onTheme: (choice: MobileThemeChoice) => void
   onBack: () => void
@@ -113,6 +115,12 @@ export function ChatPane({
       {error ? (
         <p className="m-notice is-error" role="alert">
           {error}
+        </p>
+      ) : null}
+      {offline ? (
+        <p className="m-notice" role="status">
+          <span className="m-reconnect-dot" aria-hidden="true" />
+          连接中断，正在重连…
         </p>
       ) : null}
       {paused ? (

@@ -15,6 +15,7 @@ import {
   mobileAsset,
   mobileManifest,
   mobilePageHtml,
+  mobileRootFile,
   mobileUnavailableHtml
 } from './mobile-web-page'
 
@@ -304,6 +305,21 @@ export class MobileGatewayServer {
           'x-content-type-options': 'nosniff'
         })
         response.end(html ?? mobileUnavailableHtml())
+        return
+      }
+      if (request.method === 'GET' && (url.pathname === '/sw.js' || url.pathname === '/icon.png')) {
+        const file = await mobileRootFile(url.pathname, this.options.webRoot ?? MOBILE_WEB_ROOT)
+        if (!file) {
+          json(response, 404, { error: '未知资源' })
+          return
+        }
+        response.writeHead(200, {
+          'content-type': file.type,
+          // The worker must be re-checked on every load so updates reach installed apps.
+          'cache-control': url.pathname === '/sw.js' ? 'no-cache' : 'public, max-age=86400',
+          'x-content-type-options': 'nosniff'
+        })
+        response.end(file.body)
         return
       }
       if (request.method === 'GET' && url.pathname.startsWith('/assets/')) {

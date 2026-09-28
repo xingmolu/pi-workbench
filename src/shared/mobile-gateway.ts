@@ -171,6 +171,8 @@ export type MobileCatalogProject = {
 export type MobileConversationSnapshot = {
   workerId: string
   cwd: string
+  /** Saved session file; lets the page reopen the session after its worker is gone. */
+  sessionPath?: string | null
   title: string
   sessionId: string | null
   generation: number

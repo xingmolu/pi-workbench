@@ -3,7 +3,11 @@ import type { MobileConversationSnapshot } from './mobile-gateway'
 type Source = {
   close(): void
   addEventListener(type: string, listener: (event: { data: string }) => void): void
+  /** EventSource.readyState: 0 connecting, 1 open, 2 closed for good. */
+  readonly readyState?: number
 }
+
+export type MobileConnection = 'live' | 'retrying' | 'closed'
 
 /** Serialized into the mobile client: all callbacks belong to one view/source epoch. */
 export function createMobileLiveSubscriber(options: {
@@ -13,6 +17,8 @@ export function createMobileLiveSubscriber(options: {
   finished(): void
   paused(paused: boolean): void
   error(error: unknown): void
+  /** Browser-level stream state; `closed` means it will not retry on its own. */
+  connection?(state: MobileConnection): void
 }) {
   let epoch = 0
   let navigation = 0
@@ -101,6 +107,13 @@ export function createMobileLiveSubscriber(options: {
         options.error(error)
       }
     })
+    current.addEventListener('open', () => {
+      if (epoch === capturedEpoch && source === current) options.connection?.('live')
+    })
+    current.addEventListener('error', () => {
+      if (epoch !== capturedEpoch || source !== current) return
+      options.connection?.(current.readyState === 2 ? 'closed' : 'retrying')
+    })
     current.addEventListener('run-finished', () => {
       if (valid()) options.finished()
     })
@@ -124,9 +137,18 @@ export function createMobileLiveSubscriber(options: {
       } else void fetchSnapshot()
     })
   }
+  /** Replace a dropped stream for the same session and catch up over HTTP. */
+  function reconnect(): Promise<void> {
+    const current = worker
+    if (!current || paused) return fetchSnapshot()
+    stop()
+    watch(current)
+    return fetchSnapshot()
+  }
   return {
     watch,
     stop,
+    reconnect,
     refresh: fetchSnapshot,
     navigate
   }

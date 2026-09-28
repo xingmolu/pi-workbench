@@ -42,16 +42,26 @@ export function persistToken(value: string): void {
 }
 if (token) persistToken(token)
 
+/** A gateway answer that is not OK; `status` 404 on a session means its worker is gone. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+  }
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (token) headers.authorization = `Bearer ${token}`
   const response = await fetch(path, { ...init, headers })
   if (response.status === 401) {
     persistToken('')
-    throw new Error('尚未配对或设备已被撤销')
+    throw new ApiError('尚未配对或设备已被撤销', 401)
   }
   const data = (await response.json().catch(() => ({}))) as { error?: string }
-  if (!response.ok) throw new Error(data.error || `请求失败 ${response.status}`)
+  if (!response.ok) throw new ApiError(data.error || `请求失败 ${response.status}`, response.status)
   return data as T
 }
 
@@ -60,9 +70,18 @@ const post = <T>(path: string, body: unknown): Promise<T> =>
 
 /** Exchanges a `?pair=` code from the desktop's QR for a device token. */
 export async function pairFromLocation(): Promise<void> {
-  const params = new URLSearchParams(location.search)
-  const pair = params.get('pair')
+  const pair = new URLSearchParams(location.search).get('pair')
   if (!pair) return
+  await pair_(pair)
+  history.replaceState({}, '', `/${location.hash}`)
+}
+
+/** The code typed from the desktop's settings, e.g. inside an installed home-screen app. */
+export function pairWithCode(code: string): Promise<void> {
+  return pair_(code.replace(/[\s-]/g, '').toUpperCase())
+}
+
+async function pair_(pair: string): Promise<void> {
   const response = await fetch('/api/pair', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -74,7 +93,6 @@ export async function pairFromLocation(): Promise<void> {
   }
   if (!response.ok || !grant.deviceToken) throw new Error(grant.error || '配对失败')
   persistToken(grant.deviceToken)
-  history.replaceState({}, '', `/${location.hash}`)
 }
 
 const identity = (

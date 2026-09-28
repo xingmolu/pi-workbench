@@ -87,6 +87,7 @@ export function toMobileSnapshot(
   return {
     workerId,
     cwd,
+    sessionPath: snapshot.activeSessionPath,
     title: titleFrom(snapshot, '会话'),
     sessionId: snapshot.sessionId,
     generation: snapshot.generation,

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, Plus, RefreshCw, Search } from 'lucide-react'
+import { Bell, BellOff, ChevronRight, Folder, Plus, RefreshCw, Search } from 'lucide-react'
+import type { NotifyState } from './notify'
 import {
   filterMobileHomeGroups,
   mobileStatusBadge,
@@ -34,6 +35,7 @@ export function SessionList({
   selected,
   theme,
   onTheme,
+  notifications,
   onRefresh,
   onOpen,
   onNewSession
@@ -44,6 +46,7 @@ export function SessionList({
   selected: string | null
   theme: MobileThemeChoice
   onTheme: (choice: MobileThemeChoice) => void
+  notifications: { state: NotifyState; toggle: () => Promise<void> }
   onRefresh: () => Promise<void>
   onOpen: (session: MobileHomeSession) => void
   onNewSession: (cwd: string) => void
@@ -101,6 +104,24 @@ export function SessionList({
         >
           <RefreshCw size={18} className={refreshing ? 'm-spin' : undefined} />
         </button>
+        {notifications.state !== 'unsupported' ? (
+          <button
+            type="button"
+            className={`m-icon${notifications.state === 'on' ? ' is-active' : ''}`}
+            aria-label={
+              notifications.state === 'on'
+                ? '关闭通知'
+                : notifications.state === 'denied'
+                  ? '通知已被浏览器阻止'
+                  : '开启通知'
+            }
+            aria-pressed={notifications.state === 'on'}
+            disabled={notifications.state === 'denied'}
+            onClick={() => void notifications.toggle()}
+          >
+            {notifications.state === 'on' ? <Bell size={18} /> : <BellOff size={18} />}
+          </button>
+        ) : null}
         <ThemeButton choice={theme} onChoice={onTheme} />
       </header>
       <div className="m-connect">

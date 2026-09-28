@@ -190,6 +190,7 @@ async function launchMobile(
     paths,
     responses,
     calls,
+    pairing,
     get current() {
       return current
     },
@@ -527,4 +528,78 @@ test('mobile controls: permission, model, skills, images, undo and a new session
         model: { providerId: 'fixture', modelId: 'vision' }
       }
     ])
+})
+
+test('a session link survives its worker going away, on reload and while open', async () => {
+  const fixture = await launchMobile()
+  const { page, calls } = fixture
+  await expect(page.locator('#chat-scroll')).toContainText('initial-state')
+  // The link learns the session file as soon as the snapshot names it.
+  fixture.setSnapshot({ ...fixture.current, revision: 2, sessionPath: '/fixture/session.jsonl' })
+  fixture.publish()
+  await expect.poll(() => page.url()).toContain('path=%2Ffixture%2Fsession.jsonl')
+
+  // Desktop restarted: the old worker is gone and reopening yields a new one.
+  fixture.setSnapshot({
+    ...fixture.current,
+    workerId: 'worker-2',
+    revision: 1,
+    nodes: [{ id: 'reply', type: 'assistant', markdown: 'reopened-after-restart' }]
+  })
+  await page.reload()
+  await expect(page.locator('#chat-scroll')).toContainText('reopened-after-restart')
+  expect(page.url()).toContain('#/s/worker-2?')
+  expect(calls).toContainEqual({
+    type: 'open',
+    cwd: '/fixture',
+    sessionPath: '/fixture/session.jsonl',
+    model: undefined
+  })
+
+  // Same while the page stays open: the stream drops, reconnects, and reopens the session.
+  fixture.setSnapshot({
+    ...fixture.current,
+    workerId: 'worker-3',
+    revision: 1,
+    nodes: [{ id: 'reply', type: 'assistant', markdown: 'reconnected-live' }]
+  })
+  for (const client of (gateway as unknown as { sse: Set<{ response: { destroy(): void } }> }).sse)
+    client.response.destroy()
+  await expect(page.locator('#chat-scroll')).toContainText('reconnected-live', { timeout: 15000 })
+  expect(page.url()).toContain('#/s/worker-3?')
+})
+
+test('pairs with a typed code and serves an installable app shell', async () => {
+  const fixture = await launchMobile()
+  const { page, pairing } = fixture
+  await expect(page.locator('#chat-scroll')).toContainText('initial-state')
+  const origin = new URL(page.url()).origin
+
+  const manifest = await (await fetch(`${origin}/manifest.webmanifest`)).json()
+  expect(manifest).toMatchObject({ display: 'standalone', start_url: '/', scope: '/' })
+  expect(manifest.icons.map((icon: { sizes: string }) => icon.sizes)).toEqual(
+    expect.arrayContaining(['192x192', '512x512'])
+  )
+  const icon = await fetch(`${origin}/icon.png`)
+  expect(icon.headers.get('content-type')).toBe('image/png')
+  const worker = await fetch(`${origin}/sw.js`)
+  expect(worker.headers.get('content-type')).toContain('javascript')
+  await expect
+    .poll(() => page.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration())))
+    .toBe(true)
+
+  // A home-screen app starts without the browser's storage: pair it by typing the code.
+  await page.evaluate(() => {
+    localStorage.clear()
+    document.cookie = 'pi_device=; Path=/; Max-Age=0'
+  })
+  await page.goto(`${origin}/`)
+  await expect(page.getByRole('textbox', { name: '配对码' })).toBeVisible()
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-pairing.png') })
+  const code = pairing.createOffer().token
+  await page
+    .getByRole('textbox', { name: '配对码' })
+    .fill(`${code.slice(0, 4)} ${code.slice(4).toLowerCase()}`)
+  await page.getByRole('button', { name: '配对', exact: true }).click()
+  await expect(page.getByText('当前设备上的项目和会话')).toBeVisible()
 })

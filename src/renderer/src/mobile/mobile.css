@@ -1669,3 +1669,53 @@ code {
     animation: none;
   }
 }
+
+/* ---------- P2: pairing code, notifications, reconnect ---------- */
+
+.m-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 18px 12px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.m-pair p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.m-pair input {
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--composer);
+  font-family: var(--mono);
+  font-size: 20px;
+  letter-spacing: 0.18em;
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.m-icon.is-active {
+  color: var(--accent);
+}
+
+.m-icon:disabled {
+  opacity: 0.4;
+}
+
+.m-reconnect-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ask);
+  animation: m-pulse 1.1s ease-in-out infinite;
+}
