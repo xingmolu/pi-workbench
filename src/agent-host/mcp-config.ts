@@ -86,6 +86,17 @@ export class McpConfigStore {
             timeout: server.timeout,
             envKeys: Object.keys(server.env ?? {}),
             headerKeys: Object.keys(server.headers ?? {}),
+            ...(server.url
+              ? {
+                  oauth: {
+                    clientId: server.oauth?.clientId,
+                    scope: server.oauth?.scope,
+                    redirectPort: server.oauth?.redirectPort,
+                    hasSecret: Boolean(server.oauth?.clientSecret),
+                    authorized: false
+                  }
+                }
+              : {}),
             enabled,
             editable: true,
             status: enabled ? 'disconnected' : server.disabled ? 'disabled' : 'untrusted',
@@ -133,6 +144,13 @@ export class McpConfigStore {
               : {}),
             ...(command.server.url && command.server.headers === undefined && previous?.headers
               ? { headers: previous.headers }
+              : {}),
+            // Like header values, a stored client secret is never sent back to the renderer.
+            ...(command.server.oauth?.clientId &&
+            !command.server.oauth.clientSecret &&
+            command.server.oauth.clientId === previous?.oauth?.clientId &&
+            previous.oauth.clientSecret
+              ? { oauth: { ...command.server.oauth, clientSecret: previous.oauth.clientSecret } }
               : {}),
             disabled: !command.enabled
           }

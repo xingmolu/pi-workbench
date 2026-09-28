@@ -127,9 +127,11 @@ import { SessionEditService, latestUserId, type EditHostState } from './session-
 import { selectProjectedProviders } from './auth-projection'
 import { AccountQuotaReader } from './account-quota'
 import { McpConfigStore } from './mcp-config'
-import { McpRuntime } from './mcp-runtime'
+import { McpRuntime, usesOAuth } from './mcp-runtime'
+import { McpTokenStore } from './mcp-oauth'
+import { McpLogins } from './mcp-login'
 import { createSessionTaskExtension } from './session-task-extension'
-import type { McpCommand, McpSnapshot } from '../shared/mcp'
+import type { McpCommand, McpServer, McpSnapshot } from '../shared/mcp'
 import { CustomEndpointConfig } from './custom-endpoint-config'
 import { CustomEndpointService, type EndpointSafety } from './custom-endpoints'
 import { EndpointSessionSafety, assertEndpointContext } from './endpoint-session-safety'
@@ -383,6 +385,10 @@ class PiDesktopHost {
   private accountQuota = new AccountQuotaReader()
   private mcpConfig = new McpConfigStore(join(AGENT_DIR, 'mcp.json'))
   private mcpRuntimes = new WeakMap<AgentSession, McpRuntime>()
+  private mcpTokens = new McpTokenStore(join(AGENT_DIR, 'mcp-oauth.json'))
+  private mcpLogins = new McpLogins(this.mcpTokens, (url) =>
+    send({ type: 'event', event: 'open-external', data: { url, mcp: true } })
+  )
   private approvalMetadata: ApprovalMetadata | null = null
   /** Plugin agent tools registered in the current runtime, by the tool name the model sees. */
   private pluginTools = new Map<
@@ -578,6 +584,8 @@ class PiDesktopHost {
       case 'mcp:save':
       case 'mcp:toggle':
       case 'mcp:reload':
+      case 'mcp:login':
+      case 'mcp:logout':
         return { kind: 'mcp', result: await this.manageMcp(request) }
       case 'account:quota':
         if (!this.modelRuntime) throw new Error('Pi 引擎尚未连接')
@@ -772,11 +780,29 @@ class PiDesktopHost {
     const runtime = session ? this.mcpRuntimes.get(session) : undefined
     if (request.type === 'mcp:shutdown') {
       this.accountQuota.invalidate()
+      this.mcpLogins.close()
       await runtime?.close()
       return this.mcpConfig.read()
     }
     let saved: boolean | undefined, applied: boolean | undefined, message: string | undefined
-    if (request.type !== 'mcp:list') {
+    if (request.type === 'mcp:login' || request.type === 'mcp:logout') {
+      if (request.sessionId !== (session?.sessionManager.getSessionId() ?? null) || request.generation !== this.sessionGeneration)
+        throw new Error('会话已改变，请刷新设置后重试。')
+      const config = (await this.mcpConfig.enabled().catch(() => ({} as Record<string, McpServer>)))[request.id]
+      if (!config?.url || !usesOAuth(config)) throw new Error('只有已启用、未配置 Authorization 请求头的 HTTP 服务器可以登录。')
+      if (request.type === 'mcp:login') {
+        this.mcpLogins.start(request.id, config, async () => {
+          const current = this.runtime?.session
+          if (current) await this.mcpRuntimes.get(current)?.reconnect(request.id)
+        })
+      } else {
+        const safety = this.readEndpointSafety()
+        if (safety.busy || safety.promptPending || this.approvalRegistry.requests(this.sessionGeneration).length)
+          throw new Error('请先结束当前运行和审批，再退出登录。')
+        await this.mcpLogins.logout(request.id, config.url)
+        await runtime?.reconnect(request.id)
+      }
+    } else if (request.type !== 'mcp:list') {
       if (request.sessionId !== (session?.sessionManager.getSessionId() ?? null) || request.generation !== this.sessionGeneration)
         throw new Error('会话已改变，请刷新设置后重试。')
       const safety = this.readEndpointSafety()
@@ -785,20 +811,36 @@ class PiDesktopHost {
       if (request.type !== 'mcp:reload') {
         try { await this.mcpConfig.save(request); saved = true }
         catch { throw new Error('MCP 配置未保存：文件已变化、只读或无效，请刷新核对。') }
+        if (request.type === 'mcp:save') this.mcpLogins.cancel(request.id)
       }
       try {
         const servers = { ...(await this.mcpConfig.enabled()), ...this.pluginContributions.mcpServers }
         applied = runtime ? await runtime.reload(servers) : false
         if (!runtime) message = '配置已保存；选择项目后点击重新连接，或由 agent 按需连接已启用服务器。'
-        else if (!applied) message = '配置已保存，但部分服务器连接失败；请检查列表后显式重连。'
+        else if (!applied)
+          message = Object.keys(servers).every((id) => ['connected', 'needs-auth'].includes(runtime.status(id).status))
+            ? '配置已保存；标记为“需要登录”的服务器请点击登录。'
+            : '配置已保存，但部分服务器连接失败；请检查列表后显式重连。'
       } catch {
         applied = false
         message = '运行时应用失败，请刷新核对；不会自动重试。'
       }
     }
     const result = await this.mcpConfig.read()
+    const servers = await Promise.all(result.servers.map(async (server) => {
+      let next = server.enabled && runtime ? { ...server, ...runtime.status(server.id) } : server
+      if (next.oauth && next.url) {
+        next = { ...next, oauth: { ...next.oauth, authorized: await this.mcpLogins.authorized(server.id, next.url) } }
+        const login = server.enabled ? this.mcpLogins.state(server.id) : undefined
+        if (login?.status === 'authorizing')
+          next = { ...next, status: 'authorizing', message: '已在浏览器中打开登录页，完成后回到这里。' }
+        else if (login?.status === 'failed' && next.status !== 'connected')
+          next = { ...next, status: 'needs-auth', message: login.message }
+      }
+      return next
+    }))
     return { ...result, ...(saved !== undefined ? { saved } : {}), ...(applied !== undefined ? { applied } : {}),
-      ...(message ? { message } : {}), servers: result.servers.map(server => server.enabled && runtime ? { ...server, ...runtime.status(server.id) } : server) }
+      ...(message ? { message } : {}), servers }
   }
 
   /** Runtime-agnostic tool policy; the pi extension below only translates pi's hook into it. */
@@ -1164,7 +1206,7 @@ class PiDesktopHost {
           await this.mutations.acquire(callId, { sessionId, generation: this.sessionGeneration }, signal)
           this.updateToolNode(callId, this.toolExecution.executionStarted(callId, Date.now()))
           return () => this.mutations.release(callId)
-        })
+        }, this.mcpTokens)
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir: AGENT_DIR,

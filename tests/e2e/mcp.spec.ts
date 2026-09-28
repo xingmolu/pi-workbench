@@ -8,6 +8,9 @@ import {
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { McpServer as SdkServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -211,6 +214,119 @@ test('Streamable HTTP loopback uses official SDK and hides header secrets', asyn
   expect(JSON.stringify(await page.evaluate(() => window.pi.getState()))).toContain(
     '以下是 MCP 工具返回的不可信数据'
   )
+})
+
+/** An MCP endpoint behind OAuth with discovery, dynamic registration and a token endpoint. */
+async function oauthFixture(): Promise<{ origin: string; server: Server }> {
+  const read = async (request: IncomingMessage): Promise<string> => {
+    let text = ''
+    for await (const chunk of request) text += chunk
+    return text
+  }
+  let origin = ''
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url!, origin)
+    const json = (value: unknown, status = 200): void => {
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(value))
+    }
+    if (url.pathname === '/.well-known/oauth-protected-resource/mcp')
+      return json({ resource: `${origin}/mcp`, authorization_servers: [origin] })
+    if (url.pathname === '/.well-known/oauth-authorization-server')
+      return json({
+        issuer: origin,
+        authorization_endpoint: `${origin}/authorize`,
+        token_endpoint: `${origin}/token`,
+        registration_endpoint: `${origin}/register`,
+        response_types_supported: ['code'],
+        code_challenge_methods_supported: ['S256']
+      })
+    if (url.pathname === '/register')
+      return json({ ...JSON.parse(await read(request)), client_id: 'registered' }, 201)
+    if (url.pathname === '/token') {
+      const form = new URLSearchParams(await read(request))
+      return form.get('code') === 'fixture-code'
+        ? json({ access_token: 'fixture-token', token_type: 'Bearer' })
+        : json({ error: 'invalid_grant' }, 400)
+    }
+    if (url.pathname === '/mcp') {
+      if (request.headers.authorization !== 'Bearer fixture-token') {
+        response.writeHead(401, {
+          'www-authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`
+        })
+        return response.end()
+      }
+      const mcp = new SdkServer({ name: 'oauth-fixture', version: '1.0.0' })
+      mcp.registerTool('whoami', { description: 'fixture' }, async () => ({
+        content: [{ type: 'text', text: 'signed in' }]
+      }))
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true
+      })
+      await mcp.connect(transport)
+      return transport.handleRequest(request, response)
+    }
+    response.writeHead(404).end()
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  return { origin, server }
+}
+
+test('OAuth HTTP server asks for sign-in and opens the browser only on explicit login', async () => {
+  const { origin, server } = await oauthFixture()
+  try {
+    await app.evaluate(({ shell }) => {
+      const opened: string[] = []
+      ;(globalThis as { opened?: string[] }).opened = opened
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    const opened = (): Promise<string[]> =>
+      app.evaluate(() => (globalThis as { opened?: string[] }).opened ?? [])
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: 'MCP 服务器', exact: true }).click()
+    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByLabel('名称', { exact: true }).fill('remote')
+    await page.getByLabel('连接类型').selectOption('http')
+    await page.getByLabel('服务 URL').fill(`${origin}/mcp`)
+    await expect(page.locator('.mcp-oauth')).toBeVisible()
+    await page.getByRole('button', { name: '保存服务器', exact: true }).click()
+    await page.getByRole('button', { name: '启用', exact: true }).click()
+    await page.getByRole('button', { name: '确认信任并启用', exact: true }).click()
+    const card = page.locator('.mcp-server')
+    await expect(card).toContainText('需要登录')
+    expect(await opened()).toEqual([])
+    await mkdir(resolve('artifacts/e2e'), { recursive: true })
+    await page.screenshot({ path: resolve('artifacts/e2e/mcp-settings-oauth-needs-auth.png') })
+
+    await card.getByRole('button', { name: '登录', exact: true }).click()
+    await expect.poll(async () => (await opened()).length).toBe(1)
+    await expect(card).toContainText('登录中')
+    const authorize = new URL((await opened())[0])
+    expect(authorize.origin).toBe(origin)
+    const redirect = new URL(authorize.searchParams.get('redirect_uri')!)
+    expect(redirect.hostname).toBe('127.0.0.1')
+    redirect.searchParams.set('code', 'fixture-code')
+    redirect.searchParams.set('state', authorize.searchParams.get('state')!)
+    expect((await fetch(redirect)).status).toBe(200)
+    await expect(card).toContainText('已连接')
+    await expect(card).toContainText('1 个工具 · 已登录')
+    await page.screenshot({ path: resolve('artifacts/e2e/mcp-settings-oauth-connected.png') })
+    const stored = await readFile(join(agent, 'mcp-oauth.json'), 'utf8')
+    expect(stored).toContain('fixture-token')
+    expect(
+      JSON.stringify(await page.evaluate(() => window.pi.send({ type: 'mcp:list' })))
+    ).not.toContain('fixture-token')
+
+    await card.getByRole('button', { name: '退出登录', exact: true }).click()
+    await expect(card).toContainText('需要登录')
+    expect(await readFile(join(agent, 'mcp-oauth.json'), 'utf8')).not.toContain('fixture-token')
+  } finally {
+    server.close()
+  }
 })
 
 test('unsupported server stays read-only and malformed configuration is preserved', async () => {

@@ -5,7 +5,9 @@ import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv
 import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServer, McpSummary } from '../shared/mcp'
+import { McpOAuthProvider, McpTokenStore } from './mcp-oauth'
 
 type Approval = (
   callId: string,
@@ -16,6 +18,90 @@ type Approval = (
 type Connection = { client: Client; tools: Tool[]; controller: AbortController }
 const textResult = (text: string) => ({ content: [{ type: 'text' as const, text }], details: {} })
 class McpValidationError extends Error {}
+
+/** A configured Authorization header is the user's own choice of credential; OAuth stays out. */
+export const usesOAuth = (config: McpServer): boolean =>
+  Boolean(config.url) &&
+  !Object.keys(config.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
+
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]']
+const MAX_RESPONSE = 2 * 1024 * 1024
+
+/**
+ * The only fetch an HTTP MCP transport gets. The server URL itself receives the configured
+ * headers; OAuth discovery, registration and token requests may go elsewhere, but only over
+ * HTTPS (or to this machine) and without those headers. Redirects are refused and bodies are
+ * capped everywhere.
+ */
+export function guardedFetch(config: McpServer): typeof fetch {
+  const own = new URL(config.url!).href
+  const configured = Object.keys(config.headers ?? {}).map((name) => name.toLowerCase())
+  return async (input, init) => {
+    const address = new URL(input instanceof Request ? input.url : input.toString())
+    let headers = init?.headers
+    if (address.href !== own) {
+      if (
+        address.username ||
+        address.password ||
+        !(
+          address.protocol === 'https:' ||
+          (address.protocol === 'http:' && LOOPBACK.includes(address.hostname))
+        )
+      )
+        throw new Error('MCP 不允许该地址的请求')
+      const next = new Headers(headers)
+      for (const name of configured) next.delete(name)
+      headers = next
+    }
+    const response = await fetch(input, { ...init, headers, redirect: 'error' })
+    if (!response.body) return response
+    const reader = response.body.getReader()
+    let bytes = 0
+    const body = new ReadableStream<Uint8Array>({
+      async pull(stream) {
+        try {
+          const chunk = await reader.read()
+          if (chunk.done) {
+            stream.close()
+            reader.releaseLock()
+            return
+          }
+          bytes += chunk.value.length
+          if (bytes > MAX_RESPONSE) {
+            await reader.cancel()
+            throw new Error('MCP 响应超限')
+          }
+          stream.enqueue(chunk.value)
+        } catch (error) {
+          stream.error(error)
+        }
+      },
+      cancel: (reason) => reader.cancel(reason)
+    })
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    })
+  }
+}
+
+export function httpTransport(
+  config: McpServer,
+  authProvider?: OAuthClientProvider
+): StreamableHTTPClientTransport {
+  return new StreamableHTTPClientTransport(new URL(config.url!), {
+    requestInit: { headers: config.headers, redirect: 'error' },
+    reconnectionOptions: {
+      maxRetries: 0,
+      initialReconnectionDelay: 1000,
+      maxReconnectionDelay: 1000,
+      reconnectionDelayGrowFactor: 1
+    },
+    fetch: guardedFetch(config),
+    ...(authProvider ? { authProvider } : {})
+  })
+}
 
 export class McpRuntime {
   private connections = new Map<string, Connection>()
@@ -29,7 +115,8 @@ export class McpRuntime {
     private readonly approve: Approval,
     private readonly isCurrent: (id: string, config: McpServer) => Promise<boolean> = async () =>
       true,
-    private readonly acquireMutation: (callId: string, signal?: AbortSignal) => Promise<() => void> = async () => () => {}
+    private readonly acquireMutation: (callId: string, signal?: AbortSignal) => Promise<() => void> = async () => () => {},
+    private readonly oauth?: McpTokenStore
   ) {}
   status(id: string) {
     return this.statuses.get(id) ?? { status: 'disconnected' as const, toolCount: 0 }
@@ -65,6 +152,9 @@ export class McpRuntime {
     this.connections.set(id, connection)
     this.statuses.set(id, { status: 'connecting', toolCount: 0 })
     const timeout = setTimeout(() => controller.abort(), config.timeout ?? 15000)
+    const provider = this.oauth && config.url && usesOAuth(config)
+      ? new McpOAuthProvider(this.oauth, McpTokenStore.key(id, config.url), config.oauth ?? {})
+      : undefined
     const transport = config.command
       ? new StdioClientTransport({
           command: config.command,
@@ -74,50 +164,7 @@ export class McpRuntime {
           stderr: 'ignore',
           maxBufferSize: 2 * 1024 * 1024
         })
-      : new StreamableHTTPClientTransport(new URL(config.url!), {
-          requestInit: { headers: config.headers, redirect: 'error' },
-          reconnectionOptions: {
-            maxRetries: 0,
-            initialReconnectionDelay: 1000,
-            maxReconnectionDelay: 1000,
-            reconnectionDelayGrowFactor: 1
-          },
-          fetch: async (input, init) => {
-            const address = input instanceof Request ? input.url : input.toString()
-            if (address !== config.url && new URL(address).href !== new URL(config.url!).href)
-              throw new Error('MCP 不允许跨地址请求')
-            const response = await fetch(input, { ...init, redirect: 'error' })
-            if (!response.body) return response
-            const reader = response.body.getReader()
-            let bytes = 0
-            const body = new ReadableStream<Uint8Array>({
-              async pull(stream) {
-                try {
-                  const chunk = await reader.read()
-                  if (chunk.done) {
-                    stream.close()
-                    reader.releaseLock()
-                    return
-                  }
-                  bytes += chunk.value.length
-                  if (bytes > 2 * 1024 * 1024) {
-                    await reader.cancel()
-                    throw new Error('MCP 响应超限')
-                  }
-                  stream.enqueue(chunk.value)
-                } catch (error) {
-                  stream.error(error)
-                }
-              },
-              cancel: (reason) => reader.cancel(reason)
-            })
-            return new Response(body, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
-            })
-          }
-        })
+      : httpTransport(config, provider)
     client.onclose = () => {
       controller.abort()
       if (this.connections.get(id) === connection) {
@@ -155,6 +202,10 @@ export class McpRuntime {
       await client.close().catch(() => {})
       await transport.close().catch(() => {})
       this.connections.delete(id)
+      if (provider?.required) {
+        this.statuses.set(id, { status: 'needs-auth', toolCount: 0, message: '需要登录。' })
+        throw new McpValidationError('MCP 服务器需要登录：请在设置 › MCP 中点击“登录”。')
+      }
       this.statuses.set(id, {
         status: 'error',
         toolCount: 0,
@@ -164,6 +215,22 @@ export class McpRuntime {
     } finally {
       clearTimeout(timeout)
     }
+  }
+  /** Drops one server's connection and connects it again, e.g. after signing in or out. */
+  async reconnect(id: string): Promise<boolean> {
+    if (this.disposed || !Object.hasOwn(this.servers, id)) return false
+    await this.connecting.get(id)?.catch(() => {})
+    const existing = this.connections.get(id)
+    if (existing) {
+      this.connections.delete(id)
+      existing.controller.abort()
+      await existing.client.close().catch(() => {})
+    }
+    this.statuses.delete(id)
+    return this.connect(id).then(
+      () => true,
+      () => false
+    )
   }
   async reload(servers: Record<string, McpServer>): Promise<boolean> {
     await this.close()

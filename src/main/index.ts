@@ -561,9 +561,12 @@ function forwardEvent(event: DesktopEvent): void {
   if (event.event === 'open-external') {
     try {
       const target = new URL(event.data.url)
-      if (target.protocol === 'https:' && AUTH_EXTERNAL_HOSTS.has(target.hostname)) {
-        void shell.openExternal(target.toString())
-      }
+      // MCP authorization pages belong to servers the user trusted and asked to sign in to.
+      const allowed = event.data.mcp
+        ? !target.username && !target.password &&
+          (target.protocol === 'https:' || (target.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)))
+        : target.protocol === 'https:' && AUTH_EXTERNAL_HOSTS.has(target.hostname)
+      if (allowed) void shell.openExternal(target.toString())
     } catch {
       // Ignore malformed provider URLs rather than handing them to the OS.
     }

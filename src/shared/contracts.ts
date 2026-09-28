@@ -564,7 +564,7 @@ export type HostResponse =
 export type HostEvent =
   | { type: 'event'; event: 'snapshot'; data: AgentSnapshot }
   | { type: 'event'; event: 'patch'; data: AgentStatePatch }
-  | { type: 'event'; event: 'open-external'; data: { url: string } }
+  | { type: 'event'; event: 'open-external'; data: { url: string; mcp?: true } }
 
 export type HostMessage = HostResponse | HostEvent
 

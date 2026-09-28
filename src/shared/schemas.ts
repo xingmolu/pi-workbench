@@ -2,7 +2,7 @@ import { navigationLibrarySchema } from './navigation-library'
 import { z } from 'zod'
 import { sessionSearchCommandSchema, projectSearchCommandSchema, sessionSearchResultSchema, projectSearchResultSchema } from './session-search'
 import { skillsListSchema, skillsDetailSchema, skillsCatalogSchema, skillDetailSchema } from './skills'
-import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpSnapshotSchema } from './mcp'
+import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpLoginSchema, mcpLogoutSchema, mcpSnapshotSchema } from './mcp'
 import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
 import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
 import {
@@ -654,7 +654,7 @@ const endpointSaveCommandSchema = z
 const commandSchemas = [
   sessionSearchCommandSchema, projectSearchCommandSchema,
   skillsListSchema, skillsDetailSchema,
-  mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema,
+  mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpLoginSchema, mcpLogoutSchema,
   accountQuotaCommandSchema,
   messageFeedbackCommandSchema,
   checkpointPlanCommandSchema,
@@ -704,6 +704,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   mcpSaveSchema.extend(requestIdShape),
   mcpToggleSchema.extend(requestIdShape),
   mcpReloadSchema.extend(requestIdShape),
+  mcpLoginSchema.extend(requestIdShape),
+  mcpLogoutSchema.extend(requestIdShape),
   accountQuotaCommandSchema.extend(requestIdShape),
   messageFeedbackCommandSchema.extend(requestIdShape),
   checkpointPlanCommandSchema.extend(requestIdShape),
@@ -814,7 +816,7 @@ export const hostEventSchema: z.ZodType<HostEvent> = z.discriminatedUnion('event
     .object({
       type: z.literal('event'),
       event: z.literal('open-external'),
-      data: z.object({ url: z.string() }).strict()
+      data: z.object({ url: z.string(), mcp: z.literal(true).optional() }).strict()
     })
     .strict()
 ])

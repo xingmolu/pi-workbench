@@ -15,6 +15,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'mcp:save':
     case 'mcp:toggle':
     case 'mcp:reload':
+    case 'mcp:login':
+    case 'mcp:logout':
       return 'mcp'
     case 'account:quota':
       return 'account-quota'

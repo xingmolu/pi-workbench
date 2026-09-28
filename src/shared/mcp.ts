@@ -46,11 +46,25 @@ export const mcpServerSchema = z
       .refine((value) => Object.values(value).every((item) => !/[\r\n\0]/.test(item)))
       .optional(),
     disabled: z.boolean().optional(),
-    timeout: z.number().int().min(1000).max(60000).optional()
+    timeout: z.number().int().min(1000).max(60000).optional(),
+    /** Optional OAuth client settings; without them the server's own discovery and registration are used. */
+    oauth: z
+      .object({
+        clientId: z.string().min(1).max(512).optional(),
+        clientSecret: z.string().min(1).max(8192).optional(),
+        scope: z.string().min(1).max(1024).optional(),
+        redirectPort: z.number().int().min(1024).max(65535).optional()
+      })
+      .strict()
+      .optional()
   })
   .strict()
   .refine((value) => Boolean(value.command) !== Boolean(value.url), '选择命令或 URL')
-  .refine((value) => (value.command ? !value.headers : !value.args && !value.env), '传输配置不匹配')
+  .refine(
+    (value) => (value.command ? !value.headers && !value.oauth : !value.args && !value.env),
+    '传输配置不匹配'
+  )
+  .refine((value) => !value.oauth?.clientSecret || value.oauth.clientId, '客户端密钥需要客户端 ID')
 export type McpServer = z.infer<typeof mcpServerSchema>
 export const mcpSummarySchema = z
   .object({
@@ -62,6 +76,16 @@ export const mcpSummarySchema = z
     timeout: z.number().optional(),
     envKeys: z.array(z.string()).max(32),
     headerKeys: z.array(z.string()).max(32),
+    oauth: z
+      .object({
+        clientId: z.string().max(512).optional(),
+        scope: z.string().max(1024).optional(),
+        redirectPort: z.number().int().optional(),
+        hasSecret: z.boolean(),
+        authorized: z.boolean()
+      })
+      .strict()
+      .optional(),
     enabled: z.boolean(),
     editable: z.boolean(),
     status: z.enum([
@@ -71,6 +95,8 @@ export const mcpSummarySchema = z
       'disconnected',
       'connecting',
       'connected',
+      'needs-auth',
+      'authorizing',
       'error'
     ]),
     toolCount: z.number().int().min(0).max(128),
@@ -113,9 +139,18 @@ export const mcpToggleSchema = z
   })
   .strict()
 export const mcpReloadSchema = z.object({ type: z.literal('mcp:reload'), ...identity }).strict()
+/** Browser sign-in for an enabled HTTP server; answers at once while the login runs. */
+export const mcpLoginSchema = z
+  .object({ type: z.literal('mcp:login'), ...identity, id: mcpIdSchema })
+  .strict()
+export const mcpLogoutSchema = z
+  .object({ type: z.literal('mcp:logout'), ...identity, id: mcpIdSchema })
+  .strict()
 export type McpCommand =
   | z.infer<typeof mcpListSchema>
   | z.infer<typeof mcpShutdownSchema>
   | z.infer<typeof mcpSaveSchema>
   | z.infer<typeof mcpToggleSchema>
   | z.infer<typeof mcpReloadSchema>
+  | z.infer<typeof mcpLoginSchema>
+  | z.infer<typeof mcpLogoutSchema>

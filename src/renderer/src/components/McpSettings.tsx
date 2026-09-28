@@ -29,6 +29,10 @@ type Form = {
   url: string
   timeout: number
   secrets: string
+  clientId: string
+  clientSecret: string
+  scope: string
+  redirectPort: string
   enabled: boolean
   confirmed: boolean
 }
@@ -41,18 +45,30 @@ const emptyForm = (): Form => ({
   url: '',
   timeout: 30000,
   secrets: '',
+  clientId: '',
+  clientSecret: '',
+  scope: '',
+  redirectPort: '',
   enabled: false,
   confirmed: false
 })
 const labels: Record<McpSummary['status'], string> = {
   connected: '已连接',
   connecting: '连接中',
+  'needs-auth': '需要登录',
+  authorizing: '登录中',
   error: '连接失败',
   disconnected: '未连接',
   disabled: '已停用',
   untrusted: '待确认启用',
   unsupported: '高级配置只读'
 }
+/** HTTP servers sign in with OAuth unless the user supplied their own Authorization header. */
+const signsIn = (server: McpSummary): boolean =>
+  server.transport === 'http' &&
+  server.enabled &&
+  Boolean(server.oauth) &&
+  !server.headerKeys.some((key) => key.toLowerCase() === 'authorization')
 function parseSecrets(text: string): Record<string, string> | undefined {
   if (!text.trim()) return undefined
   const entries = text
@@ -119,6 +135,22 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       lock.current = false
     }
   }, [])
+  // A browser sign-in finishes outside the app; follow it quietly until it settles.
+  const authorizing = catalog?.servers.some((server) => server.status === 'authorizing')
+  useEffect(() => {
+    if (!authorizing) return
+    const timer = window.setInterval(() => {
+      if (lock.current) return
+      const attempt = epoch.current
+      void window.pi
+        .send({ type: 'mcp:list' })
+        .then((response) => {
+          if (attempt === epoch.current && !lock.current) setCatalog(response.result)
+        })
+        .catch(() => {})
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [authorizing])
   const edit = (server: McpSummary): void => {
     const next: Form = {
       id: server.id,
@@ -129,6 +161,10 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       url: server.url ?? '',
       timeout: server.timeout ?? 30000,
       secrets: '',
+      clientId: server.oauth?.clientId ?? '',
+      clientSecret: '',
+      scope: server.oauth?.scope ?? '',
+      redirectPort: server.oauth?.redirectPort ? String(server.oauth.redirectPort) : '',
       enabled: server.enabled,
       confirmed: false
     }
@@ -141,6 +177,12 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
     if (!form || !catalog || lock.current) return
     try {
       const secrets = parseSecrets(form.secrets)
+      const oauth = {
+        ...(form.clientId.trim() ? { clientId: form.clientId.trim() } : {}),
+        ...(form.clientId.trim() && form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+        ...(form.scope.trim() ? { scope: form.scope.trim() } : {}),
+        ...(form.redirectPort.trim() ? { redirectPort: Number(form.redirectPort) } : {})
+      }
       const server = mcpServerSchema.parse({
         timeout: form.timeout,
         ...(form.transport === 'stdio'
@@ -149,13 +191,17 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
               args: form.args ? form.args.split('\n') : [],
               ...(secrets ? { env: secrets } : {})
             }
-          : { url: form.url, ...(secrets ? { headers: secrets } : {}) })
+          : {
+              url: form.url,
+              ...(secrets ? { headers: secrets } : {}),
+              ...(Object.keys(oauth).length ? { oauth } : {})
+            })
       })
       if (form.enabled && !form.confirmed) {
         setError('启用前请确认本机执行与网络访问风险。')
         return
       }
-      setForm({ ...form, secrets: '' })
+      setForm({ ...form, secrets: '', clientSecret: '' })
       void run({
         type: 'mcp:save',
         ...identity,
@@ -167,7 +213,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       })
     } catch {
       setError(
-        '配置无效。检查名称、命令/URL、超时及 KEY=value 格式；HTTP 仅支持 HTTPS 或本机地址。'
+        '配置无效。检查名称、命令/URL、超时、OAuth 端口及 KEY=value 格式；HTTP 仅支持 HTTPS 或本机地址。'
       )
     }
   }
@@ -373,6 +419,84 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             </div>
           </div>
 
+          {form.transport === 'http' && (
+            <div className="mcp-form-group">
+              <p className="mcp-form-group-title">OAuth 登录</p>
+              <details
+                className="mcp-form-card mcp-oauth"
+                open={Boolean(form.clientId || form.scope || form.redirectPort)}
+              >
+                <summary>
+                  需要登录的服务会自动发现授权服务器并注册客户端；只有服务方要求时才填写下面的项目。
+                </summary>
+                <label className="mcp-field">
+                  <span>客户端 ID</span>
+                  <input
+                    aria-label="客户端 ID"
+                    className="is-mono"
+                    value={form.clientId}
+                    disabled={pending}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="留空则自动注册"
+                    onChange={(event) =>
+                      setForm({ ...form, clientId: event.target.value, confirmed: false })
+                    }
+                  />
+                </label>
+                {form.clientId.trim() && (
+                  <label className="mcp-field">
+                    <span>客户端密钥</span>
+                    <input
+                      aria-label="客户端密钥"
+                      type="password"
+                      className="is-mono"
+                      value={form.clientSecret}
+                      disabled={pending}
+                      autoComplete="off"
+                      placeholder="留空保留已有值；公开客户端不需要"
+                      onChange={(event) =>
+                        setForm({ ...form, clientSecret: event.target.value, confirmed: false })
+                      }
+                    />
+                  </label>
+                )}
+                <label className="mcp-field">
+                  <span>授权范围</span>
+                  <input
+                    aria-label="授权范围"
+                    className="is-mono"
+                    value={form.scope}
+                    disabled={pending}
+                    spellCheck={false}
+                    placeholder="留空使用服务器声明的范围"
+                    onChange={(event) =>
+                      setForm({ ...form, scope: event.target.value, confirmed: false })
+                    }
+                  />
+                </label>
+                <label className="mcp-field is-inline">
+                  <span>回调端口</span>
+                  <input
+                    aria-label="回调端口"
+                    inputMode="numeric"
+                    pattern="[0-9]{4,5}"
+                    value={form.redirectPort}
+                    disabled={pending}
+                    placeholder="自动"
+                    onChange={(event) =>
+                      setForm({ ...form, redirectPort: event.target.value, confirmed: false })
+                    }
+                  />
+                </label>
+                <small className="mcp-oauth-note">
+                  登录时会在浏览器打开授权页，并通过 http://127.0.0.1:端口/callback
+                  接收结果；预先注册的客户端需要固定端口。令牌保存在权限受限的本地文件中。
+                </small>
+              </details>
+            </div>
+          )}
+
           <div className="mcp-form-group">
             <div className="mcp-form-card">
               <label className="mcp-toggle">
@@ -502,9 +626,34 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                         {server.headerKeys.length
                           ? ` · 请求头：${server.headerKeys.join(', ')}`
                           : ''}
+                        {signsIn(server) && server.oauth?.authorized ? ' · 已登录' : ''}
                       </small>
                     </div>
                     <div className="mcp-row-actions">
+                      {signsIn(server) &&
+                        (server.oauth?.authorized && server.status !== 'needs-auth' ? (
+                          <button
+                            className="mcp-button is-quiet"
+                            type="button"
+                            disabled={!editable}
+                            onClick={() =>
+                              void run({ type: 'mcp:logout', ...identity, id: server.id })
+                            }
+                          >
+                            退出登录
+                          </button>
+                        ) : (
+                          <button
+                            className={`mcp-button${server.status === 'needs-auth' ? ' is-primary' : ''}`}
+                            type="button"
+                            disabled={pending || unknown || !!blocked}
+                            onClick={() =>
+                              void run({ type: 'mcp:login', ...identity, id: server.id })
+                            }
+                          >
+                            {server.status === 'authorizing' ? '重新打开登录' : '登录'}
+                          </button>
+                        ))}
                       <button
                         className="mcp-button is-quiet"
                         type="button"
@@ -579,7 +728,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
         </>
       )}
       <p className="mcp-footnote">
-        当前支持文本工具；不支持 MCP Apps、资源与提示模板、远程 OAuth 或 JSON
+        当前支持文本工具；远程服务可以通过浏览器 OAuth 登录。不支持 MCP Apps、资源与提示模板或 JSON
         批量导入。服务报错不会显示为成功；停止工具调用会关闭连接，可以随时重新连接。
       </p>
     </section>
