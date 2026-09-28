@@ -3767,6 +3767,39 @@ button.send:disabled {
   font-size: 10px;
   line-height: 1.5;
 }
+.terminal-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-tertiary);
+}
+.terminal-search input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+}
+.terminal-search input:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.terminal-search input[aria-invalid='true'] {
+  border-color: var(--danger-border);
+}
+.terminal-search-status {
+  color: var(--danger-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .terminal-emulator-stage {
   flex: 1;
   min-height: 0;

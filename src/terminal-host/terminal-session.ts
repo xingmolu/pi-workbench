@@ -15,8 +15,20 @@ export type PtyPort = {
   write(data: string | Buffer): void
   resize(cols: number, rows: number): void
   kill(signal: string): void
+  /** Bytes written but not yet taken by the shell, when the PTY can tell. */
+  pendingWriteBytes?(): number
+  /** Name of the foreground process, when the PTY can tell. */
+  readonly process?: string
 }
-type Options = { spawn(): PtyPort; emit(event: TerminalEvent): void; closeTimeoutMs?: number }
+type Options = {
+  spawn(): PtyPort
+  emit(event: TerminalEvent): void
+  closeTimeoutMs?: number
+  /** The shell's own name; any other foreground process means a program is running. */
+  shellName?: string
+  /** How often to look at the foreground process. */
+  foregroundPollMs?: number
+}
 
 export class TerminalSession {
   private pty?: PtyPort
@@ -29,9 +41,8 @@ export class TerminalSession {
   private closing?: Promise<void>
   private finishClose?: () => void
   private closingTimer?: ReturnType<typeof setTimeout>
-  private inputLifetime = 0
-  private inputWrites = 0
   private disposables: { dispose(): void }[] = []
+  private foregroundTimer?: ReturnType<typeof setInterval>
   readonly metadata: TerminalMetadata
   constructor(
     identity: TerminalIdentity & { cols: number; rows: number },
@@ -85,6 +96,8 @@ export class TerminalSession {
         this.metadata.signal = signal ?? null
         this.metadata.state = this.metadata.failure ? 'failed' : 'exited'
         clearTimeout(this.closingTimer)
+        clearInterval(this.foregroundTimer)
+        this.metadata.busy = false
         this.finishClose?.()
         this.disposables.forEach((d) => d.dispose())
         this.disposables = []
@@ -95,7 +108,34 @@ export class TerminalSession {
     this.pty.pause()
     if (!this.metadata.exitConfirmed && !this.metadata.failure)
       this.metadata.state = this.metadata.connection === 'management' ? 'degraded' : 'running'
+    this.watchForeground()
     this.state()
+  }
+  /** Tracks whether a program other than the shell holds the terminal, e.g. `npm run dev`. */
+  private watchForeground(): void {
+    const shell = this.options.shellName
+    let supported = false
+    try {
+      supported = typeof this.pty?.process === 'string'
+    } catch {
+      /* A PTY that cannot name its foreground process leaves busy unknown. */
+    }
+    if (!shell || !supported || this.metadata.exitConfirmed) return
+    this.metadata.busy = false
+    const check = (): void => {
+      let name: string
+      try {
+        name = (this.pty?.process ?? '').split('/').pop()!.replace(/^-/, '')
+      } catch {
+        return
+      }
+      const busy = name !== '' && name !== shell
+      if (busy === this.metadata.busy) return
+      this.metadata.busy = busy
+      this.state()
+    }
+    this.foregroundTimer = setInterval(check, this.options.foregroundPollMs ?? 1000)
+    this.foregroundTimer.unref?.()
   }
   command(value: unknown): boolean {
     const parsed = terminalCommandSchema.safeParse(value)
@@ -151,15 +191,12 @@ export class TerminalSession {
     if (command.type === 'input') {
       const bytes =
         command.encoding === 'binary' ? command.data.length : Buffer.byteLength(command.data)
-      if (
-        this.inputLifetime + bytes > LIMIT.inputLifetime ||
-        this.inputWrites >= LIMIT.inputWrites
-      ) {
+      // Bound only what the shell has not read: a long-lived session may type forever,
+      // but a shell that stops reading must not grow the native queue without limit.
+      if ((this.pty?.pendingWriteBytes?.() ?? 0) + bytes > LIMIT.inputQueue) {
         this.fail('input-limit')
         return false
       }
-      this.inputLifetime += bytes
-      this.inputWrites++
       this.pty?.write(
         command.encoding === 'binary' ? Buffer.from(command.data, 'binary') : command.data
       )
@@ -193,6 +230,7 @@ export class TerminalSession {
     this.closing = new Promise((resolve) => {
       this.finishClose = resolve
     })
+    clearInterval(this.foregroundTimer)
     this.pty?.pause()
     this.state()
     this.closingTimer = setTimeout(() => {

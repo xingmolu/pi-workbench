@@ -697,8 +697,10 @@ function Composer({
   const prefill = useComposerPrefill((state) => state.pending)
   useEffect(() => {
     if (!prefill) return
-    const text = useComposerPrefill.getState().consume()
-    if (!text || !canCompose || editOpen || submitting) return
+    const mode = useComposerPrefill.getState().mode
+    const request = useComposerPrefill.getState().consume()
+    if (!request || !canCompose || editOpen || submitting) return
+    const text = mode === 'append' && draft.trim() ? `${draft.replace(/\s+$/u, '')}\n\n${request}` : request
     setDraft(text)
     requestAnimationFrame(() => {
       const input = textarea.current

@@ -265,6 +265,8 @@ export class TerminalManager {
       )
         return
       t.exitConfirmed = event.terminal.exitConfirmed
+      if (event.terminal.busy === undefined) delete t.busy
+      else t.busy = event.terminal.busy
       t.exitCode = event.terminal.exitCode
       t.signal = event.terminal.signal
       t.cols = event.terminal.cols

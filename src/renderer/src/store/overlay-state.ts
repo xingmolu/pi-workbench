@@ -9,6 +9,10 @@ type OverlayState = {
   fileSearchRevision: number
   requestFileSearch: (cwd: string) => void
   consumeFileSearch: (revision: number) => void
+  /** A project-relative file to show in the Files panel, e.g. a path clicked in the terminal. */
+  fileOpen: { cwd: string; path: string; revision: number } | null
+  requestFileOpen: (cwd: string, path: string) => void
+  consumeFileOpen: (revision: number) => void
 }
 /** One owner for app dialogs; native visibility ORs this with resize/local-menu suspension. */
 export const createOverlayState = () =>
@@ -16,6 +20,7 @@ export const createOverlayState = () =>
     active: null,
     fileSearch: null,
     fileSearchRevision: 0,
+    fileOpen: null,
     open: (active) => {
       if (get().active && get().active !== active) return false
       set({ active })
@@ -30,6 +35,13 @@ export const createOverlayState = () =>
     },
     consumeFileSearch: (revision) => {
       if (get().fileSearch?.revision === revision) set({ fileSearch: null })
+    },
+    requestFileOpen: (cwd, path) => {
+      const revision = get().fileSearchRevision + 1
+      set({ fileOpen: { cwd, path, revision }, fileSearchRevision: revision })
+    },
+    consumeFileOpen: (revision) => {
+      if (get().fileOpen?.revision === revision) set({ fileOpen: null })
     }
   }))
 export const useOverlayState = createOverlayState()

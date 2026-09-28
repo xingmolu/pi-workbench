@@ -200,27 +200,29 @@ test('project switching keeps input ownership, Ctrl-C interrupts, exit allows ex
   await page.getByRole('button', { name: '新建替代终端' }).click()
   await page.getByRole('button', { name: '确认结束并新建' }).click()
   await expect(page.locator('.terminal-status')).toContainText('运行中')
-  await page.getByRole('button', { name: '关闭终端', exact: true }).click()
-  await page.getByRole('button', { name: '确认结束', exact: true }).dblclick()
+  // An idle shell closes without a prompt, and a double activation is still safe.
+  await page.getByRole('button', { name: '关闭终端', exact: true }).dblclick()
   await expect(page.getByText('尚未创建终端')).toBeVisible()
 })
 
 test('dangerous paste is previewed before any bytes, canceled on context changes, and oversized input is rejected', async () => {
   await create()
-  await paste("printf 'DANGER\\n'\r")
+  // An escape could end the shell's bracketed paste early, so it is always previewed.
+  await paste("printf 'DANGER\\n'\x1b[201~\r")
   await expect(page.getByRole('dialog', { name: '确认粘贴' })).toBeVisible()
   await expect(screen()).not.toContainText('DANGER')
   await page.getByRole('button', { name: '取消', exact: true }).click()
   await command("printf '%s%s\\n' 'CANCEL_' 'OK'")
   await expect(screen()).toContainText('CANCEL_OK')
   await expect(screen()).not.toContainText('DANGER')
-  await paste('x'.repeat(8193))
-  await expect(page.getByRole('alert')).toContainText('超过 8 KiB')
+  await paste('x'.repeat(1024 * 1024 + 1))
+  await expect(page.getByRole('alert')).toContainText('超过 1 MiB')
+  // zsh has bracketed paste on: plain multi-line text lands in the editor without running.
   await paste("printf '%s%s\\n' 'PASTE_' 'OK'\r")
-  await page.getByRole('button', { name: '确认粘贴', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await input().press('Enter')
   await expect(screen()).toContainText('PASTE_OK')
-  await paste('never\n')
+  await paste('never\x1b\n')
   await openWorkbenchTool(page, '文件')
   await openWorkbenchTool(page, '终端')
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -240,7 +242,7 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
     }
   })
   await create()
-  await paste('not_sent\n')
+  await paste('not_sent\x1b\n')
   const cancel = page.getByRole('button', { name: '取消', exact: true })
   const confirm = page.getByRole('button', { name: '确认粘贴', exact: true })
   await expect(cancel).toBeFocused()
@@ -253,7 +255,7 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(input()).toBeFocused()
-  await paste('echo ready\n')
+  await paste('echo ready\x1b\n')
   await page.getByRole('button', { name: '确认粘贴', exact: true }).click()
   await expect(input()).toBeFocused()
   await input().press('Control+c')
@@ -268,7 +270,6 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
   await page.getByRole('button', { name: '确认结束并新建' }).click()
   await expect(input()).toBeFocused()
   await page.getByRole('button', { name: '关闭终端', exact: true }).click()
-  await page.getByRole('button', { name: '确认结束', exact: true }).click()
   await expect(page.getByRole('button', { name: '新建终端', exact: true })).toBeFocused()
   expect(await page.evaluate(() => JSON.parse(document.body.dataset.focusProbe ?? '[]'))).toEqual([
     false
@@ -346,7 +347,6 @@ test('hidden real parser consumes a MiB burst without truncation and leaves both
   await expect(page.getByRole('alert')).toHaveCount(0)
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: '关闭终端', exact: true }).click()
-    await page.getByRole('button', { name: '确认结束', exact: true }).click()
     await expect(page.locator('.terminal-pane').getByRole('tab')).toHaveCount(1 - i)
   }
   const listed = await page.evaluate(

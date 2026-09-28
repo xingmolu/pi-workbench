@@ -1,7 +1,8 @@
-import { spawn } from 'node-pty'
+import { spawn, type IPty } from 'node-pty'
 import { isAbsolute } from 'node:path'
 import { terminalHostCommandSchema, TERMINAL_LIMITS, type TerminalEvent } from '../shared/terminal'
 import { TerminalSession } from './terminal-session'
+import { shellArgs, shellName, terminalEnvironment } from '../shared/terminal-shell'
 
 // This entry is only launched by Main. There is no agent/plugin/renderer endpoint.
 const parent = process.parentPort
@@ -9,23 +10,21 @@ if (!parent) throw new Error('Terminal Host requires its Main parent')
 const sessions = new Map<string, TerminalSession>()
 let shuttingDown = false
 const fixture = process.argv.includes('--isolated-terminal-fixture')
-const shell = process.env.SHELL && isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh'
-const env: Record<string, string> = { TERM: 'xterm-256color', TERM_PROGRAM: 'PiDesktop' }
-for (const key of [
-  'HOME',
-  'USER',
-  'LOGNAME',
-  'SHELL',
-  'PATH',
-  'TMPDIR',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE'
-]) {
-  const value = process.env[key]
-  if (value) env[key] = value
+// Main resolved the shell and built the environment; the host only drops its own runtime.
+const shell = process.env.SHELL && isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
+const env = terminalEnvironment(process.env, { shell })
+const args = shellArgs(shell, fixture)
+
+/** Bytes node-pty has queued for the shell but not yet written, read defensively. */
+function pendingWriteBytes(pty: IPty): number {
+  const queue = (pty as unknown as { _writeStream?: { _writeQueue?: unknown } })._writeStream
+    ?._writeQueue
+  if (!Array.isArray(queue)) return 0
+  let total = 0
+  for (const task of queue as { buffer?: { byteLength?: number }; offset?: number }[])
+    total += Math.max(0, (task.buffer?.byteLength ?? 0) - (task.offset ?? 0))
+  return total
 }
-if (fixture) env.ZDOTDIR = env.HOME
 const emit = (event: TerminalEvent): void => parent.postMessage(event)
 
 parent.on('message', ({ data }: { data: unknown }) => {
@@ -50,8 +49,9 @@ parent.on('message', ({ data }: { data: unknown }) => {
       return
     const session = new TerminalSession(command, {
       emit,
-      spawn: () =>
-        spawn(shell, fixture ? ['-f'] : ['-l'], {
+      shellName: shellName(shell),
+      spawn: () => {
+        const pty = spawn(shell, args, {
           name: 'xterm-256color',
           cols: command.cols,
           rows: command.rows,
@@ -60,6 +60,8 @@ parent.on('message', ({ data }: { data: unknown }) => {
           encoding: 'utf8',
           handleFlowControl: false
         })
+        return Object.assign(pty, { pendingWriteBytes: () => pendingWriteBytes(pty) })
+      }
     })
     // Registry precedes native start; immediate output/exit belongs to this identity.
     sessions.set(command.terminalId, session)

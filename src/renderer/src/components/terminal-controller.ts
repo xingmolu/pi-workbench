@@ -1,5 +1,7 @@
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ILink } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { TERMINAL_THEMES } from './terminal-theme'
 import type { TerminalIdentity, TerminalMetadata, TerminalEvent } from '../../../shared/terminal'
 
@@ -11,10 +13,41 @@ export const terminalIdentity = (t: TerminalIdentity): TerminalIdentity => ({
 })
 export const terminalKey = (t: TerminalIdentity): string =>
   `${t.projectPath}:${t.terminalId}:${t.generation}:${t.connectionEpoch}`
-export function pasteSafety(text: string): 'empty' | 'oversized' | 'confirm' | 'safe' {
+/** Largest paste sent to a shell; beyond it an accident is likelier than intent. */
+export const PASTE_LIMIT = 1024 * 1024
+/**
+ * Plain multi-line text is safe when the shell has bracketed paste on: it arrives as one
+ * paste and runs nothing until the user presses Enter. Without it, a newline executes; and
+ * other controls (escapes, NUL, DEL, C1) always ask first because they can end the bracket.
+ */
+export function pasteSafety(
+  text: string,
+  bracketed = false
+): 'empty' | 'oversized' | 'confirm' | 'safe' {
   if (!text) return 'empty'
-  if (new TextEncoder().encode(text).length > 8192) return 'oversized'
-  return /[\x00-\x1f\x7f-\x9f]/u.test(text) ? 'confirm' : 'safe'
+  if (new TextEncoder().encode(text).length > PASTE_LIMIT) return 'oversized'
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/u.test(text)) return 'confirm'
+  if (/[\r\n]/u.test(text) && !bracketed) return 'confirm'
+  return 'safe'
+}
+
+/** Splits input into pieces the input channel accepts, never inside a character. */
+export function inputChunks(data: string, encoding: 'utf8' | 'binary', limit = 16 * 1024): string[] {
+  const chunks: string[] = []
+  let current = ''
+  let bytes = 0
+  for (const character of data) {
+    const size = encoding === 'binary' ? character.length : new TextEncoder().encode(character).length
+    if (bytes + size > limit && current) {
+      chunks.push(current)
+      current = ''
+      bytes = 0
+    }
+    current += character
+    bytes += size
+  }
+  if (current) chunks.push(current)
+  return chunks
 }
 export function displayTitle(text: string): string {
   return [...text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu, '')]
@@ -27,6 +60,44 @@ export function pastePreview(text: string): string {
     (c) => `⟨U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}⟩`
   )
 }
+/** Monospace fonts in order of likely availability on macOS, Windows and Linux. */
+export const TERMINAL_FONT =
+  '"SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'
+
+/**
+ * File references in a line of output, such as `src/cart.ts:12` or an absolute path inside
+ * the project. A reference needs a slash or a line number, so plain words and versions stay
+ * text. Paths outside the project are ignored. Columns are 0-based code-unit offsets.
+ */
+export function findFileLinks(
+  line: string,
+  projectPath: string
+): { start: number; end: number; path: string; line?: number }[] {
+  const root = projectPath.replace(/\/+$/, '')
+  const pattern =
+    /(?<![\w@./-])((?:\.{1,2}\/|\/)?(?:[\w@.-]+\/)*[\w@-][\w@.-]*\.[A-Za-z][A-Za-z0-9]{0,9})(?::(\d+))?(?::\d+)?/g
+  const links: { start: number; end: number; path: string; line?: number }[] = []
+  for (const match of line.matchAll(pattern)) {
+    const raw = match[1]
+    const lineNumber = match[2] ? Number(match[2]) : undefined
+    if (!raw.includes('/') && lineNumber === undefined) continue
+    let path = raw
+    if (path.startsWith('/')) {
+      if (!path.startsWith(`${root}/`)) continue
+      path = path.slice(root.length + 1)
+    }
+    path = path.replace(/^\.\//, '')
+    if (path.startsWith('../') || path.split('/').includes('..')) continue
+    links.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      path,
+      ...(lineNumber === undefined ? {} : { line: lineNumber })
+    })
+  }
+  return links
+}
+
 export type TerminalEntry = {
   metadata: TerminalMetadata
   title: string
@@ -36,9 +107,20 @@ export type TerminalEntry = {
 type Instance = {
   terminal: Terminal
   fit: FitAddon
+  search: SearchAddon
   element: HTMLDivElement
   cancelComposition: () => void
   dispose: () => void
+}
+/** Kept under Main's per-second input limits (64 KiB, 128 commands) with room to spare. */
+const INPUT_BUDGET = { bytes: 56 * 1024, calls: 110 }
+type Outbox = {
+  identity: TerminalIdentity
+  queue: { data: string; encoding: 'utf8' | 'binary' }[]
+  pumping: boolean
+  windowStart: number
+  bytes: number
+  calls: number
 }
 export type TerminalPrompt = {
   kind: 'paste' | 'close' | 'recreate'
@@ -80,9 +162,11 @@ export class TerminalController {
   private listRevision = 0
   private frame = 0
   private earlyStates = new Map<string, TerminalMetadata>()
+  private outboxes = new Map<string, Outbox>()
   constructor(
     private stage: HTMLDivElement,
-    private changed: () => void
+    private changed: () => void,
+    private actions: { openFile?: (projectPath: string, path: string) => void } = {}
   ) {
     this.unsubscribe = window.pi.onTerminalEvent((event) => this.event(event))
   }
@@ -275,17 +359,45 @@ export class TerminalController {
       rows: entry.metadata.rows,
       scrollback: 2000,
       fontSize: 12,
-      fontFamily: 'Menlo, Monaco, monospace',
+      fontFamily: TERMINAL_FONT,
       cursorBlink: true,
       macOptionIsMeta: true,
       convertEol: false,
       screenReaderMode: true,
       theme: TERMINAL_THEMES[this.theme],
-      linkHandler: { activate: () => {} }
+      // OSC 8 hyperlinks from programs: web addresses only, and only on a modified click.
+      linkHandler: {
+        activate: (event, uri) => {
+          if (isOpenGesture(event)) openWebLink(uri)
+        },
+        allowNonHttpProtocols: false
+      }
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
+    const search = new SearchAddon()
+    terminal.loadAddon(search)
+    terminal.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (isOpenGesture(event)) openWebLink(uri)
+      })
+    )
     terminal.open(element)
+    const projectPath = entry.metadata.projectPath
+    const fileLinks = terminal.registerLinkProvider({
+      provideLinks: (row, callback) => {
+        const text = terminal.buffer.active.getLine(row - 1)?.translateToString(true) ?? ''
+        const links: ILink[] = findFileLinks(text, projectPath).map((link) => ({
+          range: { start: { x: link.start + 1, y: row }, end: { x: link.end, y: row } },
+          text: text.slice(link.start, link.end),
+          decorations: { pointerCursor: true, underline: true },
+          activate: (event) => {
+            if (isOpenGesture(event)) this.actions.openFile?.(projectPath, link.path)
+          }
+        }))
+        callback(links.length ? links : undefined)
+      }
+    })
     let composing = false
     const compositionStart = (): void => {
       composing = true
@@ -332,17 +444,21 @@ export class TerminalController {
           !entry.metadata.exitConfirmed &&
           entry.metadata.state === 'running'
         )
-          void this.sendInput(identity, data, 'utf8')
+          this.sendInput(identity, data, 'utf8')
       }),
       terminal.onBinary((data) => {
         if (this.active(identity) && !this.prompt && this.interactive(entry.metadata))
-          void this.sendInput(identity, data, 'binary')
+          this.sendInput(identity, data, 'binary')
       }),
       terminal.onTitleChange((title) => {
         entry.title = displayTitle(title)
         this.notify()
       }),
-      terminal.parser.registerOscHandler(52, () => true)
+      terminal.parser.registerOscHandler(52, () => true),
+      terminal.onSelectionChange(() => {
+        if (this.active(identity)) this.notify()
+      }),
+      fileLinks
     ]
     const guard = (event: Event): void => {
       if (!this.active(identity) || this.prompt) {
@@ -384,6 +500,16 @@ export class TerminalController {
       }
       // Native paste events are intercepted above; Cmd+B remains an intentional app shortcut.
       if (event.metaKey && ['v', 'b'].includes(event.key.toLowerCase())) return false
+      if (
+        event.type === 'keydown' &&
+        event.key.toLowerCase() === 'f' &&
+        (event.metaKey || (event.ctrlKey && event.shiftKey))
+      ) {
+        event.preventDefault()
+        this.searchOpen = true
+        this.notify()
+        return false
+      }
       event.stopPropagation()
       return true
     })
@@ -393,6 +519,7 @@ export class TerminalController {
     this.instances.set(key, {
       terminal,
       fit,
+      search,
       element,
       cancelComposition: () => {
         // Clear pending IME text before xterm's deferred composition callback can forward it.
@@ -417,20 +544,62 @@ export class TerminalController {
       }
     })
   }
-  private async sendInput(
-    identity: TerminalIdentity,
-    data: string,
-    encoding: 'utf8' | 'binary'
-  ): Promise<void> {
+  /**
+   * Input leaves in order through one queue per terminal. Typing goes out at once; a large
+   * paste is split into accepted pieces and paced under Main's per-second budget instead of
+   * being refused. Replies are not awaited, so IPC order alone keeps keystrokes in sequence.
+   */
+  private sendInput(identity: TerminalIdentity, data: string, encoding: 'utf8' | 'binary'): void {
+    const key = terminalKey(identity)
+    let outbox = this.outboxes.get(key)
+    if (!outbox) {
+      outbox = { identity, queue: [], pumping: false, windowStart: 0, bytes: 0, calls: 0 }
+      this.outboxes.set(key, outbox)
+    }
+    for (const chunk of inputChunks(data, encoding)) outbox.queue.push({ data: chunk, encoding })
+    void this.pump(outbox)
+  }
+  private async pump(outbox: Outbox): Promise<void> {
+    if (outbox.pumping) return
+    outbox.pumping = true
     try {
-      const result = await window.pi.terminal({ type: 'input', ...identity, data, encoding })
-      if (result.type === 'unavailable') {
-        this.error = result.message
-        this.notify()
+      while (outbox.queue.length && !this.disposed) {
+        const next = outbox.queue[0]
+        const bytes =
+          next.encoding === 'binary' ? next.data.length : new TextEncoder().encode(next.data).length
+        const now = Date.now()
+        if (now - outbox.windowStart >= 1000) {
+          outbox.windowStart = now
+          outbox.bytes = 0
+          outbox.calls = 0
+        }
+        if (
+          outbox.calls > 0 &&
+          (outbox.bytes + bytes > INPUT_BUDGET.bytes || outbox.calls + 1 > INPUT_BUDGET.calls)
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, outbox.windowStart + 1000 - now + 5))
+          continue
+        }
+        outbox.queue.shift()
+        outbox.bytes += bytes
+        outbox.calls += 1
+        void window.pi
+          .terminal({ type: 'input', ...outbox.identity, data: next.data, encoding: next.encoding })
+          .then((result) => {
+            if (result.type !== 'unavailable') return
+            // Anything still queued would arrive out of context; drop it with the reason.
+            outbox.queue.length = 0
+            this.error = result.message
+            this.notify()
+          })
+          .catch(() => {
+            outbox.queue.length = 0
+            this.error = '终端输入未能送达。'
+            this.notify()
+          })
       }
-    } catch {
-      this.error = '终端输入未能送达。'
-      this.notify()
+    } finally {
+      outbox.pumping = false
     }
   }
   private event(event: TerminalEvent): void {
@@ -517,6 +686,37 @@ export class TerminalController {
       }
     })
   }
+  /** Whether the search bar is showing; the pane owns the input, the controller the matches. */
+  searchOpen = false
+  private currentInstance(): Instance | undefined {
+    return this.current ? this.instances.get(terminalKey(this.current.metadata)) : undefined
+  }
+  openSearch(): void {
+    if (!this.currentInstance()) return
+    this.searchOpen = true
+    this.notify()
+  }
+  closeSearch(): void {
+    this.searchOpen = false
+    this.currentInstance()?.terminal.clearSelection()
+    this.notify()
+    this.focus()
+  }
+  /** Finds the next or previous match; false when the text does not occur. */
+  find(term: string, backwards = false): boolean {
+    const search = this.currentInstance()?.search
+    if (!search || !term) {
+      this.currentInstance()?.terminal.clearSelection()
+      return false
+    }
+    // Matches are shown as the terminal selection, which needs no experimental xterm API.
+    return backwards ? search.findPrevious(term) : search.findNext(term)
+  }
+  /** The selected text of the visible terminal, if any. */
+  selectionText(): string {
+    const terminal = this.currentInstance()?.terminal
+    return terminal?.hasSelection() ? terminal.getSelection() : ''
+  }
   focus(): void {
     if (this.current && this.visible && !this.prompt && this.interactive(this.current.metadata))
       this.instances.get(terminalKey(this.current.metadata))?.terminal.focus()
@@ -528,9 +728,10 @@ export class TerminalController {
     const entry = this.current
     if (!entry || !this.active(entry.metadata) || !this.interactive(entry.metadata) || this.prompt)
       return
-    const safety = pasteSafety(text)
-    if (safety === 'oversized') this.error = '粘贴内容超过 8 KiB，未发送任何内容。请缩短后重试。'
-    if (safety === 'safe') this.instances.get(terminalKey(entry.metadata))?.terminal.paste(text)
+    const instance = this.instances.get(terminalKey(entry.metadata))
+    const safety = pasteSafety(text, instance?.terminal.modes.bracketedPasteMode ?? false)
+    if (safety === 'oversized') this.error = '粘贴内容超过 1 MiB，未发送任何内容。请缩短后重试。'
+    if (safety === 'safe') instance?.terminal.paste(text)
     if (safety === 'confirm') {
       this.cancelComposition()
       this.prompt = { kind: 'paste', identity: terminalIdentity(entry.metadata), text }
@@ -538,16 +739,20 @@ export class TerminalController {
     this.syncVisibility()
     this.notify()
   }
-  requestClose(recreate = false): void {
+  /** Asks before closing, or closes at once when the shell is known to be idle. */
+  requestClose(recreate = false): Promise<void> | undefined {
     if (!this.current || !this.visible || this.busy || this.current.metadata.state === 'closing')
-      return
+      return undefined
     this.cancelComposition()
     this.prompt = {
       kind: recreate ? 'recreate' : 'close',
       identity: terminalIdentity(this.current.metadata)
     }
+    // Only a shell known to be idle closes without asking; unknown still asks.
+    if (this.current.metadata.busy === false) return this.confirm()
     this.syncVisibility()
     this.notify()
+    return undefined
   }
   cancel(): void {
     this.prompt = null
@@ -626,6 +831,7 @@ export class TerminalController {
     }
   }
   private disposeInstance(key: string): void {
+    this.outboxes.delete(key)
     this.instances.get(key)?.dispose()
     this.instances.delete(key)
   }
@@ -645,5 +851,20 @@ export class TerminalController {
     this.unsubscribe()
     cancelAnimationFrame(this.frame)
     for (const key of this.instances.keys()) this.disposeInstance(key)
+  }
+}
+
+/** Links open on ⌘-click (Ctrl-click elsewhere), so selecting text never opens anything. */
+function isOpenGesture(event: MouseEvent): boolean {
+  return navigator.platform.includes('Mac') ? event.metaKey : event.ctrlKey
+}
+
+/** Web addresses go to the system browser through the window's open handler. */
+function openWebLink(uri: string): void {
+  try {
+    const url = new URL(uri)
+    if (url.protocol === 'http:' || url.protocol === 'https:') window.open(url.toString())
+  } catch {
+    /* Not a URL: ignore. */
   }
 }

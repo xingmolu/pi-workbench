@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   terminalEventSchema,
   terminalHostCommandSchema,
@@ -12,7 +12,7 @@ const identity = {
   generation: '00000000-0000-4000-8000-000000000002',
   connectionEpoch: 1
 }
-function fixture(nativeWriteThrows = false) {
+function fixture(nativeWriteThrows = false, pendingBytes?: number) {
   let data: (data: string) => void = () => undefined
   let exit: (event: { exitCode: number; signal?: number }) => void = () => undefined
   const writes: (string | Buffer)[] = []
@@ -40,7 +40,8 @@ function fixture(nativeWriteThrows = false) {
     resize() {},
     kill: (signal) => {
       signals.push(signal)
-    }
+    },
+    ...(pendingBytes === undefined ? {} : { pendingWriteBytes: () => pendingBytes })
   }
   const events: TerminalEvent[] = []
   const session = new TerminalSession(
@@ -72,20 +73,62 @@ describe('PTY session', () => {
     expect(f.signals).toEqual(['SIGHUP'])
     f.exit()
   })
-  it('bounds native input queue for a shell that never reads, across arbitrarily many rate windows', () => {
+  it('never limits a long-lived session by how much was typed over its lifetime', () => {
     const f = fixture()
     f.session.command({ type: 'attach', ...identity })
-    for (let i = 0; i < 512; i++)
+    for (let i = 0; i < 70000; i++)
+      expect(f.session.command({ type: 'input', ...identity, data: 'x' })).toBe(true)
+    for (let i = 0; i < 600; i++)
       expect(f.session.command({ type: 'input', ...identity, data: 'x'.repeat(16384) })).toBe(true)
-    expect(f.session.command({ type: 'input', ...identity, data: 'x' })).toBe(false)
+    expect(f.session.metadata.failure).toBeNull()
+    f.exit()
+  })
+  it('bounds the native input queue of a shell that stops reading', () => {
+    const f = fixture(false, 8 * 1024 * 1024 - 10)
+    f.session.command({ type: 'attach', ...identity })
+    expect(f.session.command({ type: 'input', ...identity, data: 'x'.repeat(10) })).toBe(true)
+    expect(f.session.command({ type: 'input', ...identity, data: 'x'.repeat(11) })).toBe(false)
     expect(f.session.metadata.failure).toBe('input-limit')
     f.exit()
-    const tiny = fixture()
-    tiny.session.command({ type: 'attach', ...identity })
-    for (let i = 0; i < 65536; i++) tiny.session.command({ type: 'input', ...identity, data: 'x' })
-    expect(tiny.session.command({ type: 'input', ...identity, data: 'x' })).toBe(false)
-    expect(tiny.session.metadata.failure).toBe('input-limit')
-    tiny.exit()
+  })
+  it('reports a program holding the terminal and clears it when the shell is back', async () => {
+    let foreground = 'zsh'
+    const events: TerminalEvent[] = []
+    const session = new TerminalSession(
+      { ...identity, cols: 80, rows: 24 },
+      {
+        shellName: 'zsh',
+        foregroundPollMs: 5,
+        emit: (event) => events.push(event),
+        spawn: () => ({
+          onData: () => ({ dispose() {} }),
+          onExit: () => ({ dispose() {} }),
+          pause() {},
+          resume() {},
+          write() {},
+          resize() {},
+          kill() {},
+          get process() {
+            return foreground
+          }
+        })
+      }
+    )
+    session.start()
+    expect(session.metadata.busy).toBe(false)
+    foreground = 'node'
+    await vi.waitFor(() => expect(session.metadata.busy).toBe(true))
+    foreground = '-zsh'
+    await vi.waitFor(() => expect(session.metadata.busy).toBe(false))
+    expect(
+      events.flatMap((event) => (event.type === 'state' ? [event.terminal.busy] : []))
+    ).toEqual([false, true, false])
+    void session.close()
+  })
+  it('leaves busy unknown when the PTY cannot name its foreground process', () => {
+    const f = fixture()
+    expect(f.session.metadata.busy).toBeUndefined()
+    f.exit()
   })
   it('emits schema-valid metadata when constructed from a parsed spawn envelope', () => {
     const command = terminalHostCommandSchema.parse({

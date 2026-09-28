@@ -243,6 +243,20 @@ export default function App(): React.JSX.Element {
     [acceptWorkbenchSnapshot, reportWorkbenchError]
   )
 
+  // A file path clicked in the terminal opens the Files panel on that file.
+  const fileOpen = useOverlayState((state) => state.fileOpen)
+  useEffect(() => {
+    if (!fileOpen) return
+    const files = workbenchStatus.snapshot.contributions.find(
+      (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
+    )
+    if (!files) return
+    dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
+    setWorkbenchOpen(true)
+    // Only a new request switches panels; later snapshots must not pull focus back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileOpen?.revision])
+
   const shortcuts = useRef({ newSession: () => {}, openTerminal: () => {} })
   useEffect(() => {
     let composing = false

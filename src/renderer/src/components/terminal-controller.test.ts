@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   TerminalController,
   displayTitle,
+  findFileLinks,
+  inputChunks,
   pastePreview,
   pasteSafety,
   terminalKey
@@ -27,14 +29,26 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('terminal input policy', () => {
-  it('bounds whole UTF-8 paste before forwarding and requires confirmation for every control', () => {
+  it('bounds whole UTF-8 paste at 1 MiB and asks only when a paste could run or escape', () => {
     expect(pasteSafety('中文')).toBe('safe')
-    expect(pasteSafety('中'.repeat(2731))).toBe('oversized')
-    expect(pasteSafety('x'.repeat(8192))).toBe('safe')
-    expect(pasteSafety('x'.repeat(8193))).toBe('oversized')
-    for (const text of ['a\nb', '\r', '\t', '\x1b[200~', '\0', '\x7f', '\x85'])
-      expect(pasteSafety(text)).toBe('confirm')
+    expect(pasteSafety('x'.repeat(1024 * 1024))).toBe('safe')
+    expect(pasteSafety('x'.repeat(1024 * 1024 + 1))).toBe('oversized')
+    expect(pasteSafety('中'.repeat(349526))).toBe('oversized')
+    expect(pasteSafety('tab\tseparated')).toBe('safe')
+    // Newlines run commands only when the shell has not asked for bracketed paste.
+    for (const text of ['a\nb', '\r', 'line\r\n'])
+      expect([pasteSafety(text), pasteSafety(text, true)]).toEqual(['confirm', 'safe'])
+    // Escapes, NUL, DEL and C1 controls can end a bracketed paste, so they always ask.
+    for (const text of ['\x1b[201~rm', '\0', '\x7f', '\x85'])
+      expect(pasteSafety(text, true)).toBe('confirm')
     expect(pasteSafety('')).toBe('empty')
+  })
+  it('splits input into accepted pieces without breaking a character', () => {
+    expect(inputChunks('abcdef', 'utf8', 4)).toEqual(['abcd', 'ef'])
+    expect(inputChunks('中中中', 'utf8', 7)).toEqual(['中中', '中'])
+    expect(inputChunks('😀😀', 'utf8', 5)).toEqual(['😀', '😀'])
+    expect(inputChunks('\xff\xfe\xfd', 'binary', 2)).toEqual(['\xff\xfe', '\xfd'])
+    expect(inputChunks('', 'utf8')).toEqual([])
   })
   it('renders dangerous controls visibly and limits untrusted titles without changing identity', () => {
     expect(pastePreview('echo\r\x1b\n')).toBe('echo⟨U+000D⟩⟨U+001B⟩\n')
@@ -61,6 +75,114 @@ function harness(command: (value: unknown) => Promise<TerminalResult>): {
   const controller = new TerminalController({} as HTMLDivElement, () => {})
   return { controller, event: (event) => receive(event) }
 }
+describe('file links in terminal output', () => {
+  const links = (line: string) =>
+    findFileLinks(line, '/work/shop').map(({ start, end, path, line: at }) => ({
+      text: line.slice(start, end),
+      path,
+      line: at
+    }))
+  it('finds project files with a path or a line number, relative or absolute', () => {
+    expect(links('src/cart.ts:12:5 - error TS2322')).toEqual([
+      { text: 'src/cart.ts:12:5', path: 'src/cart.ts', line: 12 }
+    ])
+    expect(links('  at total (/work/shop/src/cart.ts:4)')).toEqual([
+      { text: '/work/shop/src/cart.ts:4', path: 'src/cart.ts', line: 4 }
+    ])
+    expect(links('see ./docs/readme.md and package.json:3')).toEqual([
+      { text: './docs/readme.md', path: 'docs/readme.md', line: undefined },
+      { text: 'package.json:3', path: 'package.json', line: 3 }
+    ])
+  })
+  it('leaves words, versions, other folders and parent paths alone', () => {
+    expect(links('node v20.1.0 installed readme.md e.g. done')).toEqual([])
+    expect(links('/etc/hosts.conf ../secret/key.pem src/../../x.ts')).toEqual([])
+    expect(links('https://example.com/a/b.html')).toEqual([])
+  })
+})
+describe('terminal input delivery', () => {
+  const identity = {
+    projectPath: '/project',
+    terminalId: 'id',
+    generation: 'generation',
+    connectionEpoch: 2
+  }
+  type Send = (identity: object, data: string, encoding: 'utf8' | 'binary') => void
+  it('keeps order and paces a large paste under the per-second input budget', async () => {
+    vi.useFakeTimers()
+    const inputs: { data: string; at: number }[] = []
+    const { controller } = harness(async (value) => {
+      const command = value as { type: string; data?: string }
+      if (command.type === 'input') inputs.push({ data: command.data!, at: Date.now() })
+      return { type: 'ok' }
+    })
+    const send = (controller as unknown as { sendInput: Send }).sendInput.bind(controller)
+    send(identity, 'x'.repeat(100 * 1024), 'utf8')
+    send(identity, 'y', 'utf8')
+    await vi.advanceTimersByTimeAsync(0)
+    // 56 KiB fits in the first second; the rest waits for the next window, typing after it.
+    expect(inputs.map(({ data }) => data.length)).toEqual([16384, 16384, 16384])
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(inputs.map(({ data }) => data.length)).toEqual([
+      16384, 16384, 16384, 16384, 16384, 16384, 4096, 1
+    ])
+    expect(inputs.at(-1)!.data).toBe('y')
+    expect(
+      inputs
+        .slice(0, 6)
+        .map(({ data }) => data)
+        .join('') + inputs[6].data
+    ).toBe('x'.repeat(100 * 1024))
+    controller.dispose()
+  })
+  it('drops the rest of a paste with the reason when Main refuses a piece', async () => {
+    const inputs: string[] = []
+    const { controller } = harness(async (value) => {
+      const command = value as { type: string; data?: string }
+      if (command.type !== 'input') return { type: 'ok' }
+      inputs.push(command.data!)
+      return inputs.length === 1 ? { type: 'unavailable', message: '终端已关闭' } : { type: 'ok' }
+    })
+    const send = (controller as unknown as { sendInput: Send }).sendInput.bind(controller)
+    send(identity, 'x'.repeat(40 * 1024), 'utf8')
+    await vi.waitFor(() => expect(controller.error).toBe('终端已关闭'))
+    send(identity, 'next', 'utf8')
+    await vi.waitFor(() => expect(inputs.at(-1)).toBe('next'))
+    controller.dispose()
+  })
+})
+describe('closing an idle terminal', () => {
+  it('closes without asking when the shell is known to be idle, and asks otherwise', async () => {
+    const running = {
+      ...metadata(),
+      state: 'running' as const,
+      connection: 'consumer' as const,
+      busy: false
+    }
+    const commands: string[] = []
+    const { controller } = harness(async (value) => {
+      const command = value as { type: string }
+      commands.push(command.type)
+      if (command.type === 'list') return { type: 'list', terminals: [running] }
+      return { type: 'terminal', terminal: { ...running, state: 'closing' } }
+    })
+    await controller.context('/project', true)
+    controller.requestClose()
+    expect(controller.prompt).toBeNull()
+    await vi.waitFor(() => expect(commands).toContain('close'))
+    controller.dispose()
+
+    const busy = harness(async (value) =>
+      (value as { type: string }).type === 'list'
+        ? { type: 'list', terminals: [{ ...running, busy: true }] }
+        : { type: 'ok' }
+    )
+    await busy.controller.context('/project', true)
+    busy.controller.requestClose()
+    expect(busy.controller.prompt?.kind).toBe('close')
+    busy.controller.dispose()
+  })
+})
 describe('terminal management lifecycle', () => {
   it.each(['first', 'second', 'revisit', 'unrelated'])(
     'successful %s close dismissal clears a previously pending close on retry',

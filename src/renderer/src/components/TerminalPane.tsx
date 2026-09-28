@@ -1,7 +1,19 @@
-import { useEffect, useLayoutEffect, useReducer, useRef } from 'react'
-import { Plus, X, ClipboardPaste, TerminalSquare } from 'lucide-react'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardPaste,
+  MessageSquarePlus,
+  Plus,
+  Search,
+  TerminalSquare,
+  X
+} from 'lucide-react'
 import { TerminalController, pastePreview, terminalKey } from './terminal-controller'
 import { useResolvedTheme } from '../store/theme'
+import { useComposerPrefill } from '../store/composer-prefill'
+import { useOverlayState } from '../store/overlay-state'
+import { shortcutLabel } from './shortcut-label'
 import '@xterm/xterm/css/xterm.css'
 
 const states = {
@@ -31,8 +43,13 @@ export default function TerminalPane({
     projectPath: string | null
   } | null>(null)
   const [, render] = useReducer((n: number) => n + 1, 0)
+  const [query, setQuery] = useState('')
+  const [missing, setMissing] = useState(false)
+  const searchInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    const instance = new TerminalController(stage.current!, render)
+    const instance = new TerminalController(stage.current!, render, {
+      openFile: (project, path) => useOverlayState.getState().requestFileOpen(project, path)
+    })
     controller.current = instance
     void instance.context(projectPath, visible)
     return () => {
@@ -76,6 +93,29 @@ export default function TerminalPane({
     if (target?.isConnected && !target.disabled && target.getClientRects().length) target.focus()
     else if (newButton.current && !newButton.current.disabled) newButton.current.focus()
   })
+  const searchOpen = Boolean(c?.searchOpen)
+  useEffect(() => {
+    if (searchOpen) searchInput.current?.select()
+  }, [searchOpen])
+  const find = (backwards = false): void => {
+    if (!c) return
+    setMissing(query !== '' && !c.find(query, backwards))
+  }
+  const selection = c?.selectionText() ?? ''
+  const addToChat = (): void => {
+    const text = selection.replace(/\s+$/u, '')
+    if (!text) return
+    const clipped = text.length > 8000 ? text.slice(-8000) : text
+    const fence = clipped.includes('```') ? '~~~' : '```'
+    const heading = `终端输出${text.length > clipped.length ? '（末尾 8000 字符）' : ''}：`
+    useComposerPrefill.getState().request(`${heading}\n${fence}\n${clipped}\n${fence}`, 'append')
+  }
+  const closeTerminal = (recreate = false): void => {
+    if (!c) return
+    const revision = c.interactionRevision
+    // An idle shell closes without a prompt; focus returns as it would after confirming.
+    void c.requestClose(recreate)?.then(() => restoreFocus(revision))
+  }
   const restoreFocus = (revision: number): void => {
     if (!c || controller.current !== c) return
     focusRequest.current = { controller: c, revision, projectPath }
@@ -125,6 +165,27 @@ export default function TerminalPane({
         <button
           type="button"
           className="icon-btn"
+          aria-label="搜索终端"
+          title={`搜索终端（${shortcutLabel('F')}）`}
+          aria-pressed={searchOpen}
+          disabled={!c?.currentHasScreen}
+          onClick={() => (searchOpen ? c?.closeSearch() : c?.openSearch())}
+        >
+          <Search size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="添加到对话"
+          title={selection ? '把选中的终端输出添加到对话' : '先选中终端里的文字'}
+          disabled={!selection}
+          onClick={addToChat}
+        >
+          <MessageSquarePlus size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
           aria-label="粘贴到终端"
           title="粘贴到终端"
           disabled={!metadata || degraded || metadata.exitConfirmed || c?.busy}
@@ -159,14 +220,51 @@ export default function TerminalPane({
           disabled={!metadata || c?.busy || metadata.state === 'closing'}
           onClick={(event) => {
             focusReturn.current = event.currentTarget
-            c?.requestClose()
+            closeTerminal()
           }}
         >
           <X size={15} />
         </button>
       </div>
+      {searchOpen ? (
+        <div className="terminal-search" role="search">
+          <Search size={13} aria-hidden="true" />
+          <input
+            ref={searchInput}
+            aria-label="在终端中搜索"
+            placeholder="搜索"
+            value={query}
+            aria-invalid={missing}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setMissing(event.target.value !== '' && !c?.find(event.target.value))
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                find(event.shiftKey)
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                c?.closeSearch()
+              }
+            }}
+          />
+          {missing ? <span className="terminal-search-status">无匹配</span> : null}
+          <button type="button" className="icon-btn" aria-label="上一个匹配" onClick={() => find(true)}>
+            <ArrowUp size={13} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="下一个匹配" onClick={() => find()}>
+            <ArrowDown size={13} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="关闭搜索" onClick={() => c?.closeSearch()}>
+            <X size={13} />
+          </button>
+        </div>
+      ) : null}
       <div className="terminal-trust-note">
-        本机用户 shell · 不受 Agent Ask 审批 · 输出不会发送给模型
+        本机用户 shell · 不受 Agent 审批 · 只有你选择“添加到对话”的内容才会发给模型 ·{' '}
+        {shortcutLabel('')}点击打开链接和文件
       </div>
       {c?.error ? (
         <div className="terminal-notice is-error" role="alert">
@@ -202,7 +300,7 @@ export default function TerminalPane({
             disabled={c?.busy || metadata?.state === 'closing'}
             onClick={(event) => {
               focusReturn.current = event.currentTarget
-              c?.requestClose(true)
+              closeTerminal(true)
             }}
           >
             结束并新建
@@ -228,7 +326,7 @@ export default function TerminalPane({
             disabled={c?.busy}
             onClick={(event) => {
               focusReturn.current = event.currentTarget
-              c?.requestClose(true)
+              closeTerminal(true)
             }}
           >
             {metadata.exitConfirmed ? '新建替代终端' : '结束并新建'}

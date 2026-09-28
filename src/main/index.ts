@@ -46,10 +46,10 @@ import {
   formatTextContext
 } from '../shared/text-attachments'
 import { mkdir, mkdtemp } from 'node:fs/promises'
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type ElectronStore from 'electron-store'
@@ -89,6 +89,7 @@ import {
 } from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
+import { resolveShell, terminalEnvironment } from '../shared/terminal-shell'
 import { BrowserManager } from './browser-manager'
 import { ComputerUseService } from './computer-use-service'
 import { HostResponseBroker } from './host-response-broker'
@@ -219,24 +220,35 @@ const terminalManager = new TerminalManager({
           'Terminal fixture HOME'
         )
       : account.homedir
-    const loginShell =
-      account.shell && isAbsolute(account.shell) && !account.shell.includes('\0')
-        ? account.shell
-        : '/bin/zsh'
-    const terminalEnv: Record<string, string> = {
-      HOME: terminalHome,
-      USER: E2E_MODE ? 'terminal-fixture' : account.username,
-      LOGNAME: E2E_MODE ? 'terminal-fixture' : account.username,
-      SHELL: E2E_MODE ? '/bin/zsh' : loginShell,
-      PATH: E2E_MODE
-        ? '/usr/bin:/bin:/usr/sbin:/sbin'
-        : '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-      TMPDIR: app.getPath('temp'),
-      LANG: 'en_US.UTF-8',
-      TERM: 'xterm-256color',
-      TERM_PROGRAM: 'PiDesktop'
+    const executable = (path: string): boolean => {
+      try {
+        accessSync(path, fsConstants.X_OK)
+        return true
+      } catch {
+        return false
+      }
     }
-    if (E2E_MODE) terminalEnv.ZDOTDIR = terminalHome
+    // The isolated fixture keeps a fixed, minimal environment; real use inherits the user's.
+    const shell = resolveShell(E2E_MODE ? [] : [account.shell, process.env.SHELL], executable)
+    const terminalEnv = E2E_MODE
+      ? {
+          HOME: terminalHome,
+          USER: 'terminal-fixture',
+          LOGNAME: 'terminal-fixture',
+          SHELL: shell,
+          PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+          TMPDIR: app.getPath('temp'),
+          LANG: 'en_US.UTF-8',
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'PiDesktop',
+          ZDOTDIR: terminalHome
+        }
+      : terminalEnvironment(process.env, {
+          shell,
+          home: terminalHome,
+          version: app.getVersion()
+        })
     return new Promise((resolve, reject) => {
       const child = utilityProcess.fork(
         join(__dirname, 'terminal-host.js'),

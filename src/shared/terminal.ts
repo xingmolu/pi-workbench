@@ -12,8 +12,8 @@ export const TERMINAL_LIMITS = {
   hard: 1024 * 1024,
   input: 16 * 1024,
   inputPerSecond: 64 * 1024,
-  inputLifetime: 8 * 1024 * 1024,
-  inputWrites: 65536,
+  /** Input the PTY has accepted but the shell has not read yet. */
+  inputQueue: 8 * 1024 * 1024,
   commandsPerSecond: 128
 } as const
 
@@ -77,6 +77,8 @@ export const terminalMetadataSchema = z
     state: z.enum(['starting', 'running', 'exited', 'failed', 'degraded', 'closing']),
     connection: z.enum(['unattached', 'consumer', 'management']),
     exitConfirmed: z.boolean(),
+    /** A program other than the shell holds the terminal; absent when the host cannot tell. */
+    busy: z.boolean().optional(),
     exitCode: z.number().int().nullable(),
     signal: z.number().int().nullable(),
     failure: z

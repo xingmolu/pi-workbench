@@ -183,6 +183,7 @@ export default function FilesPane({
     })
     return () => cancelAnimationFrame(frame)
   }, [fileSearchRequest, projectPath])
+  const fileOpenRequest = useOverlayState((state) => state.fileOpen)
   const [preview, setPreview] = useState<Load<ReadResult>>({})
   const [wrap, setWrap] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -256,6 +257,13 @@ export default function FilesPane({
       }
     )
   }
+  useEffect(() => {
+    if (!fileOpenRequest || fileOpenRequest.cwd !== projectPath) return
+    useOverlayState.getState().consumeFileOpen(fileOpenRequest.revision)
+    read(fileOpenRequest.path)
+    // `read` is recreated each render; the request is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileOpenRequest, projectPath])
   const copy = async (text: string, label: string): Promise<void> => {
     clearFeedback()
     const request = copyEpoch.current
