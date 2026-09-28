@@ -238,17 +238,24 @@ const ToolNode = memo(function ToolNode({
 })
 
 const AssistantNode = memo(function AssistantNode({
-  node, snapshot, showActions
+  node, snapshot, showActions, latest = false, receipt
 }: {
   node: Extract<ConversationNode, { type: 'assistant' }>
   snapshot: AgentSnapshot
   showActions: boolean
+  /** The newest reply keeps its actions visible; older ones reveal them on hover. */
+  latest?: boolean
+  /** The turn's file changes close the reply, above its actions. */
+  receipt?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <article className={`assistant-node${node.streaming ? ' is-streaming' : ''}`}>
+    <article
+      className={`assistant-node${node.streaming ? ' is-streaming' : ''}${latest ? ' is-latest' : ''}`}
+    >
       <Markdown identity={node.id} streaming={node.streaming}>
         {node.markdown}
       </Markdown>
+      {receipt}
       {showActions ? <MessageActions node={node} snapshot={snapshot}/> : null}
     </article>
   )
@@ -275,6 +282,7 @@ function NodeFlow({
     }
     return blocks
   }, [nodes])
+  const latestReply = useMemo(() => nodes.findLast((node) => node.type === 'assistant'), [nodes])
   const inlineEdit =
     edit.scope &&
     nodes.some((node) => node.type === 'user' && node.canonicalEntryId === edit.scope!.entryId)
@@ -285,16 +293,20 @@ function NodeFlow({
     <div className="node-flow">
       {groups.map((group, index) => {
         const receipt = turnChanges.get(index)
+        const card = receipt ? (
+          <TurnChanges
+            files={receipt.files}
+            projectPath={projectPath}
+            checkpoint={turnCheckpoint(receipt.entryId)}
+          />
+        ) : null
+        // A turn that ends in a reply carries its file changes inside that reply.
+        if (card && group.kind === 'node' && group.node.type === 'assistant')
+          return <Fragment key={group.key}>{renderGroup(group, index, card)}</Fragment>
         return (
           <Fragment key={group.key}>
             {renderGroup(group, index)}
-            {receipt ? (
-              <TurnChanges
-                files={receipt.files}
-                projectPath={projectPath}
-                checkpoint={turnCheckpoint(receipt.entryId)}
-              />
-            ) : null}
+            {card}
           </Fragment>
         )
       })}
@@ -314,7 +326,11 @@ function NodeFlow({
     }
   }
 
-  function renderGroup(group: ConversationWorkGroup, index: number): React.ReactNode {
+  function renderGroup(
+    group: ConversationWorkGroup,
+    index: number,
+    receipt?: React.ReactNode
+  ): React.ReactNode {
     if (group.kind === 'work') return (
       <WorkSummary key={group.key} nodes={group.nodes} running={snapshot.busy && index === groups.length - 1}>
         {group.nodes.map((node) => node.type === 'think' ?
@@ -346,7 +362,8 @@ function NodeFlow({
       )
     }
     if (node.type === 'assistant') {
-      return <AssistantNode key={key} node={node} snapshot={snapshot}
+      return <AssistantNode key={key} node={node} snapshot={snapshot} receipt={receipt}
+        latest={node === latestReply}
         showActions={!node.streaming && !!node.canonicalEntryId &&
           lastReplyBlocks.get(node.canonicalEntryId) === node}/>
     }

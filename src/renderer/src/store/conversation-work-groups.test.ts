@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { ConversationNode } from '../../../shared/contracts'
-import { groupConversationWork, workPresentation, type WorkNode } from './conversation-work-groups'
+import { groupConversationWork, workDigest, workPresentation, type WorkNode } from './conversation-work-groups'
 
 it('groups consecutive work without hiding answers or crossing conversation boundaries', () => {
   const nodes: ConversationNode[] = [
@@ -114,4 +114,24 @@ it('does not claim to be working when an approval is blocking the run', () => {
   expect(workPresentation([tool('pending', 'awaiting-approval')], true)).toEqual({
     label: '已暂停 · 等待确认', requiresAttention: true
   })
+})
+
+it('digests a work group by kind in a stable order and counts failures', () => {
+  const edit: WorkNode = {
+    ...tool('edit'),
+    name: 'edit',
+    intent: 'diff',
+    title: '编辑 a.ts'
+  }
+  const read: WorkNode = { ...tool('read'), name: 'read', intent: 'read', title: '读取 a.ts' }
+  const think: WorkNode = { id: 'think', type: 'think', text: 'plan' }
+  expect(workDigest([think, tool('run', 'error'), edit, read, edit])).toEqual({
+    parts: [
+      { label: '读取', count: 1 },
+      { label: '编辑', count: 2 },
+      { label: '命令', count: 1 }
+    ],
+    failed: 1
+  })
+  expect(workDigest([think])).toEqual({ parts: [], failed: 0 })
 })

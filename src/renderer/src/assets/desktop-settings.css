@@ -295,7 +295,7 @@
 .code-block > pre[tabindex] code {
   font-size: var(--code-font-size, 12px);
 }
-.conversation-scroll .assistant-node :not(pre) > code {
+.conversation-scroll .assistant-node :not(pre) > code:where(:not(.turn-changes *)) {
   font-size: var(--code-font-size, 12px);
 }
 .code-block.is-wrapped > pre[tabindex] {

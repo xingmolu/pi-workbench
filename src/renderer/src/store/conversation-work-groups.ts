@@ -47,3 +47,46 @@ export function workPresentation(
     requiresAttention
   }
 }
+
+const DIGEST_ORDER = ['读取', '搜索', '编辑', '命令', '网页', '桌面', '工具'] as const
+type DigestKind = (typeof DIGEST_ORDER)[number]
+
+function digestKind(node: Extract<WorkNode, { type: 'tool' }>): DigestKind {
+  if (node.change || node.intent === 'diff') return '编辑'
+  switch (node.intent) {
+    case 'read':
+      return '读取'
+    case 'search':
+      return '搜索'
+    case 'terminal':
+      return '命令'
+    case 'web':
+      return '网页'
+    case 'desktop':
+      return '桌面'
+    default:
+      return '工具'
+  }
+}
+
+/** What a settled work group did, e.g. "读取 1 · 编辑 2 · 命令 1", plus how many calls failed. */
+export function workDigest(nodes: readonly WorkNode[]): {
+  parts: { label: DigestKind; count: number }[]
+  failed: number
+} {
+  const counts = new Map<DigestKind, number>()
+  let failed = 0
+  for (const node of nodes) {
+    if (node.type !== 'tool') continue
+    const kind = digestKind(node)
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+    if (node.status === 'error' || node.status === 'blocked') failed += 1
+  }
+  return {
+    parts: DIGEST_ORDER.filter((kind) => counts.has(kind)).map((label) => ({
+      label,
+      count: counts.get(label)!
+    })),
+    failed
+  }
+}
