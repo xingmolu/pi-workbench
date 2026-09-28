@@ -11,6 +11,7 @@ import { liveProjects, type LiveProject } from '../store/live-projects'
 import { usePiStore } from '../store/pi-store'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
 import { sidebarPathHint, sidebarSessions } from '../store/sidebar-presentation'
+import { relativeTime } from './relative-time'
 
 const COLLAPSED_KEY = 'pi.project-groups.collapsed.v1'
 function readCollapsed(): string[] {
@@ -23,15 +24,6 @@ function readCollapsed(): string[] {
     return []
   }
 }
-function relativeTime(value: string): string {
-  const days = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 86400000))
-  return days === 0
-    ? '今天'
-    : days < 30
-      ? `${days}天`
-      : new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
-}
-
 export default function ProjectSessionList({
   snapshot,
   onNavigate,

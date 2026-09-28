@@ -1092,3 +1092,177 @@ body.is-sidebar-resizing * {
 .plugin-approval p { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
 .plugin-approval footer { display: flex; justify-content: flex-end; gap: 8px; }
 .plugin-approval footer button { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Home: with a project open and nothing said yet, the title, composer and starters sit
+   together a little above the middle instead of spanning the whole height. */
+.conversation.is-home .conversation-scroll {
+  flex: 0 1 auto;
+  margin-top: auto;
+}
+.conversation.is-home .content-axis {
+  min-height: 0;
+  padding: 0 0 26px;
+}
+.conversation.is-home .hero-copy {
+  min-height: 0;
+}
+.conversation.is-home .hero-copy p {
+  margin-top: 10px;
+}
+.conversation.is-home .composer-axis {
+  margin-bottom: auto;
+  padding-bottom: 0;
+}
+/* Auto margins centre the group; this fixed spacer lifts it a little above the middle. */
+.conversation.is-home::after {
+  flex: 0 0 12vh;
+  content: '';
+}
+.home-below {
+  display: grid;
+  gap: 26px;
+  margin-top: 16px;
+}
+.home-below .hero-starters {
+  margin-top: 0;
+}
+.home-recent {
+  display: grid;
+  gap: 2px;
+  width: min(100%, 520px);
+  margin: 0 auto;
+}
+.home-recent-label {
+  margin: 0 0 4px 10px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.home-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.home-recent-item > svg {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+.home-recent-item:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.home-recent-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.home-recent-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-recent-time {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* Header: title and its state read together on the left; session tools sit on the right. */
+.shell .conversation .conversation-session-title {
+  flex: 0 1 auto;
+}
+.shell .conversation .conversation-head-meta {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+.shell .conversation .conversation-actions {
+  margin-left: auto;
+}
+.conversation .conversation-status:not(.is-idle) {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  font-size: 11px;
+  font-weight: 500;
+}
+.conversation .conversation-status.is-running {
+  background: var(--accent-soft);
+}
+.conversation .conversation-status.is-awaiting-approval {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.conversation .conversation-status.is-error {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.conversation-actions .session-action {
+  color: var(--text-tertiary);
+}
+.conversation-actions .session-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+/* Sidebar: one clear primary action, the engine state folded into the settings row. */
+.shell .sidebar-project-actions {
+  padding: 4px 12px 8px;
+  gap: 6px;
+}
+.shell .sidebar-project-actions .sidebar-new-session {
+  flex: 1;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.shell .sidebar-project-actions .sidebar-new-session:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--canvas);
+}
+.shell .sidebar-project-actions .sidebar-add-project {
+  flex: 0 0 34px;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  color: var(--text-secondary);
+}
+.shell .sidebar-global-search {
+  margin-bottom: 18px;
+}
+.shell .sidebar-foot {
+  padding: 6px 12px 12px;
+}
+.sidebar-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-foot-row > button {
+  flex: 1;
+  min-width: 0;
+}
+.shell .sidebar-foot-row .sidebar-host {
+  flex: 0 0 auto;
+  margin: 0 8px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}

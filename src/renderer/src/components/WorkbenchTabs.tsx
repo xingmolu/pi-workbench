@@ -37,6 +37,13 @@ type Props = {
   menuOpen: boolean
   onMenuOpenChange: (open: boolean) => void
 }
+const DESCRIPTIONS: Partial<Record<WorkbenchIcon, string>> = {
+  files: '浏览和预览项目文件',
+  'git-review': '审查未提交的改动',
+  'git-branch': '分支、提交与历史',
+  terminal: '在项目目录里运行命令',
+  browser: '预览网页和本地服务'
+}
 export function WorkbenchLauncher({
   contributions,
   onSelect
@@ -44,16 +51,33 @@ export function WorkbenchLauncher({
   return (
     <nav className="workbench-launcher" aria-label="打开工作台工具">
       {contributions.length ? (
-        contributions.map((contribution) => (
-          <button
-            key={contribution.viewId}
-            title={contribution.title}
-            onClick={() => onSelect(contribution.viewId)}
-          >
-            <Icon contribution={contribution} />
-            <span>{contribution.title}</span>
-          </button>
-        ))
+        <>
+          <div className="workbench-launcher-head" aria-hidden="true">
+            <strong>工作台</strong>
+            <span>在对话旁边打开工具，改动、文件和命令都在这里。</span>
+          </div>
+          <div className="workbench-launcher-grid">
+            {contributions.map((contribution) => (
+              <button
+                key={contribution.viewId}
+                title={contribution.title}
+                aria-label={contribution.title}
+                onClick={() => onSelect(contribution.viewId)}
+              >
+                <span className="workbench-launcher-icon">
+                  <Icon contribution={contribution} />
+                </span>
+                <span className="workbench-launcher-text">
+                  <strong>{contribution.title}</strong>
+                  <small>
+                    {DESCRIPTIONS[contribution.icon] ??
+                      (contribution.pluginId.startsWith('works.pi.') ? '内置工具' : '插件提供')}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
       ) : (
         <p>暂无可用面板</p>
       )}

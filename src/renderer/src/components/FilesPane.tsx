@@ -4,11 +4,14 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Eye,
+  EyeOff,
   File,
   Folder,
   Link2,
   Paperclip,
   RefreshCw,
+  Search,
   WrapText
 } from 'lucide-react'
 import type { WorkspaceFileEntry, WorkspaceFilesResult } from '../../../shared/workspace-files'
@@ -290,28 +293,34 @@ export default function FilesPane({
           <div className="files-browser" hidden={selected !== null} ref={tree}>
             <div className="files-controls">
               <label className="files-search">
-                搜索文件名
+                <Search size={14} aria-hidden="true" />
                 <input
                   ref={searchInput}
+                  aria-label="搜索文件名"
                   value={query}
                   maxLength={100}
-                  placeholder="按文件名搜索，不搜索内容"
+                  placeholder="按文件名搜索"
                   onChange={(event) => {
                     setSearch({})
                     setQuery(event.target.value)
                   }}
                 />
               </label>
-              <label className="files-check">
+              <label className="files-check files-hidden-toggle" title="显示隐藏文件">
                 <input
                   type="checkbox"
+                  aria-label="显示隐藏文件"
                   checked={includeHidden}
                   onChange={(event) => {
                     setSearch({})
                     setIncludeHidden(event.target.checked)
                   }}
                 />
-                显示隐藏文件
+                {includeHidden ? (
+                  <Eye size={14} aria-hidden="true" />
+                ) : (
+                  <EyeOff size={14} aria-hidden="true" />
+                )}
               </label>
             </div>
             <div className="files-tree" hidden={Boolean(query.trim())}>

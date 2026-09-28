@@ -142,23 +142,25 @@ export default function Sidebar({
       <div className="sidebar-project-actions">
         <button
           type="button"
-          onClick={onChooseProject}
-          disabled={Boolean(reason)}
-          data-navigation-pending={pendingOnly}
-          title={reason ?? '添加项目'}
-        >
-          <FolderOpen size={14} />
-          添加项目
-        </button>
-        <button
-          type="button"
+          className="sidebar-new-session"
           onClick={onNewSession}
           disabled={!newSessionEnabled}
           data-navigation-pending={snapshot.project ? pendingOnly : undefined}
           title={reason ?? '在当前项目中新建会话'}
         >
-          <MessageSquarePlus size={14} />
+          <MessageSquarePlus size={15} />
           新会话
+        </button>
+        <button
+          type="button"
+          className="sidebar-add-project"
+          onClick={onChooseProject}
+          disabled={Boolean(reason)}
+          data-navigation-pending={pendingOnly}
+          aria-label="添加项目"
+          title={reason ?? '添加项目'}
+        >
+          <FolderOpen size={15} />
         </button>
       </div>
       <button
@@ -179,16 +181,18 @@ export default function Sidebar({
         disabledReason={disabledReason}
       />
 
-      <div className="sidebar-host" title={snapshot.agentDir}>
-        <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
-        <span>{snapshot.ready ? 'Pi 引擎已就绪' : 'Pi 引擎未连接'}</span>
-      </div>
       <div className="sidebar-foot">
         <button type="button" onClick={() => setManagerOpen(true)}><ArchiveRestore size={15} />管理项目与归档</button>
-        <button type="button" onClick={onOpenSettings}>
-          <Settings2 size={15} />
-          设置
-        </button>
+        <div className="sidebar-foot-row">
+          <button type="button" onClick={onOpenSettings}>
+            <Settings2 size={15} />
+            设置
+          </button>
+          <span className="sidebar-host" title={snapshot.agentDir}>
+            <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
+            <span>{snapshot.ready ? 'Pi 引擎已就绪' : 'Pi 引擎未连接'}</span>
+          </span>
+        </div>
       </div>
       {managerOpen && <LibraryManager onClose={() => setManagerOpen(false)} />}
       <div className="sidebar-resize-handle" role="separator" tabIndex={0} aria-label="调整侧栏宽度"

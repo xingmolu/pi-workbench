@@ -40,6 +40,7 @@ import {
   Globe2,
   LockKeyhole,
   ListPlus,
+  MessageSquare,
   Monitor,
   Plus,
   Search,
@@ -63,6 +64,7 @@ import { useSessionEdit } from '../store/session-edit'
 import { usePiStore } from '../store/pi-store'
 import { useComposerPrefill } from '../store/composer-prefill'
 import QuestionNavigation from './QuestionNavigation'
+import { relativeTime } from './relative-time'
 import ModelPicker from './ModelPicker'
 import PermissionControl from './PermissionControl'
 import {
@@ -926,6 +928,17 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   const recentProject = props.recentProject
   // A model choice made before the first message is setup, not conversation content.
   const hasNodes = snapshot.nodes.some((node) => node.type !== 'model')
+  const home = Boolean(snapshot.project) && !hasNodes && !loading
+  const recentSessions = useMemo(
+    () =>
+      home
+        ? snapshot.sessions
+            .filter((session) => !session.active && session.messageCount > 0)
+            .toSorted((a, b) => Date.parse(b.modified) - Date.parse(a.modified))
+            .slice(0, 3)
+        : [],
+    [home, snapshot.sessions]
+  )
   const lastNode = snapshot.nodes.at(-1)
   const visibleError =
     error && !(lastNode?.type === 'error' && lastNode.message === error) ? error : null
@@ -967,11 +980,20 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
   }, [scrollIdentity, snapshot.busy, streamKey, approvals])
 
   return (
-    <main className={`conversation${hasNodes ? ' has-session' : ''}`}>
+    <main className={`conversation${hasNodes ? ' has-session' : home ? ' is-home' : ''}`}>
       {snapshot.project ? (
         <header className="conversation-head">
           <span className="conversation-session-title" title={sessionHeader.title}>
             {sessionHeader.title}
+          </span>
+          <span className="conversation-head-meta">
+            <span className={`conversation-status is-${sessionHeader.status.tone}`}>
+              <i
+                className={`session-status-dot is-${sessionHeader.status.tone}`}
+                aria-hidden="true"
+              />
+              {sessionHeader.status.label}
+            </span>
           </span>
           <div className="conversation-actions">
             {snapshot.sessions.find((session) => session.active)?.parentSessionPath ? (
@@ -1026,16 +1048,6 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               }}
             />
           </div>
-          <span className="conversation-head-meta">
-            <span className={`conversation-status is-${sessionHeader.status.tone}`}>
-              <i
-                className={`session-status-dot is-${sessionHeader.status.tone}`}
-                aria-hidden="true"
-              />
-              {sessionHeader.status.label}
-            </span>
-
-          </span>
         </header>
       ) : null}
 
@@ -1080,21 +1092,6 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                         : `返回 ${recentProject.name}，开始新的会话。`
                       : '选择一个文件夹作为 Pi 的工作目录。'}
               </p>
-              {snapshot.project && !loading ? (
-                <div className="hero-starters" aria-label="快速开始">
-                  {STARTERS.map(({ icon: Icon, label, prompt }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      className="hero-starter"
-                      onClick={() => useComposerPrefill.getState().request(prompt)}
-                    >
-                      <Icon size={15} aria-hidden="true" />
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
               {!snapshot.project ? (
                 <div className="hero-project-actions">
                   {recentProject && props.onContinueProject ? (
@@ -1201,6 +1198,40 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           </button>
         ) : null}
         <Composer {...props} />
+        {home ? (
+          <div className="home-below">
+            <div className="hero-starters" aria-label="快速开始">
+              {STARTERS.map(({ icon: Icon, label, prompt }) => (
+                <button
+                  key={label}
+                  type="button"
+                  className="hero-starter"
+                  onClick={() => useComposerPrefill.getState().request(prompt)}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+            {recentSessions.length > 0 ? (
+              <nav className="home-recent" aria-label="最近会话">
+                <span className="home-recent-label">最近会话</span>
+                {recentSessions.map((session) => (
+                  <button
+                    key={session.path}
+                    type="button"
+                    className="home-recent-item"
+                    onClick={() => props.onOpenSession(session.path)}
+                  >
+                    <MessageSquare size={14} aria-hidden="true" />
+                    <span className="home-recent-title">{session.title}</span>
+                    <span className="home-recent-time">{relativeTime(session.modified)}</span>
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </main>
   )
