@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Plus, RefreshCw, Server } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import {
   createCustomEndpointSchema,
@@ -226,15 +227,18 @@ export default function CustomEndpoints({
   }
 
   return (
-    <section className="settings-section custom-endpoints" aria-label="自定义端点">
-      <div className="settings-section-title">
+    <section className="sp-group acct-endpoints" aria-label="自定义端点">
+      <div className="sp-group-header acct-group-header">
         <div>
-          <span>自定义端点</span>
-          <small>OpenAI / Anthropic 兼容 API</small>
+          <h3>自定义端点</h3>
+          <p>
+            接入 OpenAI / Anthropic 兼容 API。全局生效，影响所有工作区及 Pi
+            CLI；新端点不会自动成为当前模型。
+          </p>
         </div>
         <button
           type="button"
-          className="plugin-reload-button"
+          className="acct-button"
           disabled={pending || loading || !snapshot.ready}
           onClick={() => {
             if (!confirmDiscardSettingsDraft(dirty)) return
@@ -242,27 +246,27 @@ export default function CustomEndpoints({
             void refresh()
           }}
         >
+          <RefreshCw size={13} className={loading ? 'spin' : undefined} />
           刷新列表
         </button>
       </div>
-      <p className="endpoint-note">
-        全局设置：修改影响所有工作区及 Pi CLI。新端点不会自动成为当前模型。
-      </p>
-      <p className="endpoint-note">密钥只填入 API Key 密码框，不要放入名称、地址或模型 ID。</p>
       {snapshot.busy || loginActive ? (
-        <p className="endpoint-warning" role="note">
+        <p className="acct-notice is-warning" role="note">
           {loginActive
             ? '登录正在进行，完成后才能保存端点。'
             : '会话正在运行，结束后才能保存端点。'}
         </p>
       ) : null}
       {error ? (
-        <p id="endpoint-error" className="endpoint-error" role="alert">
+        <p id="endpoint-error" className="acct-notice is-error" role="alert">
           {error}
         </p>
       ) : null}
       {outcome ? (
-        <div className={outcome.ok ? 'endpoint-result' : 'endpoint-warning'} role="status">
+        <div
+          className={outcome.ok ? 'acct-notice is-success' : 'acct-notice is-warning'}
+          role="status"
+        >
           <p>{outcome.message}</p>
           <small>
             配置：{outcome.metadata === 'saved' ? '已保存' : '未更改'} · 凭据：
@@ -281,22 +285,34 @@ export default function CustomEndpoints({
         </div>
       ) : null}
       {!form ? (
-        <>
-          <div className="endpoint-list">
-            {catalog?.endpoints.map((endpoint) => (
-              <div className="endpoint-row" key={endpoint.id}>
-                <div>
+        catalog && catalog.endpoints.length > 0 ? (
+          <div className="sp-card acct-endpoint-list">
+            {catalog.endpoints.map((endpoint) => (
+              <div className="acct-endpoint-row" key={endpoint.id}>
+                <span className="acct-endpoint-icon" aria-hidden="true">
+                  <Server size={15} />
+                </span>
+                <div className="acct-endpoint-meta">
                   <strong>{endpoint.label}</strong>
                   <small>
                     {endpoint.api ? protocols[endpoint.api] : '高级配置'} ·{' '}
                     {endpoint.modelIds.length} 个模型 · {endpoint.imageModelIds?.length ?? 0}{' '}
                     个支持图片输入
                   </small>
+                  {!endpoint.editable ? (
+                    <details className="acct-endpoint-details">
+                      <summary>查看配置说明</summary>
+                      <p>{endpoint.unsupportedReason}</p>
+                      <code>{endpoint.id}</code>
+                      <p>{endpoint.baseUrl ?? '地址不可展示'}</p>
+                      <p>{endpoint.modelIds.join('、')}</p>
+                    </details>
+                  ) : null}
                 </div>
                 {endpoint.editable ? (
                   <button
                     type="button"
-                    className="secondary-button"
+                    className="acct-button"
                     aria-label={`编辑 ${endpoint.label}`}
                     disabled={disabled}
                     onClick={() => edit(endpoint)}
@@ -304,44 +320,55 @@ export default function CustomEndpoints({
                     编辑
                   </button>
                 ) : (
-                  <span>只读</span>
+                  <span className="acct-status">只读</span>
                 )}
-                {!endpoint.editable ? (
-                  <details>
-                    <summary>查看配置说明</summary>
-                    <p>{endpoint.unsupportedReason}</p>
-                    <code>{endpoint.id}</code>
-                    <p>{endpoint.baseUrl ?? '地址不可展示'}</p>
-                    <p>{endpoint.modelIds.join('、')}</p>
-                  </details>
-                ) : null}
               </div>
             ))}
+            <div className="acct-card-footer">
+              <button
+                type="button"
+                className="acct-button"
+                disabled={disabled || loading || !catalog}
+                onClick={() => edit()}
+              >
+                <Plus size={14} />
+                添加端点
+              </button>
+            </div>
           </div>
-          {catalog?.endpoints.length === 0 ? (
-            <p className="endpoint-note">
-              尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。
+        ) : (
+          <div className="acct-empty is-action">
+            <p>
+              {catalog
+                ? '尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。'
+                : loading
+                  ? '正在读取端点…'
+                  : '端点列表暂不可用。'}
             </p>
-          ) : null}
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={disabled || loading || !catalog}
-            onClick={() => edit()}
-          >
-            添加端点
-          </button>
-        </>
+            <button
+              type="button"
+              className="acct-button is-primary"
+              disabled={disabled || loading || !catalog}
+              onClick={() => edit()}
+            >
+              <Plus size={14} />
+              添加端点
+            </button>
+          </div>
+        )
       ) : (
         <form
-          className="endpoint-form"
+          className="sp-card endpoint-form acct-form"
           noValidate
           onSubmit={(event) => {
             event.preventDefault()
             void save()
           }}
         >
-          <h3 className="endpoint-form-title">{form.id ? '编辑端点' : '新增端点'}</h3>
+          <div className="acct-form-head">
+            <h3>{form.id ? '编辑端点' : '新增端点'}</h3>
+            <p>密钥只填入 API Key 密码框，不要放入名称、地址或模型 ID。</p>
+          </div>
           <label htmlFor="endpoint-label">显示名称</label>
           <input
             id="endpoint-label"
@@ -379,7 +406,7 @@ export default function CustomEndpoints({
           />
           <small id="endpoint-url-help">服务根地址；只允许 HTTPS 或显式本机 HTTP。</small>
           {form.baseUrl.toLowerCase().startsWith('http:') ? (
-            <p className="endpoint-warning">
+            <p className="acct-notice is-warning">
               本机 HTTP 使用明文传输，包括 API Key。仅在你信任的本机服务使用。
             </p>
           ) : null}
@@ -440,7 +467,7 @@ export default function CustomEndpoints({
             </div>
           ) : null}
           {removed.length ? (
-            <div className="endpoint-warning">
+            <div className="acct-notice is-warning">
               <p>
                 将移除：{removed.join('、')}。引用这些模型的会话会保留历史，但需要重新选择模型。
               </p>
@@ -455,18 +482,18 @@ export default function CustomEndpoints({
               </label>
             </div>
           ) : null}
-          <div className="endpoint-actions">
-            <button type="submit" className="primary-button" disabled={disabled}>
-              {pending ? '正在保存…' : '保存端点'}
-            </button>
-            <button type="button" className="secondary-button" onClick={cancel}>
+          <div className="acct-form-actions">
+            <button type="button" className="acct-button" onClick={cancel}>
               取消编辑
+            </button>
+            <button type="submit" className="acct-button is-primary" disabled={disabled}>
+              {pending ? '正在保存…' : '保存端点'}
             </button>
           </div>
         </form>
       )}
       {path ? (
-        <details className="endpoint-storage">
+        <details className="acct-storage">
           <summary>Pi 配置位置</summary>
           <code>{path}</code>
           <p>高级配置在此文件中管理。此处仅展示路径，不打开任意文件。</p>

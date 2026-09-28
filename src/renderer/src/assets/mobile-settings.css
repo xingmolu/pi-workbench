@@ -1,0 +1,374 @@
+/* Phone page, on the shared settings primitives. */
+.mobile-gateway-settings {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.mobile-gateway-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mobile-gateway-settings .sp-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.mobile-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted-2);
+}
+
+.mobile-state.is-on {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success-text);
+}
+
+.mobile-state.is-on::before {
+  background: var(--success);
+}
+
+/* Buttons */
+.mobile-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mobile-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.mobile-button.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.mobile-button.is-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+.mobile-button.is-quiet {
+  height: 26px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.mobile-button.is-quiet:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.mobile-button.is-danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger-text);
+}
+
+.mobile-button.is-danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.mobile-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Addresses under the gateway row */
+.mobile-addresses {
+  display: grid;
+  gap: 6px;
+  margin: -4px 16px 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  font-size: 12px;
+}
+
+.mobile-addresses > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mobile-addresses span {
+  width: 44px;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.mobile-addresses code {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-addresses em {
+  color: var(--text-secondary);
+  font-style: normal;
+}
+
+/* Pairing */
+.mobile-gateway-settings .mobile-pairing-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin: -4px 16px 14px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.mobile-gateway-settings .qr-frame {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  line-height: 0;
+}
+
+.mobile-gateway-settings .mobile-pairing-card img {
+  display: block;
+  width: 148px;
+  height: 148px;
+}
+
+.mobile-gateway-settings .pairing-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.mobile-gateway-settings .pairing-token {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.mobile-gateway-settings .pairing-token strong {
+  margin-left: 4px;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+}
+
+.mobile-gateway-settings .pairing-url {
+  display: block;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.mobile-gateway-settings .mobile-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-gateway-settings .mobile-copy-confirm {
+  color: var(--success-text);
+  font-size: 12px;
+}
+
+.mobile-gateway-settings .settings-reason {
+  margin: 0;
+  color: var(--warning-text);
+  font-size: 12px;
+}
+
+/* Devices */
+.mobile-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+}
+
+.mobile-gateway-settings .mobile-device-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-gateway-settings .mobile-device-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px 11px 16px;
+  border-bottom: 0;
+}
+
+.mobile-gateway-settings .mobile-device-list li + li {
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.mobile-device-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.mobile-gateway-settings .mobile-device-list li > span:nth-child(2) {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.mobile-gateway-settings .mobile-device-list small {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+/* Tailscale */
+.mobile-gateway-settings .mobile-tailscale-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0;
+}
+
+.mobile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.mobile-pill code {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-pill.is-ok {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  box-shadow: none;
+  color: var(--success-text);
+}
+
+.mobile-pill.is-warn {
+  background: var(--warning-bg);
+  box-shadow: none;
+  color: var(--warning-text);
+}
+
+.mobile-pill-button {
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mobile-command {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--canvas);
+}
+
+.mobile-command code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-gateway-settings .mobile-tailscale-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0;
+}
+
+.mobile-footnote {
+  margin: 8px 2px 0;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+/* The cards keep the legacy class for tests; the primitives own their box. */
+.mobile-gateway-settings .sp-card.settings-card {
+  margin: 0;
+  padding: 0;
+}

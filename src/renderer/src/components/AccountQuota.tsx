@@ -25,7 +25,7 @@ export default function AccountQuota({
       epoch.current++
     }
   }, [account.id, account.connected, authGeneration, loginActive])
-  const refresh = async () => {
+  const refresh = async (): Promise<void> => {
     if (pending || !account.connected || loginActive) return
     const attempt = ++epoch.current
     setPending(true)
@@ -48,56 +48,69 @@ export default function AccountQuota({
       if (attempt === epoch.current) setPending(false)
     }
   }
+  const connected = account.connected && !loginActive
   return (
-    <section className="account-quota" aria-label="Codex 订阅额度">
-      <div className="settings-section-title">
-        <strong>订阅额度{quota?.plan ? ` · ${quota.plan}` : ''}</strong>
+    <section className="acct-quota" aria-label="Codex 订阅额度">
+      <div className="acct-quota-head">
+        <span>
+          订阅额度{quota?.plan ? <em>{quota.plan}</em> : null}
+          {quota ? (
+            <small>读取于 {new Date(quota.fetchedAt).toLocaleTimeString('zh-CN')}</small>
+          ) : null}
+        </span>
         <button
           type="button"
-          className="secondary-button"
-          disabled={pending || !account.connected || loginActive}
+          className="acct-button is-quiet"
+          disabled={pending || !connected}
           onClick={() => void refresh()}
         >
-          <RefreshCw size={13} />
+          <RefreshCw size={13} className={pending ? 'spin' : undefined} />
           {pending ? '读取中…' : '刷新额度'}
         </button>
       </div>
       {quota?.state === 'available' ? (
-        quota.windows.map((window, index) => (
-          <div className="quota-window" key={index}>
-            <div>
-              <span>
-                {window.label}
-                {window.windowMinutes
-                  ? ` · ${window.windowMinutes >= 1440 ? `${Math.round(window.windowMinutes / 1440)} 天` : `${window.windowMinutes} 分钟`}`
-                  : ''}
-              </span>
-              <strong>剩余 {Math.max(0, 100 - window.usedPercent).toFixed(0)}%</strong>
-            </div>
-            <meter
-              min={0}
-              max={100}
-              value={100 - window.usedPercent}
-              aria-label={`${window.label}剩余额度`}
-            />
-            <small>
-              {window.resetsAt != null
-                ? `${new Date(window.resetsAt * 1000).toLocaleString('zh-CN')} 重置`
-                : '重置时间未知'}
-            </small>
-          </div>
-        ))
+        <div className="acct-quota-windows">
+          {quota.windows.map((window, index) => {
+            const left = Math.max(0, 100 - window.usedPercent)
+            return (
+              <div
+                className={`acct-quota-window${left <= 10 ? ' is-low' : left <= 30 ? ' is-warn' : ''}`}
+                key={index}
+              >
+                <div className="acct-quota-line">
+                  <span>
+                    {window.label}
+                    {window.windowMinutes
+                      ? ` · ${window.windowMinutes >= 1440 ? `${Math.round(window.windowMinutes / 1440)} 天` : `${window.windowMinutes} 分钟`}`
+                      : ''}
+                  </span>
+                  <strong>剩余 {left.toFixed(0)}%</strong>
+                </div>
+                <meter
+                  min={0}
+                  max={100}
+                  value={100 - window.usedPercent}
+                  aria-label={`${window.label}剩余额度`}
+                />
+                <small>
+                  {window.resetsAt != null
+                    ? `${new Date(window.resetsAt * 1000).toLocaleString('zh-CN')} 重置`
+                    : '重置时间未知'}
+                </small>
+              </div>
+            )
+          })}
+        </div>
       ) : (
-        <p role="status">
+        <p className="acct-quota-empty" role="status">
           {error ||
             quota?.message ||
             (account.connected
-              ? '点击刷新查看账号额度；未读取不代表额度为零。'
+              ? '点击“刷新额度”查看账号额度；未读取不代表额度为零。'
               : '登录 Codex 后可读取额度。')}
         </p>
       )}
-      {quota && <small>读取于 {new Date(quota.fetchedAt).toLocaleTimeString('zh-CN')}</small>}
-      <p className="inline-hint">
+      <p className="acct-quota-note">
         来源：Codex 账号服务。额度与会话用量不同；接口不可用时不会估算剩余次数或费用。
       </p>
     </section>

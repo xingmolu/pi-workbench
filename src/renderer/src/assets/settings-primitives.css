@@ -446,47 +446,8 @@
   outline-offset: 2px;
 }
 
-/* Older settings pages keep their markup; these rules give them the same page title,
-   description and button language as the pages built on the primitives above. */
-.settings-content-inner .desktop-control-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 4px 0 22px;
-}
-
-.settings-content-inner .desktop-control-heading h2,
-.settings-content-inner .mobile-gateway-settings > h2 {
-  display: block;
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.settings-content-inner :is(.skills-heading, .desktop-control-heading) h2 > svg {
-  display: none;
-}
-
-.settings-content-inner .desktop-control-heading p {
-  display: block;
-  margin: 6px 0 0;
-  color: var(--text-tertiary);
-  font-size: 12.5px;
-}
-
-.settings-content-inner .mobile-gateway-settings > h2 {
-  margin: 4px 0 18px;
-}
-
-.settings-content-inner .desktop-control-guide {
-  color: var(--text-tertiary);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
+/* Older settings pages keep their markup; these rules give them the same card and button
+   language as the pages built on the primitives above. */
 .settings-content-inner :is(.settings-card, .desktop-control-card) {
   border-color: var(--line);
   border-radius: 12px;

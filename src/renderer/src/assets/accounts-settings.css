@@ -1,0 +1,716 @@
+/* Accounts and models: provider tabs, account cards with inline quota, and custom
+   endpoints, laid out on the shared settings primitives. */
+
+.acct code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* Provider tabs */
+.acct-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 0 24px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.acct-tabs button {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acct-tabs button > span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-tabs button > small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-tabs button:hover:not([aria-pressed='true']) {
+  color: var(--text-strong);
+}
+
+.acct-tabs button[aria-pressed='true'] {
+  background: var(--surface-floating);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--text-strong);
+}
+
+/* Buttons */
+.acct-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.acct-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.acct-button.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.acct-button.is-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+.acct-button.is-quiet {
+  height: 26px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+
+.acct-button.is-quiet:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-hover);
+}
+
+.acct-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.acct :is(.acct-button, .acct-tabs button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.acct-group-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Account card */
+.acct-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.acct-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--text-strong);
+  color: var(--canvas);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.acct-avatar.is-alias {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.acct-meta {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.acct-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acct-name strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13.5px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-meta small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.acct-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+  opacity: 0.7;
+}
+
+.acct-status.is-on {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success-text);
+}
+
+.acct-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+/* Quota, inside the account card */
+.acct-quota {
+  padding: 12px 16px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  background: color-mix(in srgb, var(--surface-sunken) 40%, transparent);
+}
+
+.acct-quota-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -2px -8px 6px 0;
+}
+
+.acct-quota-head > span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.acct-quota-head em {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.acct-quota-head small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.acct-quota-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 20px;
+  margin: 4px 0 2px;
+}
+
+.acct-quota-window {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.acct-quota-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.acct-quota-line span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-quota-line strong {
+  color: var(--text-strong);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.acct-quota-window meter {
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  appearance: none;
+  --meter: var(--accent);
+}
+
+.acct-quota-window.is-warn meter {
+  --meter: var(--warning-text);
+}
+
+.acct-quota-window.is-low meter {
+  --meter: var(--danger-text);
+}
+
+.acct-quota-window meter::-webkit-meter-bar {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-tertiary) 18%, transparent);
+}
+
+.acct-quota-window meter::-webkit-meter-optimum-value,
+.acct-quota-window meter::-webkit-meter-suboptimum-value,
+.acct-quota-window meter::-webkit-meter-even-less-good-value {
+  border-radius: 999px;
+  background: var(--meter);
+}
+
+.acct-quota-window small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.acct-quota-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.acct-quota-note {
+  margin: 8px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* More accounts */
+.acct-alias-list {
+  display: grid;
+  gap: 10px;
+}
+
+.acct-alias-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 12px 16px;
+}
+
+.acct-alias-form > label {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.acct-alias-input {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.acct-alias-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.acct-alias-input span {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.acct-alias-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.acct-empty {
+  margin: 0;
+  padding: 18px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.acct-empty + .acct-empty,
+.acct-alias-form + .acct-empty {
+  margin-top: 10px;
+}
+
+.acct-empty.is-action {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 26px 16px;
+}
+
+.acct-empty.is-action p {
+  margin: 0;
+}
+
+/* Claude note */
+.acct-note {
+  padding: 14px 16px;
+}
+
+.acct-note p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.acct-note p + p {
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* Notices */
+.acct-notice {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.acct-notice p {
+  margin: 0;
+}
+
+.acct-notice p + p,
+.acct-notice small {
+  display: block;
+  margin-top: 4px;
+}
+
+.acct-notice small {
+  opacity: 0.85;
+  font-size: 11.5px;
+}
+
+.acct-notice.is-warning {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.acct-notice.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.acct-notice.is-success {
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success-text);
+}
+
+/* Custom endpoints */
+.acct-endpoint-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.acct-endpoint-row + .acct-endpoint-row {
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.acct-endpoint-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.acct-endpoint-meta {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.acct-endpoint-meta strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-endpoint-meta small {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.acct-endpoint-details {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.acct-endpoint-details summary,
+.acct-storage summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.acct-endpoint-details p {
+  margin: 4px 0 0;
+}
+
+.acct-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  background: color-mix(in srgb, var(--surface-sunken) 40%, transparent);
+}
+
+.acct-endpoints :disabled {
+  cursor: default;
+}
+
+.endpoint-form.acct-form {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 16px 16px 14px;
+}
+
+.acct-form-head {
+  margin: 0 0 6px;
+}
+
+.acct-form-head h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.acct-form-head p {
+  margin: 3px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.acct-form > label {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.acct-form input:not([type='checkbox']),
+.acct-form select,
+.acct-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.acct-form textarea {
+  min-height: 76px;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.acct-form input:focus-visible,
+.acct-form select:focus-visible,
+.acct-form textarea:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.acct-form input[aria-invalid='true'],
+.acct-form textarea[aria-invalid='true'] {
+  border-color: var(--danger-border);
+}
+
+.acct-form > small {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.acct-form .acct-notice {
+  margin: 4px 0 0;
+}
+
+.acct-form .endpoint-image-models {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  font-size: 12px;
+}
+
+.acct-form .endpoint-image-models small {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.acct-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 12px -16px -14px;
+  padding: 12px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  background: color-mix(in srgb, var(--surface-sunken) 40%, transparent);
+}
+
+.acct-storage {
+  margin: 10px 2px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.acct-storage code {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.acct-storage p {
+  margin: 6px 0 0;
+}
+
+/* Footnote */
+.acct-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 2px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.acct-footnote svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+@media (max-width: 760px) {
+  .acct-head {
+    flex-wrap: wrap;
+  }
+
+  .acct-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
