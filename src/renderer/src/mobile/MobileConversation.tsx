@@ -8,12 +8,18 @@ import {
   FileText,
   Globe2,
   Monitor,
+  RotateCcw,
   Search,
   TerminalSquare,
   Wrench
 } from 'lucide-react'
 import type { ApprovalRequest, ConversationNode, ToolIntent } from '../../../shared/contracts'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
+import type {
+  CheckpointPlan,
+  CheckpointRestoreOutcome,
+  CheckpointTurnState
+} from '../../../shared/checkpoints'
 import { workDigest, workPresentation, type WorkNode } from '../store/conversation-work-groups'
 import {
   approvalSummary,
@@ -309,23 +315,142 @@ const WorkGroup = memo(
     same(a.approvals, b.approvals)
 )
 
+export type Undo = {
+  state: CheckpointTurnState['state']
+  blockedReason: string | null
+  plan: () => Promise<CheckpointPlan | null>
+  restore: (force: boolean) => Promise<CheckpointRestoreOutcome | null>
+}
+
+type UndoPhase =
+  | { phase: 'idle' }
+  | { phase: 'planning' }
+  | { phase: 'confirm'; plan: CheckpointPlan }
+  | { phase: 'restoring' }
+  | { phase: 'message'; text: string }
+
+const FILE_STATUS: Record<CheckpointPlan['files'][number]['status'], string> = {
+  ready: '',
+  conflict: '之后被改过',
+  uncaptured: '无法还原'
+}
+
 function Receipt({
   files,
-  projectPath
+  projectPath,
+  undo
 }: {
   files: TurnFileChange[]
   projectPath: string
+  undo?: Undo
 }): React.JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
+  const [phase, setPhase] = useState<UndoPhase>({ phase: 'idle' })
   const additions = files.reduce((sum, file) => sum + file.additions, 0)
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
+  const restored = undo?.state === 'restored'
+  const fail = (reason: unknown): void =>
+    setPhase({ phase: 'message', text: reason instanceof Error ? reason.message : String(reason) })
+  const plan = (): void => {
+    if (!undo) return
+    setPhase({ phase: 'planning' })
+    undo
+      .plan()
+      .then(
+        (result) =>
+          setPhase(
+            result
+              ? { phase: 'confirm', plan: result }
+              : { phase: 'message', text: '这一轮没有可撤销的文件改动。' }
+          ),
+        fail
+      )
+  }
+  const restore = (force: boolean): void => {
+    if (!undo) return
+    setPhase({ phase: 'restoring' })
+    undo.restore(force).then((outcome) => {
+      if (!outcome || outcome.status === 'unavailable')
+        setPhase({ phase: 'message', text: '改动记录已不可用。' })
+      else if (outcome.status === 'conflict') setPhase({ phase: 'confirm', plan: outcome.plan })
+      else if (!outcome.skipped.length && !outcome.failed.length) setPhase({ phase: 'idle' })
+      else
+        setPhase({
+          phase: 'message',
+          text: [
+            `已撤销 ${outcome.restored} 个文件`,
+            outcome.skipped.length ? `${outcome.skipped.length} 个无法还原` : '',
+            outcome.failed.length ? `${outcome.failed.length} 个写入失败，可重试` : ''
+          ]
+            .filter(Boolean)
+            .join('，')
+        })
+    }, fail)
+  }
+  const conflicts =
+    phase.phase === 'confirm' && phase.plan.files.some((file) => file.status === 'conflict')
   return (
-    <section className="m-receipt" aria-label="本轮改动">
+    <section className={`m-receipt${restored ? ' is-restored' : ''}`} aria-label="本轮改动">
       <header>
         <FileDiff size={14} aria-hidden="true" />
-        <span>已修改 {files.length} 个文件</span>
+        <span>
+          {restored ? '已撤销' : '已修改'} {files.length} 个文件
+        </span>
         <DiffStat additions={additions} deletions={deletions} />
+        {undo && !restored && phase.phase !== 'confirm' ? (
+          <button
+            type="button"
+            className="m-undo"
+            disabled={
+              Boolean(undo.blockedReason) ||
+              phase.phase === 'planning' ||
+              phase.phase === 'restoring'
+            }
+            title={undo.blockedReason ?? '把这些文件还原到这一轮开始之前'}
+            onClick={plan}
+          >
+            <RotateCcw size={13} aria-hidden="true" />
+            {phase.phase === 'planning' || phase.phase === 'restoring' ? '处理中…' : '撤销'}
+          </button>
+        ) : null}
       </header>
+      {phase.phase === 'confirm' ? (
+        <div className="m-undo-confirm" role="alertdialog" aria-label="确认撤销">
+          <p>
+            将把 {phase.plan.files.length} 个文件还原到这一轮开始之前
+            {phase.plan.laterTurns ? `，并一起撤销之后 ${phase.plan.laterTurns} 轮的改动` : ''}
+            。对话记录不会改变。
+          </p>
+          <ul>
+            {phase.plan.files.map((file) => (
+              <li key={file.path}>
+                <ChangePath path={file.path} projectPath={projectPath} />
+                <span className={`is-${file.status}`}>
+                  {file.action === 'delete' ? '删除' : '还原'}
+                  {FILE_STATUS[file.status] ? ` · ${FILE_STATUS[file.status]}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="m-approval-actions">
+            <button type="button" className="m-button" onClick={() => setPhase({ phase: 'idle' })}>
+              取消
+            </button>
+            <button
+              type="button"
+              className={`m-button ${conflicts ? 'is-danger' : 'is-primary'}`}
+              onClick={() => restore(conflicts)}
+            >
+              {conflicts ? '仍然覆盖' : '撤销改动'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {phase.phase === 'message' ? (
+        <p className="m-undo-message" role="status">
+          {phase.text}
+        </p>
+      ) : null}
       {files.map((file) => (
         <div key={file.path} className={`m-receipt-file${open === file.path ? ' is-open' : ''}`}>
           <button
@@ -408,10 +533,12 @@ const NodeView = memo(
 
 export function MobileConversation({
   snapshot,
-  respond
+  respond,
+  undo
 }: {
   snapshot: MobileConversationSnapshot
   respond: Respond
+  undo?: (entryId: string) => Undo | undefined
 }): React.JSX.Element {
   const flow = useMemo(
     () => buildFlow(snapshot.nodes, snapshot.busy),
@@ -436,7 +563,12 @@ export function MobileConversation({
             respond={respond}
           />
         ) : item.kind === 'receipt' ? (
-          <Receipt key={item.key} files={item.files} projectPath={snapshot.cwd} />
+          <Receipt
+            key={item.key}
+            files={item.files}
+            projectPath={snapshot.cwd}
+            undo={item.entryId ? undo?.(item.entryId) : undefined}
+          />
         ) : (
           <NodeView key={item.key} node={item.node} latest={item.latest} />
         )

@@ -595,12 +595,27 @@ const sessionRenameCommandSchema = z
     })
   })
   .strict()
+export const MAX_PROMPT_IMAGES = 4
+/** Base64 characters per image: about 6 MiB decoded. */
+export const MAX_PROMPT_IMAGE_CHARS = 8 * 1024 * 1024
+export const promptImageSchema = z
+  .object({
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+    data: z
+      .string()
+      .min(1)
+      .max(MAX_PROMPT_IMAGE_CHARS)
+      .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+  })
+  .strict()
 const promptSendCommandSchema = z
   .object({
     type: z.literal('prompt:send'),
-    text: z.string().min(1),
+    // May be empty only when images carry the request; the Host rejects an empty prompt.
+    text: z.string(),
     sessionId: z.string().min(1),
-    generation: nonNegativeInteger
+    generation: nonNegativeInteger,
+    images: z.array(promptImageSchema).min(1).max(MAX_PROMPT_IMAGES).optional()
   })
   .strict()
 const promptAbortCommandSchema = z.object({ type: z.literal('prompt:abort') }).strict()

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, RefreshCw, Search } from 'lucide-react'
+import { ChevronRight, Folder, Plus, RefreshCw, Search } from 'lucide-react'
 import {
   filterMobileHomeGroups,
   mobileStatusBadge,
@@ -35,7 +35,8 @@ export function SessionList({
   theme,
   onTheme,
   onRefresh,
-  onOpen
+  onOpen,
+  onNewSession
 }: {
   groups: MobileHomeGroup[]
   host: string
@@ -45,6 +46,7 @@ export function SessionList({
   onTheme: (choice: MobileThemeChoice) => void
   onRefresh: () => Promise<void>
   onOpen: (session: MobileHomeSession) => void
+  onNewSession: (cwd: string) => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -178,6 +180,14 @@ export function SessionList({
               </button>
               {expanded ? (
                 <div className="m-project-sessions">
+                  <button
+                    type="button"
+                    className="m-session m-new-session"
+                    onClick={() => onNewSession(group.path)}
+                  >
+                    <Plus size={15} aria-hidden="true" />
+                    <span className="m-session-title">新会话</span>
+                  </button>
                   {group.sessions.map((session) => {
                     const badge = mobileStatusBadge(session.status)
                     return (

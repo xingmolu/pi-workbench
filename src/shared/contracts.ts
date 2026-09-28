@@ -153,6 +153,11 @@ export type ModelSummary = {
   unavailableReason?: string
 }
 
+export type PromptImage = {
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  data: string
+}
+
 export type ModelAvailability = 'available' | 'unavailable' | 'unselected'
 
 export type ComposeBlockReason =
@@ -452,7 +457,14 @@ export type HostCommand =
   | { type: 'session:open'; path: string }
   | { type: 'session:fork'; sessionId: string; generation: number; entryId: string }
   | { type: 'session:rename'; sessionId: string; generation: number; name: string }
-  | { type: 'prompt:send'; text: string; sessionId: string; generation: number }
+  | {
+      type: 'prompt:send'
+      text: string
+      sessionId: string
+      generation: number
+      /** Base64 images for models that accept image input (sent from the phone). */
+      images?: PromptImage[]
+    }
   | { type: 'prompt:abort' }
   | { type: 'queue:clear' }
   | { type: 'permission:set'; mode: PermissionMode }

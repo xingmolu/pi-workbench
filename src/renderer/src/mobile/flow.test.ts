@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import type { ConversationNode, ToolFileChange } from '../../../shared/contracts'
+import type { ApprovalRequest, ConversationNode, ToolFileChange } from '../../../shared/contracts'
 import { buildFlow, nearBottom, unplacedApprovals } from './flow'
 
 const change: ToolFileChange = {
@@ -54,7 +54,7 @@ it('keeps keys stable across a streaming update so rows patch in place', () => {
 })
 
 it('places approvals on their tool rows and keeps the rest visible', () => {
-  const approval = (toolCallId: string) => ({
+  const approval = (toolCallId: string): ApprovalRequest => ({
     id: toolCallId,
     generation: 1,
     toolCallId,

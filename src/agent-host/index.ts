@@ -80,6 +80,7 @@ import {
   type LoginStatus,
   type ModelSummary,
   type PermissionMode,
+  type PromptImage,
   type SessionStatus,
   type SessionSummary,
   type ToolStatus,
@@ -711,7 +712,7 @@ class PiDesktopHost {
           sessionId: this.runtime?.session.sessionManager.getSessionId() ?? null,
           generation: this.sessionGeneration
         })
-        this.sendPrompt(request.text)
+        this.sendPrompt(request.text, request.images)
         break
       case 'prompt:abort':
         await this.abortPrompt()
@@ -1996,7 +1997,7 @@ class PiDesktopHost {
     return entry.receipt
   }
 
-  private sendPrompt(rawText: string): void {
+  private sendPrompt(rawText: string, images?: PromptImage[]): void {
     const session = this.runtime?.session
     if (!session) throw new Error('请先选择工作区')
     const endpointBlock = this.endpointSafety.reason(this.readEndpointSafety())
@@ -2008,7 +2009,7 @@ class PiDesktopHost {
       )
     if (this.modelMutationInProgress) throw new Error('正在切换模型，请稍后再发送')
     const text = rawText.trim()
-    if (!text) throw new Error('请输入任务内容')
+    if (!text && !images?.length) throw new Error('请输入任务内容')
     const projection = this.projectActiveSessionModel(session)
     if (!projection.identity) {
       throw new Error(
@@ -2025,6 +2026,8 @@ class PiDesktopHost {
       )
     }
 
+    if (images?.length && !session.model?.input?.includes('image'))
+      throw new Error('当前模型不支持图片，请换一个支持图片的模型')
     const behavior = session.isStreaming ? 'followUp' : undefined
     if (!behavior) this.stopped = false
     const generation = this.sessionGeneration
@@ -2036,6 +2039,9 @@ class PiDesktopHost {
     void session
       .prompt(text, {
         ...(behavior ? { streamingBehavior: behavior } : {}),
+        ...(images?.length
+          ? { images: images.map((image) => ({ type: 'image' as const, ...image })) }
+          : {}),
         source: 'rpc'
       })
       .catch((error) => {

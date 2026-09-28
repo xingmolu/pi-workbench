@@ -92,23 +92,31 @@ export function MobileApp(): React.JSX.Element {
   }, [booted, token, routedWorker, live])
   useEffect(() => () => void live.stop(), [live])
 
-  const open = useCallback(
-    (session: MobileHomeSession) => {
-      void live.navigate(
-        () =>
-          session.workerId
-            ? mobileApi.snapshot(session.workerId)
-            : mobileApi.open(session.cwd, session.sessionPath ?? undefined),
-        (next) => {
-          setSnapshot(next)
-          setChatError('')
-          go(`/s/${next.workerId}`)
-          live.watch(next.workerId)
-          void loadList()
-        }
-      )
+  const select = useCallback(
+    (load: () => Promise<MobileConversationSnapshot>) => {
+      void live.navigate(load, (next) => {
+        setSnapshot(next)
+        setChatError('')
+        go(`/s/${next.workerId}`)
+        live.watch(next.workerId)
+        void loadList()
+      })
     },
     [live, go, loadList]
+  )
+  const open = useCallback(
+    (session: MobileHomeSession) =>
+      select(() =>
+        session.workerId
+          ? mobileApi.snapshot(session.workerId)
+          : mobileApi.open(session.cwd, session.sessionPath ?? undefined)
+      ),
+    [select]
+  )
+  const newSession = useCallback(
+    (cwd: string, model?: { providerId: string; modelId: string }) =>
+      select(() => mobileApi.newSession(cwd, model)),
+    [select]
   )
 
   if (!token)
@@ -149,6 +157,7 @@ export function MobileApp(): React.JSX.Element {
             onTheme={theme.setChoice}
             onRefresh={loadList}
             onOpen={open}
+            onNewSession={(cwd) => newSession(cwd)}
           />
         </aside>
         <section className="pane-chat">
@@ -166,6 +175,7 @@ export function MobileApp(): React.JSX.Element {
             }}
             onRefresh={() => void live.refresh()}
             onError={setChatError}
+            onNewSession={newSession}
           />
         </section>
       </div>

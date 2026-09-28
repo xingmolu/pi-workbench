@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { ApprovalRequest, ConversationNode, SessionStatus } from './contracts'
+import type { ApprovalRequest, ConversationNode, PermissionMode, SessionStatus } from './contracts'
+import type { CheckpointTurnState } from './checkpoints'
 import type { LiveSessionSummary } from './session-runtime'
 import { stripIsoTimestamp } from './mobile-list'
 
@@ -12,11 +13,9 @@ export const DEVICE_NAME_MAX = 64
 export const PAIRING_TOKEN_LENGTH = 8
 export const PAIRING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
-export const MOBILE_SECURITY_COPY =
-  '手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。'
+export const MOBILE_SECURITY_COPY = '手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。'
 
-export const MOBILE_KEEP_AWAKE_COPY =
-  '远程使用时请保持这台 Mac 唤醒；睡眠或断电后手机无法连接。'
+export const MOBILE_KEEP_AWAKE_COPY = '远程使用时请保持这台 Mac 唤醒；睡眠或断电后手机无法连接。'
 
 export type PairedDeviceRecord = {
   deviceId: string
@@ -183,8 +182,21 @@ export type MobileConversationSnapshot = {
   queuedCount: number
   composeBlockReason: string | null
   model?: string | null
+  /** Provider of `model`; with it, identifies the active model among `models`. */
+  provider?: string | null
+  models?: MobileModelOption[]
+  permissionMode?: PermissionMode
+  checkpoints?: CheckpointTurnState[]
   error?: string
   nodes: ConversationNode[]
+}
+
+export type MobileModelOption = {
+  provider: string
+  id: string
+  name: string
+  image: boolean
+  unavailableReason?: string
 }
 
 export function publicDevice(record: PairedDeviceRecord): PairedDevicePublic {

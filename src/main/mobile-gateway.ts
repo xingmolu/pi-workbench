@@ -1,4 +1,6 @@
 import { hostname as osHostname } from 'node:os'
+import { z } from 'zod'
+import { MAX_PROMPT_IMAGES, promptImageSchema } from '../shared/schemas'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { MOBILE_GATEWAY_LOOPBACK, MOBILE_GATEWAY_PORT } from '../shared/mobile-gateway'
 import { buildMobileHomeGroups } from '../shared/mobile-list'
@@ -17,6 +19,38 @@ import {
 } from './mobile-web-page'
 
 const BODY_LIMIT = 64 * 1024
+/** A prompt may carry up to four phone photos; the page downsizes them before upload. */
+const SEND_BODY_LIMIT = 24 * 1024 * 1024
+
+const identitySchema = z.object({
+  sessionId: z.string().min(1).max(256),
+  generation: z.number().int().nonnegative()
+})
+const sendSchema = identitySchema.extend({
+  text: z.string().max(1024 * 1024),
+  images: z.array(promptImageSchema).min(1).max(MAX_PROMPT_IMAGES).optional()
+})
+const modelSchema = identitySchema.extend({
+  providerId: z.string().min(1).max(256),
+  modelId: z.string().min(1).max(256)
+})
+const permissionSchema = z.object({ mode: z.enum(['ask', 'auto', 'open']) })
+const checkpointSchema = identitySchema.extend({
+  entryId: z.string().min(1).max(256),
+  restore: z.boolean().optional(),
+  force: z.boolean().optional()
+})
+const newSessionSchema = z.object({
+  cwd: z.string().min(1).max(4096),
+  providerId: z.string().min(1).max(256).optional(),
+  modelId: z.string().min(1).max(256).optional()
+})
+/** Invalid input answers 400 with a fixed message instead of echoing the parser. */
+function parse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value)
+  if (!result.success) throw new Error('请求参数无效')
+  return result.data
+}
 const COOKIE = 'pi_device'
 
 export type MobileGatewayOptions = {
@@ -40,13 +74,13 @@ type SseClient = {
   stream: MobileSnapshotStream
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage, limit = BODY_LIMIT): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     request.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > BODY_LIMIT) {
+      if (size > limit) {
         request.destroy()
         reject(new Error('请求过大'))
         return
@@ -338,6 +372,15 @@ export class MobileGatewayServer {
         })
         return
       }
+      if (request.method === 'POST' && url.pathname === '/api/sessions/new') {
+        const body = parse(newSessionSchema, JSON.parse((await readBody(request)) || '{}'))
+        const model =
+          body.providerId && body.modelId
+            ? { providerId: body.providerId, modelId: body.modelId }
+            : undefined
+        json(response, 200, await this.options.sessions.open(body.cwd, undefined, model))
+        return
+      }
       if (request.method === 'POST' && url.pathname === '/api/sessions/open') {
         const body = JSON.parse((await readBody(request)) || '{}') as {
           cwd?: string
@@ -400,15 +443,66 @@ export class MobileGatewayServer {
           client.stream.publish(() => JSON.stringify(current), true)
           return
         }
-        const body = JSON.parse((await readBody(request)) || '{}') as Record<string, unknown>
+        const body = JSON.parse(
+          (await readBody(request, action === 'send' ? SEND_BODY_LIMIT : BODY_LIMIT)) || '{}'
+        ) as Record<string, unknown>
         if (request.method === 'POST' && action === 'send') {
+          const input = parse(sendSchema, body)
+          if (!input.text.trim() && !input.images) throw new Error('请输入任务内容')
           await this.options.sessions.send(
             workerId,
-            String(body.text ?? ''),
-            String(body.sessionId ?? ''),
-            Number(body.generation ?? 0)
+            input.text,
+            input.sessionId,
+            input.generation,
+            input.images
           )
           json(response, 200, { ok: true })
+          return
+        }
+        if (request.method === 'POST' && action === 'model') {
+          const input = parse(modelSchema, body)
+          await this.options.sessions.setModel(
+            workerId,
+            { sessionId: input.sessionId, generation: input.generation },
+            input.providerId,
+            input.modelId
+          )
+          json(response, 200, { ok: true })
+          return
+        }
+        if (request.method === 'POST' && action === 'permission') {
+          await this.options.sessions.setPermission(workerId, parse(permissionSchema, body).mode)
+          json(response, 200, { ok: true })
+          return
+        }
+        if (request.method === 'POST' && action === 'skills') {
+          const skills = await this.options.sessions.skills(workerId, parse(identitySchema, body))
+          json(response, 200, { skills })
+          return
+        }
+        if (request.method === 'POST' && action === 'checkpoint') {
+          const input = parse(checkpointSchema, body)
+          const identity = { sessionId: input.sessionId, generation: input.generation }
+          json(
+            response,
+            200,
+            input.restore
+              ? {
+                  outcome: await this.options.sessions.checkpointRestore(
+                    workerId,
+                    identity,
+                    input.entryId,
+                    input.force === true
+                  )
+                }
+              : {
+                  plan: await this.options.sessions.checkpointPlan(
+                    workerId,
+                    identity,
+                    input.entryId
+                  )
+                }
+          )
           return
         }
         if (request.method === 'POST' && action === 'abort') {

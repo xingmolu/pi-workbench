@@ -88,9 +88,40 @@ function fakeSessions(log: string[]): MobileSessionBridge {
     ],
     listCatalog: async () => catalog,
     snapshot: (workerId) => (workerId === 'worker-1' ? current : null),
-    open: async () => current,
-    send: async (_workerId, text) => {
-      log.push(`send:${text}`)
+    open: async (cwd, sessionPath, model) => {
+      log.push(
+        `open:${cwd}:${sessionPath ?? 'new'}:${model ? `${model.providerId}/${model.modelId}` : ''}`
+      )
+      return current
+    },
+    send: async (_workerId, text, _sessionId, _generation, images) => {
+      log.push(`send:${text}${images ? `+${images.length}img` : ''}`)
+    },
+    setModel: async (_workerId, identity, providerId, modelId) => {
+      log.push(`model:${identity.sessionId}:${providerId}/${modelId}`)
+    },
+    setPermission: async (_workerId, mode) => {
+      log.push(`permission:${mode}`)
+    },
+    skills: async () => [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        name: 'review',
+        description: 'Review code',
+        scope: 'user',
+        origin: 'top-level',
+        mode: 'model-and-manual',
+        canInsert: true
+      }
+    ],
+    checkpointPlan: async (_workerId, _identity, entryId) => ({
+      entryId,
+      laterTurns: 0,
+      files: [{ path: '/project/a.ts', action: 'restore', status: 'ready' }]
+    }),
+    checkpointRestore: async (_workerId, _identity, _entryId, force) => {
+      log.push(`restore:${force}`)
+      return { status: 'restored', restored: 1, skipped: [], failed: [] }
     },
     abort: async () => {
       log.push('abort')
@@ -384,6 +415,79 @@ describe('mobile gateway http', () => {
     expect(after.status).toBe(401)
   })
 
+  it('starts sessions, switches model and permission, lists skills, undoes turns and sends images', async () => {
+    const devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices.length = 0
+        devices.push(...next)
+      }
+    })
+    const log: string[] = []
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions(log),
+      port: 18794,
+      lanAddress: () => null
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const offer = pairing.createOffer()
+    const paired = await request(18794, '/api/pair', {
+      method: 'POST',
+      body: { token: offer.token, deviceName: 'Pixel' }
+    })
+    const token = paired.data.deviceToken as string
+    const identity = { sessionId: 'sess-1', generation: 2 }
+    const post = (path: string, body: unknown): ReturnType<typeof request> =>
+      request(18794, path, { method: 'POST', token, body })
+
+    expect(
+      (await post('/api/sessions/new', { cwd: '/project', providerId: 'p', modelId: 'm' })).status
+    ).toBe(200)
+    expect(
+      (await post('/api/sessions/worker-1/model', { ...identity, providerId: 'p', modelId: 'm2' }))
+        .status
+    ).toBe(200)
+    expect((await post('/api/sessions/worker-1/permission', { mode: 'auto' })).status).toBe(200)
+    expect((await post('/api/sessions/worker-1/permission', { mode: 'root' })).status).toBe(400)
+    const skills = await post('/api/sessions/worker-1/skills', identity)
+    expect(skills.data.skills.map((skill: { name: string }) => skill.name)).toEqual(['review'])
+    const plan = await post('/api/sessions/worker-1/checkpoint', { ...identity, entryId: 'e1' })
+    expect(plan.data.plan.files).toHaveLength(1)
+    const restored = await post('/api/sessions/worker-1/checkpoint', {
+      ...identity,
+      entryId: 'e1',
+      restore: true,
+      force: false
+    })
+    expect(restored.data.outcome.status).toBe('restored')
+    const image = { mimeType: 'image/png', data: 'iVBORw0KGgo=' }
+    expect(
+      (await post('/api/sessions/worker-1/send', { ...identity, text: '', images: [image] })).status
+    ).toBe(200)
+    expect(
+      (
+        await post('/api/sessions/worker-1/send', {
+          ...identity,
+          text: 'x',
+          images: [{ mimeType: 'image/svg+xml', data: 'PHN2Zz4=' }]
+        })
+      ).status
+    ).toBe(400)
+    expect((await post('/api/sessions/worker-1/send', { ...identity, text: '  ' })).status).toBe(
+      400
+    )
+    expect(log).toEqual([
+      'open:/project:new:p/m',
+      'model:sess-1:p/m2',
+      'permission:auto',
+      'restore:false',
+      'send:+1img'
+    ])
+  })
+
   it('rejects unknown Host headers to limit DNS rebinding', async () => {
     const devices: PairedDeviceRecord[] = []
     const pairing = new MobilePairingStore({
@@ -418,7 +522,10 @@ describe('mobile gateway http', () => {
   it('serves the built mobile page and its assets without pairing', async () => {
     const webRoot = mkdtempSync(join(tmpdir(), 'pi-mobile-root-'))
     mkdirSync(join(webRoot, 'assets'))
-    writeFileSync(join(webRoot, 'mobile.html'), '<script type="module" src="./assets/mobile-x1.js"></script>')
+    writeFileSync(
+      join(webRoot, 'mobile.html'),
+      '<script type="module" src="./assets/mobile-x1.js"></script>'
+    )
     writeFileSync(join(webRoot, 'assets', 'mobile-x1.js'), 'console.log(1)')
     const pairing = new MobilePairingStore({ load: () => [], save: () => undefined })
     const gateway = new MobileGatewayServer({

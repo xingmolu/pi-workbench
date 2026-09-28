@@ -1,4 +1,7 @@
+import type { PermissionMode, PromptImage } from '../../../shared/contracts'
+import type { CheckpointPlan, CheckpointRestoreOutcome } from '../../../shared/checkpoints'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
+import type { SkillSummary } from '../../../shared/skills'
 import type { MobileHomeGroup } from '../../../shared/mobile-list'
 
 const TOKEN_KEY = 'pi-desktop-device-token'
@@ -74,6 +77,13 @@ export async function pairFromLocation(): Promise<void> {
   history.replaceState({}, '', `/${location.hash}`)
 }
 
+const identity = (
+  snapshot: MobileConversationSnapshot
+): { sessionId: string | null; generation: number } => ({
+  sessionId: snapshot.sessionId,
+  generation: snapshot.generation
+})
+
 const session = (workerId: string, action = ''): string =>
   `/api/sessions/${encodeURIComponent(workerId)}${action ? `/${action}` : ''}`
 
@@ -83,11 +93,31 @@ export const mobileApi = {
   open: (cwd: string, sessionPath?: string) =>
     post<MobileConversationSnapshot>('/api/sessions/open', { cwd, sessionPath }),
   events: (workerId: string) => new EventSource(session(workerId, 'events')),
-  send: (snapshot: MobileConversationSnapshot, text: string) =>
+  newSession: (cwd: string, model?: { providerId: string; modelId: string }) =>
+    post<MobileConversationSnapshot>('/api/sessions/new', { cwd, ...model }),
+  send: (snapshot: MobileConversationSnapshot, text: string, images?: PromptImage[]) =>
     post(session(snapshot.workerId, 'send'), {
+      ...identity(snapshot),
       text,
-      sessionId: snapshot.sessionId,
-      generation: snapshot.generation
+      ...(images?.length ? { images } : {})
+    }),
+  setModel: (snapshot: MobileConversationSnapshot, providerId: string, modelId: string) =>
+    post(session(snapshot.workerId, 'model'), { ...identity(snapshot), providerId, modelId }),
+  setPermission: (workerId: string, mode: PermissionMode) =>
+    post(session(workerId, 'permission'), { mode }),
+  skills: (snapshot: MobileConversationSnapshot) =>
+    post<{ skills: SkillSummary[] }>(session(snapshot.workerId, 'skills'), identity(snapshot)),
+  checkpointPlan: (snapshot: MobileConversationSnapshot, entryId: string) =>
+    post<{ plan: CheckpointPlan | null }>(session(snapshot.workerId, 'checkpoint'), {
+      ...identity(snapshot),
+      entryId
+    }),
+  checkpointRestore: (snapshot: MobileConversationSnapshot, entryId: string, force: boolean) =>
+    post<{ outcome: CheckpointRestoreOutcome | null }>(session(snapshot.workerId, 'checkpoint'), {
+      ...identity(snapshot),
+      entryId,
+      restore: true,
+      force
     }),
   abort: (workerId: string) => post(session(workerId, 'abort'), {}),
   clearQueue: (workerId: string) => post(session(workerId, 'queue/clear'), {}),

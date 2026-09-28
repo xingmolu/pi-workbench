@@ -50,6 +50,7 @@ async function launchMobile(
   let publish: Parameters<MobileSessionBridge['subscribe']>[0] = () => undefined
   const paths: string[] = []
   const responses: { approvalId: string; allow: boolean }[] = []
+  const calls: Record<string, unknown>[] = []
   let requestPath = ''
   let devices: PairedDeviceRecord[] = []
   const pairing = new MobilePairingStore({
@@ -87,8 +88,52 @@ async function launchMobile(
         throw new Error('临时读取失败')
       return workerId === current.workerId ? current : null
     },
-    open: async () => current,
-    send: async () => undefined,
+    open: async (cwd, sessionPath, model) => {
+      calls.push({ type: 'open', cwd, sessionPath, model })
+      return current
+    },
+    send: async (_workerId, text, _sessionId, _generation, images) => {
+      calls.push({ type: 'send', text, images: images?.map((image) => image.mimeType) })
+    },
+    setModel: async (_workerId, _identity, providerId, modelId) => {
+      calls.push({ type: 'model', providerId, modelId })
+      current = { ...current, revision: current.revision + 1, provider: providerId, model: modelId }
+      publish({ workerId: current.workerId, snapshot: current, runFinished: false })
+    },
+    setPermission: async (_workerId, mode) => {
+      calls.push({ type: 'permission', mode })
+      current = { ...current, revision: current.revision + 1, permissionMode: mode }
+      publish({ workerId: current.workerId, snapshot: current, runFinished: false })
+    },
+    skills: async () => [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        name: 'code-review',
+        description: 'Review the current change for bugs',
+        scope: 'user',
+        origin: 'top-level',
+        mode: 'model-and-manual',
+        canInsert: true
+      }
+    ],
+    checkpointPlan: async (_workerId, _identity, entryId) => {
+      calls.push({ type: 'plan', entryId })
+      return {
+        entryId,
+        laterTurns: 0,
+        files: [{ path: '/fixture/src/app.ts', action: 'restore', status: 'ready' }]
+      }
+    },
+    checkpointRestore: async (_workerId, _identity, entryId, force) => {
+      calls.push({ type: 'restore', entryId, force })
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        checkpoints: [{ entryId, state: 'restored' }]
+      }
+      publish({ workerId: current.workerId, snapshot: current, runFinished: false })
+      return { status: 'restored', restored: 1, skipped: [], failed: [] }
+    },
     abort: async () => undefined,
     clearQueue: async () => undefined,
     respond: async (_workerId, approvalId, allow) => {
@@ -144,6 +189,7 @@ async function launchMobile(
     page,
     paths,
     responses,
+    calls,
     get current() {
       return current
     },
@@ -374,4 +420,111 @@ test('mobile conversation groups work, shows diffs and asks for approval with a 
     .poll(() => chat.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight))
     .toBeLessThan(80)
   await page.screenshot({ path: resolve('artifacts/e2e/mobile-conversation-streaming.png') })
+})
+
+test('mobile controls: permission, model, skills, images, undo and a new session', async () => {
+  const fixture = await launchMobile('initial-state', false, 1024 * 1024)
+  const { page, calls } = fixture
+  await expect(page.locator('#chat-scroll')).toContainText('initial-state')
+  fixture.setSnapshot({
+    ...fixture.current,
+    revision: 2,
+    provider: 'fixture',
+    model: 'text-only',
+    permissionMode: 'ask',
+    models: [
+      { provider: 'fixture', id: 'text-only', name: 'Text Only', image: false },
+      { provider: 'fixture', id: 'vision', name: 'Vision Pro', image: true },
+      { provider: 'other', id: 'gone', name: 'Gone', image: false, unavailableReason: '未登录' }
+    ],
+    checkpoints: [{ entryId: 'entry-1', state: 'available' }],
+    nodes: [
+      { id: 'u1', type: 'user', text: 'Rename it', canonicalEntryId: 'entry-1' },
+      {
+        id: 't1',
+        type: 'tool',
+        toolCallId: 'call-edit',
+        name: 'edit',
+        intent: 'diff',
+        title: 'edit /fixture/src/app.ts',
+        status: 'success',
+        change: {
+          path: '/fixture/src/app.ts',
+          kind: 'edit',
+          source: 'applied',
+          anchored: true,
+          patch: '--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n',
+          additions: 1,
+          deletions: 1
+        }
+      },
+      { id: 'a1', type: 'assistant', markdown: 'Renamed.', canonicalEntryId: 'entry-2' }
+    ]
+  })
+  fixture.publish()
+  const chat = page.locator('#chat-scroll')
+  await expect(chat.getByText('已修改 1 个文件')).toBeVisible()
+
+  // Permission
+  await page.getByRole('button', { name: '工具权限：请求批准' }).click()
+  await page
+    .getByRole('dialog', { name: '工具权限' })
+    .getByRole('button', { name: /帮我批准/ })
+    .click()
+  await expect(page.getByRole('button', { name: '工具权限：帮我批准' })).toBeVisible()
+
+  // Model: unavailable models are listed but cannot be picked.
+  await page.getByRole('button', { name: '模型：Text Only' }).click()
+  const models = page.getByRole('dialog', { name: '选择模型' })
+  await expect(models.getByRole('button', { name: /Gone/ })).toBeDisabled()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-model-sheet.png') })
+  await models.getByRole('button', { name: /Vision Pro/ }).click()
+  await expect(page.getByRole('button', { name: '模型：Vision Pro' })).toBeVisible()
+
+  // Skills insert a slash command into the draft.
+  await page.getByRole('button', { name: '使用技能' }).click()
+  await page
+    .getByRole('dialog', { name: '使用技能' })
+    .getByRole('button', { name: /code-review/ })
+    .click()
+  const input = page.getByRole('textbox', { name: '提出后续要求' })
+  await expect(input).toHaveValue('/skill:code-review ')
+  await input.fill('/skill:code-review check the screenshot')
+
+  // Images: a picked photo becomes a thumbnail and travels with the prompt.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  )
+  await page
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: png })
+  await expect(page.locator('.m-thumb img')).toHaveCount(1)
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-composer-image.png') })
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.locator('.m-thumb')).toHaveCount(0)
+
+  // Undo the turn's file changes after confirming the plan.
+  await chat.getByRole('button', { name: '撤销', exact: true }).click()
+  await expect(chat.getByRole('alertdialog', { name: '确认撤销' })).toContainText('src/app.ts')
+  await chat.getByRole('button', { name: '撤销改动' }).click()
+  await expect(chat.getByText('已撤销 1 个文件')).toBeVisible()
+
+  // A new session in the same project keeps the chosen model.
+  await page.getByRole('button', { name: '新会话' }).click()
+  await expect
+    .poll(() => calls.filter((call) => call.type !== 'plan'))
+    .toEqual([
+      { type: 'permission', mode: 'auto' },
+      { type: 'model', providerId: 'fixture', modelId: 'vision' },
+      { type: 'send', text: '/skill:code-review check the screenshot', images: ['image/png'] },
+      { type: 'restore', entryId: 'entry-1', force: false },
+      {
+        type: 'open',
+        cwd: '/fixture',
+        sessionPath: undefined,
+        model: { providerId: 'fixture', modelId: 'vision' }
+      }
+    ])
 })

@@ -28,7 +28,7 @@ Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
   `window.piPlugin` bridge、按 project 状态和崩溃隔离；
 - Pi `browser` 工具：snapshot/ref、click/fill/select、导航、wait、screenshot 与 Stop。
 - 手机对话面：本机回环网关、一次性配对、局域网 QR、可撤销设备 grant；远程主路为 Tailscale Serve（Cloudflare Quick Tunnel 可选）。
-  页面是独立的 React 构建入口（`src/renderer/mobile.html` → `out/renderer/mobile.html`），由网关直接提供，与桌面共享工作过程分组、工具详情、文件差异和审批预览；只在读者停在底部时跟随新输出，否则提示「最新内容」。开发模式下需先 `npm run build` 生成页面。
+  页面是独立的 React 构建入口（`src/renderer/mobile.html` → `out/renderer/mobile.html`），由网关直接提供，与桌面共享工作过程分组、工具详情、文件差异和审批预览；只在读者停在底部时跟随新输出，否则提示「最新内容」。手机上可以新建会话（沿用当前模型）、切换模型与工具权限、插入 Skill、发送最多 4 张图片（上传前缩到 1600px，模型不支持图片时拒绝）、撤销某一轮的文件改动（有冲突时需确认覆盖）。开发模式下需先 `npm run build` 生成页面。
 
 Files 不支持编辑、重命名、删除或自动附加到对话；仅预览不超过 1 MiB 的 UTF-8 文本，二进制/非 UTF-8 内容会在检测后拒绝预览，符号链接和 Git 内部路径禁止访问。搜索仅匹配文件名，并跳过依赖与构建目录；达到扫描上限会提示结果不完整。这是应用级只读路径边界，不是针对恶意本机进程的 OS sandbox。
 

@@ -280,3 +280,21 @@ describe('browser and Workbench event ownership', () => {
     ).toBe(false)
   })
 })
+
+it('accepts image prompts only with supported types, valid base64 and at most four images', () => {
+  const base = { type: 'prompt:send', text: '', sessionId: 's', generation: 1 }
+  const image = { mimeType: 'image/jpeg', data: 'aGVsbG8=' }
+  expect(hostCommandSchema.safeParse({ ...base, images: [image] }).success).toBe(true)
+  expect(hostCommandSchema.safeParse({ ...base, text: 'hi' }).success).toBe(true)
+  expect(
+    hostCommandSchema.safeParse({ ...base, images: [{ ...image, mimeType: 'image/svg+xml' }] })
+      .success
+  ).toBe(false)
+  expect(
+    hostCommandSchema.safeParse({ ...base, images: [{ ...image, data: 'not base64!' }] }).success
+  ).toBe(false)
+  expect(hostCommandSchema.safeParse({ ...base, images: Array(5).fill(image) }).success).toBe(
+    false
+  )
+  expect(hostCommandSchema.safeParse({ ...base, images: [] }).success).toBe(false)
+})

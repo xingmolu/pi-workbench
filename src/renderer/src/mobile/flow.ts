@@ -5,7 +5,7 @@ import { summarizeTurnChanges, type TurnFileChange } from '../store/turn-changes
 export type FlowItem =
   | { kind: 'node'; key: string; node: ConversationNode; latest: boolean }
   | { kind: 'work'; key: string; nodes: WorkNode[]; running: boolean }
-  | { kind: 'receipt'; key: string; files: TurnFileChange[] }
+  | { kind: 'receipt'; key: string; files: TurnFileChange[]; entryId?: string }
 
 /**
  * The phone's reading order: consecutive thinking and tool calls fold into one work group,
@@ -18,15 +18,23 @@ export function buildFlow(nodes: readonly ConversationNode[], busy: boolean): Fl
   const items: FlowItem[] = []
   let turn: ConversationNode[] = []
   let turnKey = 'start'
+  let entryId: string | undefined
   const closeTurn = (): void => {
     const files = summarizeTurnChanges(turn)
-    if (files.length) items.push({ kind: 'receipt', key: `receipt:${turnKey}`, files })
+    if (files.length)
+      items.push({
+        kind: 'receipt',
+        key: `receipt:${turnKey}`,
+        files,
+        ...(entryId ? { entryId } : {})
+      })
     turn = []
   }
   groups.forEach((group, index) => {
     if (group.kind === 'node' && group.node.type === 'user') {
       closeTurn()
       turnKey = group.key
+      entryId = group.node.canonicalEntryId
     }
     if (group.kind === 'work') {
       turn.push(...group.nodes)

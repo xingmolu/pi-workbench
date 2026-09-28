@@ -806,13 +806,13 @@ function createMobileSessionBridge(): MobileSessionBridge {
     workerId: string,
     command: HostCommand,
     identity?: { sessionId: string | null; generation: number }
-  ): Promise<void> => {
+  ): Promise<HostResult> => {
     if (globalConfiguration.busy) throw new Error('全局配置正在更新，请稍后重试')
     if (command.type === 'prompt:send') {
       await preparePromptConfiguration()
       assertPromptConfigurationReady()
     }
-    await sessionWorkers.requestWorker(workerId, command, identity).finally(() => foregroundCapabilities.invalidate())
+    return sessionWorkers.requestWorker(workerId, command, identity).finally(() => foregroundCapabilities.invalidate())
   }
   return {
     listLive: () => liveToMobile(sessionWorkers.getLiveSummaries()),
@@ -846,24 +846,47 @@ function createMobileSessionBridge(): MobileSessionBridge {
         return null
       }
     },
-    open: async (cwd, sessionPath) => {
+    open: async (cwd, sessionPath, model) => {
       const snapshot = await openWorker(
         { cwd, ...(sessionPath ? { path: sessionPath } : {}) },
-        sessionWorkers.selectedScope
+        sessionWorkers.selectedScope,
+        model
       )
       const workerId = snapshot.desktopScope?.workerId
       if (!workerId) throw new Error('会话未打开')
       return toMobileSnapshot(workerId, cwd, snapshot)
     },
-    send: (workerId, text, sessionId, generation) =>
-      request(workerId, { type: 'prompt:send', text, sessionId, generation }, { sessionId, generation }),
-    abort: (workerId) => {
-      foregroundCapabilities.cancelOwner(workerId)
-      return request(workerId, { type: 'prompt:abort' })
+    send: async (workerId, text, sessionId, generation, images) => {
+      await request(workerId, { type: 'prompt:send', text, sessionId, generation, ...(images?.length ? { images } : {}) }, { sessionId, generation })
     },
-    clearQueue: (workerId) => request(workerId, { type: 'queue:clear' }),
-    respond: (workerId, approvalId, allow) =>
-      request(workerId, { type: 'permission:respond', approvalId, allow }),
+    abort: async (workerId) => {
+      foregroundCapabilities.cancelOwner(workerId)
+      await request(workerId, { type: 'prompt:abort' })
+    },
+    clearQueue: async (workerId) => {
+      await request(workerId, { type: 'queue:clear' })
+    },
+    respond: async (workerId, approvalId, allow) => {
+      await request(workerId, { type: 'permission:respond', approvalId, allow })
+    },
+    setModel: async (workerId, identity, providerId, modelId) => {
+      await request(workerId, { type: 'model:set', providerId, modelId }, identity)
+    },
+    setPermission: async (workerId, mode) => {
+      await request(workerId, { type: 'permission:set', mode })
+    },
+    skills: async (workerId, identity) => {
+      const result = await request(workerId, { type: 'skills:list', ...identity }, identity)
+      return result.kind === 'skills-list' ? result.catalog.skills.filter((skill) => skill.canInsert) : []
+    },
+    checkpointPlan: async (workerId, identity, entryId) => {
+      const result = await request(workerId, { type: 'checkpoint:plan', ...identity, entryId }, identity)
+      return result.kind === 'checkpoint' ? (result.plan ?? null) : null
+    },
+    checkpointRestore: async (workerId, identity, entryId, force) => {
+      const result = await request(workerId, { type: 'checkpoint:restore', ...identity, entryId, force }, identity)
+      return result.kind === 'checkpoint' ? (result.outcome ?? null) : null
+    },
     subscribe: (listener) => {
       mobileSessionListeners.add(listener)
       return () => {

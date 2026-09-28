@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ChevronLeft } from 'lucide-react'
+import { ArrowDown, ChevronLeft, SquarePen } from 'lucide-react'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
 import { mobileStatusBadge } from '../../../shared/mobile-list'
-import { MobileConversation, type Respond } from './MobileConversation'
+import { MobileConversation, type Respond, type Undo } from './MobileConversation'
 import { MobileComposer } from './MobileComposer'
 import { ThemeButton } from './ThemeButton'
 import type { MobileThemeChoice } from './theme'
@@ -19,7 +19,8 @@ export function ChatPane({
   onTheme,
   onBack,
   onRefresh,
-  onError
+  onError,
+  onNewSession
 }: {
   snapshot: MobileConversationSnapshot | null
   routed: boolean
@@ -31,6 +32,7 @@ export function ChatPane({
   onBack: () => void
   onRefresh: () => void
   onError: (message: string) => void
+  onNewSession: (cwd: string, model?: { providerId: string; modelId: string }) => void
 }): React.JSX.Element {
   const scroller = useRef<HTMLElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -83,6 +85,29 @@ export function ChatPane({
     [workerId, onError]
   )
 
+  const loadSkills = useCallback(
+    () =>
+      snapshot ? mobileApi.skills(snapshot).then((result) => result.skills) : Promise.resolve([]),
+    // Skills belong to the session identity, not to every streamed revision.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot?.workerId, snapshot?.sessionId, snapshot?.generation]
+  )
+  const undo = useCallback(
+    (entryId: string): Undo | undefined => {
+      const state = snapshot?.checkpoints?.find((item) => item.entryId === entryId)
+      if (!snapshot || !state || !snapshot.sessionId) return undefined
+      return {
+        state: state.state,
+        blockedReason:
+          snapshot.busy || snapshot.approvals.length ? '请等待当前任务结束后再撤销' : null,
+        plan: () => mobileApi.checkpointPlan(snapshot, entryId).then((result) => result.plan),
+        restore: (force) =>
+          mobileApi.checkpointRestore(snapshot, entryId, force).then((result) => result.outcome)
+      }
+    },
+    [snapshot]
+  )
+
   const notices = (
     <>
       {error ? (
@@ -129,6 +154,22 @@ export function ChatPane({
         </button>
         <h1 title={snapshot.title}>{snapshot.title}</h1>
         <span className={`m-pill is-${badge.kind}`}>{badge.label}</span>
+        <button
+          type="button"
+          className="m-icon"
+          aria-label="新会话"
+          title="在这个项目里开始新会话"
+          onClick={() =>
+            onNewSession(
+              snapshot.cwd,
+              snapshot.provider && snapshot.model
+                ? { providerId: snapshot.provider, modelId: snapshot.model }
+                : undefined
+            )
+          }
+        >
+          <SquarePen size={18} />
+        </button>
         <ThemeButton choice={theme} onChoice={onTheme} />
       </header>
       {notices}
@@ -142,7 +183,7 @@ export function ChatPane({
         }}
       >
         <div ref={content}>
-          <MobileConversation snapshot={snapshot} respond={respond} />
+          <MobileConversation snapshot={snapshot} respond={respond} undo={undo} />
         </div>
       </main>
       {unseen ? (
@@ -161,12 +202,16 @@ export function ChatPane({
       ) : null}
       <MobileComposer
         snapshot={snapshot}
-        send={(text) => {
+        notify={onError}
+        send={(text, images) => {
           follow.current = true
-          return report(mobileApi.send(snapshot, text))
+          return report(mobileApi.send(snapshot, text, images))
         }}
         abort={() => report(mobileApi.abort(snapshot.workerId)).catch(() => {})}
         clearQueue={() => report(mobileApi.clearQueue(snapshot.workerId)).catch(() => {})}
+        setModel={(option) => report(mobileApi.setModel(snapshot, option.provider, option.id))}
+        setPermission={(mode) => report(mobileApi.setPermission(snapshot.workerId, mode))}
+        loadSkills={loadSkills}
       />
     </>
   )
