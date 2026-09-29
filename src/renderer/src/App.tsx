@@ -9,6 +9,7 @@ import { PanelRight } from 'lucide-react'
 import { useDesktopSettings } from './store/desktop-settings'
 import './assets/desktop-settings.css'
 import type {
+  ApprovalScope,
   HostCommand,
   LoginMethod,
   WorkbenchCommand,
@@ -530,8 +531,13 @@ export default function App(): React.JSX.Element {
   )
 
   const respondToApproval = useCallback(
-    (id: string, allow: boolean): Promise<boolean> => {
-      return send({ type: 'permission:respond', approvalId: id, allow })
+    (id: string, allow: boolean, scope?: ApprovalScope): Promise<boolean> => {
+      return send({
+        type: 'permission:respond',
+        approvalId: id,
+        allow,
+        ...(scope === 'turn' ? { scope } : {})
+      })
     },
     [send]
   )

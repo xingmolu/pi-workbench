@@ -197,7 +197,12 @@ export type ApprovalRequest = {
   intent: ToolIntent
   title: string
   detail: string
+  /** Offered as "allow for the rest of this task": Computer Use actions in this app. */
+  grant?: { kind: 'computer-app'; app: string; bundleId: string }
 }
+
+/** `turn`: also allow what `grant` names until the current task ends. */
+export type ApprovalScope = 'once' | 'turn'
 
 export type LoginMethod = 'browser' | 'device_code'
 
@@ -473,7 +478,7 @@ export type HostCommand =
   | { type: 'prompt:abort' }
   | { type: 'queue:clear' }
   | { type: 'permission:set'; mode: PermissionMode }
-  | { type: 'permission:respond'; approvalId: string; allow: boolean }
+  | { type: 'permission:respond'; approvalId: string; allow: boolean; scope?: ApprovalScope }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
   | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }

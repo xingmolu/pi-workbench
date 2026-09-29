@@ -1119,6 +1119,11 @@ code {
   gap: 8px;
 }
 
+.m-approval-grant {
+  width: 100%;
+  margin-top: 8px;
+}
+
 .m-button {
   min-height: 44px;
   padding: 0 14px;

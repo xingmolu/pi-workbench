@@ -572,7 +572,8 @@ export class MobileGatewayServer {
           await this.options.sessions.respond(
             workerId,
             String(body.approvalId ?? ''),
-            body.allow === true
+            body.allow === true,
+            body.scope === 'turn' ? 'turn' : 'once'
           )
           json(response, 200, { ok: true })
           return

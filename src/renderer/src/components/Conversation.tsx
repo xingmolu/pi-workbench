@@ -205,9 +205,9 @@ const ToolNode = memo(function ToolNode({
             request={activeApproval}
             change={change}
             projectPath={projectPath}
-            onApproval={(id, allow) => {
+            onApproval={(id, allow, scope) => {
               setOpen(true)
-              return onApproval(id, allow)
+              return onApproval(id, allow, scope)
             }}
           />
         ) : change ? (

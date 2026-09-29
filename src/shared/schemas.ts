@@ -227,7 +227,15 @@ const approvalRequestSchema = z
     toolName: z.string(),
     intent: toolIntentSchema,
     title: z.string(),
-    detail: z.string()
+    detail: z.string(),
+    grant: z
+      .object({
+        kind: z.literal('computer-app'),
+        app: z.string().max(80),
+        bundleId: z.string().min(1).max(80)
+      })
+      .strict()
+      .optional()
   })
   .strict()
 const loginStatusSchema = z.discriminatedUnion('phase', [
@@ -633,7 +641,8 @@ const permissionRespondCommandSchema = z
   .object({
     type: z.literal('permission:respond'),
     approvalId: z.string().min(1),
-    allow: z.boolean()
+    allow: z.boolean(),
+    scope: z.enum(['once', 'turn']).optional()
   })
   .strict()
 const accountLoginCommandSchema = z

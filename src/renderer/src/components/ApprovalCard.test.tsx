@@ -35,3 +35,19 @@ it('keeps complete parameters available without expanding the card by default', 
   expect(html).not.toContain('<details class="approval-parameters" open=""')
   expect(html).toContain('/outside')
 })
+it('offers allowing the whole task for the app a Computer Use action targets', () => {
+  const computer: ApprovalRequest = {
+    ...request,
+    toolName: 'computer',
+    intent: 'desktop',
+    detail: JSON.stringify({ action: 'act', stateId: 's', intent: 'key', key: 'Enter' }),
+    grant: { kind: 'computer-app', app: 'HoYowave', bundleId: 'com.miHoYo.HoYowave' }
+  }
+  const html = renderToStaticMarkup(
+    <ApprovalCard request={computer} onApproval={async () => true} />
+  )
+  expect(html).toContain('本轮允许操作 HoYowave')
+  expect(
+    renderToStaticMarkup(<ApprovalCard request={request} onApproval={async () => true} />)
+  ).not.toContain('本轮允许')
+})

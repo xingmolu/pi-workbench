@@ -166,11 +166,15 @@ function browserPluginEnabled(): boolean {
 }
 
 const foregroundCapabilities = new ForegroundCapabilityRouter({
-  authority: owner => ({
-    selected: !browserOwner || quitInProgress ? null : sessionWorkers.selectedScope ?? (lobbyOwnerId
-      ? { workerId: lobbyOwnerId, selectionEpoch: sessionWorkers.selectionEpoch } : null),
-    identity: owner === lobbyOwnerId ? lobbySnapshot : sessionWorkers.tryGetSnapshot(owner)
-  }),
+  authority: owner => {
+    const identity = owner === lobbyOwnerId ? lobbySnapshot : sessionWorkers.tryGetSnapshot(owner)
+    return {
+      selected: !browserOwner || quitInProgress ? null : sessionWorkers.selectedScope ?? (lobbyOwnerId
+        ? { workerId: lobbyOwnerId, selectionEpoch: sessionWorkers.selectionEpoch } : null),
+      identity,
+      running: !quitInProgress && (identity?.status === 'running' || identity?.status === 'awaiting-approval')
+    }
+  },
   execute: async (request, ownerId, executionId, signal) => {
     switch (request.capability) {
       case 'browser': {
@@ -876,8 +880,8 @@ function createMobileSessionBridge(): MobileSessionBridge {
     clearQueue: async (workerId) => {
       await request(workerId, { type: 'queue:clear' })
     },
-    respond: async (workerId, approvalId, allow) => {
-      await request(workerId, { type: 'permission:respond', approvalId, allow })
+    respond: async (workerId, approvalId, allow, scope) => {
+      await request(workerId, { type: 'permission:respond', approvalId, allow, ...(scope === 'turn' ? { scope } : {}) })
     },
     setModel: async (workerId, identity, providerId, modelId) => {
       await request(workerId, { type: 'model:set', providerId, modelId }, identity)

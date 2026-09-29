@@ -1,6 +1,7 @@
 import type {
   AgentSnapshot,
   ApprovalRequest,
+  ApprovalScope,
   ConversationNode,
   PermissionMode,
   PromptImage,
@@ -57,7 +58,12 @@ export type MobileSessionBridge = {
   ): Promise<CheckpointRestoreOutcome | null>
   abort(workerId: string): Promise<void>
   clearQueue(workerId: string): Promise<void>
-  respond(workerId: string, approvalId: string, allow: boolean): Promise<void>
+  respond(
+    workerId: string,
+    approvalId: string,
+    allow: boolean,
+    scope?: ApprovalScope
+  ): Promise<void>
   subscribe(
     listener: (event: {
       workerId: string

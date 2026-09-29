@@ -4,6 +4,7 @@ import { ForegroundCapabilityRouter } from './foreground-capability-router'
 function harness() {
   let selected = { workerId: 'a', selectionEpoch: 1 }
   let generation = 1
+  const running: Record<string, boolean> = { a: false, b: false }
   const replies = { a: vi.fn(), b: vi.fn() }
   const signals: AbortSignal[] = []
   const completions: Array<(value: unknown) => void> = []
@@ -11,7 +12,11 @@ function harness() {
   const abort = vi.fn()
   const release = vi.fn()
   const router = new ForegroundCapabilityRouter({
-    authority: (owner) => ({ selected, identity: { sessionId: owner, generation } }),
+    authority: (owner) => ({
+      selected,
+      identity: { sessionId: owner, generation },
+      running: running[owner]
+    }),
     execute: (_request, _owner, id, signal) => {
       signals.push(signal)
       executions.push(id)
@@ -45,6 +50,9 @@ function harness() {
     executions,
     abort,
     release,
+    run: (owner: 'a' | 'b', value: boolean) => {
+      running[owner] = value
+    },
     select: (workerId: string) => {
       selected = { workerId, selectionEpoch: selected.selectionEpoch + 1 }
       router.invalidate()
@@ -91,7 +99,8 @@ describe('foreground capability lifecycle', () => {
     'rejects late completion after %s and drains pending work',
     async (reason) => {
       const h = harness()
-      h.request('a')
+      // Selection governs the browser; desktop control follows the task (below).
+      h.request('a', reason === 'selection' ? 'browser' : 'computer-use')
       if (reason === 'selection') h.select('b')
       if (reason === 'generation') h.nextGeneration()
       if (reason === 'stop') h.router.cancelOwner('a')
@@ -162,9 +171,9 @@ describe('foreground capability lifecycle', () => {
 
   it('isolates replacement execution and captured reply channels', async () => {
     const h = harness()
-    h.request('a')
+    h.request('a', 'browser')
     h.select('b')
-    h.request('b')
+    h.request('b', 'browser')
     h.completions[0]('old')
     await Promise.resolve()
     expect(h.replies.b).not.toHaveBeenCalled()
@@ -173,5 +182,47 @@ describe('foreground capability lifecycle', () => {
     await Promise.resolve()
     expect(h.replies.b).toHaveBeenCalledWith(expect.objectContaining({ ok: true, data: 'new' }))
     expect(h.router.pendingCount).toBe(0)
+  })
+
+  it('lets a running task keep the desktop when the desktop shows another session', async () => {
+    const h = harness()
+    h.run('b', true)
+    // b is not selected (a phone or a background task drives it) but is running.
+    h.request('b')
+    expect(h.executions).toHaveLength(1)
+    h.select('b')
+    h.select('a')
+    expect(h.signals[0].aborted).toBe(false)
+    h.completions[0]('seen')
+    await Promise.resolve()
+    expect(h.replies.b).toHaveBeenCalledWith(expect.objectContaining({ ok: true, data: 'seen' }))
+  })
+
+  it('gives the desktop to one task at a time', async () => {
+    const h = harness()
+    h.run('b', true)
+    h.request('b')
+    h.completions[0]('done')
+    await Promise.resolve()
+    h.request('a', 'computer-use', 'second')
+    expect(h.executions).toHaveLength(1)
+    expect(h.replies.a).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('另一个会话正在控制桌面')
+      })
+    )
+    h.run('b', false)
+    h.request('a', 'computer-use', 'third')
+    expect(h.executions).toHaveLength(2)
+  })
+
+  it('does not hand the desktop to an idle session nobody is looking at', () => {
+    const h = harness()
+    h.request('b')
+    expect(h.executions).toHaveLength(0)
+    expect(h.replies.b).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('已切换或已结束') })
+    )
   })
 })

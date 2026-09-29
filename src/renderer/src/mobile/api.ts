@@ -151,6 +151,10 @@ export const mobileApi = {
     post(`/api/views/${encodeURIComponent(id)}/input`, input),
   abort: (workerId: string) => post(session(workerId, 'abort'), {}),
   clearQueue: (workerId: string) => post(session(workerId, 'queue/clear'), {}),
-  respond: (workerId: string, approvalId: string, allow: boolean) =>
-    post(session(workerId, 'approval'), { approvalId, allow })
+  respond: (
+    workerId: string,
+    approvalId: string,
+    allow: boolean,
+    scope: 'once' | 'turn' = 'once'
+  ) => post(session(workerId, 'approval'), { approvalId, allow, scope })
 }

@@ -19,14 +19,24 @@ export type ForegroundCapabilityRequest = z.infer<typeof requests>
 type Authority = {
   selected: SelectedSessionScope | null
   identity: SessionCapabilityIdentity | null
+  /** The owner's session is running a task (including one waiting on an approval). */
+  running?: boolean
 }
+/**
+ * Desktop control follows the task, not the sidebar: a session driven from the phone or
+ * left running in the background keeps the desktop until its task ends. One session at a
+ * time; the lease is identity-bound like foreground tokens.
+ */
+type DesktopLease = SessionCapabilityIdentity & { kind: 'desktop'; workerId: string }
+type Scope = ForegroundCapabilityToken | DesktopLease
 type Pending = { owner: string; cancel(): void }
 
 /** One owner is one runtime channel incarnation. Replies never resolve a mutable current host. */
 export class ForegroundCapabilityRouter {
   private readonly broker = new CapabilityBroker()
   private readonly pending = new Map<string, Pending>()
-  private readonly scopes = new Map<string, ForegroundCapabilityToken>()
+  private readonly scopes = new Map<string, Scope>()
+  private desktopHolder: string | null = null
 
   constructor(
     private readonly deps: {
@@ -53,12 +63,20 @@ export class ForegroundCapabilityRouter {
     const request = parsed.data
     this.invalidate()
     const authority = this.deps.authority(owner)
-    const token = this.broker.captureForeground(
-      owner,
-      request,
-      authority.selected,
-      authority.identity
-    )
+    const busyHolder = request.capability === 'computer-use' ? this.otherDesktopHolder(owner) : null
+    const token: Scope | null =
+      request.capability === 'computer-use'
+        ? busyHolder || !this.sameIdentity(authority.identity, request)
+          ? null
+          : authority.running || authority.selected?.workerId === owner
+            ? {
+                kind: 'desktop',
+                workerId: owner,
+                sessionId: request.sessionId,
+                generation: request.generation
+              }
+            : null
+        : this.broker.captureForeground(owner, request, authority.selected, authority.identity)
     const key = this.key(owner, request.capability, request.requestId)
     const respond = (ok: boolean, data?: unknown, error?: string): void => {
       // A dead channel must not turn lifecycle cleanup into an unhandled rejection.
@@ -78,13 +96,18 @@ export class ForegroundCapabilityRouter {
       respond(
         false,
         undefined,
-        !token
-          ? `当前会话未选中，操作已取消：${request.capability === 'browser' ? '浏览器' : '桌面控制'}只能由 Pi Desktop 窗口里正在显示的会话使用。请让用户在 Pi Desktop 中切回这个会话后再试，不要反复重试。`
-          : '当前会话未选中或请求已过期，操作已取消'
+        busyHolder
+          ? '另一个会话正在控制桌面，操作已取消。请等它的任务结束或让用户停止它后再试，不要反复重试。'
+          : !token
+            ? request.capability === 'browser'
+              ? '当前会话未选中，操作已取消：浏览器只能由 Pi Desktop 窗口里正在显示的会话使用。请让用户在 Pi Desktop 中切回这个会话后再试，不要反复重试。'
+              : '当前会话已切换或已结束，桌面控制已取消。'
+            : '当前会话未选中或请求已过期，操作已取消'
       )
       return true
     }
     this.scopes.set(owner, token)
+    if ('kind' in token) this.desktopHolder = owner
     const controller = new AbortController()
     const executionId = randomUUID()
     let settled = false
@@ -124,8 +147,37 @@ export class ForegroundCapabilityRouter {
     return JSON.stringify([owner, capability, requestId])
   }
 
-  private valid(token: ForegroundCapabilityToken): boolean {
+  private sameIdentity(
+    identity: SessionCapabilityIdentity | null,
+    request: SessionCapabilityIdentity
+  ): boolean {
+    return Boolean(
+      identity &&
+      identity.sessionId === request.sessionId &&
+      identity.generation === request.generation
+    )
+  }
+
+  /** A holder whose task ended, or whose session changed, no longer blocks others. */
+  private otherDesktopHolder(owner: string): string | null {
+    const holder = this.desktopHolder
+    if (!holder || holder === owner) return null
+    const scope = this.scopes.get(holder)
+    const authority = this.deps.authority(holder)
+    if (scope && this.valid(scope) && (authority.running || this.hasPending(holder))) return holder
+    this.desktopHolder = null
+    return null
+  }
+
+  private hasPending(owner: string): boolean {
+    for (const entry of this.pending.values()) if (entry.owner === owner) return true
+    return false
+  }
+
+  private valid(token: Scope): boolean {
     const authority = this.deps.authority(token.workerId)
+    if ('kind' in token)
+      return this.desktopHolder === token.workerId && this.sameIdentity(authority.identity, token)
     return this.broker.retainsForeground(token, authority.selected, authority.identity)
   }
 
@@ -135,6 +187,7 @@ export class ForegroundCapabilityRouter {
 
   cancelOwner(owner: string): void {
     for (const entry of this.pending.values()) if (entry.owner === owner) entry.cancel()
+    if (this.desktopHolder === owner) this.desktopHolder = null
     if (this.scopes.delete(owner)) this.deps.releaseOwner(owner)
   }
 

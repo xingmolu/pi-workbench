@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Check, Copy, LoaderCircle } from 'lucide-react'
-import type { ApprovalRequest, ToolFileChange } from '../../../shared/contracts'
+import type { ApprovalRequest, ApprovalScope, ToolFileChange } from '../../../shared/contracts'
 import { ToolChangeView } from './ToolChangeView'
 import { usePiStore } from '../store/pi-store'
 import { savePermissionRules } from '../store/permission-rules'
@@ -49,7 +49,11 @@ import { approvalSummary } from '../store/conversation-presentation'
 import { approvalPreview } from '../store/approval-presentation'
 import '../assets/approval.css'
 
-export type ApprovalHandler = (id: string, allow: boolean) => Promise<boolean> | void
+export type ApprovalHandler = (
+  id: string,
+  allow: boolean,
+  scope?: ApprovalScope
+) => Promise<boolean> | void
 
 /** One compact decision surface per request. An acknowledgement is not execution success. */
 export default function ApprovalCard({
@@ -89,14 +93,18 @@ export default function ApprovalCard({
     return () => clearTimeout(timeout)
   }, [copied])
 
-  const respond = async (allow: boolean, rule?: PermissionRules): Promise<void> => {
+  const respond = async (
+    allow: boolean,
+    rule?: PermissionRules,
+    scope?: ApprovalScope
+  ): Promise<void> => {
     if (inFlight.current) return
     inFlight.current = true
     setDecision(allow ? 'allow' : 'deny')
     setError(null)
     try {
       if (rule && projectPath) await savePermissionRules(projectPath, rule)
-      const accepted = await onApproval(request.id, allow)
+      const accepted = await onApproval(request.id, allow, scope)
       if (accepted === false) throw new Error('确认未能提交，请重试。')
       if (mounted.current) setSubmitted(true)
       // Keep locked until the authoritative request disappears, not just until IPC resolves.
@@ -168,6 +176,17 @@ export default function ApprovalCard({
         </p>
       ) : null}
       <footer className="approval-footer">
+        {request.grant ? (
+          <button
+            type="button"
+            className="approval-always"
+            disabled={decision !== null}
+            title="这次任务结束前，操作这个应用不再逐次询问"
+            onClick={() => void respond(true, undefined, 'turn')}
+          >
+            本轮允许操作 {request.grant.app}
+          </button>
+        ) : null}
         {always ? (
           <button
             type="button"

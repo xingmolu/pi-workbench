@@ -34,7 +34,11 @@ import { buildFlow, unplacedApprovals } from './flow'
 import { copyText } from './copy'
 
 type ToolNode = Extract<ConversationNode, { type: 'tool' }>
-export type Respond = (approval: ApprovalRequest, allow: boolean) => Promise<void>
+export type Respond = (
+  approval: ApprovalRequest,
+  allow: boolean,
+  scope?: 'once' | 'turn'
+) => Promise<void>
 
 const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
   terminal: TerminalSquare,
@@ -98,9 +102,9 @@ export function ApprovalCard({
 }): React.JSX.Element {
   const [pending, setPending] = useState<'allow' | 'deny' | null>(null)
   const preview = approvalPreview(approval)
-  const answer = (allow: boolean): void => {
+  const answer = (allow: boolean, scope?: 'turn'): void => {
     setPending(allow ? 'allow' : 'deny')
-    void respond(approval, allow).finally(() => setPending(null))
+    void respond(approval, allow, scope).finally(() => setPending(null))
   }
   return (
     <section className="m-approval" aria-label="等待批准">
@@ -140,6 +144,16 @@ export function ApprovalCard({
           {pending === 'allow' ? '正在允许…' : '允许'}
         </button>
       </div>
+      {approval.grant ? (
+        <button
+          type="button"
+          className="m-button m-approval-grant"
+          disabled={pending !== null}
+          onClick={() => answer(true, 'turn')}
+        >
+          本轮允许操作 {approval.grant.app}
+        </button>
+      ) : null}
     </section>
   )
 }

@@ -79,9 +79,9 @@ export function ChatPane({
       }
     )
   const respond: Respond = useCallback(
-    (approval, allow) =>
+    (approval, allow, scope) =>
       workerId
-        ? mobileApi.respond(workerId, approval.id, allow).then(
+        ? mobileApi.respond(workerId, approval.id, allow, scope).then(
             () => undefined,
             (reason: unknown) => onError(reason instanceof Error ? reason.message : String(reason))
           )

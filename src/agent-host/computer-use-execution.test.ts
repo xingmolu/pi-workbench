@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { executeComputerUse, ComputerUseRecoveryFence } from './computer-use-execution'
+import {
+  executeComputerUse,
+  ComputerUseAppGrants,
+  ComputerUseRecoveryFence
+} from './computer-use-execution'
 import type { ComputerUseObservation, ComputerUseResult } from '../shared/computer-use'
 
 const observation: ComputerUseObservation = {
@@ -102,5 +106,63 @@ describe('Computer Use recovery fence', () => {
     fence.update('unavailable')
     fence.reset()
     expect(fence.check('read', {})).toBeUndefined()
+  })
+})
+
+describe('ComputerUseAppGrants', () => {
+  const wave = {
+    ...observation,
+    stateId: 'wave-1',
+    app: 'HoYowave',
+    bundleId: 'com.miHoYo.HoYowave'
+  }
+  const act = (stateId: string): Record<string, string> => ({
+    action: 'act',
+    stateId,
+    intent: 'key',
+    key: 'Enter'
+  })
+
+  it('offers and honors a grant only for the app the state was observed in', () => {
+    const grants = new ComputerUseAppGrants()
+    grants.record(wave)
+    grants.record({
+      ...observation,
+      stateId: 'other',
+      app: 'Terminal',
+      bundleId: 'com.apple.Terminal'
+    })
+    expect(grants.offer(act('wave-1'))).toEqual({
+      kind: 'computer-app',
+      app: 'HoYowave',
+      bundleId: 'com.miHoYo.HoYowave'
+    })
+    expect(grants.allows(act('wave-1'))).toBe(false)
+    grants.allow('com.miHoYo.HoYowave')
+    expect(grants.allows(act('wave-1'))).toBe(true)
+    expect(grants.allows(act('other'))).toBe(false)
+    // Unknown states and non-act input never pass.
+    expect(grants.allows(act('forged'))).toBe(false)
+    expect(grants.allows({ action: 'observe', stateId: 'wave-1' })).toBe(false)
+  })
+
+  it('follows successor states and ends with the task', () => {
+    const grants = new ComputerUseAppGrants()
+    grants.record(wave)
+    grants.allow('com.miHoYo.HoYowave')
+    grants.record({
+      kind: 'action',
+      previousStateId: 'wave-1',
+      action: 'key',
+      delivered: true,
+      changed: true,
+      verification: 'semantic-change',
+      observation: { ...wave, stateId: 'wave-2' },
+      message: 'ok'
+    })
+    expect(grants.allows(act('wave-2'))).toBe(true)
+    grants.reset()
+    expect(grants.allows(act('wave-2'))).toBe(false)
+    expect(grants.offer(act('wave-2'))).toBeUndefined()
   })
 })

@@ -1,4 +1,4 @@
-import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseRecoveryFence } from './computer-use-execution'
+import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseAppGrants, ComputerUseRecoveryFence } from './computer-use-execution'
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { appliedToolChange } from './tool-change'
 import { CheckpointStore, resolveToolPath } from './checkpoints'
@@ -63,6 +63,7 @@ import {
   type AgentSnapshot,
   type AgentStatePatch,
   type ApprovalRequest,
+  type ApprovalScope,
   type BrowserCapabilityCancel,
   type BrowserCapabilityRequest,
   type BrowserCapabilityResponse,
@@ -391,6 +392,7 @@ class PiDesktopHost {
     send({ type: 'event', event: 'open-external', data: { url, mcp: true } })
   )
   private approvalMetadata: ApprovalMetadata | null = null
+  private readonly computerGrants = new ComputerUseAppGrants()
   /** Plugin agent tools registered in the current runtime, by the tool name the model sees. */
   private pluginTools = new Map<
     string,
@@ -726,7 +728,7 @@ class PiDesktopHost {
         if (this.projectPath) this.permissionRules.setMode(this.projectPath, request.mode)
         break
       case 'permission:respond':
-        this.resolveApproval(request.approvalId, request.allow)
+        this.resolveApproval(request.approvalId, request.allow, request.scope)
         break
       case 'permission:rules:set':
         if (!this.projectPath || request.projectPath !== this.projectPath)
@@ -884,6 +886,8 @@ class PiDesktopHost {
   }
 
   private confirmTool(call: GatedToolCall): Promise<boolean> {
+    if (call.tool === 'computer' && this.computerGrants.allows(call.input)) return Promise.resolve(true)
+    const grant = call.tool === 'computer' ? this.computerGrants.offer(call.input) : undefined
     const plugin = this.pluginTools.get(call.tool)
     const presentation = plugin
       ? {
@@ -896,7 +900,8 @@ class PiDesktopHost {
       toolName: call.tool,
       intent: plugin ? 'generic' : toolIntent(call.tool),
       title: presentation.title,
-      detail: presentation.detail
+      detail: presentation.detail,
+      ...(grant ? { grant } : {})
     }
     return this.requestApproval(presentation.detail).finally(() => {
       this.approvalMetadata = null
@@ -993,7 +998,8 @@ class PiDesktopHost {
       name: 'pi-desktop-computer-use-v2',
       factory: (pi) => {
         const recovery = new ComputerUseRecoveryFence()
-        pi.on('before_agent_start', async () => { recovery.reset() })
+        pi.on('before_agent_start', async () => { recovery.reset(); this.computerGrants.reset() })
+        pi.on('agent_end', async () => { this.computerGrants.reset() })
         pi.on('tool_call', async event => recovery.check(event.toolName, event.input))
         pi.registerTool<typeof COMPUTER_USE_TOOL_PARAMETERS, ComputerUseResult>({
           name: 'computer',
@@ -1015,8 +1021,10 @@ class PiDesktopHost {
           parameters: COMPUTER_USE_TOOL_PARAMETERS,
           execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
             const operation = computerUseOperationSchema.parse(params)
-            return executeComputerUse(operation, ctx.model?.input,
+            const result = await executeComputerUse(operation, ctx.model?.input,
               (request, abortSignal) => this.callComputerUse(request, abortSignal), signal, reason => recovery.update(reason))
+            this.computerGrants.record(result.details)
+            return result
           }
         })
       }
@@ -2154,7 +2162,10 @@ class PiDesktopHost {
     return this.approvalRegistry.request(request, signal)
   }
 
-  private resolveApproval(id: string, allow: boolean): void {
+  private resolveApproval(id: string, allow: boolean, scope?: ApprovalScope): void {
+    const grant = this.approvalRegistry.requests(this.sessionGeneration).find((request) => request.id === id)?.grant
+    // Record before resolving: the approved call may be followed at once by the next one.
+    if (allow && scope === 'turn' && grant) this.computerGrants.allow(grant.bundleId)
     this.approvalRegistry.resolve(id, this.sessionGeneration, allow)
   }
 

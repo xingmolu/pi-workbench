@@ -126,3 +126,54 @@ export class ComputerUseRecoveryFence {
     }
   }
 }
+
+/**
+ * "Allow this app for the rest of this task": remembers which app each state the agent
+ * received belongs to (Main is the authority for that identity), and which apps the user
+ * trusted for the current run. Cleared when a run starts or ends.
+ */
+export class ComputerUseAppGrants {
+  private readonly apps = new Map<string, { app: string; bundleId: string }>()
+  private readonly granted = new Set<string>()
+
+  record(result: ComputerUseResult): void {
+    const observation =
+      result.kind === 'observation'
+        ? result
+        : result.kind === 'action'
+          ? result.observation
+          : undefined
+    if (!observation?.bundleId) return
+    this.apps.set(observation.stateId, { app: observation.app, bundleId: observation.bundleId })
+    // States are single-use and short-lived; keep only recent ones.
+    while (this.apps.size > 64) this.apps.delete(this.apps.keys().next().value!)
+  }
+
+  /** The grant an approval for this input may offer, or undefined. */
+  offer(input: unknown): { kind: 'computer-app'; app: string; bundleId: string } | undefined {
+    const state = this.stateOf(input)
+    return state
+      ? { kind: 'computer-app', app: state.app || state.bundleId, bundleId: state.bundleId }
+      : undefined
+  }
+
+  allows(input: unknown): boolean {
+    const state = this.stateOf(input)
+    return Boolean(state && this.granted.has(state.bundleId))
+  }
+
+  allow(bundleId: string): void {
+    this.granted.add(bundleId)
+  }
+
+  reset(): void {
+    this.granted.clear()
+    this.apps.clear()
+  }
+
+  private stateOf(input: unknown): { app: string; bundleId: string } | undefined {
+    if (typeof input !== 'object' || input === null) return undefined
+    const { action, stateId } = input as { action?: unknown; stateId?: unknown }
+    return action === 'act' && typeof stateId === 'string' ? this.apps.get(stateId) : undefined
+  }
+}
