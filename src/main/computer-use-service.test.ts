@@ -3,9 +3,29 @@ import { ComputerUseService } from './computer-use-service'
 import { DesktopControlService } from './desktop-control-service'
 import type { DesktopCapturerSourceInput } from './desktop-control-capture'
 
-function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
+function harness(
+  options: {
+    visual?: boolean
+    extraWindow?: boolean
+    selfPid?: number
+    /** Finder is not running until `open` starts it. */
+    launchable?: boolean
+    /** Chromium's window list leaves the target window out. */
+    untitledWindow?: boolean
+  } = {}
+) {
   let buttonTitle = 'OK'
+  let windowValue = ''
   let targetWindowId = 77
+  let front: 'target' | 'pi' = 'target'
+  let running = !options.launchable
+  const piTarget = {
+    pid: 4242,
+    windowId: 5,
+    app: 'Pi Desktop',
+    bundleId: 'works.pi.desktop',
+    frame: { x: 0, y: 0, width: 300, height: 300 }
+  }
   const target = () => ({
     pid: 42,
     windowId: targetWindowId,
@@ -24,9 +44,88 @@ function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
       toPNG: () => Buffer.from(`image-${buttonTitle}`)
     }
   })
-  const getSources = vi.fn(async () => (options.visual ? [visualSource()] : []))
-  const exec = vi.fn(async (_file: string, args: readonly string[]) => {
+  const screenSource = (): DesktopCapturerSourceInput => {
+    const cropped = vi.fn((rect: { x: number; y: number; width: number; height: number }) => ({
+      isEmpty: () => false,
+      getSize: () => ({ width: rect.width, height: rect.height }),
+      toDataURL: () => 'data:image/png;base64,aW1hZ2U=',
+      toPNG: () => Buffer.from(`crop-${rect.x}-${rect.y}-${rect.width}-${rect.height}`)
+    }))
+    return {
+      id: 'screen:7:0',
+      name: 'Screen',
+      display_id: '7',
+      thumbnail: {
+        isEmpty: () => false,
+        getSize: () => ({ width: 800, height: 400 }),
+        toDataURL: () => 'data:image/png;base64,aW1hZ2U=',
+        crop: cropped
+      }
+    }
+  }
+  const getSources = vi.fn(async (request: { types: Array<'screen' | 'window'> }) => {
+    if (!options.visual) return []
+    if (request.types.includes('screen')) return [screenSource()]
+    return options.untitledWindow ? [{ ...visualSource(), id: 'window:12:0' }] : [visualSource()]
+  })
+  const exec = vi.fn(async (file: string, args: readonly string[]) => {
+    if (file === '/usr/bin/open') {
+      running = true
+      return { stdout: '' }
+    }
     const command = JSON.parse(String(args[0] ?? '{}')) as Record<string, unknown>
+    if (command.action === 'activate-target') {
+      front = 'target'
+      return { stdout: JSON.stringify({ ok: true, front: true }) }
+    }
+    if (command.action === 'activate-app') {
+      if (!running) return { stdout: JSON.stringify({ ok: false, error: 'app-not-running' }) }
+      front = 'target'
+      return {
+        stdout: JSON.stringify({
+          ok: true,
+          front: true,
+          app: 'Finder',
+          bundleId: 'com.apple.finder'
+        })
+      }
+    }
+    if (command.action === 'key') {
+      return { stdout: JSON.stringify({ ok: true }) }
+    }
+    if (
+      front === 'pi' &&
+      (command.action === 'foreground-window' || command.action === 'ax-dump')
+    ) {
+      return {
+        stdout: JSON.stringify(
+          command.action === 'foreground-window'
+            ? { ok: true, target: piTarget }
+            : {
+                ok: true,
+                app: 'Pi Desktop',
+                bundleId: 'works.pi.desktop',
+                target: piTarget,
+                windows: [
+                  {
+                    role: 'window',
+                    windowId: 5,
+                    title: 'Pi Desktop',
+                    value: '',
+                    description: '',
+                    x: 0,
+                    y: 0,
+                    width: 300,
+                    height: 300,
+                    children: []
+                  }
+                ],
+                nodeCount: 1,
+                truncated: false
+              }
+        )
+      }
+    }
     if (command.action === 'accessibility-permission') {
       return { stdout: JSON.stringify({ ok: true, trusted: true }) }
     }
@@ -57,7 +156,7 @@ function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
             role: 'window',
             windowId: 77,
             title: 'Desktop',
-            value: '',
+            value: windowValue,
             description: '',
             x: 100,
             y: 50,
@@ -133,7 +232,10 @@ function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
     openExternal: async () => undefined
   })
 
-  const service = new ComputerUseService(desktop)
+  const service = new ComputerUseService(
+    desktop,
+    options.selfPid ? { selfPid: options.selfPid } : {}
+  )
   const scope = { ownerId: 'test-runtime', sessionId: 'session-a', generation: 1 }
   return {
     api: {
@@ -150,6 +252,13 @@ function harness(options: { visual?: boolean; extraWindow?: boolean } = {}) {
     },
     changeTarget(windowId: number) {
       targetWindowId = windowId
+    },
+    changeElsewhere(value: string) {
+      windowValue = value
+    },
+    /** What approving an action in Pi Desktop does to the foreground. */
+    focusPi() {
+      front = 'pi'
     }
   }
 }
@@ -514,6 +623,173 @@ describe('ComputerUseService', () => {
     await expect(
       api.execute({ action: 'inspect', stateId: observation.stateId, ref: '@e2' })
     ).rejects.toThrow(/状态已过期/)
+  })
+
+  it('raises the observed window again after approving in Pi Desktop took focus', async () => {
+    const { api, exec, focusPi } = harness({ selfPid: 4242 })
+    const observation = await api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    focusPi()
+    const result = await api.execute({
+      action: 'act',
+      stateId: observation.stateId,
+      target: { kind: 'ref', ref: '@e2' },
+      intent: 'press'
+    })
+    expect(result).toMatchObject({ kind: 'action', delivered: true })
+    const actions = exec.mock.calls.map((call) => JSON.parse(String(call[1][0])).action)
+    expect(actions.indexOf('activate-target')).toBeGreaterThan(-1)
+    expect(actions.indexOf('activate-target')).toBeLessThan(actions.indexOf('click'))
+  })
+
+  it('still refuses when raising the window does not bring it back', async () => {
+    const { api, exec, focusPi } = harness()
+    const observation = await api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    focusPi()
+    exec.mockImplementationOnce(async () => ({
+      stdout: JSON.stringify({
+        ok: true,
+        target: {
+          pid: 4242,
+          windowId: 5,
+          app: 'Pi Desktop',
+          bundleId: 'works.pi.desktop',
+          frame: { x: 0, y: 0, width: 300, height: 300 }
+        }
+      })
+    }))
+    exec.mockImplementationOnce(async () => ({
+      stdout: JSON.stringify({ ok: false, error: 'target-missing' })
+    }))
+    exec.mockImplementation(async (_file: string, args: readonly string[]) => {
+      const command = JSON.parse(String(args[0]))
+      if (command.action === 'accessibility-permission')
+        return { stdout: JSON.stringify({ ok: true, trusted: true }) }
+      if (command.action === 'session-lock')
+        return { stdout: JSON.stringify({ ok: true, locked: false }) }
+      return {
+        stdout: JSON.stringify({
+          ok: true,
+          app: 'Pi Desktop',
+          bundleId: 'works.pi.desktop',
+          target: {
+            pid: 4242,
+            windowId: 5,
+            app: 'Pi Desktop',
+            bundleId: 'works.pi.desktop',
+            frame: { x: 0, y: 0, width: 300, height: 300 }
+          },
+          windows: [],
+          nodeCount: 0,
+          truncated: false
+        })
+      }
+    })
+    await expect(
+      api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        target: { kind: 'ref', ref: '@e2' },
+        intent: 'press'
+      })
+    ).rejects.toThrow(/状态已变化|目标窗口已变化/)
+    expect(exec.mock.calls.some((call) => String(call[1][0]).includes('"click"'))).toBe(false)
+  })
+
+  it('never observes Pi Desktop itself and points the agent at activate', async () => {
+    const { api, focusPi, service } = harness({ selfPid: 4242 })
+    focusPi()
+    await expect(api.execute({ action: 'observe', mode: 'semantic' })).rejects.toThrow(
+      /Pi Desktop 本身[\s\S]*activate/
+    )
+    expect(service.stateCount).toBe(0)
+  })
+
+  it('switches to an app by name and returns its observation', async () => {
+    const { api, focusPi } = harness({ selfPid: 4242 })
+    focusPi()
+    await expect(
+      api.execute({ action: 'activate', app: 'Finder', mode: 'semantic' })
+    ).resolves.toMatchObject({
+      kind: 'observation',
+      app: 'Finder',
+      elements: [{ ref: '@e1' }, { ref: '@e2', title: 'OK' }]
+    })
+  })
+
+  it('starts an app that is not running before switching to it', async () => {
+    const { api, exec } = harness({ launchable: true })
+    await expect(
+      api.execute({ action: 'activate', app: 'Finder', mode: 'semantic' })
+    ).resolves.toMatchObject({ kind: 'observation', app: 'Finder' })
+    expect(exec).toHaveBeenCalledWith('/usr/bin/open', ['-a', 'Finder'], expect.anything())
+    await expect(api.execute({ action: 'activate', app: '-n' })).rejects.toThrow('应用名称无效')
+  })
+
+  it('presses a key in the observed window only', async () => {
+    const { api, exec, changeTarget } = harness()
+    const observation = await api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    await expect(
+      api.execute({ action: 'act', stateId: observation.stateId, intent: 'key' })
+    ).rejects.toThrow('key 操作需要 key')
+    const result = await api.execute({
+      action: 'act',
+      stateId: observation.stateId,
+      intent: 'key',
+      key: 'Enter'
+    })
+    expect(result).toMatchObject({ kind: 'action', action: 'key', delivered: true })
+    const key = exec.mock.calls
+      .map((call) => JSON.parse(String(call[1][0])))
+      .find((command) => command.action === 'key')
+    expect(key).toMatchObject({ key: 'Enter', expectedTarget: { windowId: 77 } })
+    if (result.kind !== 'action') throw new Error('expected action')
+    changeTarget(78)
+    await expect(
+      api.execute({
+        action: 'act',
+        stateId: result.observation.stateId,
+        intent: 'key',
+        key: 'Enter'
+      })
+    ).rejects.toThrow('目标窗口已变化')
+    await expect(
+      api.execute({ action: 'act', stateId: observation.stateId, intent: 'press' })
+    ).rejects.toThrow('press 操作需要 target')
+  })
+
+  it('lets a ref action through when only other content of a live app changed', async () => {
+    const { api, exec, changeElsewhere } = harness()
+    const observation = await api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    changeElsewhere('3 new messages')
+    await expect(
+      api.execute({
+        action: 'act',
+        stateId: observation.stateId,
+        target: { kind: 'ref', ref: '@e2' },
+        intent: 'press'
+      })
+    ).resolves.toMatchObject({ kind: 'action', delivered: true })
+    expect(exec.mock.calls.some((call) => String(call[1][0]).includes('"click"'))).toBe(true)
+  })
+
+  it('crops the window from its display when the capturer omits the window', async () => {
+    const { api } = harness({ visual: true, untitledWindow: true })
+    const observation = await api.execute({ action: 'observe', mode: 'fused' })
+    expect(observation).toMatchObject({
+      kind: 'observation',
+      mode: 'fused',
+      visual: {
+        scope: 'display-crop',
+        sourceId: 'screen:7:0',
+        framePoints: { x: 100, y: 50, width: 400, height: 200 },
+        // The display thumbnail is 800 wide for 400 points: the whole window at 2x.
+        image: { width: 800, height: 400 }
+      }
+    })
   })
 
   it('does not allow one runtime session to consume another session state', async () => {

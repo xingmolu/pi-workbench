@@ -29,6 +29,7 @@ export type DesktopCapturerThumbnail = {
   isEmpty?: () => boolean
   getSize?: () => { width: number; height: number }
   resize?: (size: { width: number; height: number }) => DesktopCapturerThumbnail
+  crop?: (rect: { x: number; y: number; width: number; height: number }) => DesktopCapturerThumbnail
   toDataURL: () => string
   toPNG?: () => Buffer
 }
@@ -133,6 +134,17 @@ function chooseDisplay(
     if (ranked[0]?.area) return ranked[0].display
   }
   return displays.find((display) => display.primary) ?? displays[0] ?? null
+}
+
+function intersection(
+  left: ComputerUseFrameRect,
+  right: ComputerUseFrameRect
+): ComputerUseFrameRect | null {
+  const x = Math.max(left.x, right.x)
+  const y = Math.max(left.y, right.y)
+  const width = Math.min(left.x + left.width, right.x + right.width) - x
+  const height = Math.min(left.y + left.height, right.y + right.height) - y
+  return width > 0 && height > 0 ? { x, y, width, height } : null
 }
 
 function targetImageSize(bounds: ComputerUseFrameRect): { width: number; height: number } {
@@ -292,18 +304,32 @@ export class DesktopCapture {
       const match = /^window:(\d+):\d+$/.exec(source.id)
       return match && Number(match[1]) === target.windowId
     })
-    if (matched.length !== 1) {
+    let scope: 'window' | 'display-crop' = 'window'
+    let sourceId: string
+    let framePoints = target.frame
+    let thumbnail: DesktopCapturerThumbnail
+    if (matched.length === 1) {
+      sourceId = matched[0].id
+      thumbnail = matched[0].thumbnail
+    } else if (matched.length === 0 && sources.length > 0) {
+      // Chromium's window list leaves out some windows (untitled ones, e.g. many chat
+      // apps). The foreground window is on top, so its area of the display is the window.
+      const crop = await this.cropDisplay(display, target.frame, signal)
+      scope = 'display-crop'
+      sourceId = crop.sourceId
+      framePoints = crop.framePoints
+      thumbnail = crop.thumbnail
+    } else {
       if (sources.length === 0 && permission.access !== 'granted') {
         throw new Error('屏幕录制尚未返回窗口图像，请确认授权后重试')
       }
       throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
     }
-    const source = matched[0]
-    if (source.thumbnail.isEmpty?.()) {
+    if (thumbnail.isEmpty?.()) {
       throw new Error('屏幕录制未返回目标窗口图像，请确认授权后重试')
     }
 
-    let image = source.thumbnail
+    let image = thumbnail
     const initial = image.getSize?.()
     if (!initial || initial.width <= 0 || initial.height <= 0) {
       throw new Error('目标窗口截图尺寸无效')
@@ -319,7 +345,7 @@ export class DesktopCapture {
       })
     }
     const size = image.getSize?.() ?? initial
-    const frameRatio = target.frame.width / target.frame.height
+    const frameRatio = framePoints.width / framePoints.height
     const imageRatio = size.width / size.height
     if (Math.abs(frameRatio / imageRatio - 1) > 0.03) {
       throw new TargetCaptureError('窗口截图与目标窗口尺寸不一致，请重新 observe')
@@ -330,10 +356,10 @@ export class DesktopCapture {
     }
 
     return computerUseVisualFrameSchema.parse({
-      scope: 'window',
-      sourceId: source.id,
+      scope,
+      sourceId,
       displayId: display.id,
-      framePoints: target.frame,
+      framePoints,
       scaleFactor: display.scaleFactor,
       capturedAt: Date.now(),
       image: {
@@ -343,6 +369,49 @@ export class DesktopCapture {
         height: size.height
       }
     })
+  }
+
+  private async cropDisplay(
+    display: DesktopDisplayMetrics,
+    frame: ComputerUseFrameRect,
+    signal?: AbortSignal
+  ): Promise<{
+    sourceId: string
+    framePoints: ComputerUseFrameRect
+    thumbnail: DesktopCapturerThumbnail
+  }> {
+    const visible = intersection(display.bounds, frame)
+    const screens = await this.deps.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(display.bounds.width * display.scaleFactor),
+        height: Math.round(display.bounds.height * display.scaleFactor)
+      },
+      fetchWindowIcons: false
+    })
+    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    const screen = screens.filter((source) => source.display_id === display.id)
+    const size = screen[0]?.thumbnail.getSize?.()
+    if (!visible || screen.length !== 1 || !screen[0].thumbnail.crop || !size?.width) {
+      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+    }
+    const scale = size.width / display.bounds.width
+    const x = Math.max(0, Math.round((visible.x - display.bounds.x) * scale))
+    const y = Math.max(0, Math.round((visible.y - display.bounds.y) * scale))
+    const rect = {
+      x,
+      y,
+      width: Math.min(size.width - x, Math.round(visible.width * scale)),
+      height: Math.min(size.height - y, Math.round(visible.height * scale))
+    }
+    if (rect.width <= 0 || rect.height <= 0) {
+      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+    }
+    return {
+      sourceId: screen[0].id,
+      framePoints: visible,
+      thumbnail: screen[0].thumbnail.crop(rect)
+    }
   }
 
   async openScreenRecordingSettings(): Promise<

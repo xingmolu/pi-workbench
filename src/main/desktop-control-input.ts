@@ -161,4 +161,21 @@ export class DesktopInput {
       signal
     )
   }
+
+  async pressKey(
+    key: string,
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'key',
+        key,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
+  }
 }

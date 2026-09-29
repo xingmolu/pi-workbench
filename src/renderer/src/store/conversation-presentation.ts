@@ -34,6 +34,14 @@ export function approvalSummary(approval: ApprovalRequest): string {
   if (approval.intent === 'desktop') {
     try {
       const input = JSON.parse(approval.detail)
+      if (input.action === 'act') {
+        if (input.intent === 'type' && typeof input.text === 'string')
+          return `在桌面应用中输入「${input.text.length > 40 ? `${input.text.slice(0, 40)}…` : input.text}」`
+        if (input.intent === 'key' && typeof input.key === 'string')
+          return `在桌面应用中按 ${input.key}`
+        if (input.intent === 'move') return '移动桌面指针'
+        return '点击桌面应用中的控件'
+      }
       const actions: Record<string, string> = {
         click: '点击桌面坐标',
         move: '移动桌面指针',

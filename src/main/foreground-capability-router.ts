@@ -75,7 +75,13 @@ export class ForegroundCapabilityRouter {
       }
     }
     if (!token || this.pending.has(key)) {
-      respond(false, undefined, '当前会话未选中或请求已过期，操作已取消')
+      respond(
+        false,
+        undefined,
+        !token
+          ? `当前会话未选中，操作已取消：${request.capability === 'browser' ? '浏览器' : '桌面控制'}只能由 Pi Desktop 窗口里正在显示的会话使用。请让用户在 Pi Desktop 中切回这个会话后再试，不要反复重试。`
+          : '当前会话未选中或请求已过期，操作已取消'
+      )
       return true
     }
     this.scopes.set(owner, token)

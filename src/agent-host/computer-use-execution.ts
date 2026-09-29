@@ -27,13 +27,14 @@ export async function executeComputerUse(
   if (!canSeeImages) {
     if (
       (operation.action === 'observe' && operation.mode === 'visual') ||
-      (operation.action === 'act' && operation.target.kind === 'point')
+      (operation.action === 'act' && operation.target?.kind === 'point')
     ) {
       onAvailability?.(imageUnavailable)
       throw new Error(imageUnavailable)
     }
     diagnostics.push(imageUnavailable)
-    if (operation.action === 'observe') operation = { ...operation, mode: 'semantic' }
+    if (operation.action === 'observe' || operation.action === 'activate')
+      operation = { ...operation, mode: 'semantic' }
   }
   let result: ComputerUseResult
   try {
@@ -113,7 +114,7 @@ export class ComputerUseRecoveryFence {
       typeof input === 'object' &&
       input !== null &&
       'action' in input &&
-      input.action === 'observe'
+      (input.action === 'observe' || input.action === 'activate')
     )
       return undefined
     return {

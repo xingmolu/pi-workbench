@@ -999,10 +999,12 @@ class PiDesktopHost {
           name: 'computer',
           label: 'Computer Use',
           description:
-            '宿主级 Computer Use。observe 默认 fused：返回不可变 stateId、可访问性 @e refs，并在可用时附带桌面截图。优先用 ref 操作语义控件；Canvas/WebGL 等无语义目标时，可用当前截图像素 point。所有 act 都会审批，旧 state、显示器变化或过期视觉状态会被拒绝。',
+            '宿主级 Computer Use。activate 按名称打开或切换到某个应用并返回观察结果；observe 读取当前前台窗口（默认 fused：不可变 stateId、可访问性 @e refs，可用时附带截图）。优先用 ref 操作语义控件；Canvas/WebGL 等无语义目标时，可用当前截图像素 point；intent=key 在目标窗口按 Enter/Escape/Tab/方向键等。所有 act 都会审批，旧 state、显示器变化或过期视觉状态会被拒绝。Pi Desktop 自身窗口不可观察或操作。',
           promptSnippet: '通过 stateId、语义 refs 和绑定截图安全读取与操作桌面 UI',
           promptGuidelines: [
             'Start with computer observe; text-only or unknown model capabilities use semantic mode. Visual observation and screenshot points require a model configured for image input.',
+            'The user is usually typing in Pi Desktop, so to work in another app start with {"action":"activate","app":"<app name>"} instead of asking the user to switch windows. Never use shell commands to open or focus apps.',
+            'Use intent=key with key=Enter to submit a typed message or search, instead of hunting for a send button.',
             COMPUTER_USE_RECOVERY_GUIDELINE,
             'Prefer target kind=ref from the current state. Use target kind=point only for visible targets without a usable ref.',
             'Point x/y are pixels in the screenshot attached to that exact stateId, never global desktop coordinates.',

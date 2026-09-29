@@ -129,6 +129,30 @@ function rectsOverlap(left: ComputerUseFrameRect, right: ComputerUseFrameRect): 
 
 class TargetIntegrityError extends Error {}
 
+const SELF_TARGET =
+  '当前前台窗口是 Pi Desktop 本身，Computer Use 不会读取或操作它。请先用 {"action":"activate","app":"应用名"} 切换到目标应用。'
+
+/** The element the model chose is still the same control at the same place. */
+function sameElement(left: ComputerUseElement, right: ComputerUseElement | undefined): boolean {
+  return (
+    right !== undefined &&
+    left.role === right.role &&
+    left.title === right.title &&
+    left.description === right.description &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  )
+}
+
+function targetWindows(dump: AxDump): AxDump {
+  const target = dump.target
+  return target
+    ? { ...dump, windows: dump.windows.filter((window) => window.windowId === target.windowId) }
+    : dump
+}
+
 function sameTarget(left: DesktopWindowTarget, right: DesktopWindowTarget): boolean {
   return (
     left.pid === right.pid &&
@@ -167,7 +191,11 @@ export class ComputerUseService {
     return this.states.size
   }
 
-  constructor(private readonly desktop: DesktopControlService) {}
+  constructor(
+    private readonly desktop: DesktopControlService,
+    /** Pi Desktop's own process: never observed or driven, so the agent cannot approve itself. */
+    private readonly options: { selfPid?: number } = {}
+  ) {}
 
   private scopeKey(scope: ComputerUseExecutionScope): string {
     return scope.ownerId
@@ -191,12 +219,17 @@ export class ComputerUseService {
       switch (request.action) {
         case 'observe':
           return await this.observe(scope, request.mode ?? 'fused', executionSignal)
+        case 'activate':
+          return await this.activate(scope, request.app, request.mode ?? 'fused', executionSignal)
         case 'search':
           return this.search(scope, request.stateId, request.query)
         case 'inspect':
           return this.inspect(scope, request.stateId, request.ref)
         case 'act':
           if (request.intent === 'type' && !request.text) throw new Error('type 操作需要 text')
+          if (request.intent === 'key' && !request.key) throw new Error('key 操作需要 key')
+          if (request.intent !== 'key' && !request.target)
+            throw new Error(`${request.intent} 操作需要 target`)
           return await this.act(scope, request, executionSignal)
       }
       throw new Error('未知 Computer Use 操作')
@@ -329,6 +362,10 @@ export class ComputerUseService {
       throw new Error(`无法观察桌面：${semanticMessage}；${visualMessage}`)
     }
 
+    const selfPid = this.options.selfPid
+    if (selfPid && (semantic?.dump.target?.pid === selfPid || target?.pid === selfPid))
+      throw new Error(SELF_TARGET)
+
     const matchingWindows = semantic?.dump.target
       ? semantic.dump.windows.filter((window) => window.windowId === semantic.dump.target?.windowId)
       : undefined
@@ -404,6 +441,46 @@ export class ComputerUseService {
     })
   }
 
+  private async activate(
+    scope: ComputerUseExecutionScope,
+    app: string,
+    mode: RequestedMode,
+    signal?: AbortSignal
+  ): Promise<ComputerUseObservation> {
+    const activated = await this.desktop.accessibility.activateApp(app, signal)
+    let failure: unknown
+    // Focus moves asynchronously; give the window server a moment before giving up.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 250))
+      signal?.throwIfAborted()
+      try {
+        const observation = await this.observe(scope, mode, signal)
+        if (!activated.bundleId || observation.bundleId === activated.bundleId) return observation
+        failure = new Error(`前台仍是「${observation.app}」`)
+      } catch (error) {
+        if (signal?.aborted) throw error
+        failure = error
+      }
+    }
+    const reason = failure instanceof Error ? failure.message : '窗口没有出现在前台'
+    throw new Error(`已切换到「${activated.app}」，但无法观察它的窗口：${reason}`)
+  }
+
+  /**
+   * Approving an action in Pi Desktop brings Pi to the front. The user just approved this
+   * exact window, so it is raised again before any check; every identity check still runs.
+   */
+  private async restoreTarget(target: DesktopWindowTarget, signal?: AbortSignal): Promise<void> {
+    try {
+      if (sameTarget(target, await this.desktop.accessibility.foregroundWindow(signal))) return
+    } catch {
+      signal?.throwIfAborted()
+    }
+    await this.desktop.accessibility.activateTarget(target, signal).catch(() => {
+      signal?.throwIfAborted()
+    })
+  }
+
   private async validateVisualTarget(
     state: ComputerUseState,
     target: Extract<ComputerUseActionTarget, { kind: 'point' }>,
@@ -438,6 +515,10 @@ export class ComputerUseService {
     signal?: AbortSignal
   ): Promise<ComputerUseResult> {
     const state = this.requireState(scope, request.stateId)
+    if (state.target) await this.restoreTarget(state.target, signal)
+    signal?.throwIfAborted()
+    if (request.intent === 'key' || !request.target)
+      return this.pressKey(scope, state, request, signal)
     let point: { x: number; y: number }
     let inputContext: InputContext
 
@@ -448,7 +529,11 @@ export class ComputerUseService {
         throw new Error('当前 stateId 不包含这个语义元素，请重新 semantic/fused observe')
       }
       const current = await this.readCurrentSemantic(signal)
-      if (fingerprint(current.dump) !== state.semanticFingerprint) {
+      // Live apps (chat, mail) change elsewhere all the time; the chosen control must not.
+      if (
+        fingerprint(current.dump) !== state.semanticFingerprint &&
+        !sameElement(element, flattenElements(targetWindows(current.dump)).index.get(element.ref))
+      ) {
         this.states.delete(this.scopeKey(scope))
         throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
       }
@@ -532,6 +617,37 @@ export class ComputerUseService {
       await this.desktop.input.typeText(request.text!, signal, state.target, expiresAt)
     }
 
+    return this.settle(scope, state, request, signal)
+  }
+
+  private async pressKey(
+    scope: ComputerUseExecutionScope,
+    state: ComputerUseState,
+    request: Extract<ComputerUseOperation, { action: 'act' }>,
+    signal?: AbortSignal
+  ): Promise<ComputerUseResult> {
+    if (!state.target) throw new Error('无法确认按键所属窗口，请重新 observe')
+    if (
+      state.observation.visual &&
+      Date.now() - state.observation.visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs
+    ) {
+      throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+    }
+    const current = await this.desktop.accessibility.foregroundWindow(signal)
+    if (!sameTarget(state.target, current)) throw new Error('目标窗口已变化，请重新 observe')
+    const expiresAt = state.observation.visual
+      ? state.observation.visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
+      : undefined
+    await this.desktop.input.pressKey(request.key!, signal, state.target, expiresAt)
+    return this.settle(scope, state, request, signal)
+  }
+
+  private async settle(
+    scope: ComputerUseExecutionScope,
+    state: ComputerUseState,
+    request: Extract<ComputerUseOperation, { action: 'act' }>,
+    signal?: AbortSignal
+  ): Promise<ComputerUseResult> {
     signal?.throwIfAborted()
     this.states.delete(this.scopeKey(scope))
     const observation = await this.observe(scope, state.requestedMode, signal)
@@ -554,7 +670,7 @@ export class ComputerUseService {
     return computerUseResultSchema.parse({
       kind: 'action',
       previousStateId: request.stateId,
-      target: request.target,
+      ...(request.target ? { target: request.target } : {}),
       action: request.intent,
       delivered: true,
       changed,

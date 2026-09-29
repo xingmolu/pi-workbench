@@ -6,7 +6,11 @@ import {
 import { DesktopAccessibility } from './desktop-control-accessibility'
 import { DesktopCapture, type DesktopCaptureDeps } from './desktop-control-capture'
 import { DesktopInput } from './desktop-control-input'
-import { MacComputerUseBridge, type NativeComputerUseExec } from './desktop-control-native'
+import {
+  defaultNativeComputerUseExec,
+  MacComputerUseBridge,
+  type NativeComputerUseExec
+} from './desktop-control-native'
 
 export type DesktopControlServiceDeps = DesktopCaptureDeps & {
   nativeHelperPath: string
@@ -24,7 +28,8 @@ export class DesktopControlService {
   readonly input: DesktopInput
 
   constructor(deps: DesktopControlServiceDeps) {
-    const bridge = new MacComputerUseBridge(deps.nativeHelperPath, deps.nativeExec)
+    const exec = deps.nativeExec ?? defaultNativeComputerUseExec()
+    const bridge = new MacComputerUseBridge(deps.nativeHelperPath, exec)
     this.capture = new DesktopCapture({
       platform: deps.platform,
       getMediaAccessStatus: deps.getMediaAccessStatus,
@@ -36,7 +41,10 @@ export class DesktopControlService {
       platform: deps.platform,
       bridge,
       appBundlePath: deps.appBundlePath,
-      openExternal: deps.openExternal
+      openExternal: deps.openExternal,
+      launchApp: async (args, signal) => {
+        await exec('/usr/bin/open', args, { timeout: 10_000, ...(signal ? { signal } : {}) })
+      }
     })
     this.input = new DesktopInput({
       platform: deps.platform,

@@ -56,6 +56,26 @@ it('summarizes desktop Ask the same way as browser Ask', () => {
   ).toBe('点击桌面坐标 · (12, 40)')
 })
 
+it('says what a Computer Use action will do in the approval card', () => {
+  const summary = (input: Record<string, unknown>): string =>
+    approvalSummary({
+      id: 'approval',
+      generation: 1,
+      toolCallId: 'act',
+      toolName: 'computer',
+      intent: 'desktop',
+      title: 'Computer Use',
+      detail: JSON.stringify({ action: 'act', stateId: 's', ...input })
+    })
+  expect(summary({ intent: 'type', text: 'hi', target: { kind: 'ref', ref: '@e2' } })).toBe(
+    '在桌面应用中输入「hi」'
+  )
+  expect(summary({ intent: 'key', key: 'Enter' })).toBe('在桌面应用中按 Enter')
+  expect(summary({ intent: 'press', target: { kind: 'ref', ref: '@e2' } })).toBe(
+    '点击桌面应用中的控件'
+  )
+})
+
 describe('contextDisplay', () => {
   it('keeps unknown context neutral instead of presenting 0%', () => {
     expect(contextDisplay(metrics())).toEqual({

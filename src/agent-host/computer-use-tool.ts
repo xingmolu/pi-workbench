@@ -1,17 +1,35 @@
 import { Type } from 'typebox'
+import { COMPUTER_USE_KEYS } from '../shared/computer-use'
 
 // Anthropic-compatible providers in Pi project only root properties/required.
 // A root union becomes an empty object on the wire. Keep provider parameters
 // object-shaped; computerUseOperationSchema enforces each operation at execution.
 export const COMPUTER_USE_TOOL_PARAMETERS = Type.Object({
   action: Type.Union(
-    [Type.Literal('observe'), Type.Literal('search'), Type.Literal('inspect'), Type.Literal('act')],
-    { description: 'Required. Start with {"action":"observe"} to obtain a current stateId.' }
+    [
+      Type.Literal('observe'),
+      Type.Literal('activate'),
+      Type.Literal('search'),
+      Type.Literal('inspect'),
+      Type.Literal('act')
+    ],
+    {
+      description:
+        'Required. Start with {"action":"observe"} to obtain a current stateId, or {"action":"activate","app":"Name"} to open/switch to an app first.'
+    }
+  ),
+  app: Type.Optional(
+    Type.String({
+      minLength: 1,
+      maxLength: 80,
+      description:
+        'Required for activate only: the app name as shown in the Dock (e.g. "HoYowave") or its bundle id.'
+    })
   ),
   mode: Type.Optional(
     Type.Union([Type.Literal('semantic'), Type.Literal('visual'), Type.Literal('fused')], {
       description:
-        'Only for observe; defaults to fused. Observes the focused foreground window; observe again after a window switch.'
+        'Only for observe and activate; defaults to fused. Observes the focused foreground window; observe again after a window switch.'
     })
   ),
   stateId: Type.Optional(
@@ -42,15 +60,24 @@ export const COMPUTER_USE_TOOL_PARAMETERS = Type.Object({
       ],
       {
         description:
-          'Required for act only. Prefer a current ref; point uses the current screenshot pixels.'
+          'Required for act except intent=key. Prefer a current ref; point uses the current screenshot pixels.'
       }
     )
   ),
   intent: Type.Optional(
-    Type.Union([Type.Literal('press'), Type.Literal('move'), Type.Literal('type')], {
-      description:
-        'Required for act only. type focuses the target before entering text; do not press it separately first.'
-    })
+    Type.Union(
+      [Type.Literal('press'), Type.Literal('move'), Type.Literal('type'), Type.Literal('key')],
+      {
+        description:
+          'Required for act only. type focuses the target before entering text; do not press it separately first. key presses one key in the observed window.'
+      }
+    )
+  ),
+  key: Type.Optional(
+    Type.Union(
+      COMPUTER_USE_KEYS.map((key) => Type.Literal(key)),
+      { description: 'Required for act with intent=key, e.g. Enter to send or submit.' }
+    )
   ),
   text: Type.Optional(
     Type.String({

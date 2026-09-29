@@ -32,6 +32,9 @@ export type NativeComputerUseCommand =
       expiresAt?: number
     }
   | { action: 'type'; text: string; expectedTarget?: DesktopWindowTarget; expiresAt?: number }
+  | { action: 'key'; key: string; expectedTarget?: DesktopWindowTarget; expiresAt?: number }
+  | { action: 'activate-target'; expectedTarget: DesktopWindowTarget }
+  | { action: 'activate-app'; app: string }
 
 export type NativeComputerUseExec = (
   file: string,

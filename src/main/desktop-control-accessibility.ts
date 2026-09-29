@@ -17,7 +17,13 @@ export type DesktopAccessibilityDeps = {
   bridge: MacComputerUseBridge
   appBundlePath: string
   openExternal: (url: string) => Promise<void>
+  /** Starts an app that is not running yet (macOS `open -a` / `open -b`). */
+  launchApp?: (args: readonly string[], signal?: AbortSignal) => Promise<void>
 }
+
+export type ActivatedApp = { app: string; bundleId: string }
+
+const BUNDLE_ID = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
 
 export function accessibilityGrantMessage(appBundlePath: string): string {
   return `当前运行的 Pi Desktop 尚未通过辅助功能权限检查。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加并开启这份应用：${appBundlePath}。若同名旧条目已开启，请移除旧条目后添加此路径，再完全退出并打开 Pi Desktop。`
@@ -100,6 +106,54 @@ export class DesktopAccessibility {
       throw new Error('无法唯一识别当前目标窗口，请将目标窗口置于前台后重试')
     }
     return parsed.data
+  }
+
+  /** Best effort: the caller still verifies the foreground window before any input. */
+  async activateTarget(target: DesktopWindowTarget, signal?: AbortSignal): Promise<boolean> {
+    if (this.deps.platform !== 'darwin') return false
+    const raw = asRecord(
+      await this.deps.bridge.call({ action: 'activate-target', expectedTarget: target }, signal)
+    )
+    return raw?.ok === true && raw.front === true
+  }
+
+  /** Brings a running app forward, starting it first when it is not running. */
+  async activateApp(query: string, signal?: AbortSignal): Promise<ActivatedApp> {
+    if (this.deps.platform !== 'darwin') throw new Error('切换应用仅支持 macOS')
+    const app = query.trim()
+    if (!app || app.length > 80 || app.startsWith('-') || /[\0/\n]/.test(app))
+      throw new Error('应用名称无效')
+    const attempt = async (): Promise<Record<string, unknown> | null> =>
+      asRecord(await this.deps.bridge.call({ action: 'activate-app', app }, signal))
+    let raw = await attempt()
+    if (raw?.error === 'app-not-running') {
+      if (!this.deps.launchApp) throw new Error(`没有找到正在运行的「${app}」`)
+      try {
+        await this.deps.launchApp([BUNDLE_ID.test(app) ? '-b' : '-a', app], signal)
+      } catch (error) {
+        signal?.throwIfAborted()
+        throw new Error(`无法打开「${app}」：请确认应用名称（与「应用程序」文件夹中的名称一致）`, {
+          cause: error
+        })
+      }
+      // A launched app registers with the window server shortly after `open` returns.
+      for (let tries = 0; tries < 10 && raw?.error === 'app-not-running'; tries++) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        signal?.throwIfAborted()
+        raw = await attempt()
+      }
+    }
+    if (raw?.error === 'app-ambiguous') {
+      const candidates = Array.isArray(raw.candidates) ? raw.candidates.join('、') : ''
+      throw new Error(
+        `「${app}」匹配到多个应用${candidates ? `：${candidates}` : ''}，请使用完整名称`
+      )
+    }
+    if (raw?.ok !== true) throw new Error(`没有找到正在运行的「${app}」`)
+    return {
+      app: typeof raw.app === 'string' ? raw.app : app,
+      bundleId: typeof raw.bundleId === 'string' ? raw.bundleId : ''
+    }
   }
 
   async dump(

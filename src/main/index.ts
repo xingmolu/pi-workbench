@@ -1083,7 +1083,7 @@ function registerIpc(): void {
     },
     openExternal: (url) => shell.openExternal(url)
   })
-  computerUse = new ComputerUseService(desktopControl)
+  computerUse = new ComputerUseService(desktopControl, { selfPid: process.pid })
   ipcMain.handle(DESKTOP_CONTROL_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     return desktopControl!.dispatch(command)

@@ -96,6 +96,7 @@ describe('Computer Use recovery fence', () => {
       expect(fence.check(name, {})).toMatchObject({ block: true })
     expect(fence.check('computer', { action: 'act' })).toMatchObject({ block: true })
     expect(fence.check('computer', { action: 'observe' })).toBeUndefined()
+    expect(fence.check('computer', { action: 'activate', app: 'Finder' })).toBeUndefined()
     fence.update(null)
     expect(fence.check('bash', {})).toBeUndefined()
     fence.update('unavailable')

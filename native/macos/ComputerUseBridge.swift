@@ -9,6 +9,8 @@ struct Command: Decodable {
     let button: String?
     let text: String?
     let prompt: Bool?
+    let app: String?
+    let key: String?
     let expectedTarget: ExpectedTarget?
     let expiresAt: Double?
 }
@@ -413,6 +415,86 @@ func typeText(_ text: String, expectedTarget: ExpectedTarget?, expiresAt: Double
     Thread.sleep(forTimeInterval: 0.1)
 }
 
+func boolAttribute(_ element: AXUIElement, _ attribute: CFString) -> Bool {
+    var raw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute, &raw) == .success else { return false }
+    return (raw as? Bool) == true
+}
+
+func focusedWindowFrame(_ appElement: AXUIElement) -> CGRect? {
+    var focusedRaw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRaw) == .success,
+          let focusedRaw, CFGetTypeID(focusedRaw) == AXUIElementGetTypeID() else { return nil }
+    return axWindowFrame(unsafeBitCast(focusedRaw, to: AXUIElement.self))
+}
+
+/// Brings an application (and, when given, its window with this frame) to the front.
+/// The AX frontmost attribute works from a background helper where plain activation
+/// may be ignored; the wait reads AX state because this process has no event loop
+/// to refresh NSWorkspace.frontmostApplication.
+func activate(_ application: NSRunningApplication, window frame: CGRect?) -> Bool {
+    if application.isHidden { _ = application.unhide() }
+    let appElement = AXUIElementCreateApplication(application.processIdentifier)
+    AXUIElementSetMessagingTimeout(appElement, 0.3)
+    if let frame {
+        var windowsRaw: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRaw) == .success {
+            for window in windowsRaw as? [AXUIElement] ?? [] {
+                guard let current = axWindowFrame(window), sameWindowFrame(current, frame) else { continue }
+                _ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                break
+            }
+        }
+    }
+    _ = AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    _ = application.activate(options: [.activateIgnoringOtherApps])
+    let deadline = Date().addingTimeInterval(1.5)
+    repeat {
+        if boolAttribute(appElement, kAXFrontmostAttribute as CFString) {
+            guard let frame else { return true }
+            if let current = focusedWindowFrame(appElement), sameWindowFrame(current, frame) { return true }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    } while Date() < deadline
+    return false
+}
+
+func findApplications(_ query: String) -> [NSRunningApplication] {
+    let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !needle.isEmpty else { return [] }
+    let apps = NSWorkspace.shared.runningApplications.filter {
+        $0.activationPolicy == .regular && !$0.isTerminated &&
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+    }
+    let exact = apps.filter {
+        $0.bundleIdentifier?.lowercased() == needle || $0.localizedName?.lowercased() == needle
+    }
+    if !exact.isEmpty { return exact }
+    return apps.filter { $0.localizedName?.lowercased().contains(needle) == true }
+}
+
+let keyCodes: [String: CGKeyCode] = [
+    "Enter": 36, "Escape": 53, "Tab": 48, "Backspace": 51, "Delete": 117, "Space": 49,
+    "ArrowLeft": 123, "ArrowRight": 124, "ArrowDown": 125, "ArrowUp": 126,
+    "PageUp": 116, "PageDown": 121, "Home": 115, "End": 119
+]
+
+func pressKey(_ code: CGKeyCode, expectedTarget: ExpectedTarget?, expiresAt: Double?) {
+    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+          let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+        Json.fail("cannot-create-keyboard-event")
+    }
+    down.flags = []
+    up.flags = []
+    verifyExpiry(expiresAt)
+    verifyExpectedTarget(expectedTarget)
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+    // Same one-shot delivery grace period as clickPointer.
+    Thread.sleep(forTimeInterval: 0.1)
+}
+
 let input: Data
 if CommandLine.arguments.count > 1 {
     input = Data(CommandLine.arguments[1].utf8)
@@ -473,6 +555,43 @@ case "type":
     verifyExpiry(command.expiresAt)
     verifyExpectedTarget(command.expectedTarget)
     typeText(text, expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
+    Json.write(["ok": true])
+case "activate-target":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let expected = command.expectedTarget,
+          let application = NSRunningApplication(processIdentifier: expected.pid),
+          !application.isTerminated,
+          (application.bundleIdentifier ?? "") == expected.bundleId else {
+        Json.write(["ok": false, "error": "target-missing"] as [String: Any])
+    }
+    let frame = CGRect(x: expected.frame.x, y: expected.frame.y,
+                       width: expected.frame.width, height: expected.frame.height)
+    Json.write(["ok": true, "front": activate(application, window: frame)] as [String: Any])
+case "activate-app":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let query = command.app else { Json.fail("invalid-app") }
+    let matches = findApplications(query)
+    guard !matches.isEmpty else { Json.write(["ok": false, "error": "app-not-running"] as [String: Any]) }
+    guard matches.count == 1, let application = matches.first else {
+        Json.write([
+            "ok": false,
+            "error": "app-ambiguous",
+            "candidates": matches.prefix(8).map { String(($0.localizedName ?? $0.bundleIdentifier ?? "").prefix(80)) }
+        ] as [String: Any])
+    }
+    let front = activate(application, window: nil)
+    Json.write([
+        "ok": true,
+        "front": front,
+        "app": String(application.localizedName?.prefix(80) ?? ""),
+        "bundleId": String(application.bundleIdentifier?.prefix(80) ?? "")
+    ] as [String: Any])
+case "key":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let name = command.key, let code = keyCodes[name] else { Json.fail("invalid-key") }
+    verifyExpiry(command.expiresAt)
+    verifyExpectedTarget(command.expectedTarget)
+    pressKey(code, expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
     Json.write(["ok": true])
 default:
     Json.fail("unsupported-action")

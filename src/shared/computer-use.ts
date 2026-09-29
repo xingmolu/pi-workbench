@@ -8,8 +8,29 @@ export const COMPUTER_USE_LIMITS = {
   maxTextLength: 200,
   maxImageDataLength: 10_000_000,
   maxImageDimension: 1600,
-  maxVisualStateAgeMs: 30_000
+  maxVisualStateAgeMs: 30_000,
+  maxAppNameLength: 80
 } as const
+
+/** Keys an agent may press in the target window; shortcuts that reach other apps are excluded. */
+export const COMPUTER_USE_KEYS = [
+  'Enter',
+  'Escape',
+  'Tab',
+  'Backspace',
+  'Delete',
+  'Space',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End'
+] as const
+export const computerUseKeySchema = z.enum(COMPUTER_USE_KEYS)
+export const computerUseIntentSchema = z.enum(['press', 'move', 'type', 'key'])
 
 export const computerUseStateIdSchema = z.string().min(1).max(COMPUTER_USE_LIMITS.maxStateIdLength)
 export const computerUseRefSchema = z.string().regex(/^@e[1-9]\d*$/)
@@ -36,10 +57,11 @@ export type ComputerUseFrameRect = z.infer<typeof computerUseFrameRectSchema>
 
 export const computerUseVisualFrameSchema = z
   .object({
-    scope: z.literal('window'),
+    /** display-crop: the window's area cut from its display, for windows the capturer omits. */
+    scope: z.enum(['window', 'display-crop']),
     sourceId: z
       .string()
-      .regex(/^window:\d+:\d+$/)
+      .regex(/^(window|screen):\d+:\d+$/)
       .max(128),
     displayId: z.string().min(1).max(128),
     framePoints: computerUseFrameRectSchema,
@@ -117,6 +139,13 @@ export const computerUseOperationSchema = z.discriminatedUnion('action', [
     .strict(),
   z
     .object({
+      action: z.literal('activate'),
+      app: z.string().trim().min(1).max(COMPUTER_USE_LIMITS.maxAppNameLength),
+      mode: computerUseModeSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
       action: z.literal('search'),
       stateId: computerUseStateIdSchema,
       query: z.string().min(1).max(COMPUTER_USE_LIMITS.maxQueryLength)
@@ -133,9 +162,10 @@ export const computerUseOperationSchema = z.discriminatedUnion('action', [
     .object({
       action: z.literal('act'),
       stateId: computerUseStateIdSchema,
-      target: computerUseActionTargetSchema,
-      intent: z.enum(['press', 'move', 'type']),
-      text: z.string().min(1).max(COMPUTER_USE_LIMITS.maxTextLength).optional()
+      target: computerUseActionTargetSchema.optional(),
+      intent: computerUseIntentSchema,
+      text: z.string().min(1).max(COMPUTER_USE_LIMITS.maxTextLength).optional(),
+      key: computerUseKeySchema.optional()
     })
     .strict()
 ])
@@ -162,8 +192,8 @@ export const computerUseResultSchema = z.union([
     .object({
       kind: z.literal('action'),
       previousStateId: computerUseStateIdSchema,
-      target: computerUseActionTargetSchema,
-      action: z.enum(['press', 'move', 'type']),
+      target: computerUseActionTargetSchema.optional(),
+      action: computerUseIntentSchema,
       delivered: z.literal(true),
       changed: z.boolean(),
       verification: z.enum(['semantic-change', 'visual-change', 'delivered-only']),
