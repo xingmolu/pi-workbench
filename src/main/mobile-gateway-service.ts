@@ -5,7 +5,8 @@ import {
   type MobileGatewayState,
   type PairedDeviceRecord
 } from '../shared/mobile-gateway'
-import { MobileGatewayServer } from './mobile-gateway'
+import { MobileGatewayServer, type MobileViewsBridge } from './mobile-gateway'
+import type { RemoteViewAccess } from '../shared/remote-views'
 import { MobilePairingStore } from './mobile-pairing'
 import type { MobileSessionBridge } from './mobile-session-bridge'
 import {
@@ -32,6 +33,14 @@ export type MobileGatewayServiceOptions = {
   enableTailscaleServe?: typeof enableTailscaleServe
   disableTailscaleServe?: typeof disableTailscaleServe
   writeClipboard?: (text: string) => void
+  /** Listening port; the default is the fixed gateway port phones were paired with. */
+  port?: number
+  /** Remote workbench views; access is the desktop user's choice and defaults to off. */
+  remoteViews?: {
+    bridge: MobileViewsBridge
+    get(): RemoteViewAccess
+    set(access: RemoteViewAccess): void
+  }
 }
 
 export class MobileGatewayService {
@@ -50,7 +59,9 @@ export class MobileGatewayService {
     })
     this.gateway = new MobileGatewayServer({
       pairing: this.pairing,
-      sessions: options.sessions
+      sessions: options.sessions,
+      ...(options.port ? { port: options.port } : {}),
+      ...(options.remoteViews ? { views: options.remoteViews.bridge } : {})
     })
   }
 
@@ -80,6 +91,7 @@ export class MobileGatewayService {
       devices: this.pairing.list(),
       powerSave: this.blocker !== 0,
       tailscale: this.tailscale,
+      remoteViews: this.options.remoteViews?.get() ?? 'off',
       error: this.error
     }
   }
@@ -128,6 +140,13 @@ export class MobileGatewayService {
       this.startPowerSave()
       this.tailscale = await (this.options.probeTailscale ?? probeTailscale)()
       this.pairing.createOffer()
+      return
+    }
+    if (command.type === 'remote-views') {
+      if (!this.options.remoteViews) throw new Error('远程工作台不可用')
+      this.options.remoteViews.set(command.access)
+      // Turning it off takes effect at once, not at the phone's next reconnect.
+      if (command.access === 'off') this.gateway.closeViews()
       return
     }
     if (command.type === 'device:revoke') {

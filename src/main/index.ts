@@ -91,6 +91,10 @@ import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
 import { resolveShell, terminalEnvironment } from '../shared/terminal-shell'
 import { BrowserManager } from './browser-manager'
+import { RemoteBrowser } from './remote-browser'
+import { RemoteTerminals } from './remote-terminals'
+import { createRemoteViewsBridge } from './remote-views-bridge'
+import type { RemoteViewAccess } from '../shared/remote-views'
 import { ComputerUseService } from './computer-use-service'
 import { HostResponseBroker } from './host-response-broker'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
@@ -135,6 +139,8 @@ let resolveHostReady: (() => void) | null = null
 let rejectHostReady: ((error: Error) => void) | null = null
 let preferences: ElectronStore<Preferences> | null = null
 let browserManager: BrowserManager | null = null
+/** Phones watching the desktop browser; created with the main window. */
+let remoteBrowser: RemoteBrowser | null = null
 let browserOwner: BrowserWindowType | null = null
 let desktopControl: DesktopControlService | null = null
 let computerUse: ComputerUseService | null = null
@@ -285,6 +291,9 @@ const terminalManager = new TerminalManager({
     })
   }
 })
+/** Terminal output for paired phones; recording starts with the first terminal. */
+const remoteTerminals = new RemoteTerminals(() => terminalManager)
+remoteTerminals.attach()
 let activeSessionPath: string | null = null
 let workbenchContextGeneration = 0
 let workbenchContextKey = ''
@@ -457,6 +466,7 @@ type Preferences = {
   workbenchDesktopEnabled?: Record<string, boolean>
   workbenchPanelState?: Record<string, unknown>
   mobileDevices?: PairedDeviceRecord[]
+  mobileRemoteViews?: RemoteViewAccess
 }
 
 function errorMessage(error: unknown): string {
@@ -1472,7 +1482,23 @@ function createWindow(): void {
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send('pi:browser:event', { type: 'state', data: state })
     }
+    remoteBrowser?.changed()
   })
+  remoteBrowser = new RemoteBrowser(
+    () => browserManager,
+    (wake) => {
+      if (mainWindow.isDestroyed()) return
+      // Frames need the view on screen: bring the panel (and on request the window) back.
+      if (wake) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        if (!mainWindow.isVisible()) mainWindow.showInactive()
+      }
+      mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, {
+        type: 'reveal',
+        viewId: BROWSER_VIEW_ID
+      } satisfies WorkbenchEvent)
+    }
+  )
   const workbenchStore: WorkbenchStateStore = {
     get: (key) => preferenceStore().get(key as keyof Preferences),
     set: (key, value) => {
@@ -1639,6 +1665,7 @@ app.whenReady().then(async () => {
         additionalProperties: { type: 'boolean' }
       },
       workbenchPanelState: { type: 'object' },
+      mobileRemoteViews: { type: 'string', enum: ['off', 'view', 'control'] },
       mobileDevices: {
         type: 'array',
         maxItems: 16,
@@ -1680,7 +1707,30 @@ app.whenReady().then(async () => {
         if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id)
       }
     },
-    writeClipboard: (text) => clipboard.writeText(text)
+    writeClipboard: (text) => clipboard.writeText(text),
+    // Isolated E2E apps must not contend for the fixed gateway port.
+    ...(E2E_MODE && Number(process.env.PI_DESKTOP_E2E_MOBILE_PORT) > 0
+      ? { port: Number(process.env.PI_DESKTOP_E2E_MOBILE_PORT) }
+      : {}),
+    remoteViews: {
+      get: () => preferenceStore().get('mobileRemoteViews') ?? 'off',
+      set: (access) => preferenceStore().set('mobileRemoteViews', access),
+      bridge: createRemoteViewsBridge({
+        access: () => preferenceStore().get('mobileRemoteViews') ?? 'off',
+        browser: () => remoteBrowser,
+        browserEnabled: browserPluginEnabled,
+        browserSummary: () => {
+          const state = browserManager?.getState()
+          const active = state?.pages.find((page) => page.active)
+          return {
+            live: Boolean(state?.available),
+            ...(active ? { detail: active.title || active.url } : {})
+          }
+        },
+        terminals: remoteTerminals,
+        terminalEnabled: terminalPluginEnabled
+      })
+    }
   })
   registerIpc()
   startAgentHost()

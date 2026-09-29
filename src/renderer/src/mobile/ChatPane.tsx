@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ChevronLeft, SquarePen } from 'lucide-react'
+import { ArrowDown, ChevronLeft, MonitorSmartphone, SquarePen } from 'lucide-react'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
 import { mobileStatusBadge } from '../../../shared/mobile-list'
 import { MobileConversation, type Respond, type Undo } from './MobileConversation'
@@ -21,7 +21,8 @@ export function ChatPane({
   onBack,
   onRefresh,
   onError,
-  onNewSession
+  onNewSession,
+  onWorkbench
 }: {
   snapshot: MobileConversationSnapshot | null
   routed: boolean
@@ -35,6 +36,7 @@ export function ChatPane({
   onRefresh: () => void
   onError: (message: string) => void
   onNewSession: (cwd: string, model?: { providerId: string; modelId: string }) => void
+  onWorkbench: () => void
 }): React.JSX.Element {
   const scroller = useRef<HTMLElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -177,6 +179,9 @@ export function ChatPane({
           }
         >
           <SquarePen size={18} />
+        </button>
+        <button type="button" className="m-icon" aria-label="电脑工作台" onClick={onWorkbench}>
+          <MonitorSmartphone size={18} />
         </button>
         <ThemeButton choice={theme} onChoice={onTheme} />
       </header>

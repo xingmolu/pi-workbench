@@ -1,6 +1,7 @@
 import { hostname as osHostname } from 'node:os'
 import { z } from 'zod'
 import { MAX_PROMPT_IMAGES, promptImageSchema } from '../shared/schemas'
+import type { RemoteViewAccess, RemoteViewSummary } from '../shared/remote-views'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { MOBILE_GATEWAY_LOOPBACK, MOBILE_GATEWAY_PORT } from '../shared/mobile-gateway'
 import { buildMobileHomeGroups } from '../shared/mobile-list'
@@ -66,7 +67,22 @@ export type MobileGatewayOptions = {
   listen?: (server: Server, port: number, host: string) => Promise<void>
   /** Directory holding the built mobile.html and assets/ (defaults to out/renderer). */
   webRoot?: string
+  /** The desktop's workbench views (browser, terminals) for remote viewing. */
+  views?: MobileViewsBridge
 }
+
+export type MobileViewsBridge = {
+  access(): RemoteViewAccess
+  list(): RemoteViewSummary[]
+  /** Null when the view does not exist. */
+  subscribe(id: string, send: (event: string, data: unknown) => void): (() => void) | null
+  /** Validates `input` for the view's kind before acting. */
+  input(id: string, input: unknown): Promise<void>
+}
+
+/** Frames are dropped, never queued, while a phone's connection is behind. */
+const VIEW_BACKLOG_BYTES = 4 * 1024 * 1024
+const MAX_VIEW_STREAMS_PER_DEVICE = 4
 
 type SseClient = {
   deviceId: string
@@ -152,6 +168,7 @@ export class MobileGatewayServer {
   private port: number | null = null
   private lanAddress: string | null = null
   private readonly sse = new Set<SseClient>()
+  private readonly viewStreams = new Map<ServerResponse, { deviceId: string; stop: () => void }>()
   private unsubscribe: (() => void) | null = null
   constructor(private readonly options: MobileGatewayOptions) {}
 
@@ -244,7 +261,17 @@ export class MobileGatewayServer {
     })
   }
 
+  /** Ends every remote view stream, e.g. when the desktop turns remote views off. */
+  closeViews(): void {
+    for (const [response, stream] of this.viewStreams) {
+      stream.stop()
+      response.destroy()
+    }
+    this.viewStreams.clear()
+  }
+
   async stop(): Promise<void> {
+    this.closeViews()
     this.unsubscribe?.()
     this.unsubscribe = null
     for (const client of this.sse) {
@@ -409,6 +436,10 @@ export class MobileGatewayServer {
         json(response, 200, await this.options.sessions.open(body.cwd, body.sessionPath))
         return
       }
+      if (url.pathname === '/api/views' || url.pathname.startsWith('/api/views/')) {
+        await this.handleViews(request, response, url, device.deviceId)
+        return
+      }
       const sessionMatch = /^\/api\/sessions\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname)
       if (sessionMatch) {
         const workerId = decodeURIComponent(sessionMatch[1]!)
@@ -548,5 +579,77 @@ export class MobileGatewayServer {
       const status = /配对码|尚未配对|已达到/.test(message) ? 401 : 400
       if (!response.headersSent) json(response, status, { error: message })
     }
+  }
+
+  private async handleViews(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    deviceId: string
+  ): Promise<void> {
+    const views = this.options.views
+    const access = views?.access() ?? 'off'
+    if (request.method === 'GET' && url.pathname === '/api/views') {
+      json(response, 200, { access, views: access === 'off' || !views ? [] : views.list() })
+      return
+    }
+    const match = /^\/api\/views\/([^/]+)\/(events|input)$/.exec(url.pathname)
+    if (!match || !views) {
+      json(response, 404, { error: '未知接口' })
+      return
+    }
+    const id = decodeURIComponent(match[1]!)
+    if (access === 'off' || (match[2] === 'input' && access !== 'control')) {
+      json(response, 403, {
+        error:
+          access === 'off'
+            ? '电脑未允许远程查看工作台：请在「设置 › 手机」中开启。'
+            : '电脑只允许查看，不允许远程操作。'
+      })
+      return
+    }
+    if (match[2] === 'input' && request.method === 'POST') {
+      await views.input(id, JSON.parse((await readBody(request)) || '{}'))
+      json(response, 200, { ok: true })
+      return
+    }
+    if (match[2] !== 'events' || request.method !== 'GET') {
+      json(response, 404, { error: '未知接口' })
+      return
+    }
+    const mine = [...this.viewStreams.values()].filter((item) => item.deviceId === deviceId)
+    if (mine.length >= MAX_VIEW_STREAMS_PER_DEVICE) {
+      json(response, 429, { error: '实时连接已达到上限' })
+      return
+    }
+    let open = true
+    const send = (event: string, data: unknown): void => {
+      if (!open) return
+      // A slow phone skips frames instead of piling them up in memory.
+      if (event === 'frame' && response.writableLength > VIEW_BACKLOG_BYTES) return
+      response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no'
+    })
+    const stop = views.subscribe(id, send)
+    if (!stop) {
+      response.end(`event: gone\ndata: {}\n\n`)
+      return
+    }
+    const heartbeat = setInterval(() => open && response.write(': keep-alive\n\n'), 20000)
+    this.viewStreams.set(response, { deviceId, stop })
+    const cleanup = (): void => {
+      if (!open) return
+      open = false
+      clearInterval(heartbeat)
+      stop()
+      this.viewStreams.delete(response)
+    }
+    response.on('close', cleanup)
+    response.on('error', cleanup)
   }
 }

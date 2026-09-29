@@ -6,6 +6,7 @@ import {
   type MobileGatewayState
 } from '../../../shared/mobile-gateway'
 import { Smartphone } from 'lucide-react'
+import { Segmented } from './SettingsPrimitives'
 import '../assets/desktop-settings.css'
 import '../assets/settings-primitives.css'
 import '../assets/mobile-settings.css'
@@ -189,6 +190,40 @@ export default function MobileGatewaySettings(): React.JSX.Element {
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+
+        <div className="sp-group">
+          <div className="sp-group-header">
+            <h3>远程工作台</h3>
+            <p>让已配对的手机查看电脑上的内置浏览器和终端，例如在外面看本机开发页面的效果。</p>
+          </div>
+          <div className="sp-card settings-card">
+            <div className="sp-row">
+              <div className="sp-row-text">
+                <span className="sp-row-label">浏览器与终端</span>
+                <span className="sp-row-description">
+                  {state.remoteViews === 'control'
+                    ? '手机可以点击、输入、打开网页和在终端里执行命令；浏览器带着电脑上的登录状态。'
+                    : state.remoteViews === 'view'
+                      ? '手机只能看画面和终端输出，不能操作。'
+                      : '手机看不到浏览器和终端。'}
+                  手机查看浏览器时，电脑上会自动展开浏览器面板。
+                </span>
+              </div>
+              <div className="sp-row-control">
+                <Segmented
+                  label="远程工作台权限"
+                  value={state.remoteViews}
+                  options={[
+                    { value: 'off', label: '关闭' },
+                    { value: 'view', label: '只看' },
+                    { value: 'control', label: '可操作' }
+                  ]}
+                  onChange={(access) => void run({ type: 'remote-views', access })}
+                />
+              </div>
+            </div>
           </div>
         </div>
 

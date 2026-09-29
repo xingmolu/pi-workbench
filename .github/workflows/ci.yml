@@ -103,6 +103,7 @@ jobs:
           xvfb-run -a npx playwright test
           tests/e2e/multi-session.spec.ts
           tests/e2e/mobile-delivery.spec.ts
+          tests/e2e/mobile-remote-browser.spec.ts
           tests/e2e/session-task.spec.ts
           tests/e2e/desktop-settings.spec.ts
           tests/e2e/ui-experience.spec.ts

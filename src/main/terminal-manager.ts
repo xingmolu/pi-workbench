@@ -48,7 +48,53 @@ export class TerminalManager {
   private shutdownPromise?: Promise<void>
   private hostExited?: () => void
   private closedOwners = new Set<number>()
+  private observers = new Set<(event: TerminalEvent) => void>()
   constructor(private options: Options) {}
+  /** Read-only tap for remote viewers (the paired phone): every accepted state and output. */
+  observe(listener: (event: TerminalEvent) => void): () => void {
+    this.observers.add(listener)
+    return () => this.observers.delete(listener)
+  }
+  /** Terminals still running or starting, for the remote workbench list. */
+  liveTerminals(): TerminalMetadata[] {
+    return [...this.entries.values()]
+      .filter((entry) => !entry.metadata.exitConfirmed)
+      .map((entry) => ({ ...entry.metadata }))
+  }
+  /** Keystrokes from a remote viewer, under the owner's state checks and rate limits. */
+  remoteInput(terminalId: string, data: string): boolean {
+    const entry = this.entries.get(terminalId)
+    if (!entry || this.stopped) return false
+    const t = entry.metadata
+    if (t.connection !== 'consumer' || t.failure || t.state !== 'running') return false
+    if (!this.admitInput(entry, Buffer.byteLength(data))) return false
+    return this.send(entry, {
+      type: 'command',
+      command: { type: 'input', ...this.identity(t), data }
+    })
+  }
+  private admitInput(entry: Entry, bytes: number): boolean {
+    const now = Date.now()
+    if (now - entry.windowStart >= 1000) {
+      entry.windowStart = now
+      entry.inputBytes = 0
+      entry.calls = 0
+    }
+    if (++entry.calls > LIMIT.commandsPerSecond) return false
+    if (entry.inputBytes + bytes > LIMIT.inputPerSecond) return false
+    entry.inputBytes += bytes
+    return true
+  }
+  private deliver(owner: number, event: TerminalEvent): void {
+    this.windows.get(owner)?.(event)
+    for (const observer of this.observers) {
+      try {
+        observer(event)
+      } catch {
+        /* A remote viewer never affects the owner's stream. */
+      }
+    }
+  }
   registerWindow(id: number, send: (event: TerminalEvent) => void): void {
     if (this.shutdownPromise || this.closedOwners.has(id)) return
     this.windows.set(id, send)
@@ -277,7 +323,7 @@ export class TerminalManager {
         : t.connection === 'management' && !t.exitConfirmed && t.state !== 'closing'
           ? 'degraded'
           : event.terminal.state
-      this.windows.get(entry.owner)?.({ type: 'state', terminal: { ...t } })
+      this.deliver(entry.owner, { type: 'state', terminal: { ...t } })
       this.prune()
     } else {
       if (t.connection !== 'consumer' || t.failure || !this.windows.has(entry.owner)) return
@@ -290,13 +336,13 @@ export class TerminalManager {
         t.state = 'failed'
         t.failure = 'protocol'
         this.send(entry, { type: 'command', command: { type: 'close', ...this.identity(t) } })
-        this.windows.get(entry.owner)?.({ type: 'state', terminal: { ...t } })
+        this.deliver(entry.owner, { type: 'state', terminal: { ...t } })
         return
       }
       entry.sequence = event.sequence
       entry.ledger.set(event.sequence, bytes)
       entry.bytes += bytes
-      this.windows.get(entry.owner)?.(event)
+      this.deliver(entry.owner, event)
     }
   }
   private crashed(epoch: number): void {
@@ -308,7 +354,7 @@ export class TerminalManager {
       entry.metadata.state = 'failed'
       entry.metadata.failure ??= 'host-exit'
       // Lost host is not proof of shell/descendant exit. Its slot remains reserved.
-      this.windows.get(entry.owner)?.({ type: 'state', terminal: { ...entry.metadata } })
+      this.deliver(entry.owner, { type: 'state', terminal: { ...entry.metadata } })
     }
     this.hostExited?.()
   }
@@ -319,7 +365,7 @@ export class TerminalManager {
       if (entry.hostEpoch !== epoch || entry.metadata.exitConfirmed) continue
       entry.metadata.state = 'failed'
       entry.metadata.failure = 'host-io'
-      this.windows.get(entry.owner)?.({ type: 'state', terminal: { ...entry.metadata } })
+      this.deliver(entry.owner, { type: 'state', terminal: { ...entry.metadata } })
     }
     const pending = this.host
     if (!pending) return

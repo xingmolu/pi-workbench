@@ -18,3 +18,9 @@ it('keeps old worker-only links working and treats anything else as the list', (
   expect(parseRoute('#/s/%E0%A4%A')).toEqual({ view: 'list' })
   expect(formatRoute({ view: 'list' })).toBe('/')
 })
+
+it('routes the workbench and its views', () => {
+  expect(parseRoute('#/w')).toEqual({ view: 'workbench' })
+  const terminal = { view: 'workbench' as const, viewId: 'terminal:abc-1' }
+  expect(parseRoute(`#${formatRoute(terminal)}`)).toEqual(terminal)
+})

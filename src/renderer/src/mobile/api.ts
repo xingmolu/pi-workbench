@@ -2,6 +2,12 @@ import type { PermissionMode, PromptImage } from '../../../shared/contracts'
 import type { CheckpointPlan, CheckpointRestoreOutcome } from '../../../shared/checkpoints'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
 import type { SkillSummary } from '../../../shared/skills'
+import type {
+  RemoteBrowserInput,
+  RemoteTerminalInput,
+  RemoteViewAccess,
+  RemoteViewSummary
+} from '../../../shared/remote-views'
 import type { MobileHomeGroup } from '../../../shared/mobile-list'
 
 const TOKEN_KEY = 'pi-desktop-device-token'
@@ -137,6 +143,10 @@ export const mobileApi = {
       restore: true,
       force
     }),
+  views: () => api<{ access: RemoteViewAccess; views: RemoteViewSummary[] }>('/api/views'),
+  viewEvents: (id: string) => new EventSource(`/api/views/${encodeURIComponent(id)}/events`),
+  viewInput: (id: string, input: RemoteBrowserInput | RemoteTerminalInput) =>
+    post(`/api/views/${encodeURIComponent(id)}/input`, input),
   abort: (workerId: string) => post(session(workerId, 'abort'), {}),
   clearQueue: (workerId: string) => post(session(workerId, 'queue/clear'), {}),
   respond: (workerId: string, approvalId: string, allow: boolean) =>

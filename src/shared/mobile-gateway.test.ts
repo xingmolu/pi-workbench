@@ -18,6 +18,7 @@ describe('mobile gateway contracts', () => {
         pairing: null,
         devices: [],
         powerSave: false,
+        remoteViews: 'view',
         tailscale: {
           available: false,
           online: false,

@@ -488,6 +488,73 @@ describe('mobile gateway http', () => {
     ])
   })
 
+  it('serves remote views under the desktop access level: off, view only, control', async () => {
+    const devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices.length = 0
+        devices.push(...next)
+      }
+    })
+    let access: 'off' | 'view' | 'control' = 'off'
+    const inputs: unknown[] = []
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      port: 18795,
+      lanAddress: () => null,
+      views: {
+        access: () => access,
+        list: () => [{ id: 'browser', kind: 'browser', title: '浏览器', live: true }],
+        subscribe: (id, send) => {
+          if (id !== 'browser') return null
+          send('frame', { data: 'AAAA', width: 10, height: 10 })
+          return () => undefined
+        },
+        input: async (_id, input) => {
+          inputs.push(input)
+        }
+      }
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const offer = pairing.createOffer()
+    const paired = await request(18795, '/api/pair', {
+      method: 'POST',
+      body: { token: offer.token, deviceName: 'Pixel' }
+    })
+    const token = paired.data.deviceToken as string
+    const tap = (): ReturnType<typeof request> =>
+      request(18795, '/api/views/browser/input', {
+        method: 'POST',
+        token,
+        body: { type: 'tap', x: 1, y: 1 }
+      })
+    expect((await request(18795, '/api/views', { token })).data).toEqual({
+      access: 'off',
+      views: []
+    })
+    expect((await tap()).status).toBe(403)
+    access = 'view'
+    expect((await request(18795, '/api/views', { token })).data.views).toHaveLength(1)
+    expect((await tap()).status).toBe(403)
+    const events = await fetch('http://127.0.0.1:18795/api/views/browser/events', {
+      headers: { authorization: `Bearer ${token}` }
+    })
+    expect(events.headers.get('content-type')).toContain('text/event-stream')
+    const reader = events.body!.getReader()
+    const first = new TextDecoder().decode((await reader.read()).value)
+    expect(first).toContain('event: frame')
+    await reader.cancel()
+    access = 'control'
+    expect((await tap()).status).toBe(200)
+    expect(inputs).toEqual([{ type: 'tap', x: 1, y: 1 }])
+    expect(
+      (await request(18795, '/api/views/browser/input', { method: 'POST', body: {} })).status
+    ).toBe(401)
+  })
+
   it('rejects unknown Host headers to limit DNS rebinding', async () => {
     const devices: PairedDeviceRecord[] = []
     const pairing = new MobilePairingStore({

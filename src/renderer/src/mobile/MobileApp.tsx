@@ -14,6 +14,7 @@ import { PairingScreen } from './PairingScreen'
 import { useMobileTheme } from './theme'
 import { notifyInBackground, useNotifications } from './notify'
 import { formatRoute, parseRoute, type MobileRoute } from './route'
+import { WorkbenchPane } from './WorkbenchPane'
 
 const message = (reason: unknown): string =>
   reason instanceof Error ? reason.message : String(reason)
@@ -263,7 +264,10 @@ export function MobileApp(): React.JSX.Element {
 
   return (
     <ResolvedThemeOverride.Provider value={theme.resolved}>
-      <div className="m-app" data-view={routedWorker ? 'chat' : 'list'}>
+      <div
+        className="m-app"
+        data-view={routedWorker || route.view === 'workbench' ? 'chat' : 'list'}
+      >
         <aside className="pane-list">
           <SessionList
             groups={groups}
@@ -276,26 +280,40 @@ export function MobileApp(): React.JSX.Element {
             onRefresh={loadList}
             onOpen={open}
             onNewSession={(cwd) => newSession(cwd)}
+            onWorkbench={() => go({ view: 'workbench' })}
           />
         </aside>
         <section className="pane-chat">
-          <ChatPane
-            snapshot={shown}
-            routed={Boolean(routedWorker)}
-            host={host}
-            error={chatError}
-            paused={paused}
-            offline={Boolean(routedWorker) && connection !== 'live' && !paused}
-            theme={theme.choice}
-            onTheme={theme.setChoice}
-            onBack={() => {
-              go({ view: 'list' })
-              void loadList()
-            }}
-            onRefresh={() => void live.refresh()}
-            onError={setChatError}
-            onNewSession={newSession}
-          />
+          {route.view === 'workbench' ? (
+            <WorkbenchPane
+              viewId={route.viewId}
+              theme={theme.resolved}
+              onSelect={(viewId) => go({ view: 'workbench', viewId }, true)}
+              onBack={() => {
+                if (history.length > 1) history.back()
+                else go({ view: 'list' })
+              }}
+            />
+          ) : (
+            <ChatPane
+              snapshot={shown}
+              routed={Boolean(routedWorker)}
+              host={host}
+              error={chatError}
+              paused={paused}
+              offline={Boolean(routedWorker) && connection !== 'live' && !paused}
+              theme={theme.choice}
+              onTheme={theme.setChoice}
+              onBack={() => {
+                go({ view: 'list' })
+                void loadList()
+              }}
+              onRefresh={() => void live.refresh()}
+              onError={setChatError}
+              onNewSession={newSession}
+              onWorkbench={() => go({ view: 'workbench' })}
+            />
+          )}
         </section>
       </div>
     </ResolvedThemeOverride.Provider>

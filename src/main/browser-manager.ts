@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { session, type BrowserWindow, type Rectangle, WebContentsView } from 'electron'
+import {
+  session,
+  type BrowserWindow,
+  type NativeImage,
+  type Rectangle,
+  WebContentsView
+} from 'electron'
+import type { RemoteBrowserInput } from '../shared/remote-views'
 import type {
   BrowserBounds,
   BrowserOperation,
@@ -83,6 +90,9 @@ export class BrowserManager {
   private readonly compatibilityOwner = {}
   private navigation: Navigation | null = null
   private sendingSyntheticInput = false
+  /** A paired phone asked for a phone-sized viewport. */
+  private remoteDevice = false
+  private readonly emulated = new WeakMap<WebContentsView, string>()
   constructor(
     private readonly window: BrowserWindow,
     private readonly onState: (state: BrowserState) => void
@@ -97,6 +107,81 @@ export class BrowserManager {
       ...(this.lastAction ? { lastAction: this.lastAction } : {}),
       ...(this.lastError ? { error: this.lastError } : {})
     }
+  }
+  /**
+   * The active page's viewport for a remote viewer, or null when nothing is renderable: the
+   * page must be shown in the window, because hidden views stop producing frames.
+   */
+  async captureActive(): Promise<{ image: NativeImage; width: number; height: number } | null> {
+    const page = this.activePageId ? this.pages.get(this.activePageId) : undefined
+    const size = this.viewport()
+    if (!page || !size || page.view.webContents.isDestroyed()) return null
+    const image = await page.view.webContents.capturePage({ x: 0, y: 0, ...size })
+    return image.isEmpty() ? null : { image, ...size }
+  }
+  get remoteMobile(): boolean {
+    return this.remoteDevice
+  }
+  /** Emulates a phone-sized page so the remote viewer sees the mobile layout. */
+  setRemoteDevice(mobile: boolean): void {
+    if (this.remoteDevice === mobile) return
+    this.remoteDevice = mobile
+    this.layoutViews()
+    this.publish()
+  }
+  /**
+   * Taps, scrolls and typing from the paired phone. They go through the same input path as a
+   * person at the desktop, so they also take the page over from a running agent.
+   */
+  remoteInput(
+    input: Extract<RemoteBrowserInput, { type: 'tap' | 'scroll' | 'text' | 'key' }>
+  ): void {
+    const page = this.activePageId ? this.pages.get(this.activePageId) : undefined
+    const size = this.viewport()
+    if (!page || !size || page.view.webContents.isDestroyed())
+      throw new Error('浏览器当前没有可操作的页面')
+    const contents = page.view.webContents
+    const clamp = (value: number, max: number): number =>
+      Math.max(0, Math.min(max - 1, Math.round(value)))
+    switch (input.type) {
+      case 'tap': {
+        const x = clamp(input.x, size.width)
+        const y = clamp(input.y, size.height)
+        contents.focus()
+        contents.sendInputEvent({ type: 'mouseMove', x, y })
+        contents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+        contents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+        break
+      }
+      case 'scroll':
+        contents.sendInputEvent({
+          type: 'mouseWheel',
+          x: clamp(input.x, size.width),
+          y: clamp(input.y, size.height),
+          deltaX: -input.dx,
+          deltaY: -input.dy
+        })
+        break
+      case 'text':
+        this.abortAgent()
+        contents.focus()
+        void contents.insertText(input.text)
+        break
+      case 'key':
+        contents.focus()
+        contents.sendInputEvent({ type: 'keyDown', keyCode: input.key })
+        contents.sendInputEvent({ type: 'keyUp', keyCode: input.key })
+        break
+    }
+    this.lastAction = '手机远程操作'
+    this.publish()
+  }
+  private viewport(): { width: number; height: number } | null {
+    const bounds = this.bounds
+    if (!this.visible || !bounds || bounds.width <= 0 || bounds.height <= 0) return null
+    return this.remoteDevice
+      ? { width: Math.min(390, bounds.width), height: Math.min(844, bounds.height) }
+      : { width: bounds.width, height: bounds.height }
   }
   setProject(projectPath: string | null): void {
     if (this.projectPath === projectPath) return
@@ -787,11 +872,26 @@ export class BrowserManager {
   }
   private layoutViews(): void {
     const bounds: Rectangle = this.bounds ?? { x: 0, y: 0, width: 0, height: 0 }
+    const device = this.remoteDevice ? this.viewport() : null
     for (const page of this.pages.values()) {
       page.view.setBounds(bounds)
       page.view.setVisible(
         this.visible && page.id === this.activePageId && bounds.width > 0 && bounds.height > 0
       )
+      const contents = page.view.webContents
+      const key = device ? `${device.width}x${device.height}` : ''
+      if (contents.isDestroyed() || (this.emulated.get(page.view) ?? '') === key) continue
+      this.emulated.set(page.view, key)
+      if (device)
+        contents.enableDeviceEmulation({
+          screenPosition: 'mobile',
+          screenSize: device,
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: 0,
+          viewSize: device,
+          scale: 1
+        })
+      else contents.disableDeviceEmulation()
     }
   }
   private pageSummary(page: BrowserPage): BrowserPageSummary {

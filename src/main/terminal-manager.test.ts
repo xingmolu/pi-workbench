@@ -493,4 +493,39 @@ describe('Main terminal authority', () => {
       vi.useRealTimers()
     }
   })
+
+  it('lets a remote viewer observe output and type under the owner limits', async () => {
+    const f = fixture()
+    f.release()
+    const t = terminal(await f.manager.dispatch(1, create))
+    const cap = {
+      projectPath: t.projectPath,
+      terminalId: t.terminalId,
+      generation: t.generation,
+      connectionEpoch: 1
+    }
+    const seen: TerminalEvent[] = []
+    const stop = f.manager.observe((event) => seen.push(event))
+    await f.manager.dispatch(1, { type: 'attach', ...cap })
+    expect(f.manager.remoteInput(t.terminalId, 'ls\r')).toBe(false)
+    f.deliver({ type: 'state', terminal: { ...t, state: 'running', connection: 'consumer' } })
+    f.deliver({ type: 'output', ...cap, sequence: 1, data: 'hello' })
+    expect(seen.map((event) => event.type)).toEqual(['state', 'output'])
+    expect(f.events.filter((event) => event.type === 'output')).toHaveLength(1)
+    expect(f.manager.liveTerminals().map((item) => item.terminalId)).toEqual([t.terminalId])
+
+    expect(f.manager.remoteInput(t.terminalId, 'ls\r')).toBe(true)
+    expect(f.sent.at(-1)).toMatchObject({
+      type: 'command',
+      command: { type: 'input', terminalId: t.terminalId, data: 'ls\r' }
+    })
+    expect(f.manager.remoteInput('missing', 'x')).toBe(false)
+    let accepted = 0
+    for (let index = 0; index < 500; index++)
+      if (f.manager.remoteInput(t.terminalId, 'x')) accepted++
+    expect(accepted).toBeLessThan(500)
+    stop()
+    f.deliver({ type: 'output', ...cap, sequence: 2, data: 'more' })
+    expect(seen).toHaveLength(2)
+  })
 })

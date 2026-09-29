@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { Bell, BellOff, ChevronRight, Folder, Plus, RefreshCw, Search } from 'lucide-react'
+import {
+  Bell,
+  BellOff,
+  ChevronRight,
+  Folder,
+  MonitorSmartphone,
+  Plus,
+  RefreshCw,
+  Search
+} from 'lucide-react'
 import type { NotifyState } from './notify'
 import {
   filterMobileHomeGroups,
@@ -38,7 +47,8 @@ export function SessionList({
   notifications,
   onRefresh,
   onOpen,
-  onNewSession
+  onNewSession,
+  onWorkbench
 }: {
   groups: MobileHomeGroup[]
   host: string
@@ -50,6 +60,7 @@ export function SessionList({
   onRefresh: () => Promise<void>
   onOpen: (session: MobileHomeSession) => void
   onNewSession: (cwd: string) => void
+  onWorkbench: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -122,6 +133,9 @@ export function SessionList({
             {notifications.state === 'on' ? <Bell size={18} /> : <BellOff size={18} />}
           </button>
         ) : null}
+        <button type="button" className="m-icon" aria-label="电脑工作台" onClick={onWorkbench}>
+          <MonitorSmartphone size={18} />
+        </button>
         <ThemeButton choice={theme} onChoice={onTheme} />
       </header>
       <div className="m-connect">

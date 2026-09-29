@@ -3,6 +3,7 @@ import type { ApprovalRequest, ConversationNode, PermissionMode, SessionStatus }
 import type { CheckpointTurnState } from './checkpoints'
 import type { LiveSessionSummary } from './session-runtime'
 import { stripIsoTimestamp } from './mobile-list'
+import { remoteViewAccessSchema, type RemoteViewAccess } from './remote-views'
 
 export const MOBILE_GATEWAY_CHANNEL = 'pi:mobile-gateway'
 export const MOBILE_GATEWAY_PORT = 43124
@@ -58,6 +59,8 @@ export type MobileGatewayState = {
   devices: PairedDevicePublic[]
   powerSave: boolean
   tailscale: TailscaleGatewayStatus
+  /** What paired phones may do with the desktop's browser and terminals. */
+  remoteViews: RemoteViewAccess
   error: string | null
 }
 
@@ -71,6 +74,7 @@ export const mobileGatewayCommandSchema = z.discriminatedUnion('type', [
     deviceId: z.string().uuid()
   }),
   z.strictObject({ type: z.literal('tailscale:probe') }),
+  z.strictObject({ type: z.literal('remote-views'), access: remoteViewAccessSchema }),
   z.strictObject({ type: z.literal('tailscale:serve') }),
   z.strictObject({ type: z.literal('tailscale:unserve') }),
   z.strictObject({
@@ -120,6 +124,7 @@ export const mobileGatewayStateSchema: z.ZodType<MobileGatewayState> = z
     devices: z.array(pairedDevicePublicSchema).max(MAX_PAIRED_DEVICES),
     powerSave: z.boolean(),
     tailscale: tailscaleGatewayStatusSchema,
+    remoteViews: remoteViewAccessSchema,
     error: z.string().max(500).nullable()
   })
   .strict()
@@ -133,6 +138,7 @@ export const EMPTY_MOBILE_GATEWAY_STATE: MobileGatewayState = {
   pairing: null,
   devices: [],
   powerSave: false,
+  remoteViews: 'off',
   tailscale: {
     available: false,
     online: false,

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AddressInfo } from 'node:net'
-import { MobileGatewayServer } from '../../src/main/mobile-gateway'
+import { MobileGatewayServer, type MobileViewsBridge } from '../../src/main/mobile-gateway'
 import { MobilePairingStore } from '../../src/main/mobile-pairing'
 import type { MobileSessionBridge } from '../../src/main/mobile-session-bridge'
 import type {
@@ -27,7 +27,8 @@ test.afterEach(async () => {
 async function launchMobile(
   initial = 'initial-state',
   failHttpSnapshot = false,
-  maxFrameBytes = 1024
+  maxFrameBytes = 1024,
+  views?: MobileViewsBridge
 ) {
   root = await mkdtemp(join(tmpdir(), 'pi-mobile-delivery-'))
   const profile = join(root, 'profile')
@@ -153,6 +154,7 @@ async function launchMobile(
     port: 0,
     lanAddress: () => null,
     webRoot: resolve('out/renderer'),
+    ...(views ? { views } : {}),
     snapshotStream: { maxFrameBytes },
     listen: (server, _port, host) =>
       new Promise((resolve, reject) => {
@@ -602,4 +604,104 @@ test('pairs with a typed code and serves an installable app shell', async () => 
     .fill(`${code.slice(0, 4)} ${code.slice(4).toLowerCase()}`)
   await page.getByRole('button', { name: '配对', exact: true }).click()
   await expect(page.getByText('当前设备上的项目和会话')).toBeVisible()
+})
+
+/** A 1×1 grey JPEG; the page stretches it to the frame's aspect ratio. */
+const PIXEL =
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=='
+
+test('remote workbench: the desktop browser as frames with taps, and a terminal with keys', async () => {
+  const inputs: [string, unknown][] = []
+  let access: 'off' | 'view' | 'control' = 'control'
+  const views: MobileViewsBridge = {
+    access: () => access,
+    list: () => [
+      { id: 'browser', kind: 'browser', title: '浏览器', detail: 'Dev server', live: true },
+      { id: 'terminal:t1', kind: 'terminal', title: '终端 1', detail: 'fixture', live: true }
+    ],
+    subscribe: (id, send) => {
+      if (id === 'browser') {
+        send('state', {
+          available: true,
+          tabs: [
+            {
+              id: 'p1',
+              title: 'Dev server',
+              url: 'http://localhost:5173/',
+              active: true,
+              loading: false
+            }
+          ],
+          canGoBack: true,
+          canGoForward: false,
+          mobile: false,
+          controller: 'idle'
+        })
+        send('frame', { data: PIXEL, width: 400, height: 800 })
+        return () => undefined
+      }
+      if (id === 'terminal:t1') {
+        send('replay', {
+          type: 'replay',
+          data: 'hello from the desktop terminal\r\n$ ',
+          cols: 60,
+          rows: 20,
+          state: 'running'
+        })
+        return () => undefined
+      }
+      return null
+    },
+    input: async (id, input) => {
+      inputs.push([id, input])
+    }
+  }
+  const fixture = await launchMobile('initial-state', false, 1024, views)
+  const { page } = fixture
+  await expect(page.locator('#chat-scroll')).toContainText('initial-state')
+  await page.getByRole('button', { name: '电脑工作台' }).click()
+  await expect(page.getByRole('heading', { name: '电脑工作台' })).toBeVisible()
+  const frame = page.locator('.m-rb-frame')
+  await expect(frame).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '网址' })).toHaveValue('http://localhost:5173/')
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-remote-browser.png') })
+
+  // A tap in the middle of the frame lands in the middle of the page (CSS pixels).
+  const box = (await frame.boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect.poll(() => inputs.at(-1)).toMatchObject(['browser', { type: 'tap' }])
+  const tap = inputs.at(-1)![1] as { x: number; y: number }
+  expect(Math.abs(tap.x - 200)).toBeLessThan(3)
+  expect(Math.abs(tap.y - 400)).toBeLessThan(3)
+
+  const address = page.getByRole('textbox', { name: '网址' })
+  await address.fill('localhost:3000')
+  await address.press('Enter')
+  await page.getByRole('button', { name: '电脑尺寸' }).click()
+  await expect
+    .poll(() => inputs.slice(-2).map(([, input]) => input))
+    .toEqual([
+      { type: 'navigate', url: 'localhost:3000' },
+      { type: 'device', mobile: true }
+    ])
+
+  // Terminal: the replay renders, keys and a typed command travel as input.
+  await page.getByRole('button', { name: /终端 1/ }).click()
+  await expect(page.locator('.m-rt-screen')).toContainText('hello from the desktop terminal')
+  await page.getByRole('button', { name: '^C' }).click()
+  await page.getByRole('textbox', { name: '输入命令' }).fill('npm test')
+  await page.getByRole('button', { name: '执行' }).click()
+  await expect
+    .poll(() => inputs.slice(-2))
+    .toEqual([
+      ['terminal:t1', { type: 'key', key: 'Ctrl-C' }],
+      ['terminal:t1', { type: 'text', data: 'npm test\r' }]
+    ])
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-remote-terminal.png') })
+
+  // View-only access hides the controls.
+  access = 'view'
+  await page.reload()
+  await expect(page.getByText('只读').first()).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '输入命令' })).toHaveCount(0)
 })
