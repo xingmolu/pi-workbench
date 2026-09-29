@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUp, ChevronDown, ImagePlus, Sparkles, Square, X } from 'lucide-react'
-import type { PermissionMode, PromptImage } from '../../../shared/contracts'
+import type { PermissionMode, PromptImage, ThinkingLevel } from '../../../shared/contracts'
+import { THINKING_LABEL } from '../store/model-presentation'
 import type { MobileConversationSnapshot, MobileModelOption } from '../../../shared/mobile-gateway'
 import { composeBlockChip, composerShouldSend } from '../../../shared/mobile-composer'
 import { safeSkillName, type SkillSummary } from '../../../shared/skills'
@@ -20,6 +21,7 @@ export function MobileComposer({
   clearQueue,
   setModel,
   setPermission,
+  setThinking,
   loadSkills,
   notify
 }: {
@@ -29,6 +31,7 @@ export function MobileComposer({
   clearQueue: () => Promise<void>
   setModel: (option: MobileModelOption) => Promise<void>
   setPermission: (mode: PermissionMode) => Promise<void>
+  setThinking: (level: ThinkingLevel) => Promise<void>
   loadSkills: () => Promise<SkillSummary[]>
   notify: (message: string) => void
 }): React.JSX.Element {
@@ -216,6 +219,9 @@ export function MobileComposer({
               onClick={() => setSheet('model')}
             >
               <span>{active?.name ?? snapshot.model ?? '选择模型'}</span>
+              {snapshot.thinking && snapshot.thinking.level !== 'off' ? (
+                <em className="m-chip-effort">{THINKING_LABEL[snapshot.thinking.level]}</em>
+              ) : null}
               <ChevronDown size={12} aria-hidden="true" />
             </button>
           </div>
@@ -237,8 +243,13 @@ export function MobileComposer({
       {sheet === 'model' ? (
         <ModelSheet
           models={snapshot.models ?? []}
+          providers={snapshot.providers}
           provider={snapshot.provider}
           model={snapshot.model}
+          thinking={snapshot.thinking}
+          onThinking={(level) => {
+            if (level !== snapshot.thinking?.level) void setThinking(level).catch(() => {})
+          }}
           onClose={closeSheet}
           onPick={(option) => {
             setSheet(null)

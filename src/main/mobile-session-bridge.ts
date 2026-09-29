@@ -3,7 +3,8 @@ import type {
   ApprovalRequest,
   ConversationNode,
   PermissionMode,
-  PromptImage
+  PromptImage,
+  ThinkingLevel
 } from '../shared/contracts'
 import type { CheckpointPlan, CheckpointRestoreOutcome } from '../shared/checkpoints'
 import type { SkillSummary } from '../shared/skills'
@@ -41,6 +42,7 @@ export type MobileSessionBridge = {
     modelId: string
   ): Promise<void>
   setPermission(workerId: string, mode: PermissionMode): Promise<void>
+  setThinking(workerId: string, identity: MobileIdentity, level: ThinkingLevel): Promise<void>
   skills(workerId: string, identity: MobileIdentity): Promise<SkillSummary[]>
   checkpointPlan(
     workerId: string,
@@ -105,9 +107,13 @@ export function toMobileSnapshot(
       id: model.id,
       name: model.name,
       image: Boolean(model.input?.includes('image')),
+      reasoning: model.reasoning,
+      contextWindow: model.contextWindow,
       ...(model.unavailableReason ? { unavailableReason: model.unavailableReason } : {})
     })),
     permissionMode: snapshot.permissionMode,
+    thinking: snapshot.thinking ?? null,
+    providers: Object.fromEntries(snapshot.accounts.map((account) => [account.id, account.name])),
     ...(snapshot.checkpoints ? { checkpoints: snapshot.checkpoints } : {}),
     ...(snapshot.error ? { error: snapshot.error } : {}),
     nodes

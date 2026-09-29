@@ -224,6 +224,7 @@ export function ChatPane({
         clearQueue={() => report(mobileApi.clearQueue(snapshot.workerId)).catch(() => {})}
         setModel={(option) => report(mobileApi.setModel(snapshot, option.provider, option.id))}
         setPermission={(mode) => report(mobileApi.setPermission(snapshot.workerId, mode))}
+        setThinking={(level) => report(mobileApi.setThinking(snapshot, level))}
         loadSkills={loadSkills}
       />
     </>

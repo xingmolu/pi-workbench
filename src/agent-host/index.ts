@@ -746,6 +746,16 @@ class PiDesktopHost {
       case 'model:set':
         await this.setModel(request.providerId, request.modelId)
         break
+      case 'thinking:set': {
+        const session = this.runtime?.session
+        if (!session) throw new Error('请先选择工作区')
+        if (session.isStreaming || this.modelMutationInProgress)
+          throw new Error('运行结束后可以调整思考强度')
+        if (!session.supportsThinking()) throw new Error('当前模型不支持调整思考强度')
+        // Remembered as the default too, so new sessions keep the chosen effort.
+        session.setThinkingLevel(request.level, { persist: true })
+        break
+      }
       case 'browser:e2e':
         if (process.env.PI_DESKTOP_E2E !== '1') throw new Error('该命令只在 E2E 模式可用')
         await this.callBrowser(request.operation)
@@ -2435,6 +2445,9 @@ class PiDesktopHost {
       models: this.models,
       activeProvider: modelProjection?.identity?.providerId ?? null,
       activeModel: modelProjection?.identity?.modelId ?? null,
+      thinking: session?.supportsThinking()
+        ? { level: session.thinkingLevel, available: session.getAvailableThinkingLevels() }
+        : null,
       modelAvailability: modelProjection?.modelAvailability ?? 'unselected',
       composeBlockReason:
         this.endpointSafety.reason(this.readEndpointSafety()) ??

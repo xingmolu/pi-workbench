@@ -1,6 +1,6 @@
 import { hostname as osHostname } from 'node:os'
 import { z } from 'zod'
-import { MAX_PROMPT_IMAGES, promptImageSchema } from '../shared/schemas'
+import { MAX_PROMPT_IMAGES, promptImageSchema, thinkingLevelSchema } from '../shared/schemas'
 import type { RemoteViewAccess, RemoteViewSummary } from '../shared/remote-views'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { MOBILE_GATEWAY_LOOPBACK, MOBILE_GATEWAY_PORT } from '../shared/mobile-gateway'
@@ -37,6 +37,7 @@ const modelSchema = identitySchema.extend({
   modelId: z.string().min(1).max(256)
 })
 const permissionSchema = z.object({ mode: z.enum(['ask', 'auto', 'open']) })
+const thinkingSchema = identitySchema.extend({ level: thinkingLevelSchema })
 const checkpointSchema = identitySchema.extend({
   entryId: z.string().min(1).max(256),
   restore: z.boolean().optional(),
@@ -519,6 +520,16 @@ export class MobileGatewayServer {
         }
         if (request.method === 'POST' && action === 'permission') {
           await this.options.sessions.setPermission(workerId, parse(permissionSchema, body).mode)
+          json(response, 200, { ok: true })
+          return
+        }
+        if (request.method === 'POST' && action === 'thinking') {
+          const input = parse(thinkingSchema, body)
+          await this.options.sessions.setThinking(
+            workerId,
+            { sessionId: input.sessionId, generation: input.generation },
+            input.level
+          )
           json(response, 200, { ok: true })
           return
         }

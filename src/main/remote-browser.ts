@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { BROWSER_STOPPED } from './browser-action-lease'
 import type { BrowserOperation, BrowserState } from '../shared/contracts'
 import type {
   RemoteBrowserFrame,
@@ -88,15 +89,24 @@ export class RemoteBrowser {
       case 'key':
         source.remoteInput(input)
         break
-      case 'navigate':
+      case 'navigate': {
         // Watching reveals the panel, which opens its first tab asynchronously; a phone that
-        // navigates before then gets a new tab instead of "no page".
-        await source.executeUser(
-          source.getState().pages.some((page) => page.active)
-            ? { action: 'navigate', url: input.url }
-            : { action: 'new_tab', url: input.url }
-        )
+        // navigates before then gets a new tab instead of "no page". That startup tab's own
+        // blank load can still land after this navigation began and stop it, so a stop is
+        // retried once: the phone asked for this page, nobody else did.
+        const open = (): Promise<unknown> =>
+          source.executeUser(
+            source.getState().pages.some((page) => page.active)
+              ? { action: 'navigate', url: input.url }
+              : { action: 'new_tab', url: input.url }
+          )
+        await open().catch(async (error: unknown) => {
+          if (!(error instanceof Error) || error.message !== BROWSER_STOPPED) throw error
+          await new Promise((resolve) => setTimeout(resolve, 150))
+          await open()
+        })
         break
+      }
       case 'back':
       case 'forward':
       case 'reload':

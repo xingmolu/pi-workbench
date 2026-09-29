@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { BrowserState } from '../shared/contracts'
 import type { TerminalEvent, TerminalMetadata } from '../shared/terminal'
 import { RemoteBrowser, type RemoteBrowserSource } from './remote-browser'
+import { BROWSER_STOPPED } from './browser-action-lease'
 import { RemoteTerminals, type RemoteTerminalSource } from './remote-terminals'
 import { createRemoteViewsBridge } from './remote-views-bridge'
 
@@ -104,6 +105,32 @@ it('opens a tab for a phone that navigates before the panel has one', async () =
     () => {}
   ).input({ type: 'navigate', url: 'localhost:5173' })
   expect(source.operations).toEqual([{ action: 'new_tab', url: 'localhost:5173' }])
+})
+
+it('retries a phone navigation once when the panel startup stopped it', async () => {
+  const source = browserSource()
+  let first = true
+  source.executeUser = async (operation: unknown) => {
+    source.operations.push(operation)
+    if (first) {
+      first = false
+      throw new Error(BROWSER_STOPPED)
+    }
+  }
+  await new RemoteBrowser(
+    () => source,
+    () => {}
+  ).input({ type: 'navigate', url: 'localhost:1' })
+  expect(source.operations).toHaveLength(2)
+  source.executeUser = async () => {
+    throw new Error('网址无效')
+  }
+  await expect(
+    new RemoteBrowser(
+      () => source,
+      () => {}
+    ).input({ type: 'navigate', url: 'x' })
+  ).rejects.toThrow('网址无效')
 })
 
 it('maps phone input to page input, navigation and a wake request', async () => {

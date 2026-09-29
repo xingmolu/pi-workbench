@@ -1,59 +1,167 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import { PERMISSION_LEVELS } from './permissions'
-import type { PermissionMode } from '../../../shared/contracts'
+import type { PermissionMode, ThinkingLevel } from '../../../shared/contracts'
+import {
+  THINKING_LABEL,
+  contextLabel,
+  recentModels,
+  rememberModel
+} from '../store/model-presentation'
 import type { MobileModelOption } from '../../../shared/mobile-gateway'
 import type { SkillSummary } from '../../../shared/skills'
 import { Sheet } from './Sheet'
 
+function ModelOptionRow({
+  option,
+  active,
+  onPick
+}: {
+  option: MobileModelOption
+  active: boolean
+  onPick: (option: MobileModelOption) => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`m-option m-model${active ? ' is-on' : ''}`}
+      aria-pressed={active}
+      disabled={Boolean(option.unavailableReason)}
+      onClick={() => onPick(option)}
+    >
+      <span className="m-option-text">
+        <strong>{option.name || option.id}</strong>
+        <small>
+          {option.unavailableReason ?? (option.name && option.name !== option.id ? option.id : '')}
+        </small>
+      </span>
+      {!option.unavailableReason ? (
+        <span className="m-model-meta">
+          {option.reasoning ? <span>推理</span> : null}
+          {option.image ? <span>图片</span> : null}
+          {option.contextWindow ? (
+            <span className="m-model-context">{contextLabel(option.contextWindow)}</span>
+          ) : null}
+        </span>
+      ) : null}
+      <span className="m-model-check">
+        {active ? <Check size={16} aria-hidden="true" /> : null}
+      </span>
+    </button>
+  )
+}
+
+/** Model and reasoning effort in one sheet: effort belongs to the chosen model. */
 export function ModelSheet({
   models,
+  providers,
   provider,
   model,
+  thinking,
   onPick,
+  onThinking,
   onClose
 }: {
   models: MobileModelOption[]
+  providers: Record<string, string> | undefined
   provider: string | null | undefined
   model: string | null | undefined
+  thinking: { level: ThinkingLevel; available: ThinkingLevel[] } | null | undefined
   onPick: (option: MobileModelOption) => void
+  onThinking: (level: ThinkingLevel) => void
   onClose: () => void
 }): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  const matches = (option: MobileModelOption): boolean =>
+    !needle ||
+    option.name.toLowerCase().includes(needle) ||
+    option.id.toLowerCase().includes(needle) ||
+    (providers?.[option.provider] ?? option.provider).toLowerCase().includes(needle)
   const groups = useMemo(() => {
     const byProvider = new Map<string, MobileModelOption[]>()
     for (const option of models)
       byProvider.set(option.provider, [...(byProvider.get(option.provider) ?? []), option])
     return [...byProvider]
   }, [models])
+  const recent = useMemo(
+    () =>
+      recentModels()
+        .map((key) => models.find((option) => `${option.provider}:${option.id}` === key))
+        .filter((option): option is MobileModelOption =>
+          Boolean(option && !option.unavailableReason)
+        )
+        .slice(0, 3),
+    [models]
+  )
+  const isActive = (option: MobileModelOption): boolean =>
+    option.provider === provider && option.id === model
+  const pick = (option: MobileModelOption): void => {
+    rememberModel(option.provider, option.id)
+    onPick(option)
+  }
+  const visible = groups
+    .map(([id, options]) => [id, options.filter(matches)] as const)
+    .filter(([, options]) => options.length)
   return (
     <Sheet title="选择模型" onClose={onClose}>
-      {groups.length === 0 ? (
-        <p className="m-empty">没有可用的模型，请在桌面端登录或配置。</p>
-      ) : null}
-      {groups.map(([name, options]) => (
-        <div className="m-sheet-group" key={name}>
-          <p className="m-sheet-label">{name}</p>
-          {options.map((option) => {
-            const active = option.provider === provider && option.id === model
-            return (
+      {thinking && thinking.available.length > 1 ? (
+        <div className="m-effort">
+          <span>思考强度</span>
+          <div role="radiogroup" aria-label="思考强度">
+            {thinking.available.map((level) => (
               <button
                 type="button"
-                key={`${option.provider}/${option.id}`}
-                className={`m-option${active ? ' is-on' : ''}`}
-                aria-pressed={active}
-                disabled={Boolean(option.unavailableReason)}
-                onClick={() => onPick(option)}
+                role="radio"
+                key={level}
+                aria-checked={thinking.level === level}
+                onClick={() => onThinking(level)}
               >
-                <span className="m-option-text">
-                  <strong>{option.name || option.id}</strong>
-                  <small>
-                    {option.unavailableReason ?? (option.image ? '支持图片' : option.id)}
-                  </small>
-                </span>
-                {active ? <Check size={16} aria-hidden="true" /> : null}
+                {THINKING_LABEL[level]}
               </button>
-            )
-          })}
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {models.length > 6 ? (
+        <input
+          className="m-sheet-search"
+          type="search"
+          placeholder="搜索模型或账号"
+          aria-label="搜索模型"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      ) : null}
+      {models.length === 0 ? (
+        <p className="m-empty">没有可用的模型，请在电脑上登录或配置账号。</p>
+      ) : visible.length === 0 ? (
+        <p className="m-empty">没有匹配的模型</p>
+      ) : null}
+      {!needle && recent.length > 1 ? (
+        <div className="m-sheet-group">
+          <p className="m-sheet-label">最近使用</p>
+          {recent.map((option) => (
+            <ModelOptionRow
+              key={`recent:${option.provider}/${option.id}`}
+              option={option}
+              active={isActive(option)}
+              onPick={pick}
+            />
+          ))}
+        </div>
+      ) : null}
+      {visible.map(([id, options]) => (
+        <div className="m-sheet-group" key={id}>
+          <p className="m-sheet-label">{providers?.[id] ?? id}</p>
+          {options.map((option) => (
+            <ModelOptionRow
+              key={`${option.provider}/${option.id}`}
+              option={option}
+              active={isActive(option)}
+              onPick={pick}
+            />
+          ))}
         </div>
       ))}
     </Sheet>

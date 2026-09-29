@@ -31,7 +31,7 @@ import {
   customEndpointSaveRequestSchema,
   customEndpointSaveResultSchema
 } from './custom-endpoints'
-import { AGENT_ENGINE } from './contracts'
+import { AGENT_ENGINE, THINKING_LEVELS } from './contracts'
 import { normalizeSessionName } from './session-name'
 import type {
   AgentSnapshot,
@@ -59,6 +59,7 @@ import {
 
 const nonNegativeInteger = z.number().int().nonnegative()
 const permissionModeSchema = z.enum(['open', 'auto', 'ask'])
+export const thinkingLevelSchema = z.enum(THINKING_LEVELS)
 const sessionStatusSchema = z.enum(['idle', 'running', 'awaiting-approval', 'error', 'stopped'])
 const toolIntentSchema = z.enum(['terminal', 'read', 'diff', 'search', 'web', 'desktop', 'generic'])
 const toolStatusSchema = z.enum([
@@ -496,6 +497,11 @@ const agentSnapshotMetaShape = {
   models: z.array(modelSummarySchema),
   activeProvider: z.string().nullable(),
   activeModel: z.string().nullable(),
+  thinking: z
+    .object({ level: thinkingLevelSchema, available: z.array(thinkingLevelSchema).max(8) })
+    .strict()
+    .nullable()
+    .optional(),
   modelAvailability: modelAvailabilitySchema,
   composeBlockReason: composeBlockReasonSchema,
   busy: z.boolean(),
@@ -647,6 +653,9 @@ const accountLoginRespondCommandSchema = z
 const accountAliasAddCommandSchema = z
   .object({ type: z.literal('account:alias:add'), slug: z.string().min(1) })
   .strict()
+const thinkingSetCommandSchema = z
+  .object({ type: z.literal('thinking:set'), level: thinkingLevelSchema })
+  .strict()
 const modelSetCommandSchema = z
   .object({
     type: z.literal('model:set'),
@@ -703,6 +712,7 @@ const commandSchemas = [
   accountLoginRespondCommandSchema,
   accountAliasAddCommandSchema,
   modelSetCommandSchema,
+  thinkingSetCommandSchema,
   browserE2ECommandSchema
 ] as const
 
@@ -755,6 +765,7 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   accountLoginRespondCommandSchema.extend(requestIdShape),
   accountAliasAddCommandSchema.extend(requestIdShape),
   modelSetCommandSchema.extend(requestIdShape),
+  thinkingSetCommandSchema.extend(requestIdShape),
   browserE2ECommandSchema.extend(requestIdShape)
 ])
 

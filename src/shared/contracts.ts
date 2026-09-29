@@ -153,6 +153,9 @@ export type ModelSummary = {
   unavailableReason?: string
 }
 
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
+
 export type PromptImage = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
   data: string
@@ -399,6 +402,8 @@ export type AgentSnapshot = {
   models: ModelSummary[]
   activeProvider: string | null
   activeModel: string | null
+  /** Reasoning effort of the active model; null when the model does not reason. */
+  thinking?: { level: ThinkingLevel; available: ThinkingLevel[] } | null
   modelAvailability: ModelAvailability
   composeBlockReason: ComposeBlockReason
   busy: boolean
@@ -474,6 +479,7 @@ export type HostCommand =
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'model:set'; providerId: string; modelId: string }
+  | { type: 'thinking:set'; level: ThinkingLevel }
   | { type: 'endpoint:list' }
   | { type: 'endpoint:save'; context: CustomEndpointContext; request: CustomEndpointSaveRequest }
   | { type: 'browser:e2e'; operation: BrowserOperation }

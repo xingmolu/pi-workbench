@@ -1897,3 +1897,88 @@ code {
 .m-rt-screen .xterm {
   width: max-content;
 }
+
+/* ---------- Model sheet ---------- */
+
+.m-model .m-option-text small {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.m-model .m-option-text small:empty {
+  display: none;
+}
+
+.m-model-meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.m-model-context {
+  min-width: 38px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--composer);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+.m-model-check {
+  display: grid;
+  width: 16px;
+  place-items: center;
+  color: var(--accent);
+}
+
+.m-effort {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 2px 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--composer);
+}
+
+.m-effort > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.m-effort > div {
+  display: flex;
+  gap: 4px;
+}
+
+.m-effort button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.m-effort button[aria-checked='true'] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.m-chip-effort {
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--composer);
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}

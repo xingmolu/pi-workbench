@@ -106,6 +106,15 @@ async function launchMobile(
       current = { ...current, revision: current.revision + 1, permissionMode: mode }
       publish({ workerId: current.workerId, snapshot: current, runFinished: false })
     },
+    setThinking: async (_workerId, _identity, level) => {
+      calls.push({ type: 'thinking', level })
+      current = {
+        ...current,
+        revision: current.revision + 1,
+        thinking: current.thinking ? { ...current.thinking, level } : null
+      }
+      publish({ workerId: current.workerId, snapshot: current, runFinished: false })
+    },
     skills: async () => [
       {
         id: '00000000-0000-4000-8000-000000000001',
@@ -436,10 +445,26 @@ test('mobile controls: permission, model, skills, images, undo and a new session
     model: 'text-only',
     permissionMode: 'ask',
     models: [
-      { provider: 'fixture', id: 'text-only', name: 'Text Only', image: false },
-      { provider: 'fixture', id: 'vision', name: 'Vision Pro', image: true },
+      {
+        provider: 'fixture',
+        id: 'text-only',
+        name: 'Text Only',
+        image: false,
+        reasoning: true,
+        contextWindow: 200000
+      },
+      {
+        provider: 'fixture',
+        id: 'vision',
+        name: 'Vision Pro',
+        image: true,
+        reasoning: true,
+        contextWindow: 1000000
+      },
       { provider: 'other', id: 'gone', name: 'Gone', image: false, unavailableReason: '未登录' }
     ],
+    providers: { fixture: 'Fixture Cloud', other: 'Other Lab' },
+    thinking: { level: 'medium', available: ['off', 'low', 'medium', 'high'] },
     checkpoints: [{ entryId: 'entry-1', state: 'available' }],
     nodes: [
       { id: 'u1', type: 'user', text: 'Rename it', canonicalEntryId: 'entry-1' },
@@ -479,11 +504,18 @@ test('mobile controls: permission, model, skills, images, undo and a new session
   // Model: unavailable models are listed but cannot be picked.
   await page.getByRole('button', { name: '模型：Text Only' }).click()
   const models = page.getByRole('dialog', { name: '选择模型' })
+  await expect(models.getByText('Fixture Cloud')).toBeVisible()
+  await models.getByRole('radio', { name: '高', exact: true }).click()
+  await expect(models.getByRole('radio', { name: '高', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true'
+  )
   await expect(models.getByRole('button', { name: /Gone/ })).toBeDisabled()
   await page.waitForTimeout(300)
   await page.screenshot({ path: resolve('artifacts/e2e/mobile-model-sheet.png') })
   await models.getByRole('button', { name: /Vision Pro/ }).click()
   await expect(page.getByRole('button', { name: '模型：Vision Pro' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '模型：Vision Pro' })).toContainText('高')
 
   // Skills insert a slash command into the draft.
   await page.getByRole('button', { name: '使用技能' }).click()
@@ -520,6 +552,7 @@ test('mobile controls: permission, model, skills, images, undo and a new session
     .poll(() => calls.filter((call) => call.type !== 'plan'))
     .toEqual([
       { type: 'permission', mode: 'auto' },
+      { type: 'thinking', level: 'high' },
       { type: 'model', providerId: 'fixture', modelId: 'vision' },
       { type: 'send', text: '/skill:code-review check the screenshot', images: ['image/png'] },
       { type: 'restore', entryId: 'entry-1', force: false },

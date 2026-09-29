@@ -103,6 +103,9 @@ function fakeSessions(log: string[]): MobileSessionBridge {
     setPermission: async (_workerId, mode) => {
       log.push(`permission:${mode}`)
     },
+    setThinking: async (_workerId, identity, level) => {
+      log.push(`thinking:${identity.sessionId}:${level}`)
+    },
     skills: async () => [
       {
         id: '00000000-0000-4000-8000-000000000001',
@@ -452,6 +455,12 @@ describe('mobile gateway http', () => {
     ).toBe(200)
     expect((await post('/api/sessions/worker-1/permission', { mode: 'auto' })).status).toBe(200)
     expect((await post('/api/sessions/worker-1/permission', { mode: 'root' })).status).toBe(400)
+    expect(
+      (await post('/api/sessions/worker-1/thinking', { ...identity, level: 'high' })).status
+    ).toBe(200)
+    expect(
+      (await post('/api/sessions/worker-1/thinking', { ...identity, level: 'ultra' })).status
+    ).toBe(400)
     const skills = await post('/api/sessions/worker-1/skills', identity)
     expect(skills.data.skills.map((skill: { name: string }) => skill.name)).toEqual(['review'])
     const plan = await post('/api/sessions/worker-1/checkpoint', { ...identity, entryId: 'e1' })
@@ -483,6 +492,7 @@ describe('mobile gateway http', () => {
       'open:/project:new:p/m',
       'model:sess-1:p/m2',
       'permission:auto',
+      'thinking:sess-1:high',
       'restore:false',
       'send:+1img'
     ])

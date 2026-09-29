@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import type { ApprovalRequest, ConversationNode, PermissionMode, SessionStatus } from './contracts'
+import type {
+  ApprovalRequest,
+  ConversationNode,
+  PermissionMode,
+  SessionStatus,
+  ThinkingLevel
+} from './contracts'
 import type { CheckpointTurnState } from './checkpoints'
 import type { LiveSessionSummary } from './session-runtime'
 import { stripIsoTimestamp } from './mobile-list'
@@ -194,6 +200,10 @@ export type MobileConversationSnapshot = {
   provider?: string | null
   models?: MobileModelOption[]
   permissionMode?: PermissionMode
+  /** Reasoning effort of the active model; null when it does not reason. */
+  thinking?: { level: ThinkingLevel; available: ThinkingLevel[] } | null
+  /** Display names of the model providers, by id. */
+  providers?: Record<string, string>
   checkpoints?: CheckpointTurnState[]
   error?: string
   nodes: ConversationNode[]
@@ -204,6 +214,8 @@ export type MobileModelOption = {
   id: string
   name: string
   image: boolean
+  reasoning?: boolean
+  contextWindow?: number
   unavailableReason?: string
 }
 

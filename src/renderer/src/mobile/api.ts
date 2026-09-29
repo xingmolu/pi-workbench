@@ -1,4 +1,4 @@
-import type { PermissionMode, PromptImage } from '../../../shared/contracts'
+import type { PermissionMode, PromptImage, ThinkingLevel } from '../../../shared/contracts'
 import type { CheckpointPlan, CheckpointRestoreOutcome } from '../../../shared/checkpoints'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
 import type { SkillSummary } from '../../../shared/skills'
@@ -127,6 +127,8 @@ export const mobileApi = {
     }),
   setModel: (snapshot: MobileConversationSnapshot, providerId: string, modelId: string) =>
     post(session(snapshot.workerId, 'model'), { ...identity(snapshot), providerId, modelId }),
+  setThinking: (snapshot: MobileConversationSnapshot, level: ThinkingLevel) =>
+    post(session(snapshot.workerId, 'thinking'), { ...identity(snapshot), level }),
   setPermission: (workerId: string, mode: PermissionMode) =>
     post(session(workerId, 'permission'), { mode }),
   skills: (snapshot: MobileConversationSnapshot) =>

@@ -17,6 +17,7 @@ function stubSessions(): MobileSessionBridge {
     respond: async () => undefined,
     setModel: async () => undefined,
     setPermission: async () => undefined,
+    setThinking: async () => undefined,
     skills: async () => [],
     checkpointPlan: async () => null,
     checkpointRestore: async () => null,

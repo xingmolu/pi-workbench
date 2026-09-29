@@ -200,8 +200,11 @@ export class BrowserManager {
       if (JSON.stringify(bounds) !== JSON.stringify(this.bounds)) this.layoutEpoch++
       this.bounds = { ...bounds }
     }
-    if (visible && this.projectPath && this.pages.size === 0)
-      await this.executeUser({ action: 'new_tab' })
+    // The first blank tab is a convenience: never let it cancel an action already opening a
+    // page (e.g. a phone navigating the moment it reveals the panel), and never let losing
+    // that race skip the layout below.
+    if (visible && this.projectPath && this.pages.size === 0 && !this.actions.current)
+      await this.executeUser({ action: 'new_tab' }).catch(() => undefined)
     this.layoutViews()
     this.publish()
   }

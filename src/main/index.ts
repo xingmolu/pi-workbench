@@ -885,6 +885,9 @@ function createMobileSessionBridge(): MobileSessionBridge {
     setPermission: async (workerId, mode) => {
       await request(workerId, { type: 'permission:set', mode })
     },
+    setThinking: async (workerId, identity, level) => {
+      await request(workerId, { type: 'thinking:set', level }, identity)
+    },
     skills: async (workerId, identity) => {
       const result = await request(workerId, { type: 'skills:list', ...identity }, identity)
       return result.kind === 'skills-list' ? result.catalog.skills.filter((skill) => skill.canInsert) : []
