@@ -1,3 +1,4 @@
+import { sessionTaskPresentation, sessionTaskResultPresentation } from './session-task-presentation'
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent'
 import type { ConversationNode, ToolStatus } from '../shared/contracts'
 import { assistantTerminalNode } from './assistant-outcome'
@@ -14,6 +15,7 @@ export type HistoryToolOverlay = {
   truncated?: boolean
   durationMs?: number
   change?: ToolNode['change']
+  subagent?: ToolNode['subagent']
 }
 export type SessionHistoryOptions = {
   /** Caller supplies stable, generation-scoped identities only for messages not yet appended. */
@@ -121,6 +123,8 @@ export function projectSessionHistory(
         Object.assign(tool, outputFields(textFromContent(message.content)), {
           status: message.isError ? 'error' : 'success'
         })
+        const subagent = sessionTaskResultPresentation(tool.subagent, message.details)
+        if (subagent) tool.subagent = subagent
         const applied = message.isError
           ? undefined
           : appliedToolChange(tool.name, message.details, tool.change?.path)
@@ -172,6 +176,8 @@ export function projectSessionHistory(
             ...toolPresentation(block.name, block.arguments),
             status: 'queued'
           }
+          const subagent = sessionTaskPresentation(block.name, block.arguments, block.id)
+          if (subagent) tool.subagent = subagent
           const change = proposedToolChange(block.name, block.arguments)
           if (change) tool.change = change
           nodes.push(tool)
@@ -223,6 +229,7 @@ export function projectSessionHistory(
         ? { originalOutputLength: overlay.originalOutputLength }
         : {}),
       ...(overlay.truncated !== undefined ? { truncated: overlay.truncated } : {}),
+      ...(overlay.subagent ? { subagent: overlay.subagent } : {}),
       ...(overlay.durationMs !== undefined ? { durationMs: overlay.durationMs } : {}),
       ...(overlay.change !== undefined && node.change?.source !== 'applied'
         ? { change: overlay.change }

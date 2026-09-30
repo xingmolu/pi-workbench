@@ -157,7 +157,7 @@ test('a plugin that runs code needs a grant, then serves commands through the ga
     lines.some((line) => line.method === 'storage.set' && line.outcome === 'PERMISSION_DENIED')
   ).toBe(true)
   expect(audit).not.toContain('"k"')
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toBeVisible()
 })
 
 test('views read project files and plugin writes wait for the user at the ask level', async () => {

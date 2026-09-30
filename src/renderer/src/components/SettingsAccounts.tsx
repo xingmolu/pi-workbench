@@ -10,6 +10,7 @@ import {
   Plus
 } from 'lucide-react'
 import type { AgentSnapshot, LoginMethod, LoginPrompt } from '../../../shared/contracts'
+import RuntimeApiKey from './RuntimeApiKey'
 import CustomEndpoints from './CustomEndpoints'
 import '../assets/accounts-settings.css'
 import { confirmDiscardSettingsDraft, useSettingsDraftController } from './SettingsDraftContext'
@@ -29,7 +30,7 @@ function LoginState({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Elemen
     return (
       <div className="login-state is-success">
         <Check size={15} />
-        <span>登录成功，Pi 凭证已刷新。</span>
+        <span>登录成功，凭证已刷新。</span>
       </div>
     )
   }
@@ -58,7 +59,7 @@ function LoginState({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Elemen
       <LoaderCircle className="spin" size={15} />
       <span>
         {login.phase === 'starting'
-          ? '正在启动 Pi /login…'
+          ? '正在启动登录…'
           : login.phase === 'browser'
             ? login.instructions || '已在系统浏览器打开登录页。'
             : login.message}
@@ -211,6 +212,20 @@ export default function SettingsAccounts({
   const mainAccount = agentSnapshot.accounts.find((account) => account.id === 'openai-codex')
   const aliasAccounts = agentSnapshot.accounts.filter((account) => account.alias)
 
+  if (agentSnapshot.runtime?.id === 'claude') {
+    const account = agentSnapshot.accounts.find(item => item.id === 'anthropic')
+    return <div className="acct">
+      <div className="sp-group-header"><h3>Claude Code</h3><p>通过官方 Agent SDK 运行，使用独立的应用配置和会话目录。</p></div>
+      <AccountHead name="Anthropic" id="Claude Code" connected={Boolean(account?.connected)}>
+        <button type="button" className="acct-button" onClick={() => onLogin('anthropic', 'browser')}><LogIn size={14} />{account?.connected ? '重新登录' : '浏览器登录'}</button>
+      </AccountHead>
+      <LoginState snapshot={agentSnapshot} />
+      {agentSnapshot.loginPrompt ? <AuthPromptCard prompt={agentSnapshot.loginPrompt} onRespond={onLoginPrompt} /> : null}
+      <div className="sp-group-header"><h3>API 连接</h3><p>也可以配置 API Key。模型列表由 SDK 自动提供。</p></div>
+      <RuntimeApiKey snapshot={agentSnapshot} />
+    </div>
+  }
+
   return (
     <div className="acct">
       <div className="acct-tabs" role="group" aria-label="模型供应商">
@@ -350,22 +365,10 @@ export default function SettingsAccounts({
 
       {provider === 'endpoints' ? <CustomEndpoints snapshot={agentSnapshot} /> : null}
 
-      {provider === 'claude' ? (
-        <div className="sp-group">
-          <div className="sp-group-header">
-            <h3>关于 Claude</h3>
-          </div>
-          <div className="sp-card acct-note">
-            <p>
-              Pi 的 <code>/login anthropic</code> 使用 Anthropic API 的 extra usage，按 token
-              计费；它不占 Claude Code 套餐限额。本应用不会默认导入 Claude Code token。
-            </p>
-            <p>
-              需要接入其他 Anthropic 兼容服务时，可在“自定义端点”里选择 Anthropic Messages 协议。
-            </p>
-          </div>
-        </div>
-      ) : null}
+      {provider === 'claude' ? <div className="sp-group">
+        <div className="sp-group-header"><h3>Anthropic API</h3><p>在 Pi 引擎中使用 Anthropic 模型。要使用 Claude Code 原生能力，请在“Agent 引擎”中切换。</p></div>
+        <RuntimeApiKey snapshot={agentSnapshot} />
+      </div> : null}
 
       <p className="acct-footnote">
         <KeyRound size={13} aria-hidden="true" />

@@ -35,6 +35,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'attachment:prompt':
     case 'attachment:query':
       return 'attachment'
+    case 'endpoint:discover':
+      return 'endpoint-discovery'
     case 'endpoint:list':
       return 'endpoint-list'
     case 'endpoint:save':
@@ -48,15 +50,19 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'session:new':
     case 'session:open':
       return 'snapshot'
+    case 'subagent:inspect':
+      return 'subagent-inspection'
     case 'prompt:send':
     case 'message:feedback':
     case 'session:rename':
     case 'prompt:abort':
+    case 'session-task:cancel':
     case 'queue:clear':
     case 'permission:set':
     case 'permission:respond':
     case 'permission:rules:set':
     case 'account:login':
+    case 'account:api-key:set':
     case 'account:login:respond':
     case 'account:alias:add':
     case 'model:set':

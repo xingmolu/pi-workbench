@@ -31,7 +31,7 @@ async function publish(): Promise<void> {
       data
     })
   }, state)
-  await expect(page.locator('.conversation-head-meta')).toContainText(state.activeModel!)
+  await expect(page.getByRole('button', { name: '选择模型', exact: true })).toContainText(state.models.find(model => model.id === state.activeModel)?.name ?? state.activeModel!)
   await page.evaluate(
     () =>
       new Promise<void>((resolve) =>
@@ -355,8 +355,8 @@ test('rejected models are disabled while another model can be chosen without ope
   state.nodes = [{ id: 'old-answer', type: 'assistant', markdown: '之前的对话仍在' }]
   await publish()
   await page.getByRole('button', { name: /此会话模型不可用/ }).click()
-  await expect(page.getByRole('menuitem', { name: /测试模型（无网络）/ })).toBeDisabled()
-  await expect(page.getByRole('menuitem', { name: /可用测试模型/ })).toBeEnabled()
+  await expect(page.getByRole('option', { name: /测试模型（无网络）/ })).toBeDisabled()
+  await expect(page.getByRole('option', { name: /可用测试模型/ })).toBeEnabled()
   await page.keyboard.press('Escape')
   await expect(page.getByText('之前的对话仍在')).toBeVisible()
 })
@@ -400,7 +400,9 @@ test('table layout, header metadata and interrupted usage stay readable in a nar
   ).toBeGreaterThanOrEqual(12)
   const meta = page.locator('.conversation-head-meta small')
   await expect(meta).toBeHidden()
-  await expect(page.locator('.conversation-status')).toBeInViewport()
+  // Idle state stays quiet in the header; interrupted usage remains visible below.
+  await expect(page.locator('.conversation-status.is-idle')).toBeHidden()
+  await expect(page.locator('.conversation-session-title')).toBeInViewport()
   expect(
     await page
       .locator('.conversation-head')
@@ -408,8 +410,9 @@ test('table layout, header metadata and interrupted usage stay readable in a nar
   ).toBe(48)
   await page.locator('.work-summary-trigger').click()
   await expect(page.getByRole('button', { name: '思考了一会儿', exact: true })).toBeVisible()
-  await expect(page.locator('.composer-stats')).toContainText('中断用量未知')
-  await expect(page.locator('.composer-stats')).not.toContainText('0 tok/s')
+  await page.locator('.context-control').click()
+  await expect(page.getByLabel('上下文与用量详情')).toContainText('中断用量未知')
+  await expect(page.getByLabel('上下文与用量详情')).not.toContainText('0 tok/s')
   await page.screenshot({ path: resolve('artifacts/e2e/fixed-reading-960.png') })
 })
 
@@ -436,31 +439,30 @@ test('narrow composer keeps account and model readable with the workbench and qu
   ]
   await publish()
   await openWorkbenchTool(page, '文件')
-  await page.getByRole('textbox', { name: '给 Pi 的任务' }).fill('继续检查边界情况')
+  await page.getByRole('textbox', { name: '任务输入' }).fill('继续检查边界情况')
   for (const width of [960, 1240, 1440]) {
     await app.evaluate(
       ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]!.setSize(width, 900),
       width
     )
-    const account = page.locator('.composer .account-chip')
     const model = page.getByRole('button', { name: '选择模型', exact: true })
-    await expect(account).toBeInViewport()
     await expect(model).toBeInViewport()
-    for (const label of [account.locator('span'), model.locator('span')]) {
+    await expect(model).toHaveAttribute('title', /工作 Codex.*GPT-5.6 Sol/)
+    for (const label of [model.locator('span').first()]) {
       // Assert actual label legibility, not a minimum wider than a short name.
       expect(await label.evaluate((el) => el.clientWidth >= el.scrollWidth)).toBe(true)
     }
     await model.focus()
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('menuitem').filter({ hasText: 'GPT-5.6 Sol' })).toBeVisible()
+    await expect(page.getByRole('group', { name: /工作 Codex/ })).toBeVisible()
+    await expect(page.getByRole('option').filter({ hasText: 'GPT-5.6 Sol' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(model).toBeFocused()
     await page.getByRole('button', { name: '添加文本文件', exact: true }).focus()
     for (const control of [
-      page.locator('.composer .permission-chip'),
-      account,
       model,
-      page.locator('.composer .context-meter'),
+      page.locator('.composer .permission-chip'),
+      page.locator('.composer .context-control'),
       page.locator('.composer .queue-button'),
       page.locator('.composer .send')
     ]) {
@@ -477,7 +479,7 @@ test('narrow composer keeps account and model readable with the workbench and qu
 })
 
 test('drafts stay with their session and survive model changes', async () => {
-  const input = page.getByRole('textbox', { name: '给 Pi 的任务' })
+  const input = page.getByRole('textbox', { name: '任务输入' })
   await input.fill('会话 A 的草稿')
   state.sessionId = 'review-b'
   state.generation++
@@ -501,7 +503,7 @@ test('rejected send preserves the draft and offers understandable feedback', asy
       throw new Error('模拟发送失败')
     })
   })
-  const input = page.getByRole('textbox', { name: '给 Pi 的任务' })
+  const input = page.getByRole('textbox', { name: '任务输入' })
   await input.fill('发送失败后保留')
   await page.getByRole('button', { name: '发送任务', exact: true }).click()
   await expect(page.locator('.client-error')).toContainText('模拟发送失败')
@@ -545,7 +547,7 @@ test('late send acceptance cannot clear a newer edit or another session draft', 
         })
     )
   })
-  const input = page.getByRole('textbox', { name: '给 Pi 的任务' })
+  const input = page.getByRole('textbox', { name: '任务输入' })
   await input.fill('旧版本')
   await page.getByRole('button', { name: '发送任务', exact: true }).click()
   await expect(input).toHaveValue('旧版本')
@@ -569,7 +571,7 @@ test('host exit revokes readiness and allows explicit recovery', async () => {
   state.desktopScope = opened.snapshot.desktopScope
   state.generation++
   await publish()
-  await page.getByRole('textbox', { name: '给 Pi 的任务' }).fill('重连后仍能取回的草稿')
+  await page.getByRole('textbox', { name: '任务输入' }).fill('重连后仍能取回的草稿')
   const pid = await app.evaluate(
     ({ app }, workerId) =>
       app.getAppMetrics().find((m) => m.name === `Pi Session Host ${workerId}`)?.pid,
@@ -578,13 +580,13 @@ test('host exit revokes readiness and allows explicit recovery', async () => {
   expect(pid).toBeDefined()
   await app.evaluate(({}, pid) => process.kill(pid!, 'SIGKILL'), pid)
   await expect(page.getByText('Pi 引擎已就绪', { exact: true })).not.toBeVisible()
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务' })).toBeDisabled()
+  await expect(page.getByRole('textbox', { name: '任务输入' })).toBeDisabled()
   await page.screenshot({ path: 'artifacts/e2e/fixed-host-disconnected.png' })
   await page.getByRole('button', { name: '重新连接引擎' }).click()
   await expect(page.getByText('Pi 引擎已就绪', { exact: true })).toBeVisible()
   expect(await page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   expect(await page.evaluate(async () => (await window.pi.getState()).project?.path)).toBe(root)
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务' })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入' })).toHaveValue(
     '重连后仍能取回的草稿'
   )
 })
@@ -597,7 +599,7 @@ test('accepted send clears only its submitted draft', async () => {
     },
     { sessionId: state.sessionId, generation: state.generation, revision: state.revision }
   )
-  const input = page.getByRole('textbox', { name: '给 Pi 的任务' })
+  const input = page.getByRole('textbox', { name: '任务输入' })
   await input.fill('已接收的草稿')
   await page.getByRole('button', { name: '发送任务', exact: true }).click()
   await expect(input).toHaveValue('')

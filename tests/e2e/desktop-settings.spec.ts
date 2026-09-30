@@ -195,7 +195,7 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
     window.pi={send:async()=>({kind:'skills-list',catalog:{sessionId:'a',generation:1,skills:[],total:0,truncated:false}})};
     usePiStore.setState({snapshot:initial});
     function settings(patch){const settings={...useDesktopSettings.getState().settings,...patch};useDesktopSettings.setState({settings,status:'ready',hasLoaded:true});document.documentElement.style.setProperty('--message-font-size',settings.messageFontSize+'px');document.documentElement.style.setProperty('--code-font-size',settings.codeFontSize+'px');document.documentElement.dataset.reducedMotion=String(settings.reducedMotion)}
-    window.harness={settings,stream(status='done'){usePiStore.setState({snapshot:{...initial,nodes:initial.nodes.map(n=>n.type==='tool'?{...n,status}:n.type==='assistant'?{...n,streaming:true,markdown:n.markdown+'\\nstream update'}:n)}})}};
+    window.harness={settings,stream(status='done',busy=true){usePiStore.setState({snapshot:{...initial,busy,nodes:initial.nodes.map(n=>n.type==='tool'?{...n,status}:n.type==='assistant'?{...n,streaming:busy,markdown:n.markdown+'\\nstream update'}:n)}})}};
     const noop=()=>{}; function Harness(){const snapshot=usePiStore(state=>state.snapshot);return <Conversation snapshot={snapshot} approvals={[]} loading={false} onSend={async()=>{window.sent++;return true}} onChooseProject={noop} onOpenSession={noop} onReconnect={noop} reconnecting={false} onAbort={noop} onClearQueue={noop} onPermissionChange={noop} onChooseModel={noop} onLogin={noop} onOpenSettings={noop} onApproval={noop}/>}
     createRoot(document.getElementById('root')).render(<Harness/>);
   `,
@@ -220,8 +220,11 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await harness.addStyleTag({
     content: await readFile(resolve('src/renderer/src/assets/theme.css'), 'utf8')
   })
+  await harness.addStyleTag({
+    content: await readFile(resolve('src/renderer/src/assets/conversation-activity.css'), 'utf8')
+  })
   await harness.addScriptTag({ content: bundle.outputFiles[0].text })
-  const pendingInput = harness.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const pendingInput = harness.getByRole('textbox', { name: '任务输入', exact: true })
   await pendingInput.fill('等待偏好')
   await pendingInput.press('Enter')
   await expect(pendingInput).toHaveValue('等待偏好\n')
@@ -260,15 +263,15 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await harness.locator('.work-summary-trigger').click()
   await harness.evaluate(() => (window as any).harness.stream())
   await harness.emulateMedia({ reducedMotion: 'no-preference' })
-  const cursorAnimationSeconds = () => harness.locator('.assistant-node.is-streaming')
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element, '::after').animationDuration))
-  await expect.poll(cursorAnimationSeconds).toBe(0.9)
+  const activityAnimationSeconds = () => harness.locator('.conversation-activity .activity-orbit')
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).animationDuration))
+  await expect.poll(activityAnimationSeconds).toBe(1)
   await harness.evaluate(() => (window as any).harness.settings({ reducedMotion: true }))
-  await expect.poll(cursorAnimationSeconds).toBeLessThan(0.001)
+  await expect.poll(activityAnimationSeconds).toBeLessThan(0.001)
   await harness.evaluate(() => (window as any).harness.settings({ reducedMotion: false }))
-  await expect.poll(cursorAnimationSeconds).toBe(0.9)
+  await expect.poll(activityAnimationSeconds).toBe(1)
   await harness.emulateMedia({ reducedMotion: 'reduce' })
-  await expect.poll(cursorAnimationSeconds).toBeLessThan(0.001)
+  await expect.poll(activityAnimationSeconds).toBeLessThan(0.001)
   await harness.emulateMedia({ reducedMotion: 'no-preference' })
   await expect(harness.locator('.work-summary-content')).toBeHidden()
   await expect
@@ -280,7 +283,8 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
     if (status === 'awaiting-approval') await expect(harness.locator('.work-summary-content')).toBeVisible()
     else await expect(harness.locator('.work-summary-content')).toBeHidden()
   }
-  const input = harness.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  await harness.evaluate(() => (window as any).harness.stream('done', false))
+  const input = harness.getByRole('textbox', { name: '任务输入', exact: true })
   await input.fill('first')
   await input.press('Enter')
   await expect.poll(() => harness.evaluate(() => (window as any).sent)).toBe(1)

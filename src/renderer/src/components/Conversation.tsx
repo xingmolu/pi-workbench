@@ -1,3 +1,7 @@
+import SubagentTool from './SubagentTool'
+import type { SubagentSummary } from '../../../shared/subagent'
+import { conversationSubagents } from '../store/subagent-presentation'
+import { ConversationActivity } from './ConversationActivity'
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import * as Popover from '@radix-ui/react-popover'
@@ -10,7 +14,10 @@ import { insertSkillDraft, skillDraftIdentity, useSkillInsertion } from '../stor
 import WorkSummary from './WorkSummary'
 import ApprovalCard, { type ApprovalHandler } from './ApprovalCard'
 import { useOffscreenApproval } from '../store/use-approval-visibility'
-import { groupConversationWork, type ConversationWorkGroup } from '../store/conversation-work-groups'
+import {
+  groupConversationWork,
+  type ConversationWorkGroup
+} from '../store/conversation-work-groups'
 import { summarizeTurnChanges, type TurnFileChange } from '../store/turn-changes'
 import { ChangePath, DiffStat, ToolChangeView } from './ToolChangeView'
 import TurnChanges, { type TurnCheckpoint } from './TurnChanges'
@@ -81,6 +88,7 @@ import {
 
 type ConversationProps = {
   snapshot: AgentSnapshot
+  onInspectSubagent?: (child: SubagentSummary) => void
   approvals: ApprovalRequest[]
   loading: boolean
   error?: string | null
@@ -119,7 +127,11 @@ function projectRelative(title: string, projectPath?: string): string {
 }
 
 const STARTERS = [
-  { icon: Compass, label: '梳理项目结构', prompt: '梳理这个项目的结构、关键模块和它们之间的关系。' },
+  {
+    icon: Compass,
+    label: '梳理项目结构',
+    prompt: '梳理这个项目的结构、关键模块和它们之间的关系。'
+  },
   { icon: Bug, label: '排查一个问题', prompt: '帮我排查这个问题：' },
   { icon: FlaskConical, label: '补充测试', prompt: '为最近修改的代码补充测试，并运行确认通过。' }
 ] as const
@@ -174,30 +186,34 @@ const ToolNode = memo(function ToolNode({
   return (
     <Collapsible.Root
       className={`tool-node is-${node.status}`}
-      open={Boolean(activeApproval) || (open ?? (node.status === 'error' || node.status === 'blocked'))}
+      open={
+        Boolean(activeApproval) || (open ?? (node.status === 'error' || node.status === 'blocked'))
+      }
       onOpenChange={setOpen}
     >
-      {!activeApproval && <Collapsible.Trigger className="tool-trigger">
-        <Icon size={15} />
-        {change ? (
-          <span className="tool-title is-change">
-            <span className="tool-verb">{node.name === 'write' ? '写入' : '编辑'}</span>
-            <ChangePath path={change.path} projectPath={projectPath} />
-            <DiffStat additions={change.additions} deletions={change.deletions} />
+      {!activeApproval && (
+        <Collapsible.Trigger className="tool-trigger">
+          <Icon size={15} />
+          {change ? (
+            <span className="tool-title is-change">
+              <span className="tool-verb">{node.name === 'write' ? '写入' : '编辑'}</span>
+              <ChangePath path={change.path} projectPath={projectPath} />
+              <DiffStat additions={change.additions} deletions={change.deletions} />
+            </span>
+          ) : (
+            <span className="tool-title">{projectRelative(node.title, projectPath)}</span>
+          )}
+          <span className={node.status === 'success' ? 'sr-only' : 'tool-status'}>
+            {STATUS_LABEL[node.status]}
           </span>
-        ) : (
-          <span className="tool-title">{projectRelative(node.title, projectPath)}</span>
-        )}
-        <span className={node.status === 'success' ? 'sr-only' : 'tool-status'}>
-          {STATUS_LABEL[node.status]}
-        </span>
-        {meta.map((item) => (
-          <span className="tool-meta" key={item}>
-            {item}
-          </span>
-        ))}
-        <ChevronRight className="tool-chevron" size={14} />
-      </Collapsible.Trigger>}
+          {meta.map((item) => (
+            <span className="tool-meta" key={item}>
+              {item}
+            </span>
+          ))}
+          <ChevronRight className="tool-chevron" size={14} />
+        </Collapsible.Trigger>
+      )}
       <Collapsible.Content className="tool-detail" ref={detail}>
         {activeApproval ? (
           <ApprovalCard
@@ -243,7 +259,11 @@ const ToolNode = memo(function ToolNode({
 })
 
 const AssistantNode = memo(function AssistantNode({
-  node, snapshot, showActions, latest = false, receipt
+  node,
+  snapshot,
+  showActions,
+  latest = false,
+  receipt
 }: {
   node: Extract<ConversationNode, { type: 'assistant' }>
   snapshot: AgentSnapshot
@@ -261,7 +281,7 @@ const AssistantNode = memo(function AssistantNode({
         {node.markdown}
       </Markdown>
       {receipt}
-      {showActions ? <MessageActions node={node} snapshot={snapshot}/> : null}
+      {showActions ? <MessageActions node={node} snapshot={snapshot} /> : null}
     </article>
   )
 })
@@ -270,13 +290,35 @@ function NodeFlow({
   nodes,
   snapshot,
   approvals,
-  onApproval
+  onApproval,
+  onInspectSubagent
 }: {
   nodes: ConversationNode[]
   snapshot: AgentSnapshot
   approvals: ApprovalRequest[]
   onApproval: ApprovalHandler
+  onInspectSubagent?: (child: SubagentSummary) => void
 }): React.JSX.Element {
+  const liveSessions = usePiStore((state) => state.liveSessions)
+  const scopedLiveSessions = useMemo(
+    () =>
+      liveSessions.filter((session) => {
+        const relation = session.sessionTask
+        return (
+          !relation ||
+          (relation.parentWorkerId === snapshot.desktopScope?.workerId &&
+            (relation.parentSessionId === undefined ||
+              relation.parentSessionId === snapshot.sessionId) &&
+            (relation.parentGeneration === undefined ||
+              relation.parentGeneration === snapshot.generation))
+        )
+      }),
+    [liveSessions, snapshot.desktopScope?.workerId, snapshot.sessionId, snapshot.generation]
+  )
+  const childrenById = useMemo(
+    () => conversationSubagents(nodes, scopedLiveSessions),
+    [nodes, scopedLiveSessions]
+  )
   const edit = useSessionEdit()
   const lastReplyBlocks = useMemo(() => {
     const blocks = new Map<string, ConversationNode>()
@@ -292,7 +334,10 @@ function NodeFlow({
     edit.scope &&
     nodes.some((node) => node.type === 'user' && node.canonicalEntryId === edit.scope!.entryId)
   const groups = useMemo(() => groupConversationWork(nodes), [nodes])
-  const turnChanges = useMemo(() => changesByTurnEnd(groups, snapshot.busy), [groups, snapshot.busy])
+  const turnChanges = useMemo(
+    () => changesByTurnEnd(groups, snapshot.busy),
+    [groups, snapshot.busy]
+  )
   const projectPath = snapshot.project?.path
   return (
     <div className="node-flow">
@@ -336,14 +381,28 @@ function NodeFlow({
     index: number,
     receipt?: React.ReactNode
   ): React.ReactNode {
-    if (group.kind === 'work') return (
-      <WorkSummary key={group.key} nodes={group.nodes} running={snapshot.busy && index === groups.length - 1}>
-        {group.nodes.map((node) => node.type === 'think' ?
-          <ThinkNode key={node.presentationIdentity ?? node.id} node={node} /> :
-          <ToolNode key={node.presentationIdentity ?? node.id} node={node}
-            activeApproval={currentToolApproval(node, approvals)} projectPath={projectPath} onApproval={onApproval} />)}
-      </WorkSummary>
-    )
+    if (group.kind === 'work')
+      return (
+        <WorkSummary
+          key={group.key}
+          nodes={group.nodes}
+          running={snapshot.busy && index === groups.length - 1}
+        >
+          {group.nodes.map((node) =>
+            node.type === 'think' ? (
+              <ThinkNode key={node.presentationIdentity ?? node.id} node={node} />
+            ) : (
+              <ToolNode
+                key={node.presentationIdentity ?? node.id}
+                node={node}
+                activeApproval={currentToolApproval(node, approvals)}
+                projectPath={projectPath}
+                onApproval={onApproval}
+              />
+            )
+          )}
+        </WorkSummary>
+      )
     const node = group.node
     const key = node.presentationIdentity ?? node.id
     // Pi keeps each retry failure in canonical history. Collapse only adjacent identical
@@ -361,27 +420,42 @@ function NodeFlow({
               <span className="user-image-note">{node.imageCount} 张图片</span>
             ) : null}
           </div>
-          <MessageActions node={node} snapshot={snapshot}/>
+          <MessageActions node={node} snapshot={snapshot} />
           {edit.scope?.entryId === node.canonicalEntryId ? <UserMessageEdit /> : null}
         </div>
       )
     }
     if (node.type === 'assistant') {
-      return <AssistantNode key={key} node={node} snapshot={snapshot} receipt={receipt}
-        latest={node === latestReply}
-        showActions={!node.streaming && !!node.canonicalEntryId &&
-          lastReplyBlocks.get(node.canonicalEntryId) === node}/>
+      return (
+        <AssistantNode
+          key={key}
+          node={node}
+          snapshot={snapshot}
+          receipt={receipt}
+          latest={node === latestReply}
+          showActions={
+            !node.streaming &&
+            !!node.canonicalEntryId &&
+            lastReplyBlocks.get(node.canonicalEntryId) === node
+          }
+        />
+      )
     }
     if (node.type === 'think') return <ThinkNode key={key} node={node} />
     if (node.type === 'model') {
       // Keep initial metadata in canonical history; it is not a conversation divider.
       // A choice made before the first message is setup, not a switch.
-      if (node.initial || !groups.slice(0, index).some((item) => item.kind === 'node' && item.node.type === 'user'))
+      if (
+        node.initial ||
+        !groups.slice(0, index).some((item) => item.kind === 'node' && item.node.type === 'user')
+      )
         return null
       return (
         <div className="history-note is-model-switch" key={key} role="note">
           <ArrowRightLeft size={13} aria-hidden="true" />
-          <span>模型切换 · {node.provider} / {node.modelId}</span>
+          <span>
+            模型切换 · {node.provider} / {node.modelId}
+          </span>
         </div>
       )
     }
@@ -394,6 +468,15 @@ function NodeFlow({
       )
     }
     if (node.type === 'tool') {
+      if (node.subagent)
+        return (
+          <SubagentTool
+            key={key}
+            node={node}
+            childrenById={childrenById}
+            onInspect={onInspectSubagent}
+          />
+        )
       const activeApproval = currentToolApproval(node, approvals)
       return (
         <ToolNode
@@ -474,7 +557,11 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
           type="button"
           title="查看上下文与用量"
           aria-label={display.ariaLabel}
-        ><span className={`context-meter${display.percent === null ? ' is-unknown' : ''}`} aria-hidden="true" />
+        >
+          <span
+            className={`context-meter${display.percent === null ? ' is-unknown' : ''}`}
+            aria-hidden="true"
+          />
           <span>{display.percent === null ? '—' : `${Math.round(display.percent)}%`}</span>
         </button>
       </Popover.Trigger>
@@ -520,6 +607,7 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
                 <dd>{formatTokens(metrics.cacheWrite)} token</dd>
               </div>
             </dl>
+            {metrics.usageIncomplete ? <small>中断用量未知 · 累计仅含已报告用量</small> : null}
           </div>
 
           <div className="metric-group">
@@ -625,14 +713,14 @@ function Composer({
 >): React.JSX.Element {
   const draftKey = JSON.stringify([snapshot.project?.path, snapshot.sessionId])
   const runElapsed = useRunElapsed(snapshot.sessionId, snapshot.busy)
-  const desktopSettings = useDesktopSettings(state => state.settings)
-  const preferencesLoaded = useDesktopSettings(state => state.hasLoaded)
+  const desktopSettings = useDesktopSettings((state) => state.settings)
+  const preferencesLoaded = useDesktopSettings((state) => state.hasLoaded)
   const forkPending = usePiStore((state) => state.forkPending)
   const editOpen = useSessionEdit((state) => state.phase !== 'closed')
   const attachments = useTextAttachments()
   const capturedAttachmentDraft = useRef<{ key: string; version: number | undefined } | null>(null)
   const [drafts, setDrafts] = useState<Record<string, { text: string; version: number }>>({})
-  const skillInsertion = useSkillInsertion(state => state.pending)
+  const skillInsertion = useSkillInsertion((state) => state.pending)
   const previousSession = useRef(snapshot)
   useEffect(() => {
     const previous = previousSession.current
@@ -677,22 +765,33 @@ function Composer({
     snapshot.composeBlockReason === null &&
     !forkPending
   )
-  const skillInsertionBlocked = !canCompose || editOpen || submitting || Boolean(attachments.files.length || attachments.staging || attachments.sending || attachments.submission)
-  const skillAttachmentConflict = /^\/skill:/.test(draft.trimStart()) && attachments.files.length > 0
+  const skillInsertionBlocked =
+    !canCompose ||
+    editOpen ||
+    submitting ||
+    Boolean(
+      attachments.files.length ||
+      attachments.staging ||
+      attachments.sending ||
+      attachments.submission
+    )
+  const skillAttachmentConflict =
+    /^\/skill:/.test(draft.trimStart()) && attachments.files.length > 0
 
   useEffect(() => {
     if (!skillInsertion) return
     const request = useSkillInsertion.getState().consume()
     if (!request || skillInsertionBlocked) return
     const identity = skillDraftIdentity(snapshot)
-    setDrafts(current => {
+    setDrafts((current) => {
       const entry = current[draftKey]
       const text = insertSkillDraft(entry?.text ?? '', request, identity)
-      return text === null ? current : { ...current, [draftKey]: { text, version: (entry?.version ?? 0) + 1 } }
+      return text === null
+        ? current
+        : { ...current, [draftKey]: { text, version: (entry?.version ?? 0) + 1 } }
     })
     textarea.current?.focus()
   }, [skillInsertion, skillInsertionBlocked, snapshot, draftKey])
-
 
   const prefill = useComposerPrefill((state) => state.pending)
   useEffect(() => {
@@ -700,7 +799,8 @@ function Composer({
     const mode = useComposerPrefill.getState().mode
     const request = useComposerPrefill.getState().consume()
     if (!request || !canCompose || editOpen || submitting) return
-    const text = mode === 'append' && draft.trim() ? `${draft.replace(/\s+$/u, '')}\n\n${request}` : request
+    const text =
+      mode === 'append' && draft.trim() ? `${draft.replace(/\s+$/u, '')}\n\n${request}` : request
     setDraft(text)
     requestAnimationFrame(() => {
       const input = textarea.current
@@ -721,7 +821,11 @@ function Composer({
 
   const submit = (): void => {
     if (useSessionEdit.getState().phase !== 'closed') return
-    if (skillAttachmentConflict) return
+    if (
+      skillAttachmentConflict ||
+      (snapshot.busy && snapshot.runtime && !snapshot.runtime.features.includes('queue'))
+    )
+      return
     if (!snapshot.ready || pendingKeys.current.has(draftKey) || usePiStore.getState().forkPending)
       return
     if (attachments.files.length) {
@@ -777,15 +881,16 @@ function Composer({
       : snapshot.composeBlockReason === 'endpoint-selection-invalidated'
         ? '模型选择已失效 · 重新选择模型'
         : snapshot.composeBlockReason === 'project-required'
-            ? '先选择一个工作区'
-            : snapshot.composeBlockReason === 'login-required'
-              ? '登录 Codex'
-              : snapshot.composeBlockReason === 'pinned-model-unavailable'
-                ? '此会话模型不可用 · 选择其他模型继续'
-                : snapshot.composeBlockReason === 'model-unavailable'
-                  ? '所选模型不可用 · 选择其他模型继续'
-                  : '选择模型后才能发送'
-  const lockAction = snapshot.composeBlockReason === 'login-required'
+          ? '先选择一个工作区'
+          : snapshot.composeBlockReason === 'login-required'
+            ? '登录 Codex'
+            : snapshot.composeBlockReason === 'pinned-model-unavailable'
+              ? '此会话模型不可用 · 选择其他模型继续'
+              : snapshot.composeBlockReason === 'model-unavailable'
+                ? '所选模型不可用 · 选择其他模型继续'
+                : '选择模型后才能发送'
+  const lockAction =
+    snapshot.composeBlockReason === 'login-required'
       ? onLogin
       : snapshot.composeBlockReason === 'model-unavailable' ||
           snapshot.composeBlockReason === 'endpoint-selection-invalidated' ||
@@ -799,11 +904,24 @@ function Composer({
   return (
     <div className="composer-wrap">
       <div className={`composer${canCompose ? '' : ' is-locked'}`}>
-        <SkillPicker ref={skillPicker} snapshot={snapshot} draft={draft} disabled={skillInsertionBlocked}
-          onMenuStateChange={setSkillMenuState}
-          onInsert={request => useSkillInsertion.getState().request(request)} />
-        {skillAttachmentConflict && <p role="alert" className="inline-hint">技能命令暂不能与文本附件一起发送，请先移除附件。</p>}
-        {!skillAttachmentConflict && /^\/skill:/.test(draft.trimStart()) && <p className="inline-hint">技能命令暂不能搭配文本附件；移除技能命令后可添加附件。</p>}
+        {(!snapshot.runtime || snapshot.runtime.features.includes('skills')) && (
+          <SkillPicker
+            ref={skillPicker}
+            snapshot={snapshot}
+            draft={draft}
+            disabled={skillInsertionBlocked}
+            onMenuStateChange={setSkillMenuState}
+            onInsert={(request) => useSkillInsertion.getState().request(request)}
+          />
+        )}
+        {skillAttachmentConflict && (
+          <p role="alert" className="inline-hint">
+            技能命令暂不能与文本附件一起发送，请先移除附件。
+          </p>
+        )}
+        {!skillAttachmentConflict && /^\/skill:/.test(draft.trimStart()) && (
+          <p className="inline-hint">技能命令暂不能搭配文本附件；移除技能命令后可添加附件。</p>
+        )}
         {!snapshot.ready ? (
           <div className="composer-lock is-static">
             <LockKeyhole size={14} />
@@ -873,41 +991,71 @@ function Composer({
             if (skillPicker.current?.handleKeyDown(event)) return
             if (!preferencesLoaded) return
             if (event.keyCode === 229) return
-            if (shouldSendOnKey({ key: event.key, shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, keyCode: event.keyCode, isComposing: event.nativeEvent.isComposing }, desktopSettings.sendShortcut)) {
+            if (
+              shouldSendOnKey(
+                {
+                  key: event.key,
+                  shiftKey: event.shiftKey,
+                  metaKey: event.metaKey,
+                  ctrlKey: event.ctrlKey,
+                  keyCode: event.keyCode,
+                  isComposing: event.nativeEvent.isComposing
+                },
+                desktopSettings.sendShortcut
+              )
+            ) {
               event.preventDefault()
               submit()
             }
           }}
-          placeholder={!preferencesLoaded ? '发送偏好尚未读取，请使用发送按钮…' : snapshot.busy ? '补充指令，加入当前任务之后…' : '给 Pi 一个任务，或输入 / 选择技能…'}
+          placeholder={
+            !preferencesLoaded
+              ? '发送偏好尚未读取，请使用发送按钮…'
+              : snapshot.busy
+                ? snapshot.runtime?.features.includes('queue')
+                  ? '补充指令，加入当前任务之后…'
+                  : '任务运行中，可先写下下一条指令…'
+                : snapshot.runtime?.id === 'claude'
+                  ? '描述你想完成的任务…'
+                  : '给 Pi 一个任务，或输入 / 选择技能…'
+          }
           title={`${desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'} 发送，Shift + Enter 换行`}
-          aria-label="给 Pi 的任务"
+          aria-label="任务输入"
           aria-controls={skillMenuState.listId}
           aria-activedescendant={skillMenuState.activeId}
           aria-autocomplete="list"
           disabled={!canCompose}
         />
         <div className="composer-tools">
-          <button
-            className="tool-chip icon-only"
-            type="button"
-            title="添加 UTF-8 文本文件（最多 4 个，单个 1 MiB，合计 2 MiB）"
-            aria-label="添加文本文件"
-            disabled={
-              /^\/skill:/.test(draft.trimStart()) ||
-              editOpen ||
-              !snapshot.ready ||
-              !snapshot.project ||
-              attachments.staging ||
-              attachments.sending ||
-              Boolean(attachments.submission)
-            }
-            onClick={() => void stageTextFile()}
-          >
-            <Plus size={16} />
-          </button>
+          {(!snapshot.runtime || snapshot.runtime.features.includes('attachments')) && (
+            <button
+              className="tool-chip icon-only"
+              type="button"
+              title="添加 UTF-8 文本文件（最多 4 个，单个 1 MiB，合计 2 MiB）"
+              aria-label="添加文本文件"
+              disabled={
+                /^\/skill:/.test(draft.trimStart()) ||
+                editOpen ||
+                !snapshot.ready ||
+                !snapshot.project ||
+                attachments.staging ||
+                attachments.sending ||
+                Boolean(attachments.submission)
+              }
+              onClick={() => void stageTextFile()}
+            >
+              <Plus size={16} />
+            </button>
+          )}
 
-          <ModelPicker snapshot={snapshot} open={modelMenuOpen} onOpenChange={setModelMenuOpen}
-            onSelect={onChooseModel} onLogin={onLogin} onSettings={onOpenSettings} />
+          <ModelPicker
+            snapshot={snapshot}
+            open={modelMenuOpen}
+            onOpenChange={setModelMenuOpen}
+            onSelect={onChooseModel}
+            onLogin={onLogin}
+            onSettings={onOpenSettings}
+          />
           <PermissionControl snapshot={snapshot} onPermissionChange={onPermissionChange} />
 
           <span className="composer-spacer" />
@@ -918,13 +1066,45 @@ function Composer({
               {formatElapsed(runElapsed)}
             </span>
           ) : null}
-          {snapshot.busy && <button className="composer-stop" type="button" title="停止当前运行" aria-label="停止当前运行"
-            disabled={!snapshot.ready} onClick={onAbort}><Square size={12} fill="currentColor" /><span>停止</span></button>}
-          <button className="send" type="button" title={snapshot.busy ? '加入发送队列' : '发送任务'}
-            aria-label={snapshot.busy ? '加入发送队列' : '发送任务'} onClick={submit}
-            disabled={submitting || skillAttachmentConflict || editOpen || attachments.staging || attachments.sending ||
-              Boolean(attachments.submission) || !canCompose || (!draft.trim() && !attachments.files.length) ||
-              (snapshot.busy && attachments.files.length > 0)}>
+          {snapshot.busy && (
+            <button
+              className="composer-stop"
+              type="button"
+              title="停止当前运行"
+              aria-label="停止当前运行"
+              disabled={!snapshot.ready}
+              onClick={onAbort}
+            >
+              <Square size={12} fill="currentColor" />
+              <span>停止</span>
+            </button>
+          )}
+          <button
+            className="send"
+            type="button"
+            title={
+              snapshot.busy
+                ? snapshot.runtime?.features.includes('queue')
+                  ? '加入发送队列'
+                  : '等待当前任务结束后发送'
+                : '发送任务'
+            }
+            aria-label={snapshot.busy ? '加入发送队列' : '发送任务'}
+            onClick={submit}
+            disabled={
+              submitting ||
+              skillAttachmentConflict ||
+              editOpen ||
+              attachments.staging ||
+              attachments.sending ||
+              Boolean(attachments.submission) ||
+              !canCompose ||
+              (!draft.trim() && !attachments.files.length) ||
+              (snapshot.busy &&
+                (attachments.files.length > 0 ||
+                  Boolean(snapshot.runtime && !snapshot.runtime.features.includes('queue'))))
+            }
+          >
             {snapshot.busy ? <ListPlus size={17} /> : <ArrowUp size={18} />}
           </button>
         </div>
@@ -936,6 +1116,20 @@ function Composer({
 
 export default function Conversation(props: ConversationProps): React.JSX.Element {
   const { snapshot, approvals, loading, error, onApproval, onChooseProject } = props
+  const liveSessions = usePiStore((state) => state.liveSessions)
+  const childRelation = liveSessions.find(
+    (session) => session.workerId === snapshot.desktopScope?.workerId
+  )?.sessionTask
+  const parentSession =
+    childRelation &&
+    liveSessions.find(
+      (session) =>
+        session.workerId === childRelation.parentWorkerId &&
+        (childRelation.parentSessionId === undefined ||
+          session.sessionId === childRelation.parentSessionId) &&
+        (childRelation.parentGeneration === undefined ||
+          session.generation === childRelation.parentGeneration)
+    )
   const recentProject = props.recentProject
   // A model choice made before the first message is setup, not conversation content.
   const hasNodes = snapshot.nodes.some((node) => node.type !== 'model')
@@ -999,8 +1193,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
     const scroller = scrollContainer.current
     if (!snapshot.busy || !content || !scroller) return undefined
     const observer = new ResizeObserver(() => {
-      if (following.current && !navigationScroll.current)
-        scroller.scrollTop = scroller.scrollHeight
+      if (following.current && !navigationScroll.current) scroller.scrollTop = scroller.scrollHeight
     })
     observer.observe(content)
     return () => observer.disconnect()
@@ -1037,13 +1230,19 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                   )
                 }
               >
-                <ArrowLeft size={13} /><span>来源会话</span>
+                <ArrowLeft size={13} />
+                <span>来源会话</span>
               </button>
             ) : snapshot.sessions.find((session) => session.active)?.parentUnavailable ? (
               <span className="session-parent-unavailable">来源会话当前不可用</span>
             ) : null}
             <SessionFork
-              key={JSON.stringify(['fork', snapshot.sessionId, snapshot.generation])}
+              key={JSON.stringify([
+                'fork',
+                snapshot.sessionId,
+                snapshot.generation,
+                snapshot.desktopScope ?? null
+              ])}
               snapshot={snapshot}
             />
             <SessionActions
@@ -1102,6 +1301,16 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
         }}
       >
         <div className="content-axis" ref={contentAxis}>
+          {parentSession?.sessionPath ? (
+            <button
+              className="subagent-parent-link"
+              type="button"
+              onClick={() => props.onOpenSession(parentSession.sessionPath!)}
+            >
+              <ArrowLeft size={14} aria-hidden="true" />
+              返回父会话 · {parentSession.title || '主 Agent'}
+            </button>
+          ) : null}
           {!hasNodes ? (
             <div className="hero-copy">
               <h1>
@@ -1113,14 +1322,14 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               </h1>
               <p>
                 {loading
-                  ? '正在连接本机 Pi 引擎…'
+                  ? '正在连接 Agent 引擎…'
                   : snapshot.project
-                    ? '描述你的目标，Pi 会协助你探索、实现与验证。'
+                    ? '描述你的目标，一起探索、实现与验证。'
                     : recentProject
                       ? recentProject.sessionTitle
                         ? `${recentProject.name} · ${recentProject.sessionTitle}`
                         : `返回 ${recentProject.name}，开始新的会话。`
-                      : '选择一个文件夹作为 Pi 的工作目录。'}
+                      : '选择一个项目文件夹，开始工作。'}
               </p>
               {!snapshot.project ? (
                 <div className="hero-project-actions">
@@ -1160,6 +1369,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               snapshot={snapshot}
               approvals={approvals}
               onApproval={onApproval}
+              onInspectSubagent={props.onInspectSubagent}
             />
           )}
           {!snapshot.nodes.length ? <UserMessageEdit /> : null}
@@ -1169,6 +1379,11 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               {visibleError}
             </div>
           ) : null}
+          <ConversationActivity
+            nodes={snapshot.nodes}
+            busy={snapshot.busy}
+            approvals={approvals.length}
+          />
           <div ref={scrollEnd} />
         </div>
       </div>
@@ -1178,6 +1393,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           <button
             type="button"
             className="approval-jump"
+            aria-label={`查看待确认操作，共 ${approvals.length} 项`}
             onClick={() => {
               const card = Array.from(
                 scrollContainer.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []
@@ -1187,14 +1403,16 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               const target = card?.querySelector('[data-approval-actions]') ?? card
               target?.scrollIntoView({ block: 'center', behavior: 'auto' })
               card?.focus({ preventScroll: true })
-              if (navigationFrame.current !== null) window.cancelAnimationFrame(navigationFrame.current)
+              if (navigationFrame.current !== null)
+                window.cancelAnimationFrame(navigationFrame.current)
               navigationFrame.current = window.requestAnimationFrame(() => {
                 navigationFrame.current = window.requestAnimationFrame(() => {
                   navigationScroll.current = false
                   navigationFrame.current = null
                   const element = scrollContainer.current
                   if (!element) return
-                  const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+                  const nearBottom =
+                    element.scrollHeight - element.scrollTop - element.clientHeight < 80
                   following.current = nearBottom
                   setAwayFromBottom(!nearBottom)
                 })
@@ -1202,8 +1420,12 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
             }}
           >
             <CircleAlert size={14} aria-hidden="true" />
-            <span>有 {approvals.length} 项操作需要确认 · {approvalSummary(offscreenApproval)}</span>
-            <span className="approval-jump-action">查看 <ChevronRight size={13} aria-hidden="true" /></span>
+            <span>
+              有 {approvals.length} 项操作需要确认 · {approvalSummary(offscreenApproval)}
+            </span>
+            <span className="approval-jump-action">
+              查看 <ChevronRight size={13} aria-hidden="true" />
+            </span>
           </button>
         ) : null}
         {!snapshot.ready && !loading ? (

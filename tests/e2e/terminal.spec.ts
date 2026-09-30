@@ -85,23 +85,48 @@ test.afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 test('theme changes recolor the existing emulator without replacing its shell or buffer', async () => {
+  // Test an actual dark-to-light transition independently of the app's default theme.
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '外观', exact: true }).click()
+  await page
+    .getByRole('radiogroup', { name: '主题' })
+    .getByRole('radio', { name: '深色', exact: true })
+    .click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await create()
   await command("printf 'THEME_BUFFER_%s\\n' $$")
   await expect(screen()).toContainText(/THEME_BUFFER_\d+/)
   const text = await screen().innerText()
   const pidMarker = text.match(/THEME_BUFFER_\d+/)![0]
-  const terminalId = await page.locator('.terminal-session:not([hidden])').getAttribute('data-terminal-id')
-  const darkColor = await screen().evaluate(el => getComputedStyle(el).color)
+  const terminalId = await page
+    .locator('.terminal-session:not([hidden])')
+    .getAttribute('data-terminal-id')
+  const darkColor = await screen().evaluate((el) => getComputedStyle(el).color)
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
-  await page.getByRole('radiogroup', { name: '主题' }).getByRole('radio', { name: '浅色', exact: true }).click()
+  await page
+    .getByRole('radiogroup', { name: '主题' })
+    .getByRole('radio', { name: '浅色', exact: true })
+    .click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await expect(screen()).toContainText(pidMarker)
-  await expect(page.locator('.terminal-session:not([hidden])')).toHaveAttribute('data-terminal-id', terminalId!)
-  await expect.poll(() => screen().evaluate(el => getComputedStyle(el).color)).not.toBe(darkColor)
-  expect(await page.locator('.terminal-session:not([hidden]) .xterm').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(243, 243, 242)')
-  expect(await page.locator('.terminal-session:not([hidden]) .xterm-viewport').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(243, 243, 242)')
+  await expect(page.locator('.terminal-session:not([hidden])')).toHaveAttribute(
+    'data-terminal-id',
+    terminalId!
+  )
+  await expect.poll(() => screen().evaluate((el) => getComputedStyle(el).color)).not.toBe(darkColor)
+  expect(
+    await page
+      .locator('.terminal-session:not([hidden]) .xterm')
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+  ).toBe('rgb(248, 248, 247)')
+  expect(
+    await page
+      .locator('.terminal-session:not([hidden]) .xterm-viewport')
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+  ).toBe('rgb(248, 248, 247)')
   await command("printf 'SAME_SHELL_%s\\n' $$")
   await expect(screen()).toContainText(pidMarker.replace('THEME_BUFFER', 'SAME_SHELL'))
   await mkdir(resolve('artifacts/e2e'), { recursive: true })
@@ -197,9 +222,17 @@ test('project switching keeps input ownership, Ctrl-C interrupts, exit allows ex
   await expect(screen()).toContainText('INTERRUPT_OK')
   await command('exit 7')
   await expect(page.getByText('Shell 已退出（退出码 7）')).toBeVisible()
+  const exitedId = await page
+    .locator('.terminal-session:not([hidden])')
+    .getAttribute('data-terminal-id')
   await page.getByRole('button', { name: '新建替代终端' }).click()
-  await page.getByRole('button', { name: '确认结束并新建' }).click()
+  // An already exited shell needs no termination confirmation or command replay.
+  await expect(page.getByRole('dialog', { name: '确认结束终端' })).toHaveCount(0)
   await expect(page.locator('.terminal-status')).toContainText('运行中')
+  await expect(page.locator('.terminal-session:not([hidden])')).not.toHaveAttribute(
+    'data-terminal-id',
+    exitedId!
+  )
   // An idle shell closes without a prompt, and a double activation is still safe.
   await page.getByRole('button', { name: '关闭终端', exact: true }).dblclick()
   await expect(page.getByText('尚未创建终端')).toBeVisible()
@@ -259,6 +292,19 @@ test('confirmation contains Tab and Shift-Tab and restores terminal or managemen
   await page.getByRole('button', { name: '确认粘贴', exact: true }).click()
   await expect(input()).toBeFocused()
   await input().press('Control+c')
+  // A known idle shell closes directly. Keep a real foreground job running so both
+  // management interactions exercise confirmation and its focus restoration.
+  await command("printf '%s%s\\n' 'MANAGEMENT_' 'BUSY'; sleep 60")
+  await expect(screen()).toContainText('MANAGEMENT_BUSY')
+  await expect
+    .poll(async () => {
+      const result = await page.evaluate(
+        (projectPath) => window.pi.terminal({ type: 'list', projectPath }),
+        project
+      )
+      return result.type === 'list' && result.terminals[0]?.busy
+    })
+    .toBe(true)
   await page.reload()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await openWorkbenchTool(page, '终端')
@@ -390,7 +436,9 @@ test('untrusted OSC titles are bounded display text and OSC52 or OSC8 cannot acc
   await command(
     `printf '\\033]2;<img src=x onerror=alert(1)>EVIL\\007\\033]52;c;c2VjcmV0\\007\\033]8;;file:///tmp/evil\\007LINK\\033]8;;\\007\\n'; printf '%s%s\\n' 'OSC_' 'DONE'`
   )
-  await expect(page.locator('.terminal-pane').getByRole('tab')).toContainText('<img src=x onerror=alert(1)>EVIL')
+  await expect(page.locator('.terminal-pane').getByRole('tab')).toContainText(
+    '<img src=x onerror=alert(1)>EVIL'
+  )
   await expect(screen()).toContainText('OSC_DONE')
   expect(await page.locator('.terminal-pane img').count()).toBe(0)
   expect(errors).toEqual([])
@@ -544,8 +592,17 @@ test('an exited terminal retains selectable, copyable and scrollable output', as
 
 test('renderer reload exposes management-only degraded state and requires confirmed termination before new shell', async () => {
   await create()
-  await command("printf '%s_%s\\n' 'RELOAD' $$")
+  await command("printf '%s_%s\\n' 'RELOAD' $$; sleep 60")
   await expect(screen()).toContainText(/RELOAD_\d+/)
+  await expect
+    .poll(async () => {
+      const result = await page.evaluate(
+        (projectPath) => window.pi.terminal({ type: 'list', projectPath }),
+        project
+      )
+      return result.type === 'list' && result.terminals[0]?.busy
+    })
+    .toBe(true)
   const before = await page.evaluate(
     async (projectPath) => window.pi.terminal({ type: 'list', projectPath }),
     project

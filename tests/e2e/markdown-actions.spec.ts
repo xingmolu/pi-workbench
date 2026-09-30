@@ -67,22 +67,24 @@ test('profile long-reply renderer CPU with and without streaming preview', async
   expect(afterCompletion.cpuSeconds).not.toBeNull()
   expect(afterCompletion.cpuSeconds!).toBeLessThan(0.4)
 })
-test('long streaming Markdown stays lightweight and restores complete formatting on completion', async () => {
+test('long streaming Markdown keeps formatting and flushes the final text', async () => {
   const source = '| Name | Value | Code |\n| --- | --- | --- |\n' +
     '| alpha | **value** | `snippet` |\n'.repeat(500)
   await publish(source, true)
   const preview = page.locator('.markdown-streaming-preview')
-  await expect(preview).toHaveText(source)
-  await expect(page.locator('.assistant-node table')).toHaveCount(0)
+  await expect(preview).toHaveCount(0)
+  await expect(page.locator('.assistant-node table')).toBeVisible()
   const updated = source + '\n[reference][target]\n\n[target]: https://example.com\n'
   await publish(updated, true)
-  expect(await preview.textContent()).toBe(updated)
+  await expect(page.getByRole('link', { name: 'reference', exact: true })).toHaveAttribute('href', 'https://example.com')
+  await page.screenshot({ path: 'artifacts/e2e/streaming-markdown.png' })
   await publish(updated)
   await expect(preview).toHaveCount(0)
   await expect(page.locator('.assistant-node table')).toBeVisible()
   await expect(page.getByRole('link', { name: 'reference', exact: true })).toHaveAttribute('href', 'https://example.com')
   // Replacing a long stream with a short reply must not leave a stale preview.
   await publish('**short reply**', true)
+  await expect(page.locator('.assistant-node strong')).toHaveCount(1)
   await expect(page.locator('.assistant-node strong')).toHaveText('short reply')
 })
 test('code highlighting finishes after streaming and preserves exact copied source', async () => {
@@ -111,11 +113,35 @@ test('code highlighting finishes after streaming and preserves exact copied sour
   await expect(block).toHaveText('CURRENT')
   await expect(block).toHaveAttribute('data-highlighted', 'false')
 })
-async function publish(markdown: string, streaming = false): Promise<void> {
+test('code wrap overrides survive stream completion independently for each fence and message', async () => {
+  const source = '引导正文\n\n```js\nconst first = 1\n```\n\n中间正文\n\n```js\nconst second = 2\n```'
+  await publish(source, true)
+  const wraps = page.getByRole('button', { name: '自动换行', exact: true })
+  await expect(wraps).toHaveCount(2)
+  await expect(wraps.nth(0)).toHaveAttribute('aria-pressed', 'false')
+  await expect(wraps.nth(1)).toHaveAttribute('aria-pressed', 'false')
+  await wraps.nth(0).click()
+  await expect(wraps.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  await publish(source)
+  await expect(page.locator('.highlighted-code').first()).toHaveAttribute('data-highlighted', 'true')
+  await expect(wraps.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  await expect(wraps.nth(1)).toHaveAttribute('aria-pressed', 'false')
+  await publish(source + '\n\n继续输出', true)
+  await expect(page.locator('.assistant-node')).toContainText('继续输出')
+  await expect(wraps.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  await expect(wraps.nth(1)).toHaveAttribute('aria-pressed', 'false')
+  await wraps.nth(1).click()
+  await expect(wraps.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await publish(source, false, 'another-message')
+  await expect(wraps.nth(0)).toHaveAttribute('aria-pressed', 'false')
+  await expect(wraps.nth(1)).toHaveAttribute('aria-pressed', 'false')
+})
+
+async function publish(markdown: string, streaming = false, identity = 'table'): Promise<void> {
   state.revision++
   // Match Host projection: only finished actionable replies have canonical identity.
-  state.nodes = [{ id: 'table', type: 'assistant', markdown, streaming,
-    ...(!streaming ? { canonicalEntryId: 'table-reply' } : {}) }]
+  state.nodes = [{ id: identity, type: 'assistant', markdown, streaming,
+    ...(!streaming ? { canonicalEntryId: `${identity}-reply` } : {}) }]
   await app.evaluate(({ BrowserWindow }, data) => {
     BrowserWindow.getAllWindows()[0].webContents.send('pi:event', {
       type: 'event',
@@ -472,7 +498,7 @@ test('late save success or rejection cannot fill replaced content or another ses
       )
       if (!reject)
         expect(await readFile(join(root, 'late.csv'), 'utf8')).toBe('\uFEFF"\'A"\r\n"\'before"')
-      await expect(page.getByRole('status', { name: '表格保存结果' })).toBeEmpty()
+      await expect(page.getByRole('status', { name: '表格保存结果', includeHidden: true })).toBeEmpty()
       await expect(page.getByRole('button', { name: '保存 CSV', exact: true })).toBeEnabled()
     }
 })

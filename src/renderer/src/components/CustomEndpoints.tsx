@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, RefreshCw, Server } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import {
+  endpointDiscoverSchema,
   createCustomEndpointSchema,
   customEndpointSchema,
   type CustomEndpointApi,
@@ -17,6 +18,14 @@ const protocols: Record<CustomEndpointApi, string> = {
   'openai-responses': 'OpenAI Responses',
   'anthropic-messages': 'Anthropic Messages'
 }
+function endpointLabel(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname.slice(0, 80)
+  } catch {
+    return ''
+  }
+}
+
 type Form = {
   id?: string
   label: string
@@ -48,6 +57,8 @@ export default function CustomEndpoints({
   const [errorField, setErrorField] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<CustomEndpointSaveResult | null>(null)
   const [pending, setPending] = useState(false)
+  const [discovering, setDiscovering] = useState(false)
+  const [discoveryNote, setDiscoveryNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [confirmedRemoval, setConfirmedRemoval] = useState(false)
   const epoch = useRef(0)
@@ -59,7 +70,8 @@ export default function CustomEndpoints({
   const currentIdentity = useRef(identity)
   currentIdentity.current = identity
   const loginActive = !['idle', 'success', 'error'].includes(snapshot.login.phase)
-  const disabled = !snapshot.ready || snapshot.busy || loginActive || pending || loading
+  const disabled =
+    !snapshot.ready || snapshot.busy || loginActive || pending || loading || discovering
 
   const refresh = async (): Promise<void> => {
     const operation = ++epoch.current
@@ -69,6 +81,7 @@ export default function CustomEndpoints({
     setError('')
     setErrorField(null)
     setOutcome(null)
+    setDiscovering(false)
     setLoading(true)
     try {
       const response = await window.pi.send({ type: 'endpoint:list' })
@@ -97,11 +110,13 @@ export default function CustomEndpoints({
 
   const edit = (endpoint?: CustomEndpointMetadata): void => {
     epoch.current += 1
+    setDiscovering(false)
     setKey('')
     setError('')
     setErrorField(null)
     setOutcome(null)
     setConfirmedRemoval(false)
+    setDiscoveryNote('')
     const next = endpoint
       ? {
           id: endpoint.id,
@@ -118,6 +133,7 @@ export default function CustomEndpoints({
   }
   const cancel = (): void => {
     epoch.current += 1
+    setDiscovering(false)
     baseline.current = null
     setForm(null)
     setKey('')
@@ -125,6 +141,7 @@ export default function CustomEndpoints({
     setConfirmedRemoval(false)
   }
   const update = (value: Partial<Form>): void => {
+    setDiscoveryNote('')
     setForm((current) => {
       if (!current) return null
       const next = { ...current, ...value }
@@ -149,12 +166,43 @@ export default function CustomEndpoints({
   )
   useSettingsDraft('custom-endpoints', dirty)
 
+  const discover = async (): Promise<void> => {
+    if (!form || disabled) return
+    const parsed = endpointDiscoverSchema.safeParse({
+      type: 'endpoint:discover',
+      baseUrl: form.baseUrl.trim(),
+      key,
+      api: form.api
+    })
+    if (!parsed.success) {
+      setError('请填写有效的服务 URL 和 API Key；编辑已有端点时，拉取模型也需要重新输入密钥。')
+      return
+    }
+    const operation = ++epoch.current
+    setDiscovering(true)
+    setError('')
+    setDiscoveryNote('')
+    try {
+      const response = await window.pi.send(parsed.data)
+      if (!mounted.current || operation !== epoch.current) return
+      update({ modelIds: response.result.modelIds.join('\n'), baseUrl: response.result.baseUrl })
+      setDiscoveryNote(
+        `已获取 ${response.result.modelIds.length} 个模型${response.result.truncated ? '（列表未完整返回，可在高级设置中补充）' : ''}，保存后即可选择。`
+      )
+    } catch (error) {
+      if (mounted.current && operation === epoch.current)
+        setError(error instanceof Error ? error.message : '拉取失败，请重试或手动填写模型。')
+    } finally {
+      if (mounted.current && operation === epoch.current) setDiscovering(false)
+    }
+  }
+
   const save = async (): Promise<void> => {
     if (!form || !catalog || disabled || submitting.current) return
     const input = {
-      label: form.label,
+      label: form.label.trim() || endpointLabel(form.baseUrl),
       api: form.api,
-      baseUrl: form.baseUrl,
+      baseUrl: form.baseUrl.trim(),
       modelIds: ids,
       imageModelIds: form.imageModelIds,
       ...(key !== '' ? { key } : {})
@@ -367,31 +415,8 @@ export default function CustomEndpoints({
         >
           <div className="acct-form-head">
             <h3>{form.id ? '编辑端点' : '新增端点'}</h3>
-            <p>密钥只填入 API Key 密码框，不要放入名称、地址或模型 ID。</p>
+            <p>填写服务地址和密钥，拉取模型后即可保存。</p>
           </div>
-          <label htmlFor="endpoint-label">显示名称</label>
-          <input
-            id="endpoint-label"
-            value={form.label}
-            disabled={disabled}
-            autoComplete="off"
-            aria-invalid={errorField === 'label'}
-            aria-describedby={errorField === 'label' ? 'endpoint-error' : undefined}
-            onChange={(event) => update({ label: event.target.value })}
-          />
-          <label htmlFor="endpoint-api">协议</label>
-          <select
-            id="endpoint-api"
-            value={form.api}
-            disabled={disabled}
-            onChange={(event) => update({ api: event.target.value as CustomEndpointApi })}
-          >
-            {Object.entries(protocols).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
           <label htmlFor="endpoint-url">Base URL</label>
           <input
             id="endpoint-url"
@@ -404,12 +429,9 @@ export default function CustomEndpoints({
             aria-describedby={`endpoint-url-help${errorField === 'baseUrl' ? ' endpoint-error' : ''}`}
             onChange={(event) => update({ baseUrl: event.target.value })}
           />
-          <small id="endpoint-url-help">服务根地址；只允许 HTTPS 或显式本机 HTTP。</small>
-          {form.baseUrl.toLowerCase().startsWith('http:') ? (
-            <p className="acct-notice is-warning">
-              本机 HTTP 使用明文传输，包括 API Key。仅在你信任的本机服务使用。
-            </p>
-          ) : null}
+          <small id="endpoint-url-help">
+            例如 https://api.example.com/v1，也支持本机服务地址。
+          </small>
           <label htmlFor="endpoint-key">API Key</label>
           <input
             id="endpoint-key"
@@ -422,6 +444,7 @@ export default function CustomEndpoints({
             aria-describedby={`endpoint-key-help${errorField === 'key' ? ' endpoint-error' : ''}`}
             onChange={(event) => {
               setKey(event.target.value)
+              setDiscoveryNote('')
               setError('')
               setErrorField(null)
             }}
@@ -429,43 +452,87 @@ export default function CustomEndpoints({
           <small id="endpoint-key-help">
             {form.id
               ? '留空保留现有凭据；不会回显旧密钥。'
-              : '必填；无需认证的本地服务也请填写明确占位值。'}
+              : '仅用于此服务的认证；本地免认证服务可填任意占位值。'}
             提交或关闭时清空。
           </small>
-          <label htmlFor="endpoint-models">模型 ID</label>
-          <textarea
-            id="endpoint-models"
-            rows={3}
-            value={form.modelIds}
-            disabled={disabled}
-            spellCheck={false}
-            aria-invalid={errorField === 'modelIds'}
-            aria-describedby={`endpoint-model-help${errorField === 'modelIds' ? ' endpoint-error' : ''}`}
-            onChange={(event) => update({ modelIds: event.target.value })}
-          />
-          <small id="endpoint-model-help">每行一个，不重复。使用服务实际支持的模型 ID。</small>
-          {ids.length ? (
-            <div className="endpoint-image-models" role="group" aria-label="模型图片输入能力">
-              <small>只勾选服务确实支持图片输入的模型；此设置不会自动检测服务能力。</small>
-              {[...new Set(ids)].map((id) => (
-                <label key={id} className="endpoint-confirm">
-                  <input
-                    type="checkbox"
-                    checked={form.imageModelIds.includes(id)}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      update({
-                        imageModelIds: event.target.checked
-                          ? [...form.imageModelIds, id]
-                          : form.imageModelIds.filter((selected) => selected !== id)
-                      })
-                    }
-                  />
-                  支持图片输入：{id}
-                </label>
-              ))}
-            </div>
+          <button
+            type="button"
+            className="acct-button"
+            disabled={disabled || !form.baseUrl || !key}
+            onClick={() => void discover()}
+          >
+            <RefreshCw
+              size={14}
+              className={discovering ? 'endpoint-discovery-spinner' : undefined}
+            />
+            {discovering ? '正在拉取模型…' : '拉取模型'}
+          </button>
+          {discoveryNote ? (
+            <p role="status" className="acct-notice">
+              {discoveryNote}
+            </p>
           ) : null}
+          <details className="endpoint-advanced" open={form.id || ['label', 'modelIds', 'imageModelIds', 'api'].includes(errorField ?? '') ? true : undefined}>
+            <summary>高级设置与模型列表{ids.length ? `（${ids.length} 个）` : ''}</summary>
+            <label htmlFor="endpoint-label">显示名称</label>
+            <input
+              id="endpoint-label"
+              placeholder="可选，默认使用服务域名"
+              value={form.label}
+              disabled={disabled}
+              autoComplete="off"
+              aria-invalid={errorField === 'label'}
+              aria-describedby={errorField === 'label' ? 'endpoint-error' : undefined}
+              onChange={(event) => update({ label: event.target.value })}
+            />
+            <label htmlFor="endpoint-api">协议</label>
+            <select
+              id="endpoint-api"
+              value={form.api}
+              disabled={disabled}
+              onChange={(event) => update({ api: event.target.value as CustomEndpointApi })}
+            >
+              {Object.entries(protocols).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="endpoint-models">模型 ID</label>
+            <textarea
+              id="endpoint-models"
+              rows={3}
+              value={form.modelIds}
+              disabled={disabled}
+              spellCheck={false}
+              aria-invalid={errorField === 'modelIds'}
+              aria-describedby={`endpoint-model-help${errorField === 'modelIds' ? ' endpoint-error' : ''}`}
+              onChange={(event) => update({ modelIds: event.target.value })}
+            />
+            <small id="endpoint-model-help">每行一个，不重复。使用服务实际支持的模型 ID。</small>
+            {ids.length ? (
+              <div className="endpoint-image-models" role="group" aria-label="模型图片输入能力">
+                <small>只勾选服务确实支持图片输入的模型；此设置不会自动检测服务能力。</small>
+                {[...new Set(ids)].map((id) => (
+                  <label key={id} className="endpoint-confirm">
+                    <input
+                      type="checkbox"
+                      checked={form.imageModelIds.includes(id)}
+                      disabled={disabled}
+                      onChange={(event) =>
+                        update({
+                          imageModelIds: event.target.checked
+                            ? [...form.imageModelIds, id]
+                            : form.imageModelIds.filter((selected) => selected !== id)
+                        })
+                      }
+                    />
+                    支持图片输入：{id}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </details>
           {removed.length ? (
             <div className="acct-notice is-warning">
               <p>

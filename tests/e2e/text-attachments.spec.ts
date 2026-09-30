@@ -85,7 +85,7 @@ test.beforeEach(async () => {
   await page.evaluate(() =>
     window.pi.send({ type: 'model:set', providerId: 'text-fixture', modelId: 'offline' })
   )
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toBeEnabled()
   const selected = await page.evaluate(() => window.pi.getState())
   expect(selected.sessionId).toBe(identity.sessionId)
   expect(selected.generation).toBe(identity.generation)
@@ -120,7 +120,7 @@ test('picker, Files, cancel, remove and exact snapshot reach Pi and reopen after
   await pane.getByRole('button', { name: 'workspace.txt', exact: true }).click()
   await pane.getByRole('button', { name: '添加到对话', exact: true }).click()
   await expect(chips.locator('li')).toHaveCount(2)
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('请检查这些文本快照')
   for (const width of [1440, 960]) {
     await page.setViewportSize({ width, height: 1000 })
@@ -170,7 +170,7 @@ test('binary/count errors and a real stale snapshot rejection retain composer', 
   await expect(page.locator('.attachment-chips li')).toHaveCount(1)
   await select(Array(4).fill(join(root, 'empty.txt')))
   await expect(page.locator('.attachment-status')).toContainText('最多添加 4')
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('失败后保留的文字')
   await app.evaluate(({ dialog }) => {
     dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] })
@@ -212,7 +212,7 @@ test('attachment-only send is accepted and selecting text during streaming prese
 
 test('unknown preflight locks original submission, late query accepts once and preserves newer edits', async () => {
   await select([join(root, 'selected.txt')])
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('DELAY_PREFLIGHT original text')
   await draft.press('Enter')
   await expect(page.locator('.attachment-status')).toContainText('等待 Pi')
@@ -283,12 +283,13 @@ test('late picker result is discarded across session switch and generic prompt b
 
 test('actual isolated Host loss retains unknown submission without resend', async () => {
   await select([join(root, 'selected.txt')])
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('DELAY_PREFLIGHT retained on Host loss')
   await draft.press('Enter')
   await expect(page.locator('.attachment-status')).toContainText('等待 Pi')
+  const workerId = (await page.evaluate(() => window.pi.getState())).desktopScope!.workerId
   const pid = await app.evaluate(
-    ({ app }) => app.getAppMetrics().find((m) => m.name === 'Pi Agent Host')?.pid
+    ({ app }, workerId) => app.getAppMetrics().find((m) => m.name === `Pi Session Host ${workerId}`)?.pid, workerId
   )
   expect(pid).toBeTruthy()
   await app.evaluate(({}, pid) => process.kill(pid!, 'SIGKILL'), pid)
@@ -303,7 +304,7 @@ test('actual isolated Host loss retains unknown submission without resend', asyn
 test('real picker displays 1 MiB and 2 MiB limits while preserving the draft and selected snapshots', async () => {
   await writeFile(join(root, 'too-large.txt'), 'x'.repeat(1048577))
   await writeFile(join(root, 'one-mib.txt'), 'x'.repeat(1048576))
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('limit failure retains this draft')
   await select([join(root, 'selected.txt')])
   await select([join(root, 'too-large.txt')])
@@ -317,7 +318,7 @@ test('real picker displays 1 MiB and 2 MiB limits while preserving the draft and
 
 test('postacceptance offline model failure is visible without retrying or restoring accepted attachments', async () => {
   await select([join(root, 'selected.txt')])
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('FAIL_AFTER_ACCEPTANCE')
   await draft.press('Enter')
   await expect(page.locator('.attachment-status')).toContainText('Pi 已接收')

@@ -44,13 +44,16 @@ test.beforeEach(async () => {
   await writeFile(
     join(root, 'agent/extensions/fixture.ts'),
     `
-    import { fauxProvider, fauxAssistantMessage } from ${JSON.stringify(resolve(aiRoot, pkg.exports['.'].import))};
+    import { fauxProvider, fauxAssistantMessage, getCurrentSystemPrompt } from ${JSON.stringify(resolve(aiRoot, pkg.exports['.'].import))};
     import { writeFileSync } from 'node:fs';
     export default function(pi) {
       const faux = fauxProvider({ provider: 'skills-fixture', api: 'skills-fixture-api', models: [{ id: 'offline' }], tokensPerSecond: 1000 });
       pi.registerProvider(faux.provider);
       faux.setResponses([(context) => {
-        writeFileSync(${JSON.stringify(join(root, 'received.json'))}, JSON.stringify(context));
+        writeFileSync(${JSON.stringify(join(root, 'received.json'))}, JSON.stringify({
+          ...context,
+          systemPrompt: getCurrentSystemPrompt(context.messages)
+        }));
         return fauxAssistantMessage('技能命令已由原生 Pi 展开。');
       }]);
     }
@@ -78,7 +81,7 @@ test.beforeEach(async () => {
   await page.evaluate(() =>
     window.pi.send({ type: 'model:set', providerId: 'skills-fixture', modelId: 'offline' })
   )
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toBeEnabled()
 })
 test.afterEach(async () => {
   await app?.close()
@@ -91,7 +94,7 @@ async function settings() {
 }
 
 test('loaded catalog, scopes, manual-only detail, screenshots, insertion and real SDK expansion', async ({}, testInfo) => {
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('保留这段任务')
   await settings()
   await expect(page.locator('.skills-settings')).toContainText('刷新不会重新扫描')
@@ -130,11 +133,16 @@ test('loaded catalog, scopes, manual-only detail, screenshots, insertion and rea
   const user = received.messages.find((message: { role: string }) => message.role === 'user')
   expect(JSON.stringify(user)).toContain('MANUAL_BODY_SENTINEL')
   expect(JSON.stringify(user)).toContain('保留这段任务')
-  expect(received.systemPrompt).not.toContain('仅在明确选择时开展审阅')
+  // Pi providers receive a normalized transcript; system prompt sections live in system messages.
+  expect(received.messages[0].role).toBe('system')
+  const systemPrompt = received.systemPrompt
+  expect(systemPrompt).toContain('检查代码质量和潜在缺陷')
+  expect(systemPrompt).not.toContain('仅在明确选择时开展审阅')
+  expect(systemPrompt).not.toContain('MANUAL_BODY_SENTINEL')
 })
 
 test('slash keyboard selection preserves suffix and attachment conflict prevents accidental non-expanded send', async ({}, testInfo) => {
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await expect(page.getByRole('button', { name: '选择技能', exact: true })).toHaveCount(0)
   await draft.fill('/review-code Existing draft')
   await expect(page.getByRole('option')).toHaveCount(1)
@@ -283,7 +291,7 @@ test('real Composer discards delayed lists and stale insertions across sessions 
   })
   await harness.setContent('<div id="root"></div>')
   await harness.addScriptTag({ content: bundle.outputFiles[0].text })
-  const input = harness.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const input = harness.getByRole('textbox', { name: '任务输入', exact: true })
   await input.fill('/exa Task A')
   await expect(harness.getByRole('status')).toContainText('正在读取')
   await input.press('Enter')

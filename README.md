@@ -53,15 +53,15 @@ marketplace、签名、自动更新、远端 UI 入口、第三方 native/module
 绑定和 MCP Apps 也明确延期。`@` 文件/会话引用、
 图片粘贴附件、用户可拖内容轴及 `~/.codex/auth.json` 便利导入也明确延期。
 
-设置中的「自定义端点」无需先选项目，直接管理 Pi CLI 共用的 `~/.pi/agent/models.json` 与 `auth.json`，影响所有工作区。明确选择协议、填写显示名称、服务地址、API Key 和每行一个模型 ID；新端点不会自动切换当前账号。地址只允许 HTTPS 或显式本机 HTTP，后者会提示明文传输风险。模型移除须确认；高级配置只读，损坏文件不能用空配置覆盖。密码不进入 Renderer 全局 store，表单值在提交/关闭时清空；编辑留空保留原凭证，不回显旧 key。已出现在 `models.json` 且 Pi 运行时认为可用的 CLI provider（即使设置里标记为只读）可在 composer 中选择账号和模型；缺少可用认证的端点仍不能发送。
+设置中的「自定义端点」无需先选项目，管理本应用 Pi 引擎的 `<userData>/runtimes/pi/config/models.json` 与 `auth.json`，影响所有工作区。默认填写服务地址与 API Key，点击「拉取模型」后保存，显示名称自动使用域名。协议、名称、手工模型 ID 和图片能力在高级设置中；支持 OpenAI 兼容与 Anthropic 模型列表，不提供列表的服务可手填。发现请求限时 15 秒、不跟随重定向、响应最多 2MiB，最多取 100 个模型并提示截断；根地址自动补齐 `/v1`。新端点不会自动切换当前账号。地址只允许 HTTPS 或显式本机 HTTP。模型移除须确认；高级配置只读，损坏文件不能用空配置覆盖。密码不进入 Renderer 全局 store，表单值在提交/关闭时清空；编辑留空保留原凭证，不回显旧 key。已出现在 `models.json` 且 Pi 运行时认为可用的 CLI provider（即使设置里标记为只读）可在 composer 中选择账号和模型；缺少可用认证的端点仍不能发送。
 
 设置弹窗按基础设置、连接与 Agent 能力分类。打开时保留左栏宽度、对话草稿和工作台选择；原生 Browser/插件临时隐藏，关闭恢复。Codex 登录仍调用 Pi 的公开登录能力。每个 Codex 主账号/别名可显式刷新订阅额度，只展示账号服务返回的窗口、百分比和重置时间；不可读取不等于零额度。该查询依赖 Codex 当前使用的非稳定公开 API 合同的账号服务端点，不保证持续可用，不估算费用或次数。认证只在 Host 解析，重新登录后丢弃旧额度。
 
-MCP 使用 Pi 官方扩展机制和官方 `@modelcontextprotocol/sdk`，不是 Pi 原生内置 MCP。设置里可新增/编辑/启停 stdio 与 Streamable HTTP 服务器；配置存于 `~/.pi/agent/mcp.json` 的 `mcpServers`，0600 原子替换。`piDesktop.trustedServers` 记录用户确认的精确配置摘要；已有或外部修改的配置必须重新确认，不自动发现项目/其他应用服务器。环境变量与请求头只展示字段名，编辑留空保留已有值。配置是本机秘密文件，不是钥匙串；不要把 token 放在命令参数或 URL。
+MCP 使用 Pi 官方扩展机制和官方 `@modelcontextprotocol/sdk`，不是 Pi 原生内置 MCP。设置里可新增/编辑/启停 stdio 与 Streamable HTTP 服务器；配置存于 `<userData>/runtimes/pi/config/mcp.json` 的 `mcpServers`，0600 原子替换。`piDesktop.trustedServers` 记录用户确认的精确配置摘要；已有或外部修改的配置必须重新确认，不自动发现项目/其他应用服务器。环境变量与请求头只展示字段名，编辑留空保留已有值。配置是本机秘密文件，不是钥匙串；不要把 token 放在命令参数或 URL。
 
-需要登录的 Streamable HTTP 服务器走 MCP 标准 OAuth（官方 SDK 负责资源/授权服务器发现、动态客户端注册、PKCE 与刷新）：连接时收到 401 会显示「需要登录」，只有在设置里点「登录」才在系统浏览器打开授权页，并由一次性的 `127.0.0.1` 回调（校验 state，5 分钟超时）收回授权码；后台连接只刷新已有令牌，从不自行注册或打开浏览器。可选填写预注册的客户端 ID/密钥、授权范围与固定回调端口；配置了 `Authorization` 请求头的服务器不使用 OAuth。令牌存于 `~/.pi/agent/mcp-oauth.json`（0600，按服务器名 + URL 隔离，改 URL 即失效），可随时退出登录；配置的请求头只发给 MCP 地址本身，发现/令牌请求只允许 HTTPS 或本机地址且禁止重定向。
+需要登录的 Streamable HTTP 服务器走 MCP 标准 OAuth（官方 SDK 负责资源/授权服务器发现、动态客户端注册、PKCE 与刷新）：连接时收到 401 会显示「需要登录」，只有在设置里点「登录」才在系统浏览器打开授权页，并由一次性的 `127.0.0.1` 回调（校验 state，5 分钟超时）收回授权码；后台连接只刷新已有令牌，从不自行注册或打开浏览器。可选填写预注册的客户端 ID/密钥、授权范围与固定回调端口；配置了 `Authorization` 请求头的服务器不使用 OAuth。令牌存于 `<userData>/runtimes/pi/config/mcp-oauth.json`（0600，按服务器名 + URL 隔离，改 URL 即失效），可随时退出登录；配置的请求头只发给 MCP 地址本身，发现/令牌请求只允许 HTTPS 或本机地址且禁止重定向。
 
-Agent 通过 `mcp` 工具依次 list / describe / call。Ask 对每次实际调用确认，Open 直接执行；启用服务器本身允许其启动代码以本机用户权限运行，Ask 不是进程沙箱。停止调用关闭连接，需显式重新连接。保存仅允许空闲态，不替换会话或另存 transcript。当前仅支持文本工具结果，不支持旧 SSE、资源/提示模板、MCP Apps、JSON 批量导入；最多 16 个服务器、每服 128 个工具。高级或损坏配置保守只读。
+Agent 通过 `mcp` 工具依次 list / describe / call。Ask 对每次实际调用确认，Open 直接执行；启用服务器本身允许其启动代码以本机用户权限运行，Ask 不是进程沙箱。停止调用关闭连接；结果未确认时保持写入锁到所属进程退出，需要重启应用核对记录后再连接。保存仅允许空闲态，不替换会话或另存 transcript。当前仅支持文本工具结果，不支持旧 SSE、资源/提示模板、MCP Apps、JSON 批量导入；最多 16 个服务器、每服 128 个工具。高级或损坏配置保守只读。
 
 端点保存分别显示配置、凭据和运行时结果，不假装两个文件是一个事务。部分保存或结果不确定时先核对列表与登录状态，不自动重试；“刷新列表”只读配置，不修复运行时。当前模型被移除、配置发生漂移或运行时同步失败时，Host 和 composer 都阻止发送；历史保留，要求明确恢复或重选，不自动 failover。保存与登录启动/别名重载串行，进行中的 OAuth 不会被表单取消。
 
@@ -170,7 +170,7 @@ MCP 包内依赖可另外用 `npx electron scripts/mcp-bundle-smoke.cjs "/absolu
    命令规则按开头的完整单词匹配（`npm test` 允许 `npm test -- x`，不允许 `npm testing`）；
    含 `;`、`&`、`|`、重定向、`$`、反引号、括号、反斜杠或换行的命令始终需要确认。
    编辑规则只放行解析符号链接后仍位于项目内的路径。档位和规则保存在
-   `~/.pi/agent/pi-desktop/permissions.json`，不写入项目目录；新项目默认请求批准。
+   `<userData>/runtimes/pi/config/pi-desktop/permissions.json`，不写入项目目录；新项目默认请求批准。
 6. agent 运行中发送的新输入进入 Pi follow-up 队列；界面显示完整待发送文本，并支持清空全部队列。单项编辑、删除和 steer 尚未实现。
 7. 点击右栏 Browser 后可以手动浏览；Pi agent 使用同一个可见 tab。Ask 模式下交互动作会进入现有审批卡，Open 模式下直接执行；浏览器工具条会显示控制方，用户可随时 Stop 或直接接管。
 8. 未发送草稿在本次窗口运行期间按项目和会话隔离，切换模型不清空。发送确认前保留原文，失败可直接重试；确认期间的新编辑不会被旧请求清空。草稿仅存内存，不另建 transcript，关闭应用后不保留。
@@ -198,7 +198,7 @@ Pi 通过 write / edit 工具修改文件时，对话里的工具行直接显示
 
 每轮结束后显示本轮改动过的文件汇总，可逐个展开 diff，并可「撤销」：把这些文件还原到该轮开始之前。撤销某一轮会一并撤销之后各轮对文件的改动（磁盘只有一条时间线）；Pi 新建的文件会被删除。检查点只覆盖 write / edit 工具：bash 等命令产生的改动不会被记录或还原，对话记录也保持不变。
 
-检查点在 Pi 获得项目写锁之后、写入之前保存原文件，存放在 `~/.pi/agent/pi-desktop/checkpoints/<session-id>/`。超过 4 MiB 的文件、目录和符号链接不保存原文，撤销时列为「无法还原」。撤销前会比较文件当前内容与 Pi 最后一次写入的结果；之后被手动或其他程序改动过的文件需要明确选择「覆盖并撤销」。撤销只在会话空闲且没有待确认操作时可用。
+检查点在 Pi 获得项目写锁之后、写入之前保存原文件，存放在 `<userData>/runtimes/pi/config/pi-desktop/checkpoints/<session-id>/`。超过 4 MiB 的文件、目录和符号链接不保存原文，撤销时列为「无法还原」。撤销前会比较文件当前内容与 Pi 最后一次写入的结果；之后被手动或其他程序改动过的文件需要明确选择「覆盖并撤销」。撤销只在会话空闲且没有待确认操作时可用。
 
 ## Git Review
 
@@ -236,14 +236,26 @@ Main 在发现 manifest 前按真实规范路径合并用户插件 root 与 Pi p
 Pi 项目包”来源类别，不会收到路径、URL 或凭证片段。
 ## 数据与隐私边界
 
-生产运行的 Pi `agentDir` 固定为 `~/.pi/agent`：
+Pi 和 Claude Code 均由应用内置依赖提供，不调用用户全局安装的 CLI。Pi 固定为
+`@earendil-works/pi-coding-agent@0.87.1`；Claude 使用官方
+`@anthropic-ai/claude-agent-sdk@0.3.285` 和 SDK 随附的本机可执行文件。
 
-- 凭证与自定义模型：`~/.pi/agent/auth.json`、`~/.pi/agent/models.json`
-- 会话：`~/.pi/agent/sessions/` 下按 `cwd` 分桶的 JSONL
-- 多账号配置：`~/.pi/agent/pi-multi-login.json`
+两个引擎各自使用 `<userData>/runtimes/<runtimeId>/{config,sessions,state,cache}`。
+macOS 的 userData 位于 `~/Library/Application Support/<应用名>`，实际引擎配置目录可在设置的
+「Agent 引擎」中查看。生产 Pi 不再读取 `~/.pi/agent` 的凭证、模型或全局扩展：
+
+- Pi 配置：`runtimes/pi/config/` 内的 `auth.json`、`models.json`、`pi-multi-login.json`、`mcp.json`。
+- Pi 原生历史：`runtimes/pi/sessions/` 中按工作目录分桶的 JSONL。
+- Claude 配置和 SDK 原生历史：`runtimes/claude/config/`；SDK 启动前设置独立 `CLAUDE_CONFIG_DIR`，清除继承的 Anthropic/Claude 凭证与 CLI 覆盖。
+- Claude 桌面会话引用：`runtimes/claude/sessions/`，只保存原生 session ID、工作目录及标题，不复制 transcript。
+- 旧 Pi 历史可在「Agent 引擎」设置中明确导入。源文件保留、重复导入跳过已有文件；凭证、模型端点和扩展不会随历史复制，需要在应用内配置。
+
+Claude 可以填写 API Key 和可选 Anthropic 兼容服务 URL，或启动官方 CLI 的 Claude 账号
+浏览器登录流程；模型列表使用 SDK 的 `supportedModels()`，账号状态来自 `accountInfo()`。
+订阅是否可用由官方账号及套餐决定。本地 fixture 测试不代表已完成真实订阅 OAuth 授权。
 
 应用不会把 token 放进 Electron `safeStorage`，也不会保存第二份 transcript。Main 使用
-`electron-store` 保存最近一次成功打开且已规范化的项目路径、Desktop 插件启用状态，
+`electron-store` 保存最近一次成功打开且已规范化的项目路径、runtime ID 和原生会话文件路径引用、Desktop 插件启用状态，
 以及每项不超过 32 KiB 的插件面板 JSON 状态。项目路径在启动时会重新校验，失效后清除；
 面板状态按 `pluginId/viewId/project` 分桶，不应写入 token、transcript、cookie 或 tool
 secret。这些都是本地偏好数据，但路径和插件自存内容仍应按本地隐私数据对待。测试专用
@@ -255,10 +267,54 @@ Browser 使用 project 路径的不可逆 hash 生成独立 Electron partition�
 
 ## 架构
 
+运行时接口与存储边界见 [Agent runtime 架构](docs/architecture/agent-runtime-boundary.md)，本次实现及测试结果见 [Runtime 工作台验收](docs/RUNTIME_WORKBENCH_ACCEPTANCE_2026-09-30.md)。
+
+### Agent runtime 插件接口（v1）
+
+生产会话通过 `AgentRuntimeProviderRegistry` 路由，Pi 由
+`src/main/runtime-plugins/pi.ts` 注册为内置适配器。新适配器实现
+`AgentRuntimePlugin` 的 `manifest` 和 `createSession()`，无需改驻留会话池；
+`UtilityProcessAgentRuntime` 只是进程传输，适配器也可以直接使用 SDK。
+Pi 与 Claude SDK 均是生产适配器。侧栏和设置提供引擎切换；模型、登录、MCP 和发送控件根据当前引擎能力显示。
+
+- Manifest 声明协议版本、引擎、可选功能、认证方式、工具接入和子 Agent 归属。
+  可选命令按能力检查后再调用 SDK；每个 runtime 无需实现 Pi 的全部扩展命令。
+- `AgentSnapshot` / patch 是公共会话投影，`runtime.id` 与模型的 `provider` 分开。
+  模型目录、账号和登录状态属于当前 runtime，会话切换不把其他 runtime 的模型当作默认值。
+  适配器将 SDK 的文本、工具、审批和原生子 Agent 事件转换成公共 DTO，桌面不解析 SDK 原始消息。
+- `window.pi.listRuntimes()` 返回不含凭证与可执行路径的能力目录；
+  `project:open` / `project:navigate` 可指定 `runtimeId`。
+  运行实例创建后不可切换引擎，换引擎创建另一个 worker；恢复、重连及后台任务保留 runtime 身份。
+- 新适配器的 `createSession()` 获得 `<userData>/runtimes/<runtimeId>/` 下独立的
+  `config`、`sessions`、`state`、`cache` 路径。`storage: desktop` 的恢复请求、活跃会话路径
+  必须位于该 runtime 的 `sessions` 中。SDK 的原生 session ID 与恢复 token 由适配器保管；
+  公共 `sessionPath` 使用桌面拥有的会话文件/索引文件，不能直接引用 CLI 的目录。
+- `subagents: native` 表示 SDK 内部子 Agent；`desktop` 表示桌面派发独立 worker；
+  `none` 表示不支持。桌面任务继承父 runtime，不自动落回 Pi，也不替原生子 Agent 分配桌面 worker。
+
+`RuntimeDirectory` 按同一插件工厂创建独立配置宿主，因此未打开项目时也能管理账号、获取模型和历史。
+全局配置刷新和空闲检查仅作用于对应引擎；目录、搜索合并两类会话并保留原生路径与 runtime ID。
+项目和会话置顶在合并后排序，读取或检查子 Agent 不会切换父会话。
+
+Pi 的子 Agent 由桌面 `session_task` 创建独立 worker；Claude 的子 Agent 由 SDK 原生调度，
+在统一右侧列表和只读详情中显示。SDK 的后台子任务、审批与写锁可继续存在于父任务完成之后。
+此接口用于注册随应用交付的可信运行时代码，与工作台 sandboxed UI 插件不同；
+当前不包含第三方 runtime 下载、安装或任意动态代码加载器。
+
+| 能力 | Pi | Claude Code SDK |
+| --- | --- | --- |
+| 模型/账号/会话恢复、改名、分叉 | 支持 | 支持 |
+| 流式文本、思考、工具、审批、图片 | 支持 | 支持 |
+| MCP、浏览器和 Computer Use 桥接 | 支持 | 支持 |
+| 子 Agent | 桌面独立会话 | SDK 原生任务，支持检查与取消 |
+| Codex 登录、自定义多供应商端点、账号别名/额度 | Pi 供应商能力 | 不显示 |
+| 编辑历史、撤销检查点、附件、后续消息队列 | 支持 | 未声明这些能力，UI 不显示对应操作 |
+| Skills | Pi 目录和设置 | SDK 原生插件加载；暂不提供桌面枚举/详情页 |
+
 | 进程/表面                   | 职责                                                                                                   |
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Main                        | 窗口、项目偏好、WorkbenchHost、BrowserManager、安全策略、typed IPC、`utilityProcess` 生命周期          |
-| Agent Host                  | Pi runtime、登录、流式投影、权限 hook、browser capability client，并发布当前实际加载的 Pi package root |
+| Agent Hosts                 | 各自加载 Pi/Claude SDK，处理登录、原生历史、流式投影和工具审批；配置宿主与会话宿主由同一工厂创建 |
 | Terminal Host               | 独立 Node utilityProcess；仅此进程加载 node-pty，管理用户 shell、输出流控和实际退出；不经过 Pi transcript |
 | 主 Preload                  | 只暴露窄的 `window.pi` 请求与事件 API                                                                  |
 | 主 Renderer                 | React 文档流、registry rail、first-party chrome、Radix/Zustand；零 Node、零 Electron、零 Pi import     |

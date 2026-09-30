@@ -106,6 +106,18 @@ test.beforeEach(async () => {
     paths.push(path)
   }
   original = await readFile(paths[0]!, 'utf8')
+  // Project navigation inherits the selected model; make that fixture available
+  // without using real credentials or a network provider.
+  await mkdir(join(agentDir, 'extensions'))
+  const aiRoot = resolve('node_modules/@earendil-works/pi-ai')
+  const ai = JSON.parse(await readFile(join(aiRoot, 'package.json'), 'utf8'))
+  await writeFile(join(agentDir, 'auth.json'), JSON.stringify({ review: { type: 'api_key', key: 'offline-only' } }))
+  await writeFile(join(agentDir, 'extensions', 'fixture.ts'), `
+    import { fauxProvider } from ${JSON.stringify(resolve(aiRoot, ai.exports['.'].import))};
+    export default function(pi) {
+      pi.registerProvider(fauxProvider({ provider: 'review', models: [{ id: 'fixture' }] }).provider);
+    }
+  `)
   app = await electron.launch({
     args: [resolve('.')],
     env: {
@@ -214,11 +226,16 @@ test('global title search supports Chinese, case insensitive matches, focus rest
   await expect(search).toHaveValue('')
   await search.press('Escape')
   await expect(trigger).toBeFocused()
-  await expect(
-    page
-      .locator('.project-group')
-      .filter({ has: page.getByRole('button', { name: 'other-project', exact: true }) })
-  ).toContainText('暂无会话')
+  const currentGroup = page.locator('.project-group')
+    .filter({ has: page.getByRole('button', { name: 'other-project', exact: true }) })
+  await expect(currentGroup).toContainText('新会话')
+  await expect(currentGroup).not.toContainText('中文设计 Alpha')
+  await expect(currentGroup).not.toContainText('第二会话 Beta')
+  const current = await page.evaluate(() => window.pi.getState())
+  expect(current.project?.path).toBe(other)
+  expect(current.activeProvider).toBe('review')
+  expect(current.activeModel).toBe('fixture')
+  expect(current.nodes.filter((node) => node.type !== 'model')).toEqual([])
 })
 
 test('question navigation focuses first/last rows, restores trigger on Escape and fits 960', async () => {
@@ -236,7 +253,9 @@ test('question navigation focuses first/last rows, restores trigger on Escape an
   await page.keyboard.press('Escape')
   await expect(trigger).toBeFocused()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(960, 760))
-  await expect(page.locator('.conversation-head-meta small')).toHaveCSS('max-width', '220px')
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(960)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect(page.locator('.conversation-session-title')).toBeInViewport()
   await expect(trigger).toBeInViewport()
   await expect(page.getByRole('button', { name: '重命名会话', exact: true })).toBeInViewport()
   await page.getByRole('button', { name: '重命名会话', exact: true }).click()
@@ -437,11 +456,14 @@ test('real fixture write failure disconnects without losing messages, explicit r
     writable,
     'This platform/user can write a readonly fixture; cannot exercise real permission failure.'
   )
-  const before = await page.locator('.node-flow').innerText()
+  // Compare message bodies; hover tooltips legitimately disappear when actions
+  // become disabled after the runtime exits.
+  const messages = page.locator('.node-flow .user-node, .node-flow .assistant-node > p')
+  const before = await messages.allTextContents()
   await rename('失败不应保存')
   await expect(page.getByRole('button', { name: '重新连接引擎', exact: true })).toBeVisible()
   await expect(page.locator('.conversation-session-title')).toHaveText('中文设计 Alpha')
-  await expect(page.locator('.node-flow')).toHaveText(before, { useInnerText: true })
+  await expect(messages).toHaveText(before)
   expect(await readFile(paths[0]!, 'utf8')).toBe(original)
   await chmod(paths[0]!, 0o600)
   await page.keyboard.press('Escape')

@@ -98,11 +98,11 @@ test('top-right toggle never overlaps a native window drag rectangle', async () 
       if ((await toggle.getAttribute('aria-expanded')) !== String(open)) await toggle.click()
       await expect(toggle).toHaveAttribute('aria-expanded', String(open))
       await expect.poll(() => page.evaluate(() => {
-        const button = document.querySelector('.workbench-toggle')!.getBoundingClientRect()
+        const buttons = [...document.querySelectorAll<HTMLElement>('.workbench-toggle, .subagent-directory-toggle')].map(button => button.getBoundingClientRect())
         return [...document.querySelectorAll<HTMLElement>('*')].filter(element => {
           if (getComputedStyle(element).getPropertyValue('-webkit-app-region') !== 'drag') return false
           const rect = element.getBoundingClientRect()
-          return rect.width > 0 && rect.height > 0 && rect.left < button.right && rect.right > button.left && rect.top < button.bottom && rect.bottom > button.top
+          return buttons.some(button => rect.width > 0 && rect.height > 0 && rect.left < button.right && rect.right > button.left && rect.top < button.bottom && rect.bottom > button.top)
         }).map(element => element.className)
       })).toEqual([])
     }
@@ -131,7 +131,7 @@ for (const pointer of ['fine', 'coarse'] as const) {
       .poll(() =>
         page.locator('.workbench').evaluate((element) => element.getBoundingClientRect().width)
       )
-      .toBeCloseTo(412, 0)
+      .toBeCloseTo(440, 0)
     const handle = page.getByRole('separator', { name: '调整工作台宽度' })
     for (const side of [-1, 1]) {
       const box = (await handle.boundingBox())!
@@ -186,11 +186,11 @@ test('mouse and keyboard resizing preserve draft and terminal through fold and w
   await input.press('Enter')
   await expect(terminal.locator('.xterm-rows')).toContainText(/RESIZE_\d+/)
   const pid = (await terminal.locator('.xterm-rows').innerText()).match(/RESIZE_(\d+)/)![1]
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('resize preserves this draft')
   const width = () => page.locator('.workbench').evaluate((el) => el.getBoundingClientRect().width)
   const initial = await width()
-  expect(initial).toBeCloseTo(412, 0)
+  expect(initial).toBeCloseTo(440, 0)
   const box = (await handle.boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()

@@ -135,8 +135,8 @@ export default function MessageActions({
         ) : null}
         {node.type === 'assistant' ? (
           <>
-            <SessionFork key={scope} snapshot={snapshot} entryId={node.canonicalEntryId} messageAction />
-            {(['up', 'down'] as const).map((value) => (
+            <SessionFork key={JSON.stringify([scope, snapshot.desktopScope ?? null])} snapshot={snapshot} entryId={node.canonicalEntryId} messageAction />
+            {(!snapshot.runtime || snapshot.runtime.features.includes('message-feedback')) && (['up', 'down'] as const).map((value) => (
               <ActionIcon
                 key={value}
                 label={value === 'up' ? '赞' : '踩'}

@@ -1,0 +1,45 @@
+.conversation-activity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-orbit {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: activity-orbit 1s linear infinite;
+}
+.endpoint-discovery-spinner {
+  animation: activity-orbit 1s linear infinite;
+}
+@keyframes activity-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-orbit,
+  .endpoint-discovery-spinner {
+    animation: none;
+  }
+}
+.endpoint-advanced {
+  margin-top: 12px;
+}
+.endpoint-advanced > summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 8px 0;
+}
+.endpoint-advanced[open] {
+  display: grid;
+  gap: 10px;
+}

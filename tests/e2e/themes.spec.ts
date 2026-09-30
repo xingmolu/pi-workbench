@@ -132,6 +132,6 @@ test('accent colors and plugin themes restyle the app and fall back when the plu
   await row.getByRole('switch', { name: 'Dusk Desktop 面板' }).click()
   await expect(page.locator('html')).not.toHaveAttribute('data-plugin-theme', /.+/)
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await expect.poll(() => token('--canvas')).toBe('#171717')
+  await expect.poll(() => token('--canvas')).toBe('#181818')
   expect(await token('--accent')).toBe('#8a72e8')
 })

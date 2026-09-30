@@ -183,28 +183,104 @@ const group = (cwd: string) =>
   page
     .locator('.project-group')
     .filter({ has: page.locator(`button.project-group-toggle[title=${JSON.stringify(cwd)}]`) })
+const sessionRow = (cwd: string, title: string) =>
+  group(cwd).locator('.project-session-row').filter({ hasText: title })
+
+async function showAllSessions(cwd: string): Promise<void> {
+  const history = group(cwd).locator('.catalog-history-toggle')
+  if ((await history.getAttribute('aria-expanded')) !== 'true') await history.click()
+  await expect(history).toHaveAttribute('aria-expanded', 'true')
+  await group(cwd).locator('.catalog-more:not(.catalog-history-toggle)').click()
+  await expect(group(cwd).locator('.project-session-row')).toHaveCount(52)
+}
+
+test('restart restores the selected runtime and exact session after switching resident projects', async () => {
+  const source = await page.evaluate(() => window.pi.getState())
+  const result = await page.evaluate(
+    async ({ cwd, path }) => {
+      const state = await window.pi.getState()
+      return window.pi.send({
+        type: 'project:navigate',
+        cwd,
+        sessionPath: path,
+        runtimeId: 'pi',
+        sessionId: state.sessionId,
+        generation: state.generation
+      })
+    },
+    { cwd: b, path: pb }
+  )
+  if (result.kind !== 'snapshot') throw new Error('Navigation must return a snapshot')
+  const target = result.snapshot
+  await page.evaluate(
+    (workerId) => window.pi.selectSession(workerId),
+    source.desktopScope!.workerId
+  )
+  const preferences = JSON.parse(
+    await readFile(join(root, 'user-data', 'pi-desktop-preferences.json'), 'utf8')
+  )
+  expect(preferences).toMatchObject({
+    lastProjectPath: a,
+    lastRuntimeId: 'pi',
+    lastSessionPath: pa
+  })
+  await page.evaluate(
+    (workerId) => window.pi.selectSession(workerId),
+    target.desktopScope!.workerId
+  )
+  await app.close()
+  app = await electron.launch({
+    args: [resolve('.')],
+    cwd: a,
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: join(root, 'home'),
+      LANG: 'en_US.UTF-8',
+      TMPDIR: root,
+      TMP: root,
+      TEMP: root,
+      PI_DESKTOP_E2E: '1',
+      PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
+      PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data')
+    }
+  })
+  page = await app.firstWindow()
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId))
+    .toBe('b-exact')
+  const restored = await page.evaluate(() => window.pi.getState())
+  expect(restored.runtime?.id).toBe('pi')
+  expect(restored.project?.path).toBe(b)
+  expect(restored.activeSessionPath).toBe(pb)
+})
 
 test('home resumes a recent project without reopening the folder picker', async () => {
   await page.evaluate((cwd) => window.pi.navigationLibrary({ type: 'project:hide', cwd }), a)
-  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).project)).toBeNull()
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).project))
+    .toBeNull()
   await expect(page.getByRole('heading', { name: '继续上次的工作。' })).toBeVisible()
   await expect(page.getByRole('button', { name: '选择其他文件夹' })).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'home-continue.png') })
   await page.getByRole('button', { name: '继续最近会话' }).click()
-  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).project?.path)).toBe(b)
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).project?.path))
+    .toBe(b)
   await expect(page.locator('.node-flow')).toContainText('归档讨论 49 的回答')
 })
 
 test('pending navigation keeps loaded rows stable but unavailable, including the collapsed rail', async () => {
   await page.locator('.composer-input').fill('保留 A 草稿')
-  for (const width of [960, 1440]) {
+  for (const [index, width] of [960, 1440].entries()) {
     await app.evaluate(
       ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 900),
       width
     )
     await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(width)
     const source = group(a).locator('.project-session-row').first()
-    const target = group(b).locator('.project-session-row').first()
+    // Use a fresh session each time: selecting a resident session does not
+    // restart its SDK and therefore should not wait on the startup fixture.
+    const target = group(b).locator('.project-session-row').nth(index)
     const targetTitle = await target.locator('.session-title').innerText()
     await expect(source).toBeEnabled()
     await expect(target).toBeEnabled()
@@ -212,7 +288,9 @@ test('pending navigation keeps loaded rows stable but unavailable, including the
     const before = await source.boundingBox()
     const scopeBefore = await page.locator('.catalog-scope').boundingBox()
     const unavailable = group(join(root, 'removed')).locator('.project-new')
-    const unavailableOpacity = await unavailable.evaluate((button) => getComputedStyle(button).opacity)
+    const unavailableOpacity = await unavailable.evaluate(
+      (button) => getComputedStyle(button).opacity
+    )
     await writeFile(join(root, 'navigation-delay'), '')
     try {
       await target.click()
@@ -236,7 +314,10 @@ test('pending navigation keeps loaded rows stable but unavailable, including the
       const shot = await app.evaluate(async ({ BrowserWindow }) =>
         (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64')
       )
-      await writeFile(join(artifacts, `navigation-pending-${width}.png`), Buffer.from(shot, 'base64'))
+      await writeFile(
+        join(artifacts, `navigation-pending-${width}.png`),
+        Buffer.from(shot, 'base64')
+      )
       await page.keyboard.press('Meta+b')
       for (const name of ['新会话', '添加项目']) {
         const button = page.locator('.sidebar').getByRole('button', { name, exact: true })
@@ -252,9 +333,7 @@ test('pending navigation keeps loaded rows stable but unavailable, including the
       .toBe(b)
     await expect(page.locator('.project-session-list')).not.toHaveAttribute('aria-busy', 'true')
     await expect(page.locator('.node-flow')).toContainText(`${targetTitle} 的回答`)
-    await group(a)
-      .getByRole('button', { name: /导航体验与布局/ })
-      .click()
+    await sessionRow(a, '导航体验与布局').click()
     await expect(page.locator('.composer-input')).toHaveValue('保留 A 草稿')
   }
   // Supported maximum counts must not wrap the status row at the narrow breakpoint.
@@ -279,11 +358,8 @@ test('actual catalog preserves active state, paginates, opens exact cross-projec
   expect((await page.evaluate(() => window.pi.getState())).sessionId).toBe('a-main')
   expect((await page.evaluate(() => window.pi.getState())).activeModel).toBe(before.activeModel)
   await expect(page.locator('.composer-input')).toHaveValue('A 未发送草稿')
-  await expect(group(b).locator('.project-session-row')).toHaveCount(50)
-  await group(b)
-    .getByRole('button', { name: /显示更多/ })
-    .click()
-  await expect(group(b).locator('.project-session-row')).toHaveCount(52)
+  await expect(group(b).locator('.project-session-row')).toHaveCount(5)
+  await showAllSessions(b)
   await page.getByRole('button', { name: '搜索所有会话' }).click()
   await page.getByRole('combobox', { name: '搜索所有会话标题' }).fill('指定目标')
   await expect(page.getByRole('option', { name: /指定目标会话/ })).toHaveCount(1)
@@ -293,23 +369,15 @@ test('actual catalog preserves active state, paginates, opens exact cross-projec
     .toBe(pb)
   await expect(page.locator('.node-flow')).toContainText('指定目标会话 的回答')
   await page.locator('.composer-input').fill('B 未发送草稿')
-  await group(a)
-    .getByRole('button', { name: /导航体验与布局/ })
-    .click()
+  await sessionRow(a, '导航体验与布局').click()
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).activeSessionPath))
     .toBe(pa)
   await expect(page.locator('.composer-input')).toHaveValue('A 未发送草稿')
-  await group(b)
-    .getByRole('button', { name: /显示更多/ })
-    .click()
-  await group(b)
-    .getByRole('button', { name: /指定目标会话/ })
-    .click()
+  await showAllSessions(b)
+  await sessionRow(b, '指定目标会话').click()
   await expect(page.locator('.composer-input')).toHaveValue('B 未发送草稿')
-  await group(a)
-    .getByRole('button', { name: /导航体验与布局/ })
-    .click()
+  await sessionRow(a, '导航体验与布局').click()
   await group(b).locator('.project-group-toggle').click()
   for (const width of [960, 1240, 1440]) {
     await app.evaluate(
@@ -317,7 +385,7 @@ test('actual catalog preserves active state, paginates, opens exact cross-projec
       width
     )
     await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(width)
-    await expect(page.locator('.sidebar')).toHaveCSS('width', width === 960 ? '232px' : '280px')
+    await expect(page.locator('.sidebar')).toHaveCSS('width', '248px')
     await expect(group(a).locator('.project-session-row').first()).toHaveCSS(
       'flex-direction',
       'row'
@@ -349,13 +417,20 @@ test('new session targets empty project directly, stale intent cannot activate, 
   const rejected = await page.evaluate(
     async ({ a, pa, source }) => {
       try {
-        await window.pi.send({
-          type: 'project:navigate',
-          cwd: a,
-          sessionPath: pa,
-          sessionId: source.sessionId,
-          generation: source.generation
-        })
+        await window.pi.send(
+          {
+            type: 'project:navigate',
+            cwd: a,
+            sessionPath: pa,
+            sessionId: source.sessionId,
+            generation: source.generation
+          },
+          {
+            scope: source.desktopScope!,
+            sessionId: source.sessionId,
+            generation: source.generation
+          }
+        )
         return false
       } catch {
         return true
@@ -373,14 +448,9 @@ test('new session targets empty project directly, stale intent cannot activate, 
 
 test('a target removed after discovery reports failure in that project and retries only on request', async () => {
   await page.locator('.composer-input').fill('A 的待发送草稿')
-  await group(b)
-    .getByRole('button', { name: /显示更多/ })
-    .click()
-  await expect(group(b).locator('.project-session-row')).toHaveCount(52)
+  await showAllSessions(b)
   await rm(b, { recursive: true })
-  await group(b)
-    .getByRole('button', { name: /指定目标会话/ })
-    .click()
+  await sessionRow(b, '指定目标会话').click()
   await expect(group(b).getByRole('alert')).toContainText('所选项目目录不可用')
   await expect(group(a).getByRole('alert')).toHaveCount(0)
   await expect(page.locator('.composer-input')).toHaveValue('A 的待发送草稿')
@@ -396,21 +466,16 @@ test('a target removed after discovery reports failure in that project and retri
   await mkdir(b, { recursive: true })
   // Restoring a directory never replays the failed navigation automatically.
   expect((await page.evaluate(() => window.pi.getState())).activeSessionPath).toBe(pa)
-  const failedGeneration = (await page.evaluate(() => window.pi.getState())).generation
-  await group(a)
-    .getByRole('button', { name: /会话草稿保留/ })
-    .click()
+  await sessionRow(a, '会话草稿保留').click()
   await expect
-    .poll(() => page.evaluate(async () => (await window.pi.getState()).generation))
-    .toBeGreaterThan(failedGeneration)
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId))
+    .toBe('a-older')
   // Retry must capture this new source identity, not replay the failed A-main command.
   await group(b).getByRole('button', { name: '重试打开会话' }).click()
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).activeSessionPath))
     .toBe(pb)
   await expect(group(b).getByRole('alert')).toHaveCount(0)
-  await group(a)
-    .getByRole('button', { name: /导航体验与布局/ })
-    .click()
+  await sessionRow(a, '导航体验与布局').click()
   await expect(page.locator('.composer-input')).toHaveValue('A 的待发送草稿')
 })

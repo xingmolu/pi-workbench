@@ -1,3 +1,4 @@
+import { hasActiveNativeSubagents } from '../shared/subagent'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import type { AgentSnapshot, HostCommand, HostEvent, HostResult } from '../shared/contracts'
@@ -64,6 +65,7 @@ export type SessionWorkerPoolOptions = SessionWorkerPoolBaseOptions &
 
 type Resident = {
   workerId: string
+  runtimeId?: string
   cwd: string
   path: string | null
   pathVersion: number
@@ -144,7 +146,7 @@ export class SessionWorkerPool {
       if (owner.cwd !== cwd || (path && owner.path !== path)) continue
       const s = owner.snapshot
       if (!s || owner.disposing || owner.pending || !s.ready) return '会话正在处理操作，请稍后重试'
-      if (s.busy || s.status === 'running' || s.queuedCount || s.followUp.length) return '项目仍有运行或排队中的任务，请先停止或等待完成'
+      if (s.busy || hasActiveNativeSubagents(s) || s.status === 'running' || s.queuedCount || s.followUp.length) return '项目仍有运行或排队中的任务，请先停止或等待完成'
       if (s.approvals.length || s.status === 'awaiting-approval') return '项目仍有待确认操作，请先处理'
       if (s.edit?.pending || s.loginPrompt || !['idle', 'success', 'error'].includes(s.login.phase)) return '请先完成编辑或登录'
       if (owner.safety.receipts !== 'settled' || owner.unreconciledRequest) return '操作结果尚未确认，请先完成恢复'
@@ -170,7 +172,7 @@ export class SessionWorkerPool {
   }
 
   open(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     expected?: SelectedSessionScope | null,
     prepare?: PrepareSessionWorker
   ) {
@@ -189,7 +191,7 @@ export class SessionWorkerPool {
    * remains entirely unchanged.
    */
   openBackground(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     prepare?: PrepareSessionWorker
   ): Promise<BackgroundSessionAdmission> {
     return this.enqueueAdmission(() =>
@@ -210,13 +212,16 @@ export class SessionWorkerPool {
   }
 
   private async openResident<Result>(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     expected: SelectedSessionScope | null | undefined,
     prepare: PrepareSessionWorker | undefined,
     finish: (owner: Resident) => Result
   ): Promise<Result> {
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
+    const runtimeId = this.runtime.resolveProviderId?.(target.runtimeId) ?? target.runtimeId ?? this.runtime.provider?.id
+    if (target.runtimeId && !this.runtime.resolveProviderId && this.runtime.provider?.id !== target.runtimeId)
+      throw new HostRejectedError('This runtime cannot select another provider')
     const canonicalize = this.options.canonicalize ?? realpath
     const cwd = await canonicalize(target.cwd)
     const path = target.path ? await canonicalize(target.path) : null
@@ -227,6 +232,7 @@ export class SessionWorkerPool {
       ? [...this.residents.values()].find((owner) => owner.path === path)
       : undefined
     if (existing && existing.cwd !== cwd) throw new Error('Session file belongs to another project')
+    if (existing && existing.runtimeId !== runtimeId) throw new HostRejectedError('Session file belongs to another runtime')
     if (existing?.snapshot) {
       if (prepare) {
         const prepared = await prepare(
@@ -256,6 +262,7 @@ export class SessionWorkerPool {
     const worker = await this.runtime.createSession({
       workerId,
       cwd,
+      ...(runtimeId ? { runtimeId } : {}),
       onEvent: (event) => {
         const owner = this.residents.get(workerId)
         if (!owner || owner.disposing) return
@@ -284,6 +291,7 @@ export class SessionWorkerPool {
         if (failedOwner && !failedOwner.disposing && error) {
           this.failures.set(workerId, {
             workerId,
+            ...(failedOwner.runtimeId ? { runtimeId: failedOwner.runtimeId } : {}),
             cwd: failedOwner.cwd,
             sessionPath: failedOwner.path,
             sessionId: failedOwner.snapshot?.sessionId ?? null,
@@ -319,6 +327,7 @@ export class SessionWorkerPool {
     }
     this.residents.set(workerId, {
       workerId,
+      ...(runtimeId ? { runtimeId } : {}),
       cwd,
       path,
       pathVersion: 0,
@@ -403,7 +412,17 @@ export class SessionWorkerPool {
         path: owner.path,
         version: owner.pathVersion
       }))
-      const paths = await Promise.all(captured.map(({ path }) => (path ? canonicalize(path) : null)))
+      const paths = await Promise.all(captured.map(async ({ path }) => {
+        if (!path) return null
+        try {
+          return await canonicalize(path)
+        } catch (error) {
+          // A deleted background transcript must not block unrelated navigation.
+          // Retain its ownership path; opening that missing file still fails above.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return path
+          throw error
+        }
+      }))
       if (
         captured.some(
           ({ owner, version }) =>
@@ -419,6 +438,8 @@ export class SessionWorkerPool {
   }
 
   private acceptSnapshot(owner: Resident, snapshot: AgentSnapshot): boolean {
+    if (owner.runtimeId && snapshot.runtime && snapshot.runtime.id !== owner.runtimeId)
+      throw new Error('Runtime identity changed within a resident session')
     const previous = owner.snapshot
     if (
       previous &&
@@ -473,6 +494,7 @@ export class SessionWorkerPool {
       !!s?.ready &&
       !!s.activeSessionPath &&
       !s.busy &&
+      !hasActiveNativeSubagents(s) &&
       s.status === 'idle' &&
       s.queuedCount === 0 &&
       s.followUp.length === 0 &&
@@ -490,6 +512,7 @@ export class SessionWorkerPool {
   getLiveSummaries(): LiveSessionSummary[] {
     const live: LiveSessionSummary[] = [...this.residents.values()].map((owner) => ({
       workerId: owner.workerId,
+      ...(owner.runtimeId ? { runtimeId: owner.runtimeId } : {}),
       cwd: owner.cwd,
       sessionPath: owner.path,
       sessionId: owner.snapshot?.sessionId ?? null,
@@ -508,10 +531,12 @@ export class SessionWorkerPool {
     ]
   }
 
-  get quiescent(): boolean {
+  get quiescent(): boolean { return this.quiescentFor() }
+
+  quiescentFor(runtimeId?: string): boolean {
     return (
       this.admissions === 0 &&
-      [...this.residents.values()].every((owner) => {
+      [...this.residents.values()].filter(owner => !runtimeId || owner.runtimeId === runtimeId).every((owner) => {
         const s = owner.snapshot
         return (
           owner.pending === 0 &&
@@ -519,6 +544,7 @@ export class SessionWorkerPool {
           !owner.disposing &&
           !!s?.ready &&
           !s.busy &&
+      !hasActiveNativeSubagents(s) &&
           !s.queuedCount &&
           !s.followUp.length &&
           !s.approvals.length &&

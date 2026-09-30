@@ -11,6 +11,7 @@ export type ProjectCatalogCommand = ProjectCatalogQuery & {
 export type ProjectNavigateCommand = {
   type: 'project:navigate'
   cwd: string
+  runtimeId?: string
   sessionPath?: string
   sessionId: string | null
   generation: number

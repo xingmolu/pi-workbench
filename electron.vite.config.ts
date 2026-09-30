@@ -99,6 +99,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           'agent-host': resolve(__dirname, 'src/agent-host/index.ts'),
+          'claude-host': resolve(__dirname, 'src/claude-host/index.ts'),
           'terminal-host': resolve(__dirname, 'src/terminal-host/index.ts'),
           'plugin-host': resolve(__dirname, 'src/plugin-host/index.ts'),
           'browser-targets': resolve(__dirname, 'src/main/browser-targets.ts'),

@@ -41,7 +41,7 @@ export async function navigateToEditedUserParent(
   if (user.parentId === null) manager.resetLeaf()
   else manager.branch(user.parentId)
   if (result?.label) manager.appendLabelChange(userId, result.label)
-  session.agent.state.messages = manager.buildSessionContext().messages
+  session.refreshContext()
   const newLeafId = manager.getLeafId()
   await session.extensionRunner.emit({
     type: 'session_tree',

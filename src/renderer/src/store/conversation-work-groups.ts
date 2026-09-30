@@ -10,7 +10,7 @@ export function groupConversationWork(nodes: readonly ConversationNode[]): Conve
   const groups: ConversationWorkGroup[] = []
   for (const node of nodes) {
     const key = node.presentationIdentity ?? node.id
-    if (node.type === 'think' || node.type === 'tool') {
+    if (node.type === 'think' || (node.type === 'tool' && !node.subagent)) {
       const previous = groups.at(-1)
       if (previous?.kind === 'work') previous.nodes.push(node)
       else groups.push({ kind: 'work', key: `work:${key}`, nodes: [node] })

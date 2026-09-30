@@ -242,7 +242,7 @@ test('a manifest.json plugin loads, is granted, runs commands, panels and settin
       generation
     })
   })
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('回显一下')
   await draft.press('Enter')
   await expect(page.locator('.assistant-node').last()).toContainText('插件回显完成')

@@ -1,3 +1,6 @@
+import SubagentTool from '../components/SubagentTool'
+import { conversationSubagents } from '../store/subagent-presentation'
+import { ConversationActivity } from '../components/ConversationActivity'
 import { memo, useMemo, useState } from 'react'
 import {
   Brain,
@@ -281,14 +284,14 @@ const WorkGroup = memo(
     const digest = running || awaiting ? null : workDigest(nodes)
     const expanded = awaiting || (override ?? requiresAttention)
     return (
-      <section className={`m-work${running ? ' is-running' : ''}${expanded ? ' is-open' : ''}`}>
+      <section className={`m-work${running && !awaiting ? ' is-running' : ''}${expanded ? ' is-open' : ''}`}>
         <button
           type="button"
           className="m-work-head"
           aria-expanded={expanded}
           onClick={() => setOverride(!expanded)}
         >
-          <ChevronRight className="m-chevron" size={14} aria-hidden="true" />
+          {running && !awaiting ? <span className="activity-orbit" aria-hidden="true" /> : <ChevronRight className="m-chevron" size={14} aria-hidden="true" />}
           <span className="m-work-label">{label}</span>
           {digest?.parts.length ? (
             <span className="m-work-digest">
@@ -554,6 +557,7 @@ export function MobileConversation({
   respond: Respond
   undo?: (entryId: string) => Undo | undefined
 }): React.JSX.Element {
+  const childrenById = useMemo(() => conversationSubagents(snapshot.nodes, []), [snapshot.nodes])
   const flow = useMemo(
     () => buildFlow(snapshot.nodes, snapshot.busy),
     [snapshot.nodes, snapshot.busy]
@@ -562,8 +566,6 @@ export function MobileConversation({
     () => unplacedApprovals(snapshot.nodes, snapshot.approvals),
     [snapshot.nodes, snapshot.approvals]
   )
-  const last = flow.at(-1)
-  const thinking = snapshot.busy && last?.kind !== 'work' && !orphans.length
   return (
     <div className="m-flow">
       {flow.map((item) =>
@@ -583,16 +585,13 @@ export function MobileConversation({
             projectPath={snapshot.cwd}
             undo={item.entryId ? undo?.(item.entryId) : undefined}
           />
+        ) : item.node.type === 'tool' && item.node.subagent ? (
+          <SubagentTool key={item.key} node={item.node} childrenById={childrenById} renderOutput={(text, streaming) => <MobileMarkdown text={text} streaming={streaming} />} />
         ) : (
           <NodeView key={item.key} node={item.node} latest={item.latest} />
         )
       )}
-      {thinking &&
-      !(last?.kind === 'node' && last.node.type === 'assistant' && last.node.streaming) ? (
-        <p className="m-line is-working" role="status">
-          正在工作…
-        </p>
-      ) : null}
+      <ConversationActivity nodes={snapshot.nodes} busy={snapshot.busy} approvals={snapshot.approvals.length} />
       {orphans.map((approval) => (
         <ApprovalCard
           key={`${approval.generation}:${approval.id}`}

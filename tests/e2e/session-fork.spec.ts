@@ -140,7 +140,7 @@ test.afterEach(async () => {
 test('visible current-leaf fork preserves source, structured child, draft and verified parent', async () => {
   const source = await readFile(sourcePath, 'utf8')
   const before = await page.evaluate(() => window.pi.getState())
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('来源未发送草稿')
   await page.getByRole('button', { name: '分叉为新会话', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '分叉当前会话' })).toContainText(
@@ -212,14 +212,14 @@ test('real extension cancellation keeps source, draft and generation; stale fork
   await writeFile(join(root, 'cancel'), '')
   const before = await page.evaluate(() => window.pi.getState())
   const bytes = await readFile(sourcePath, 'utf8')
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('取消后保留草稿')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('取消后保留草稿')
   await page.getByRole('button', { name: '分叉为新会话', exact: true }).click()
   await page.getByRole('button', { name: '确认分叉', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: '扩展已取消分叉' })).toBeVisible()
   const after = await page.evaluate(() => window.pi.getState())
   expect(after.sessionId).toBe(before.sessionId)
   expect(after.generation).toBe(before.generation)
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '取消后保留草稿'
   )
   const errors = await page.evaluate(async (state) => {
@@ -288,7 +288,7 @@ test('unavailable model preserves exact child pin and history while locking send
   expect(child.activeProvider).toBe('unavailable-fixture')
   expect(child.activeModel).toBe('exact-model')
   expect(child.composeBlockReason).toBe('pinned-model-unavailable')
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeDisabled()
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toBeDisabled()
   await expect(page.locator('.node-flow')).toContainText('当前分支回答')
 })
 
@@ -337,12 +337,12 @@ test('actual pending public command rejects fork before writes and exposes keybo
 
 test('pending fork prevents composer submission and rejects an old queued IPC prompt after child activation', async () => {
   const before = await page.evaluate(() => window.pi.getState())
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('旧会话草稿不发送')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('旧会话草稿不发送')
   await writeFile(join(root, 'delay'), '')
   await page.getByRole('button', { name: '分叉为新会话', exact: true }).click()
   await page.getByRole('button', { name: '确认分叉', exact: true }).click()
   await expect(page.getByRole('button', { name: '正在分叉…', exact: true })).toBeDisabled()
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).press('Enter')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).press('Enter')
   const stale = page.evaluate(async (state) => {
     try {
       await window.pi.send({
@@ -357,10 +357,10 @@ test('pending fork prevents composer submission and rejects an old queued IPC pr
     }
   }, before)
   await rm(join(root, 'delay'))
-  expect(await stale).toContain('会话已切换')
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue('')
+  expect(await stale).toContain('会话已改变，旧操作已取消')
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue('')
   await page.getByRole('button', { name: '来源会话', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '旧会话草稿不发送'
   )
 })

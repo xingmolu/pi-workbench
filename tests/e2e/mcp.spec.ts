@@ -49,6 +49,10 @@ test.beforeEach(async () => {
       }});
     }`
   )
+  await launchFixtureApp()
+})
+
+async function launchFixtureApp(): Promise<void> {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
@@ -77,7 +81,8 @@ test.beforeEach(async () => {
     window.pi.send({ type: 'model:set', providerId: 'mcp-fixture', modelId: 'offline' })
   )
   await page.evaluate(() => window.pi.send({ type: 'permission:set', mode: 'ask' }))
-})
+}
+
 test.afterEach(async () => {
   await app?.close()
   http?.kill()
@@ -125,7 +130,7 @@ async function run(tool: string) {
     const { sessionId, generation } = await window.pi.getState()
     await window.pi.send({ type: 'prompt:send', text, sessionId: sessionId!, generation })
   }, '/fixture-' + tool)
-  const input = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const input = page.getByRole('textbox', { name: '任务输入', exact: true })
   await input.fill('Run isolated MCP ' + tool)
   await input.press('Enter')
   await expect(page.locator('.approval-card')).toBeVisible()
@@ -172,17 +177,26 @@ test('stdio MCP UI trust, real Pi approval, failure, cancellation and durable hi
   await expect.poll(() => existsSync(join(root, 'started'))).toBe(true)
   await page.getByRole('button', { name: '停止当前运行', exact: true }).click()
   await idle()
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toBeEnabled()
   const state = await page.evaluate(() => window.pi.getState())
   expect(JSON.stringify(state)).toContain('side_effect')
   const sessionPath = state.sessions.find((session) => session.active)!.path
   const history = await readFile(sessionPath, 'utf8')
   expect(history).toContain('side_effect')
   expect(history).toContain('sentinel written')
+  // Cancellation is not a server completion receipt: configuration stays fenced
+  // until the owning worker exits, even though the model run is no longer busy.
+  await expect(page.evaluate(async () => {
+    const { sessionId, generation } = await window.pi.getState()
+    return window.pi.send({ type: 'mcp:reload', sessionId, generation })
+  })).rejects.toThrow('请先结束所有会话')
+  await app.close()
+  await launchFixtureApp()
   await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sessionPath)
-  expect(JSON.stringify(await page.evaluate(() => window.pi.getState()))).toContain(
-    'sentinel written'
-  )
+  expect(JSON.stringify(await page.evaluate(() => window.pi.getState()))).toContain('sentinel written')
+  await page.locator('.work-summary-trigger').nth(1).click()
+  await page.locator('.tool-node.is-success .tool-trigger').click()
+  await expect(page.locator('.node-flow')).toContainText('sentinel written')
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: 'MCP 服务器', exact: true }).click()
   await page.getByRole('button', { name: '重新连接', exact: true }).click()

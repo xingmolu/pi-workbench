@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import '../assets/conversation-activity.css'
 import { useRevealOnOpen } from './use-reveal-on-open'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight } from 'lucide-react'
@@ -26,12 +27,12 @@ export default function WorkSummary({
   const expanded = awaitingApproval || (expandedOverride ?? (defaultExpanded || requiresAttention))
   return (
     <Collapsible.Root
-      className={`work-summary${running ? ' is-running' : ''}`}
+      className={`work-summary${running && !awaitingApproval ? ' is-running' : ''}`}
       open={expanded}
       onOpenChange={setExpanded}
     >
       <Collapsible.Trigger className="work-summary-trigger">
-        <ChevronRight size={14} aria-hidden="true" />
+        {running && !awaitingApproval ? <span className="activity-orbit" aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         <span>{label}</span>
         {digest && digest.parts.length > 0 ? (
           <span className="work-summary-digest">

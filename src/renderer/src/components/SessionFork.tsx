@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { GitFork } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
-import { usePiStore } from '../store/pi-store'
+import { commandOrigin, usePiStore } from '../store/pi-store'
+import { sameSelectedScope } from '../../../shared/session-runtime'
 
 export default function SessionFork({ snapshot, entryId, messageAction = false }: { snapshot: AgentSnapshot; entryId?:string;messageAction?:boolean }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -12,7 +13,7 @@ export default function SessionFork({ snapshot, entryId, messageAction = false }
   const inFlight = useRef(false)
   const hintId = useId()
   const pending = usePiStore((state) => state.forkPending)
-  const scope = JSON.stringify([snapshot.sessionId, snapshot.generation])
+  const scope = JSON.stringify([snapshot.sessionId, snapshot.generation, snapshot.desktopScope ?? null])
   const reason = !snapshot.ready
     ? '请先连接引擎'
     : (snapshot.fork?.reason ?? (messageAction&&!entryId?'回复尚未完成，暂时不能分叉':!snapshot.fork?.entryId ? '当前会话暂时不能分叉' : null))
@@ -35,7 +36,9 @@ export default function SessionFork({ snapshot, entryId, messageAction = false }
         sessionId: snapshot.sessionId!,
         generation: snapshot.generation,
         entryId: messageAction ? entryId! : snapshot.fork!.entryId!
-      })
+      }, commandOrigin(snapshot))
+      if (!sameSelectedScope(snapshot.desktopScope ?? null, usePiStore.getState().snapshot.desktopScope ?? null))
+        return
       if (
         !result.cancelled &&
         (result.snapshot.sessionId === snapshot.sessionId ||
@@ -51,7 +54,8 @@ export default function SessionFork({ snapshot, entryId, messageAction = false }
       const current = usePiStore.getState().snapshot
       if (
         current.sessionId !== snapshot.sessionId ||
-        current.generation !== snapshot.generation
+        current.generation !== snapshot.generation ||
+        !sameSelectedScope(snapshot.desktopScope ?? null, current.desktopScope ?? null)
       ) return
       const message = (cause instanceof Error ? cause.message : String(cause)).replace(
         /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,

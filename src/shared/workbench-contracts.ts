@@ -145,6 +145,7 @@ export type PluginPanelContext = {
   viewId: string
   projectPath: string | null
   sessionId: string | null
+  /** Desktop workbench context epoch; independent of any runtime's native generation. */
   generation: number
 }
 

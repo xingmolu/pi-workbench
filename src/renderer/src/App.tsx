@@ -1,3 +1,11 @@
+import SubagentDirectory from './components/SubagentDirectory'
+import { Bot } from 'lucide-react'
+import RuntimePicker from './components/RuntimePicker'
+import { useRuntimeCatalog } from './store/runtime-catalog'
+import './assets/runtime-workbench.css'
+import SubagentInspector from './components/SubagentInspector'
+import type { SubagentSummary } from '../../shared/subagent'
+import type { DesktopCommandOrigin } from '../../shared/session-runtime'
 import { useNavigationLibrary } from './store/navigation-library'
 import NavigationFeedback from './components/navigation/NavigationFeedback'
 import PluginApprovalDialog, { type PluginApproval } from './components/PluginApprovalDialog'
@@ -42,6 +50,12 @@ import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbe
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
 
 export default function App(): React.JSX.Element {
+  useEffect(() => {
+    void useRuntimeCatalog
+      .getState()
+      .load()
+      .catch((error) => usePiStore.getState().setClientError(String(error)))
+  }, [])
   const theme = useResolvedTheme()
   useLayoutEffect(() => applyDocumentTheme(theme), [theme])
   const accent = useDesktopSettings((state) => state.settings.accent)
@@ -86,7 +100,9 @@ export default function App(): React.JSX.Element {
     setRecentProject({
       path: project.path,
       name: project.name,
-      ...(latestSession ? { sessionPath: latestSession.path, sessionTitle: latestSession.title } : {})
+      ...(latestSession
+        ? { sessionPath: latestSession.path, sessionTitle: latestSession.title }
+        : {})
     })
   }, [])
   const forkPending = usePiStore((state) => state.forkPending)
@@ -139,8 +155,64 @@ export default function App(): React.JSX.Element {
   const [pluginCommands, setPluginCommands] = useState<PluginCommandSummary[]>([])
   const [pluginApprovals, setPluginApprovals] = useState<PluginApproval[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
-  useEffect(() => { void useNavigationLibrary.getState().hydrate() }, [])
-  useEffect(() => { if (!snapshot.project) setWorkbenchOpen(false) }, [snapshot.project?.path])
+  const [subagentDirectoryOpen, setSubagentDirectoryOpen] = useState(false)
+  const directoryPreviousWorkbench = useRef(false)
+  const closeDirectory = useCallback((): void => {
+    setSubagentDirectoryOpen(false)
+    setWorkbenchOpen(directoryPreviousWorkbench.current)
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>('.subagent-directory-toggle')?.focus()
+    )
+  }, [])
+  const [subagentPreview, setSubagentPreview] = useState<{
+    child: SubagentSummary
+    owner: DesktopCommandOrigin
+  } | null>(null)
+  const subagentOpener = useRef<HTMLElement | null>(null)
+  const subagentOpenerChild = useRef<string | null>(null)
+  const subagentRestoreWorkbench = useRef(false)
+  const selectWorkbenchView = useCallback((viewId: string): void => {
+    setSubagentPreview(null)
+    setSubagentDirectoryOpen(false)
+    dispatchWorkbenchSelection({ type: 'select', viewId })
+    setWorkbenchOpen(true)
+  }, [])
+  const closeSubagentPreview = useCallback(() => {
+    setWorkbenchOpen(subagentRestoreWorkbench.current)
+    setSubagentPreview(null)
+    requestAnimationFrame(() => {
+      const directoryRow = Array.from(
+        document.querySelectorAll<HTMLElement>('.subagent-directory-row')
+      ).find((row) => row.dataset.subagentId === subagentOpenerChild.current)
+      const opener = subagentOpener.current?.isConnected ? subagentOpener.current : null
+      ;(
+        directoryRow ??
+        opener ??
+        document.querySelector<HTMLElement>('[aria-label="关闭子 Agent 列表"]')
+      )?.focus({ preventScroll: true })
+    })
+  }, [])
+  useEffect(() => {
+    if (
+      subagentPreview &&
+      (snapshot.sessionId !== subagentPreview.owner.sessionId ||
+        snapshot.generation !== subagentPreview.owner.generation ||
+        !sameSelectedScope(snapshot.desktopScope ?? null, subagentPreview.owner.scope))
+    )
+      closeSubagentPreview()
+  }, [
+    snapshot.sessionId,
+    snapshot.generation,
+    snapshot.desktopScope,
+    subagentPreview,
+    closeSubagentPreview
+  ])
+  useEffect(() => {
+    void useNavigationLibrary.getState().hydrate()
+  }, [])
+  useEffect(() => {
+    if (!snapshot.project) setWorkbenchOpen(false)
+  }, [snapshot.project?.path])
   const desktopSettings = useDesktopSettings((state) => state.settings)
   useEffect(() => {
     if (!useDesktopSettings.getState().hasLoaded) void useDesktopSettings.getState().hydrate()
@@ -252,8 +324,7 @@ export default function App(): React.JSX.Element {
       (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
     )
     if (!files) return
-    dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
-    setWorkbenchOpen(true)
+    selectWorkbenchView(files.viewId)
     // Only a new request switches panels; later snapshots must not pull focus back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileOpen?.revision])
@@ -310,7 +381,9 @@ export default function App(): React.JSX.Element {
         shortcuts.current.newSession()
       } else if (key === '\\') {
         event.preventDefault()
-        setWorkbenchOpen((open) => !open)
+        if (subagentPreview) closeSubagentPreview()
+        else if (subagentDirectoryOpen) closeDirectory()
+        else setWorkbenchOpen((open) => !open)
       } else if (key === 'j') {
         event.preventDefault()
         shortcuts.current.openTerminal()
@@ -350,7 +423,14 @@ export default function App(): React.JSX.Element {
       window.removeEventListener('compositionstart', startComposition)
       window.removeEventListener('compositionend', endComposition)
     }
-  }, [openPalette, closePalette])
+  }, [
+    openPalette,
+    closePalette,
+    subagentPreview,
+    subagentDirectoryOpen,
+    closeSubagentPreview,
+    closeDirectory
+  ])
 
   const send = useCallback(
     async (command: HostCommand): Promise<boolean> => {
@@ -419,7 +499,12 @@ export default function App(): React.JSX.Element {
   }, [setClientError, setSnapshot])
 
   const navigateProject = useCallback(
-    async (cwd: string, sessionPath?: string, workerId?: string): Promise<void> => {
+    async (
+      cwd: string,
+      sessionPath?: string,
+      workerId?: string,
+      runtimeId?: string
+    ): Promise<void> => {
       const current = usePiStore.getState().snapshot
       if (
         navigationLock.current ||
@@ -451,6 +536,7 @@ export default function App(): React.JSX.Element {
                 {
                   type: 'project:navigate',
                   cwd,
+                  ...(runtimeId ? { runtimeId } : {}),
                   ...(sessionPath ? { sessionPath } : {}),
                   sessionId: current.sessionId,
                   generation: current.generation
@@ -494,8 +580,7 @@ export default function App(): React.JSX.Element {
         (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'terminal'
       )
       if (!terminal || !snapshot.project) return
-      dispatchWorkbenchSelection({ type: 'select', viewId: terminal.viewId })
-      setWorkbenchOpen(true)
+      selectWorkbenchView(terminal.viewId)
     }
   }
 
@@ -542,28 +627,63 @@ export default function App(): React.JSX.Element {
     [send]
   )
 
+  const inspectChild = (child: SubagentSummary): void => {
+    const owner = commandOrigin(snapshot)
+    if (!owner) return
+    subagentOpener.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    subagentOpenerChild.current = child.id
+    if (!subagentPreview) subagentRestoreWorkbench.current = workbenchOpen
+    setSubagentPreview({ child, owner })
+    setWorkbenchOpen(true)
+  }
+
   return (
     <div className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}`}>
-      <button
-        className="icon-btn workbench-toggle"
-        aria-label={workbenchOpen ? '折叠工作台' : '展开工作台'}
-        title={`${workbenchOpen ? '折叠工作台' : '展开工作台'}（${shortcutLabel('\\')}）`}
-        data-shortcut={shortcutLabel('\\')}
-        aria-expanded={workbenchOpen}
-        onClick={() => setWorkbenchOpen((open) => !open)}
-      >
-        <PanelRight size={18} />
-      </button>
+      {snapshot.project && !subagentPreview && !subagentDirectoryOpen ? (
+        <button
+          type="button"
+          className="icon-btn subagent-directory-toggle"
+          aria-label="子 Agent 列表"
+          title="子 Agent 列表"
+          aria-expanded={subagentDirectoryOpen}
+          onClick={() => {
+            if (subagentDirectoryOpen) closeDirectory()
+            else {
+              directoryPreviousWorkbench.current = workbenchOpen
+              setSubagentDirectoryOpen(true)
+              setWorkbenchOpen(true)
+            }
+          }}
+        >
+          <Bot size={17} />
+        </button>
+      ) : null}
+      {!subagentPreview && !subagentDirectoryOpen && (
+        <button
+          className="icon-btn workbench-toggle"
+          aria-label={workbenchOpen ? '折叠工作台' : '展开工作台'}
+          title={`${workbenchOpen ? '折叠工作台' : '展开工作台'}（${shortcutLabel('\\')}）`}
+          data-shortcut={shortcutLabel('\\')}
+          aria-expanded={workbenchOpen}
+          onClick={() => setWorkbenchOpen((open) => !open)}
+        >
+          <PanelRight size={18} />
+        </button>
+      )}
       <Sidebar
         collapsed={layout.sidebarCollapsed}
         collapseLocked={layout.settingsOpen}
         snapshot={snapshot}
+        runtimePicker={<RuntimePicker />}
         onToggle={() => dispatchLayout({ type: 'sidebar:toggle' })}
         onChooseProject={() => void chooseProject()}
         onNewSession={() => {
           if (snapshot.project) void navigateProject(snapshot.project.path)
         }}
-        onNavigate={(cwd, path, workerId) => void navigateProject(cwd, path, workerId)}
+        onNavigate={(cwd, path, workerId, runtimeId) =>
+          void navigateProject(cwd, path, workerId, runtimeId)
+        }
         onCatalog={acceptCatalog}
         navigationFailures={navigationFailures}
         pending={navigating}
@@ -577,6 +697,7 @@ export default function App(): React.JSX.Element {
         conversation={
           <Conversation
             snapshot={snapshot}
+            onInspectSubagent={inspectChild}
             approvals={snapshot.approvals}
             loading={loading}
             error={clientError ?? snapshot.error}
@@ -598,29 +719,54 @@ export default function App(): React.JSX.Element {
             }
             onLogin={() => {
               openSettings()
-              login('openai-codex', 'browser')
+              login(snapshot.runtime?.id === 'claude' ? 'anthropic' : 'openai-codex', 'browser')
             }}
             onOpenSettings={openSettings}
             onApproval={respondToApproval}
           />
         }
         workbench={
-          <Workbench
-            collapsed={!workbenchOpen}
-            selectedViewId={workbenchSelection.selectedViewId}
-            openedViewIds={workbenchSelection.openedViewIds}
-            onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
-            settingsOpen={layout.settingsOpen || activeOverlay !== null}
-            agentSnapshot={snapshot}
-            workbenchSnapshot={workbenchStatus.snapshot}
-            workbenchError={workbenchStatus.error}
-            onSelectView={(viewId) => {
-              dispatchWorkbenchSelection({ type: 'select', viewId })
-              setWorkbenchOpen(true)
-            }}
-            onWorkbenchCommand={sendWorkbench}
-            onWorkbenchError={reportWorkbenchError}
-          />
+          <div className="subagent-workbench-slot">
+            <div
+              className="subagent-existing-workbench"
+              hidden={Boolean(subagentPreview) || subagentDirectoryOpen}
+            >
+              <Workbench
+                collapsed={!workbenchOpen}
+                selectedViewId={workbenchSelection.selectedViewId}
+                openedViewIds={workbenchSelection.openedViewIds}
+                onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
+                settingsOpen={
+                  layout.settingsOpen ||
+                  activeOverlay !== null ||
+                  Boolean(subagentPreview) ||
+                  subagentDirectoryOpen
+                }
+                agentSnapshot={snapshot}
+                workbenchSnapshot={workbenchStatus.snapshot}
+                workbenchError={workbenchStatus.error}
+                onSelectView={selectWorkbenchView}
+                onWorkbenchCommand={sendWorkbench}
+                onWorkbenchError={reportWorkbenchError}
+              />
+            </div>
+            {subagentDirectoryOpen && !subagentPreview ? (
+              <SubagentDirectory onInspect={inspectChild} onClose={closeDirectory} />
+            ) : null}
+            {subagentPreview ? (
+              <SubagentInspector
+                key={subagentPreview.child.id}
+                child={subagentPreview.child}
+                owner={subagentPreview.owner}
+                parentNodes={snapshot.nodes}
+                onClose={closeSubagentPreview}
+                onOpen={(path) => {
+                  closeSubagentPreview()
+                  void send({ type: 'session:open', path })
+                }}
+              />
+            ) : null}
+          </div>
         }
       />
       {activeOverlay === 'command' && (
@@ -660,8 +806,7 @@ export default function App(): React.JSX.Element {
               (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
             )
             if (!files || !snapshot.project) return
-            dispatchWorkbenchSelection({ type: 'select', viewId: files.viewId })
-            setWorkbenchOpen(true)
+            selectWorkbenchView(files.viewId)
             useOverlayState.getState().requestFileSearch(snapshot.project.path)
           }}
         />
@@ -678,35 +823,43 @@ export default function App(): React.JSX.Element {
       ) : null}
       <SettingsDialog
         skillsContent={
-          <SkillsSettings
-            snapshot={snapshot}
-            insertDisabled={
-              Boolean(forkPending) ||
-              editPhase !== 'closed' ||
-              skillAttachmentsBlocked ||
-              !snapshot.ready ||
-              snapshot.modelAvailability !== 'available' ||
-              snapshot.composeBlockReason !== null
-            }
-            onInsert={(request) => {
-              settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>(
-                'textarea[aria-label="给 Pi 的任务"]'
-              )
-              useSkillInsertion.getState().request(request)
-              closeSettings()
-            }}
-          />
+          snapshot.runtime && !snapshot.runtime.features.includes('skills') ? (
+            <p className="inline-hint">{snapshot.runtime.label} 在运行时加载项目内的原生技能。</p>
+          ) : (
+            <SkillsSettings
+              snapshot={snapshot}
+              insertDisabled={
+                Boolean(forkPending) ||
+                editPhase !== 'closed' ||
+                skillAttachmentsBlocked ||
+                !snapshot.ready ||
+                snapshot.modelAvailability !== 'available' ||
+                snapshot.composeBlockReason !== null
+              }
+              onInsert={(request) => {
+                settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>(
+                  'textarea[aria-label="任务输入"]'
+                )
+                useSkillInsertion.getState().request(request)
+                closeSettings()
+              }}
+            />
+          )
         }
         mcpContent={<McpSettings snapshot={snapshot} />}
-        renderAccountQuota={(account) => (
-          <AccountQuota
-            account={account}
-            authGeneration={snapshot.authGeneration ?? 0}
-            loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(
-              snapshot.login.phase
-            )}
-          />
-        )}
+        renderAccountQuota={
+          snapshot.runtime && !snapshot.runtime.features.includes('account-quota')
+            ? undefined
+            : (account) => (
+                <AccountQuota
+                  account={account}
+                  authGeneration={snapshot.authGeneration ?? 0}
+                  loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(
+                    snapshot.login.phase
+                  )}
+                />
+              )
+        }
         open={layout.settingsOpen}
         returnFocusRef={settingsOpenerRef}
         onOpenChange={(open) => (open ? openSettings() : closeSettings())}

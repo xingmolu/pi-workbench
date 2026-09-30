@@ -322,12 +322,16 @@ test('uncertain transport result locks the canonical reply action strip; later g
 })
 
 for (const outcome of ['cancellation', 'rejection'] as const)
-test(`same session generation change revokes message fork confirmation and ignores its late ${outcome}`, async () => {
+test(`same-session reselection and generation changes revoke message fork confirmation and ignore its late ${outcome}`, async () => {
   const trigger = page.locator('.assistant-node').nth(1).getByRole('button', {name:'从此回复分叉',exact:true})
   await trigger.click()
+  const before = await page.evaluate(()=>window.pi.getState())
   await page.evaluate(path=>window.pi.send({type:'session:open',path}),sourcePath)
   await expect(page.getByRole('dialog',{name:'分叉当前会话'})).toHaveCount(0)
   const source=await page.evaluate(()=>window.pi.getState())
+  expect(source.sessionId).toBe(before.sessionId)
+  expect(source.generation).toBe(before.generation)
+  expect(source.desktopScope!.selectionEpoch).toBeGreaterThan(before.desktopScope!.selectionEpoch)
   await app.evaluate(({ipcMain},{state,outcome})=>{
     ipcMain.removeHandler('pi:command')
     ipcMain.handle('pi:command',()=>new Promise((resolve,reject)=>ipcMain.once('message-fork:reply',()=>outcome==='rejection'?reject(new Error('旧代际分叉失败，不应污染新确认')):resolve({kind:'session-fork',cancelled:true,snapshot:state}))))

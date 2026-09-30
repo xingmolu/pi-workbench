@@ -17,6 +17,7 @@ export async function canonicalProjectDirectory(path: string): Promise<string | 
 type CatalogOptions = ProjectCatalogQuery & {
   manager: Pick<typeof SessionManager, 'listAll'>
   agentDir: string
+  sessionsRoot?: string
   recentPaths: string[]
   navigation?: NavigationLibraryState
   normalize?: (path: string) => Promise<string | null>
@@ -25,9 +26,9 @@ type CatalogOptions = ProjectCatalogQuery & {
 }
 
 export async function discoverProjectSessions(
-  options: Pick<CatalogOptions, 'manager' | 'agentDir' | 'directories' | 'onSkippedDirectory'>
+  options: Pick<CatalogOptions, 'manager' | 'agentDir' | 'sessionsRoot' | 'directories' | 'onSkippedDirectory'>
 ) {
-  const root = join(options.agentDir, 'sessions')
+  const root = options.sessionsRoot ?? join(options.agentDir, 'sessions')
   const directories =
     options.directories ??
     (async (path: string) => {

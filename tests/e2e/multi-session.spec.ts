@@ -39,7 +39,7 @@ test.beforeEach(async ({}, testInfo) => {
   await writeFile(
     join(root, 'agent/extensions/fixture.ts'),
     `
-    import { fauxProvider, fauxAssistantMessage, fauxToolCall } from ${JSON.stringify(resolve(ai, pkg.exports['.'].import))};
+    import { fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentTools } from ${JSON.stringify(resolve(ai, pkg.exports['.'].import))};
     import { existsSync } from 'node:fs';
     export default function(pi) {
       const faux = fauxProvider({ provider: 'fixture', api: 'fixture-api', models: [{id:'offline'}], tokensPerSecond:40, tokenSize:{min:4,max:4} });
@@ -48,7 +48,7 @@ test.beforeEach(async ({}, testInfo) => {
         if (JSON.stringify(user?.content).includes('TOOL_CATALOG')) {
           return fauxAssistantMessage(JSON.stringify({
             registered: pi.getAllTools().map(tool => tool.name),
-            active: (context.tools ?? []).map(tool => tool.name)
+            active: getCurrentTools(context.messages).map(tool => tool.name)
           }));
         }
         const tag = JSON.stringify(user?.content).includes('TEST_B') ? 'TEST_B' : 'TEST_A';
@@ -136,6 +136,29 @@ async function select(state: AgentSnapshot): Promise<void> {
     .poll(() => page.evaluate(async () => (await window.pi.getState()).sessionId))
     .toBe(state.sessionId)
 }
+
+test('runtime plugins expose scoped metadata and reject unknown selections without replacing the worker', async () => {
+  const runtimes = await page.evaluate(() => window.pi.listRuntimes())
+  expect(runtimes).toEqual([expect.objectContaining({
+    apiVersion: 1, id: 'pi', label: 'Pi', subagents: 'desktop', storage: 'legacy'
+  }), expect.objectContaining({
+    apiVersion: 1, id: 'claude', label: 'Claude Code', subagents: 'native', storage: 'desktop'
+  })])
+  const current = await page.evaluate(() => window.pi.getState())
+  expect(current.runtime).toEqual(runtimes[0])
+  expect(current.activeModel).toBe('offline')
+  expect(current.agentDir).toBe(join(root, 'agent'))
+  await expect(page.evaluate(async cwd => {
+    const state = await window.pi.getState()
+    return window.pi.send({ type: 'project:navigate', cwd, runtimeId: 'uninstalled-runtime', sessionId: state.sessionId, generation: state.generation })
+  }, project)).rejects.toThrow(/not registered/)
+  await expect(page.evaluate(cwd => window.pi.send({ type: 'project:open', cwd, runtimeId: '../escape' }), project)).rejects.toThrow(/无效/)
+  const after = await page.evaluate(() => window.pi.getState())
+  expect(after.desktopScope).toEqual(current.desktopScope)
+  expect(after.sessionId).toBe(current.sessionId)
+  expect(after.models).toEqual(current.models)
+  expect(after.runtime?.id).toBe('pi')
+})
 
 test('only the current Computer Use tool is registered and exposed to the model', async () => {
   await prompt('TOOL_CATALOG')
