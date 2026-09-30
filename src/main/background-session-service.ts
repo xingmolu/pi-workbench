@@ -14,7 +14,7 @@ export type BackgroundSessionLifecycleListener = (
 
 export type BackgroundSessionRuntime = {
   openBackground(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     model?: { providerId: string; modelId: string }
   ): Promise<BackgroundSessionAdmission>
   requestWorker(
@@ -268,10 +268,16 @@ export class BackgroundSessionService {
 
     const parentSnapshot = requireParentSnapshot(this.runtime, parent)
     const projectPath = requireProject(parentSnapshot)
-    const model = inheritedModel(parentSnapshot)
     const permissionMode: PermissionMode = parentSnapshot.permissionMode
 
-    const admitted = await this.runtime.openBackground({ cwd: projectPath }, model)
+    if (parentSnapshot.runtime && parentSnapshot.runtime.subagents !== 'desktop')
+      throw new Error('当前运行时不支持桌面派发的子 Agent')
+    const model = parentSnapshot.runtime && !parentSnapshot.runtime.features.includes('model-selection')
+      ? undefined : inheritedModel(parentSnapshot)
+    const admitted = await this.runtime.openBackground({
+      cwd: projectPath,
+      ...(parentSnapshot.runtime ? { runtimeId: parentSnapshot.runtime.id } : {})
+    }, model)
     let child = admitted.snapshot
     let identity = requireIdentity(child)
 

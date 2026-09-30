@@ -1257,16 +1257,6 @@ button.send:disabled {
   color: var(--muted);
 }
 
-.assistant-node.is-streaming::after {
-  display: inline-block;
-  width: 5px;
-  height: 15px;
-  margin-left: 4px;
-  background: var(--accent);
-  content: '';
-  animation: blink 900ms steps(2, start) infinite;
-  vertical-align: -2px;
-}
 
 .think-node,
 .tool-node {

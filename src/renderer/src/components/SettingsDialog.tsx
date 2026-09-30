@@ -12,6 +12,7 @@ import {
   Sparkles,
   X
 } from 'lucide-react'
+import RuntimeSettings from './RuntimeSettings'
 import GeneralSettings from './GeneralSettings'
 import AppearanceSettings from './AppearanceSettings'
 import MobileGatewaySettings from './MobileGatewaySettings'
@@ -48,6 +49,7 @@ export type SettingsDialogProps = {
 }
 
 const sections = [
+  { id: 'runtimes', label: 'Agent 引擎', group: '基础设置', icon: Puzzle, keywords: 'runtime 运行时 claude pi sdk 历史 导入' },
   {
     id: 'general',
     label: '常规',
@@ -230,7 +232,7 @@ function SettingsDialogContent({
             </nav>
             <div className="settings-content" data-settings-section={section}>
               <div className="settings-content-inner">
-                {section === 'general' ? (
+                {section === 'runtimes' ? <RuntimeSettings /> : section === 'general' ? (
                   <GeneralSettings />
                 ) : section === 'appearance' ? (
                   <AppearanceSettings />

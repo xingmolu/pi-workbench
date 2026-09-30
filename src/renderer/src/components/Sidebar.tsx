@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import LibraryManager from './navigation/LibraryManager'
 import { useNavigationLibrary } from '../store/navigation-library'
 import { performNavigationAction } from '../store/navigation-feedback'
@@ -19,13 +19,14 @@ import type { ProjectCatalog, ProjectNavigationFailures } from '../../../shared/
 import { shortcutLabel } from './shortcut-label'
 
 type SidebarProps = {
+  runtimePicker?: ReactNode
   collapsed: boolean
   collapseLocked?: boolean
   snapshot: AgentSnapshot
   onToggle: () => void
   onChooseProject: () => void
   onNewSession: () => void
-  onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
+  onNavigate: (cwd: string, sessionPath?: string, workerId?: string, runtimeId?: string) => void
   onCatalog?: (catalog: ProjectCatalog | null) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
@@ -35,6 +36,7 @@ type SidebarProps = {
 }
 
 export default function Sidebar({
+  runtimePicker,
   collapsed,
   collapseLocked = false,
   snapshot,
@@ -140,6 +142,7 @@ export default function Sidebar({
         </button>
       </div>
 
+      <div className="sidebar-runtime">{runtimePicker}</div>
       <div className="sidebar-project-actions">
         <button
           type="button"
@@ -192,7 +195,7 @@ export default function Sidebar({
           </button>
           <span className="sidebar-host" title={snapshot.agentDir}>
             <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
-            <span>{snapshot.ready ? 'Pi 引擎已就绪' : 'Pi 引擎未连接'}</span>
+            <span>{snapshot.runtime?.label ?? 'Pi'} {snapshot.ready ? '引擎已就绪' : '引擎未连接'}</span>
           </span>
         </div>
       </div>

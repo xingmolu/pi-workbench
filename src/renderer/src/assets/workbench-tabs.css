@@ -6,7 +6,7 @@
   min-width: 0;
   /* Keep the floating window action outside the native drag rectangle.
      Padding/z-index alone leave this rectangle overlapping the action. */
-  margin-right: 48px;
+  margin-right: 84px;
   padding: 0 0 0 8px;
   -webkit-app-region: drag;
 }
@@ -198,9 +198,9 @@
   -webkit-app-region: no-drag;
 }
 .shell .conversation-head {
-  /* Reserve the toggle inside the header so its divider reaches the window edge. */
-  margin-right: 0;
-  padding-right: 48px;
+  /* Reserve both floating controls outside the native drag rectangle. */
+  margin-right: 84px;
+  padding-right: 0;
   height: 48px;
   min-height: 48px;
   flex: 0 0 48px;

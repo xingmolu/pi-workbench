@@ -159,9 +159,12 @@ test('sidebar keeps recent history compact, distinguishes names and uses readabl
     .filter({ has: page.locator('.project-group-toggle', { hasText: /^project$/ }) })
     .first()
   await expect(group.locator('.project-session-row')).toHaveCount(5)
-  await group.getByRole('button', { name: /展开显示/ }).click()
+  const history = group.locator('.catalog-history-toggle')
+  await expect(history).toHaveAttribute('aria-expanded', 'false')
+  await history.click()
+  await expect(history).toHaveAttribute('aria-expanded', 'true')
   await expect(group.locator('.project-session-row')).toHaveCount(50)
-  await group.getByRole('button', { name: /显示更多/ }).click()
+  await group.getByRole('button', { name: /显示更多 · 已加载/ }).click()
   await expect(group.locator('.project-session-row')).toHaveCount(55)
   await group.getByRole('button', { name: '收起历史' }).click()
   await expect(group.locator('.project-session-row')).toHaveCount(5)
@@ -169,9 +172,9 @@ test('sidebar keeps recent history compact, distinguishes names and uses readabl
   await mkdir(sibling, { recursive: true })
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), sibling)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
-  await expect(page.locator('.project-path-hint')).toHaveCount(2)
+  await expect(page.locator('.project-name-hint')).toHaveCount(2)
   await expect(
-    page.getByTitle(sibling, { exact: true }).filter({ hasText: 'another/project' })
+    page.getByTitle(sibling, { exact: true }).filter({ hasText: 'another' })
   ).toBeVisible()
   for (const width of [960, 1440]) {
     await app.evaluate(
@@ -190,9 +193,12 @@ test('sidebar keeps recent history compact, distinguishes names and uses readabl
           })
         return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
       }
-      const background = luminance(getComputedStyle(el).backgroundColor)
+      const background = luminance(getComputedStyle(el.closest('.navigation-row')!).backgroundColor)
       return [el.querySelector('.session-title')!, el.querySelector('time')!].map(
-        (node) => (luminance(getComputedStyle(node).color) + 0.05) / (background + 0.05)
+        (node) => {
+          const foreground = luminance(getComputedStyle(node).color)
+          return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+        }
       )
     })
     expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5)
@@ -235,7 +241,7 @@ test('new chat picks exact empty recent cwd and Files action focuses the existin
 })
 
 test('IME and conflicting dialogs ignore CmdK; Escape restores focus and obsolete search cannot navigate', async () => {
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务' })
+  const draft = page.getByRole('textbox', { name: '任务输入' })
   await expect(draft).toBeEnabled()
   await draft.focus()
   await draft.dispatchEvent('compositionstart')
@@ -662,7 +668,7 @@ test('global Chinese title search opens canonical off-page identity and preserve
   await expect(
     page.locator('.project-session-row').filter({ hasText: '离页中文 Needle' })
   ).toHaveCount(0)
-  await page.getByRole('textbox', { name: '给 Pi 的任务' }).fill('保留来源草稿')
+  await page.getByRole('textbox', { name: '任务输入' }).fill('保留来源草稿')
   const source = await page.evaluate(() => window.pi.getState())
   await page.getByRole('button', { name: '搜索所有会话' }).click()
   const search = page.getByRole('combobox', { name: '搜索所有会话标题' })
@@ -681,5 +687,5 @@ test('global Chinese title search opens canonical off-page identity and preserve
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).activeSessionPath))
     .toBe(source.activeSessionPath)
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务' })).toHaveValue('保留来源草稿')
+  await expect(page.getByRole('textbox', { name: '任务输入' })).toHaveValue('保留来源草稿')
 })

@@ -29,8 +29,8 @@ export class UtilityProcessAgentRuntime implements AgentRuntime {
     this.provider =
       options.provider ??
       ({
-        id: 'pi',
-        label: 'Pi',
+        id: 'local',
+        label: 'Local Agent',
         hostCapabilities: true,
         residentSessions: true,
         toolDelivery: 'native',
@@ -42,6 +42,7 @@ export class UtilityProcessAgentRuntime implements AgentRuntime {
     return createUtilitySessionWorker({
       ...options,
       script: this.options.script,
+      serviceName: options.role === 'configuration' ? `${this.provider.label} Agent Host` : `${this.provider.label} Session Host ${options.workerId}`,
       ...(this.options.env ? { env: this.options.env } : {}),
       onMessage: (message, reply) => this.options.onMessage(options, message, reply)
     })
@@ -52,17 +53,19 @@ export class UtilityProcessAgentRuntime implements AgentRuntime {
 export async function createUtilitySessionWorker(
   options: AgentRuntimeSessionOptions & {
     script: string
+    serviceName?: string
     env?: Record<string, string | undefined>
     onMessage(message: unknown, reply: (message: unknown) => void): boolean
   }
 ): Promise<AgentRuntimeSession> {
   const broker = new HostResponseBroker()
   const child = utilityProcess.fork(options.script, [], {
-    serviceName: `Pi Session Host ${options.workerId}`,
+    serviceName: options.serviceName ?? `Agent Session Host ${options.workerId}`,
     stdio: 'pipe',
     env: {
       ...(options.env ?? process.env),
-      PI_DESKTOP_SESSION_WORKER: '1'
+      PI_DESKTOP_SESSION_WORKER: '1',
+      PI_DESKTOP_RUNTIME_ROLE: options.role ?? 'session'
     }
   })
   let exited = false

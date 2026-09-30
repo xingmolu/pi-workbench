@@ -150,7 +150,7 @@ async function run(command: string, prompt: string): Promise<void> {
     const { sessionId, generation } = await window.pi.getState()
     return window.pi.send({ type: 'prompt:send', text, sessionId: sessionId!, generation })
   }, command)
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill(prompt)
   await draft.press('Enter')
 }
@@ -166,15 +166,15 @@ test('light theme keeps the completed conversation and work details readable', a
   await page.locator('.work-summary-trigger').first().click()
   await expect(page.locator('.work-summary-content').first()).toBeVisible()
   await expect(page.locator('.assistant-node').last()).toContainText('检查完成')
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('继续检查文件内容')
-  expect(await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).evaluate(el => getComputedStyle(el).outlineStyle)).toBe('none')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('继续检查文件内容')
+  expect(await page.getByRole('textbox', { name: '任务输入', exact: true }).evaluate(el => getComputedStyle(el).outlineStyle)).toBe('none')
   await page.screenshot({ path: 'artifacts/e2e/theme-light-conversation.png' })
 })
 
 test('composer focus stays neutral and bottom shortcut floats without layout shift', async () => {
   await run('/work-fixture', '验证阅读导航\n'.repeat(70))
   await expect(page.locator('.assistant-node').last()).toContainText('检查完成')
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.focus()
   expect(await draft.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('none')
   const before = await draft.boundingBox()
@@ -444,3 +444,19 @@ for (const width of [960, 1440]) {
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
   })
 }
+
+
+test('working animation stops while an approval needs attention and after completion', async () => {
+  await run('/stop-fixture', '检查处理中动画')
+  await expect(page.locator('.work-summary-trigger .activity-orbit')).toBeVisible()
+  await page.screenshot({ path: 'artifacts/e2e/conversation-working.png' })
+  await page.evaluate(() => window.pi.send({ type: 'prompt:abort' }))
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  await run('/approval-fixture', '检查审批等待')
+  await expect(page.locator('.work-summary-trigger').last()).toContainText('等待确认')
+  await expect(page.locator('.activity-orbit')).toHaveCount(0)
+  await page.screenshot({ path: 'artifacts/e2e/conversation-awaiting-approval.png' })
+  await page.getByRole('button', { name: '拒绝', exact: true }).click()
+  await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).busy)).toBe(false)
+  await expect(page.locator('.activity-orbit')).toHaveCount(0)
+})

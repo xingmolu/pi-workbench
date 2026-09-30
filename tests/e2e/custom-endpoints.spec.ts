@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { openWorkbenchTool } from './workbench-helpers'
 import {
   _electron as electron,
@@ -93,7 +94,7 @@ test('settings modal traps focus and preserves sidebar, workbench and conversati
   await page.evaluate(() =>
     window.pi.send({ type: 'model:set', providerId: 'endpoint-faux', modelId: 'fixture' })
   )
-  const draft = page.getByPlaceholder('给 Pi 下达任务…')
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('保留这份未发送草稿')
   const sidebarWidth = await page
     .locator('.sidebar')
@@ -169,6 +170,7 @@ test('creates all three protocols through canonical Pi files without selecting a
     ['anthropic-messages', 'Messages']
   ]) {
     await section.getByRole('button', { name: '添加端点', exact: true }).click()
+    await section.locator('.endpoint-advanced > summary').click()
     await section.getByLabel('显示名称', { exact: true }).fill(label)
     await section.getByLabel('协议', { exact: true }).selectOption(api)
     await section.getByLabel('Base URL', { exact: true }).fill('https://example.invalid/v1')
@@ -465,7 +467,8 @@ test('active OAuth rejects save and alias writes, leaves responders live, and bu
   const rejected = await page.evaluate(async () => {
     const state = await window.pi.getState()
     const catalog = await window.pi.send({ type: 'endpoint:list' })
-    const result = await window.pi.send({
+    let saveRejection = ''
+    try { await window.pi.send({
       type: 'endpoint:save',
       context: {
         projectPath: state.project!.path,
@@ -483,6 +486,7 @@ test('active OAuth rejects save and alias writes, leaves responders live, and bu
         }
       }
     })
+    } catch (error) { saveRejection = String(error) }
     let aliasRejected = false
     try {
       await window.pi.send({ type: 'account:alias:add', slug: 'blocked' })
@@ -490,12 +494,12 @@ test('active OAuth rejects save and alias writes, leaves responders live, and bu
       aliasRejected = true
     }
     return {
-      result: result.result,
+      saveRejection,
       aliasRejected,
       promptStillActive: !!(await window.pi.getState()).loginPrompt
     }
   })
-  expect(rejected.result.metadata).toBe('unchanged')
+  expect(rejected.saveRejection).toContain('请先结束所有会话')
   expect(rejected.aliasRejected).toBe(true)
   expect(rejected.promptStillActive).toBe(true)
   expect(await readFile(join(agentDir, 'models.json'), 'utf8')).toBe(original)
@@ -694,7 +698,8 @@ test('edits metadata without credentials, validates input and cancels without wr
   await page.getByRole('button', { name: 'OpenAI Codex 编程套餐 / 订阅' }).click()
   await expect(page.getByRole('button', { name: '浏览器登录', exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Anthropic 连接方式说明' }).click()
-  await expect(page.getByText(/它不占 Claude Code 套餐限额/)).toBeVisible()
+  await expect(page.getByText(/在 Pi 引擎中使用 Anthropic 模型/)).toBeVisible()
+  await expect(page.getByText(/请在“Agent 引擎”中切换/)).toBeVisible()
 })
 
 test('canonical metadata survives runtime refresh failure and list refresh truthfully only rereads it', async () => {
@@ -736,4 +741,74 @@ test('canonical metadata survives runtime refresh failure and list refresh truth
   await section.getByRole('button', { name: '保存端点', exact: true }).click()
   await expect(section.getByRole('status')).toContainText('端点已保存')
   expect((await page.evaluate(() => window.pi.getState())).composeBlockReason).toBeNull()
+})
+
+
+test('discovers and saves models using only URL and key', async () => {
+  const server = createServer((req, res) => {
+    if (req.url !== '/v1/models' || req.headers.authorization !== 'Bearer discovery-fixture') {
+      res.writeHead(401).end()
+      return
+    }
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ data: [{ id: 'discovered-one' }, { id: 'discovered-two' }] }))
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('missing local address')
+    const section = page.getByRole('region', { name: '自定义端点' })
+    await section.getByRole('button', { name: '添加端点', exact: true }).click()
+    await section.getByLabel('Base URL', { exact: true }).fill(`http://127.0.0.1:${address.port}`)
+    await section.getByLabel('API Key', { exact: true }).fill('discovery-fixture')
+    await section.getByRole('button', { name: '拉取模型', exact: true }).click()
+    await expect(section.getByRole('status')).toContainText('已获取 2 个模型')
+    await expect(section.getByLabel('Base URL', { exact: true })).toHaveValue(`http://127.0.0.1:${address.port}/v1`)
+    await page.screenshot({ path: 'artifacts/e2e/endpoint-discovery.png' })
+    await section.getByRole('button', { name: '保存端点', exact: true }).click()
+    await expect(section.getByRole('button', { name: '编辑 127.0.0.1', exact: true })).toBeVisible()
+    const config = JSON.parse(await readFile(join(agentDir, 'models.json'), 'utf8'))
+    expect(Object.values(config.providers)).toContainEqual(expect.objectContaining({
+      name: '127.0.0.1', models: expect.arrayContaining([expect.objectContaining({ id: 'discovered-one' }), expect.objectContaining({ id: 'discovered-two' })])
+    }))
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
+test('discovery errors preserve the draft and cancelled discovery cannot overwrite another form', async () => {
+  let delayed: import('node:http').ServerResponse | undefined
+  const server = createServer((req, res) => {
+    if (req.headers.authorization === 'Bearer wrong-fixture') res.writeHead(401).end('private upstream error')
+    else delayed = res
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('missing local address')
+    const section = page.getByRole('region', { name: '自定义端点' })
+    await section.getByRole('button', { name: '添加端点', exact: true }).click()
+    await section.getByLabel('Base URL', { exact: true }).fill(`http://127.0.0.1:${address.port}`)
+    await section.getByLabel('API Key', { exact: true }).fill('wrong-fixture')
+    await section.getByRole('button', { name: '拉取模型', exact: true }).click()
+    await expect(section.getByRole('alert')).toContainText('认证失败')
+    await expect(section.getByRole('alert')).not.toContainText('private upstream error')
+    await expect(section.getByLabel('API Key', { exact: true })).toHaveValue('wrong-fixture')
+    await section.getByLabel('API Key', { exact: true }).fill('right-fixture')
+    await section.getByRole('button', { name: '拉取模型', exact: true }).click()
+    await expect.poll(() => Boolean(delayed)).toBe(true)
+    await section.getByRole('button', { name: '取消编辑', exact: true }).click()
+    await section.getByRole('button', { name: '编辑 未登录端点', exact: true }).click()
+    delayed!.setHeader('content-type', 'application/json')
+    delayed!.end(JSON.stringify({ data: [{ id: 'stale-model' }] }))
+    // A following Host command fences the completed discovery response.
+    await page.evaluate(() => window.pi.send({ type: 'endpoint:list' }))
+    await expect(section.getByLabel('模型 ID', { exact: true })).toHaveValue('old-model')
+    await expect(section.getByLabel('API Key', { exact: true })).toHaveValue('')
+    await expect(section.getByRole('status')).toHaveCount(0)
+  } finally {
+    delayed?.destroy()
+    server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
 })

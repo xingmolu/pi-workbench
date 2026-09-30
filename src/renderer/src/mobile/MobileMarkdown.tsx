@@ -1,3 +1,5 @@
+import { streamingMarkdownBlocks } from '../components/streaming-markdown-blocks'
+import { useStreamingText } from '../components/use-streaming-text'
 import { memo, useState, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -41,7 +43,7 @@ function CodeBlock({ node, streaming }: PreProps & { streaming: boolean }): Reac
 }
 
 /** Markdown for the phone: GFM, highlighted code with copy, links that open outside. */
-export const MobileMarkdown = memo(function MobileMarkdown({
+const MobileMarkdownBody = memo(function MobileMarkdownBody({
   text,
   streaming = false
 }: {
@@ -70,4 +72,15 @@ export const MobileMarkdown = memo(function MobileMarkdown({
       </ReactMarkdown>
     </div>
   )
+})
+
+
+export const MobileMarkdown = memo(function MobileMarkdown({ text, streaming = false }: {
+  text: string; streaming?: boolean
+}): React.JSX.Element {
+  const displayed = useStreamingText(text, 'mobile-message', streaming)
+  if (!streaming) return <MobileMarkdownBody text={displayed} />
+  return <>{streamingMarkdownBlocks(displayed).map((block, index) =>
+    <MobileMarkdownBody key={index} text={block} streaming />
+  )}</>
 })

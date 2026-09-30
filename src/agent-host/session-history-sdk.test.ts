@@ -266,7 +266,7 @@ describe('offline public SDK canonical lifecycle', () => {
           .getBranch()
           .filter((entry) => entry.type === 'message')
           .map((entry) => entry.type === 'message' && entry.message.role)
-      ).toEqual(['user', 'assistant'])
+      ).toEqual(['system', 'user', 'assistant'])
       expect(
         manager
           .getBranch()
@@ -309,7 +309,7 @@ describe('offline public SDK canonical lifecycle', () => {
             partials.push(event.message)
             history.update(event.message)
           }
-          if (event.type === 'message_end') {
+          if (event.type === 'message_end' && event.message.role !== 'system') {
             expect(
               manager
                 .getBranch()

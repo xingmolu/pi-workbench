@@ -258,7 +258,7 @@ test('canonical branch keeps same-time questions, model positions and compaction
 })
 
 test('real model:set appends model history without replacing the session, transcript or draft', async () => {
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('模型切换期间保留的草稿')
   const before = await page.evaluate(() => window.pi.getState())
   const bytes = await readFile(path, 'utf8')
@@ -318,8 +318,8 @@ test('actual offline SDK streaming reconciles canonical IDs while an expanded th
       generation
     })
   })
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('请运行离线流式回答')
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).press('Enter')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('请运行离线流式回答')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).press('Enter')
   const thought = page.locator('.think-node').last()
   await page.locator('.work-summary-trigger').last().click()
   await expect(thought.getByRole('button')).toHaveText('正在思考…')
@@ -381,7 +381,7 @@ test('actual offline SDK streaming reconciles canonical IDs while an expanded th
 })
 
 test('real first model append failure disconnects and retains the last canvas and draft until explicit recovery', async () => {
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('失败后仍保留，不要自动重发')
   const before = await page.evaluate(() => window.pi.getState())
   const canvas = await page.locator('.node-flow').innerText()
@@ -457,7 +457,7 @@ test('actual SDK reused tool IDs keep the first result intact and show only the 
       generation
     })
   })
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill('写入第一个离线文件')
   await draft.press('Enter')
   await page.locator('.work-summary-trigger').first().click()

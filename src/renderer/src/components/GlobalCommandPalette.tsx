@@ -347,7 +347,7 @@ export default function GlobalCommandPalette({
                         <span className="command-item-copy">
                           <span>{item.title}</span>
                           <small>
-                            {item.projectName} · {item.cwd}
+                            {item.projectName}{item.runtimeId === 'claude' ? ' · Claude Code' : item.runtimeId === 'pi' ? ' · Pi' : ''} · {item.cwd}
                           </small>
                         </span>
                         {status && <span className="command-item-status">{status}</span>}
@@ -393,7 +393,7 @@ export default function GlobalCommandPalette({
                     '没有匹配的已有项目'
                   )
                 ) : summary?.truncated ? (
-                  `显示 ${summary.items.length} / ${summary.total} 个结果，请继续输入缩小范围。`
+                  `显示 ${summary.items.length} / ${summary.totalIsLowerBound ? '至少 ' : ''}${summary.total} 个结果，请继续输入缩小范围。`
                 ) : (
                   `${summary?.total} 个${mode === 'sessions' ? '会话' : '项目'}`
                 )}

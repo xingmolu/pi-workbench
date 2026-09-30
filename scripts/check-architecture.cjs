@@ -7,6 +7,7 @@ const ts = require('typescript')
 const builtins = new Set(builtinModules.map((name) => name.replace(/^node:/, '')))
 const neutralModules = new Set([
   'agent-runtime',
+  'runtime-directory',
   'session-worker-supervisor',
   'session-worker-pool',
   'session-worker-controller',
@@ -73,7 +74,7 @@ function checkSource(filename, text, root = process.cwd()) {
     neutralModules.has(path.basename(relative, path.extname(relative)))
   function inspect(node) {
     const specifier = node.text
-    const sdk = /^@(earendil-works|mariozechner)\/pi-[^/]+(?:\/|$)/.test(specifier)
+    const sdk = /^@(earendil-works|mariozechner)\/pi-[^/]+(?:\/|$)/.test(specifier) || specifier.startsWith('@anthropic-ai/claude-agent-sdk')
     const electron = specifier === 'electron' || specifier.startsWith('electron/')
     const nodeApi = specifier.startsWith('node:') || builtins.has(specifier)
     let reason

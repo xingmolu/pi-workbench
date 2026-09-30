@@ -8,6 +8,7 @@ files:
   - package.json
 asarUnpack:
   - node_modules/node-pty/**
+  - node_modules/@anthropic-ai/claude-agent-sdk*/**
   - resources/plugins/**
 win:
   executableName: pi-desktop

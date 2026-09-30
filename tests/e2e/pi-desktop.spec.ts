@@ -71,7 +71,7 @@ let paths: TestPaths
 let electronApp: ElectronApplication | null = null
 let rendererErrors: RendererErrors | null = null
 let preRestartSessionId: string | null = null
-let preRestartGeneration: number | null = null
+let preRestartWorkerId: string | null = null
 let baitFingerprints = new Map<string, BaitFingerprint>()
 let fixtureServer: Server
 let fixtureUrl = ''
@@ -656,13 +656,13 @@ test.describe.serial('Pi Desktop real Electron app', () => {
 
     await resizeWindow(960, 720)
     await page.getByRole('button', { name: '设置', exact: true }).click()
-    await expect(page.locator('.settings-panel')).toBeVisible()
+    await expect(page.locator('.settings-content')).toBeVisible()
     await expect(page.getByRole('dialog', { name: '设置', exact: true })).toBeVisible()
     await expect(page.locator('aside.sidebar:not(.is-collapsed)')).toBeVisible()
     const settingsLayout = await page.evaluate(() => {
       const stage = document.querySelector('.settings-dialog')?.getBoundingClientRect()
-      const panel = document.querySelector('.settings-panel')?.getBoundingClientRect()
-      const scroll = document.querySelector('.settings-scroll')
+      const panel = document.querySelector('.settings-content')?.getBoundingClientRect()
+      const scroll = document.querySelector('.settings-content')
       if (!stage || !panel || !(scroll instanceof HTMLElement)) return null
       return {
         stage: { left: stage.left, right: stage.right, width: stage.width },
@@ -756,7 +756,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     ).toHaveAttribute('title', paths.project)
     await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
     const beforeSessionId = opened.snapshot.sessionId
-    const beforeGeneration = opened.snapshot.generation
+    const beforeWorkerId = opened.snapshot.desktopScope!.workerId
     const sessionResult = await page.evaluate(async () =>
       (window as unknown as Window & { pi: PiDesktopAPI }).pi.send({ type: 'session:new' })
     )
@@ -764,11 +764,11 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     if (sessionResult.kind !== 'snapshot') throw new Error('session:new did not return a snapshot')
     expect(sessionResult.snapshot.project?.path).toBe(paths.project)
     expect(sessionResult.snapshot.agentDir).toBe(paths.agentDir)
-    expect(sessionResult.snapshot.generation).toBeGreaterThan(beforeGeneration)
+    expect(sessionResult.snapshot.desktopScope!.workerId).not.toBe(beforeWorkerId)
     expect(sessionResult.snapshot.sessionId).not.toBe(beforeSessionId)
     expect(sessionResult.snapshot.composeBlockReason).toBe('login-required')
     preRestartSessionId = sessionResult.snapshot.sessionId
-    preRestartGeneration = sessionResult.snapshot.generation
+    preRestartWorkerId = sessionResult.snapshot.desktopScope!.workerId
     expect(preRestartSessionId).not.toBeNull()
     expect(await readdir(paths.agentDir)).toContain('sessions')
     expect((await readdir(join(paths.agentDir, 'sessions'))).length).toBeGreaterThan(0)
@@ -789,9 +789,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(state.agentDir).toBe(paths.agentDir)
     expect(state.project?.path).toBe(paths.project)
     expect(preRestartSessionId).not.toBeNull()
-    expect(preRestartGeneration).not.toBeNull()
+    expect(preRestartWorkerId).not.toBeNull()
     expect(state.sessionId).not.toBe(preRestartSessionId)
-    expect(state.generation).toBeLessThan(preRestartGeneration!)
+    expect(state.desktopScope!.workerId).not.toBe(preRestartWorkerId)
     expect(state.nodes).toEqual([])
     expect(state.activeSessionPath).toBeNull()
     expect(state.metrics).toEqual({
@@ -940,13 +940,18 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       remoteFetch: string
       security: Record<string, unknown>
     }>('window.__piPluginE2E')
+    const currentAgentState = await page.evaluate(() => window.pi.getState())
+    const currentPanelContext = await executeInPlugin<PluginPanelContext>(
+      'window.piPlugin.getContext()'
+    )
     expect(pluginRuntime.context).toEqual({
       pluginId: samplePluginId,
       viewId: sampleViewId,
       projectPath: paths.project,
-      sessionId: agentState.sessionId,
-      generation: agentState.generation
+      sessionId: currentAgentState.sessionId,
+      generation: currentPanelContext.generation
     })
+    expect(currentPanelContext.generation).toBeGreaterThan(0)
     expect(pluginRuntime.state).toBeNull()
     expect(pluginRuntime.errors).toEqual([])
     expect(pluginRuntime.remoteFetch).toBe('rejected')
@@ -1084,7 +1089,8 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       viewId: sampleViewId,
       projectPath: paths.project,
       sessionId: agentState.sessionId,
-      generation: agentState.generation
+      generation: (await executeInPlugin<PluginPanelContext>('window.piPlugin.getContext()'))
+        .generation
     })
     await executeInPlugin(`(async () => {
       const runtime = window.__piPluginE2E
@@ -1115,8 +1121,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       viewId: sampleViewId,
       projectPath: paths.projectB,
       sessionId: openedB.snapshot.sessionId,
-      generation: openedB.snapshot.generation
+      generation: (await executeInPlugin<PluginPanelContext>('window.piPlugin.getContext()'))
+        .generation
     })
+    expect(firstBContext.generation).toBeGreaterThan(firstAContext.generation)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toBeNull()
     const staleAWrite = await executeInPlugin<string>(`window.piPlugin
       .setState(${firstAContext.generation}, { bucket: 'stale-a' })
@@ -1179,9 +1187,10 @@ test.describe.serial('Pi Desktop real Electron app', () => {
       viewId: sampleViewId,
       projectPath: paths.projectB,
       sessionId: newSession.snapshot.sessionId,
-      generation: newSession.snapshot.generation
+      generation: (await executeInPlugin<PluginPanelContext>('window.piPlugin.getContext()'))
+        .generation
     })
-    expect(secondBContext.generation).toBeGreaterThan(beforeNewSession.generation)
+    expect(secondBContext.generation).toBeGreaterThan(firstBContext.generation)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
       bucket: 'project-b',
       count: 22
@@ -1202,13 +1211,18 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     if (reopenedA.kind !== 'snapshot') throw new Error('project A did not reopen')
     await expectWebContentsDestroyed(secondBView.id)
     const restoredAView = await revealSamplePlugin(page)
-    expect(await executeInPlugin('window.__piPluginE2E.context')).toEqual({
+    const restoredAContext = await executeInPlugin<PluginPanelContext>(
+      'window.__piPluginE2E.context'
+    )
+    expect(restoredAContext).toEqual({
       pluginId: samplePluginId,
       viewId: sampleViewId,
       projectPath: paths.project,
       sessionId: reopenedA.snapshot.sessionId,
-      generation: reopenedA.snapshot.generation
+      generation: (await executeInPlugin<PluginPanelContext>('window.piPlugin.getContext()'))
+        .generation
     })
+    expect(restoredAContext.generation).toBeGreaterThan(secondBContext.generation)
     expect(await executeInPlugin('window.__piPluginE2E.state')).toEqual({
       bucket: 'project-a',
       count: 11
@@ -1231,16 +1245,20 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     const desktopSwitch = pluginRow.getByRole('switch', {
       name: 'E2E Sandbox Plugin Desktop 面板'
     })
-    await expect(pluginRow).toContainText('范围：用户')
-    await expect(pluginRow).toContainText('来源：本机插件')
-    await expect(pluginRow).toContainText('请求权限：无')
+    await expect(pluginRow.locator('.plugin-badge').filter({ hasText: /^用户$/ })).toBeVisible()
+    await expect(pluginRow.getByTitle('本机插件', { exact: true })).toBeVisible()
+    await expect(pluginRow.getByLabel('请求权限', { exact: true })).toHaveCount(0)
+    expect(
+      (await workbenchSnapshot(page)).plugins.find(({ pluginId }) => pluginId === samplePluginId)
+        ?.requestedPermissions
+    ).toEqual([])
     await expect(pluginRow.locator('.plugin-executable-warning')).toHaveCount(0)
-    await expect(page.locator('.plugin-settings-note')).toContainText(
-      '开关只隐藏并销毁右侧 Desktop 贡献'
-    )
-    await expect(page.locator('.plugin-settings-note')).toContainText(
-      '不会禁用 Pi 已加载的 Skills/Extensions'
-    )
+    await expect(
+      page.getByText(
+        '插件可以在右侧工作台添加面板，并为 Agent 提供工具、技能和主题。会运行代码的插件需要你查看权限并授权后才会启动。',
+        { exact: true }
+      )
+    ).toBeVisible()
     await desktopSwitch.click()
     await expect(desktopSwitch).toHaveAttribute('aria-checked', 'false')
     await expectWebContentsDestroyed(restoredAView.id)
@@ -1272,7 +1290,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     ).toBe(false)
     await desktopSwitch.click()
     await expect(desktopSwitch).toHaveAttribute('aria-checked', 'true')
-    expect((await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)).toBe(true)
+    expect(
+      (await workbenchSnapshot(page)).contributions.some(({ viewId }) => viewId === sampleViewId)
+    ).toBe(true)
     const enabledBeforeReload = await workbenchSnapshot(page)
     await page.getByRole('button', { name: '重新加载' }).click()
     await expect
@@ -1348,7 +1368,9 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect(crashedRow.locator('code')).toContainText('plugin-crash-disabled')
     await expect.poll(() => page.locator('.workbench-error').allTextContents()).toEqual([])
     await expect(page.locator('.conversation')).toBeVisible()
-    expect((await workbenchSnapshot(page)).contributions.some(({ title }) => title === '浏览器')).toBe(true)
+    expect(
+      (await workbenchSnapshot(page)).contributions.some(({ title }) => title === '浏览器')
+    ).toBe(true)
     expect(
       await page.evaluate(() =>
         (window as unknown as Window & { pi: PiDesktopAPI }).pi

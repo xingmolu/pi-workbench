@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { formatTextContext, parseTextContext } from '../../src/shared/text-attachments'
 
+const FIXTURE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
+
 let app: ElectronApplication, page: Page, root: string, project: string, sourcePath: string
 test.beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'pi-session-edit-')))
@@ -73,7 +75,7 @@ test.beforeEach(async () => {
             { id: 'file', kind: 'text', name: '已删除来源.txt', size: 8, text: 'snapshot' }
           ])
         },
-        { type: 'image', mimeType: 'image/png', data: 'YQ==' }
+        { type: 'image', mimeType: 'image/png', data: FIXTURE_PNG }
       ],
       timestamp: Date.parse(timestamp) + 3
     }
@@ -105,6 +107,11 @@ test.beforeEach(async () => {
       pi.on('input', async () => { if (existsSync(${JSON.stringify(join(root, 'input-delay'))})) writeFileSync(${JSON.stringify(join(root, 'input-entered'))}, '1'); while (existsSync(${JSON.stringify(join(root, 'input-delay'))})) await new Promise(resolve => setTimeout(resolve, 20)); return existsSync(${JSON.stringify(join(root, 'handled'))}) ? { action: 'handled' } : existsSync(${JSON.stringify(join(root, 'transform'))}) ? { action: 'transform', text: '输入扩展转换后的问题' } : { action: 'continue' }; });
     }`
   )
+  await launchFixtureApp()
+})
+
+async function launchFixtureApp(): Promise<void> {
+  const agentDir = join(root, 'agent')
   app = await electron.launch({
     args: [resolve('.')],
     env: {
@@ -134,7 +141,15 @@ test.beforeEach(async () => {
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
   await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
   await expect(page.locator('.node-flow')).toContainText('最近的问题')
-})
+}
+
+async function reopenFixtureFromDisk(): Promise<void> {
+  // Selecting an already-resident session deliberately preserves its in-memory state.
+  // Restart to exercise actual SDK loading after external fixture changes.
+  await app.close()
+  await launchFixtureApp()
+}
+
 test.afterEach(async () => {
   if (sourcePath) await chmod(sourcePath, 0o600).catch(() => {})
   await app?.close()
@@ -144,7 +159,7 @@ test.afterEach(async () => {
 test('latest user edit cancel is read-only; explicit send branches in the same file and preserves ordinary draft', async () => {
   const before = await readFile(sourcePath, 'utf8'),
     state = await page.evaluate(() => window.pi.getState())
-  const composer = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const composer = page.getByRole('textbox', { name: '任务输入', exact: true })
   await composer.fill('普通草稿保留')
   await expect(page.getByRole('button', { name: '编辑问题', exact: true })).toHaveCount(1)
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
@@ -191,12 +206,19 @@ test('latest user edit cancel is read-only; explicit send branches in the same f
     (e) =>
       e.type === 'message' && e.message.role === 'user' && e.id !== 'first' && e.id !== 'latest'
   )
-  expect(user.parentId).toBe('first-answer')
+  // Pi persists transcript system/tool declarations before the edited user turn.
+  let parentId = user.parentId
+  while (parentId !== 'first-answer') {
+    const parent = entries.find((entry) => entry.id === parentId)
+    expect(parent).toMatchObject({ type: 'message', message: { role: 'system' } })
+    parentId = parent.parentId
+  }
+  expect(parentId).toBe('first-answer')
   expect(parseTextContext(user.message.content[0].text)).toMatchObject({
     text: '修改后的问题',
     files: [{ name: '已删除来源.txt', text: 'snapshot' }]
   })
-  expect(user.message.content[1]).toEqual({ type: 'image', mimeType: 'image/png', data: 'YQ==' })
+  expect(user.message.content[1]).toEqual({ type: 'image', mimeType: 'image/png', data: FIXTURE_PNG })
   expect(await readFile(join(project, 'side-effect.txt'), 'utf8')).toBe('already executed')
   await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
   await expect(page.locator('.node-flow')).toContainText('修改后的问题')
@@ -223,7 +245,7 @@ test('Stop during real input preflight prevents model/tool dispatch and allows a
   await page.getByRole('button', { name: '关闭并核对', exact: true }).click()
   await rm(join(root, 'request-tool'))
   await page
-    .getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+    .getByRole('textbox', { name: '任务输入', exact: true })
     .fill('停止后明确发送的新任务')
   await page.getByRole('button', { name: '发送任务', exact: true }).click()
   await expect(page.locator('.node-flow')).toContainText('编辑后的离线回答')
@@ -234,7 +256,7 @@ test('Stop during real input preflight prevents model/tool dispatch and allows a
 test('Stop during a real delayed hook is nonblocking, does not send, and retains ordinary draft', async () => {
   await writeFile(join(root, 'delay'), '')
   const bytes = await readFile(sourcePath, 'utf8')
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('独立普通草稿')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('独立普通草稿')
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await page.getByRole('button', { name: '发送编辑', exact: true }).click()
   await expect(page.getByRole('button', { name: '停止', exact: true })).toBeVisible()
@@ -244,14 +266,14 @@ test('Stop during a real delayed hook is nonblocking, does not send, and retains
   await rm(join(root, 'delay'))
   await expect(page.getByRole('region', { name: '编辑问题面板' })).toContainText('编辑已取消')
   expect(await readFile(sourcePath, 'utf8')).toBe(bytes)
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '独立普通草稿'
   )
 })
 
 test('real canonical write failure disconnects unsafe runtime while retaining editor and ordinary draft', async () => {
   const bytes = await readFile(sourcePath, 'utf8')
-  await page.getByRole('textbox', { name: '给 Pi 的任务', exact: true }).fill('失败也保留普通草稿')
+  await page.getByRole('textbox', { name: '任务输入', exact: true }).fill('失败也保留普通草稿')
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await page
     .getByRole('textbox', { name: '编辑最近的问题', exact: true })
@@ -263,7 +285,7 @@ test('real canonical write failure disconnects unsafe runtime while retaining ed
   await expect(page.getByRole('textbox', { name: '编辑最近的问题', exact: true })).toHaveValue(
     '失败也保留编辑草稿'
   )
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '失败也保留普通草稿'
   )
   expect(await readFile(sourcePath, 'utf8')).toBe(bytes)
@@ -278,7 +300,7 @@ test('real canonical write failure disconnects unsafe runtime while retaining ed
   await expect(page.getByRole('textbox', { name: '编辑最近的问题', exact: true })).toHaveValue(
     '失败也保留编辑草稿'
   )
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '失败也保留普通草稿'
   )
   await page.getByRole('button', { name: '关闭并核对', exact: true }).click()
@@ -289,7 +311,7 @@ test('unknown receipt queries a single real delayed input and late acceptance ne
   test.setTimeout(45000)
   await writeFile(join(root, 'input-delay'), '')
   await page
-    .getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+    .getByRole('textbox', { name: '任务输入', exact: true })
     .fill('未知时保留的普通草稿')
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await page.getByRole('textbox', { name: '编辑最近的问题', exact: true }).fill('只有一次编辑发送')
@@ -313,7 +335,7 @@ test('unknown receipt queries a single real delayed input and late acceptance ne
         e.type === 'message' && e.message.role === 'user' && e.id !== 'first' && e.id !== 'latest'
     )
   ).toHaveLength(1)
-  await expect(page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: '任务输入', exact: true })).toHaveValue(
     '未知时保留的普通草稿'
   )
 })
@@ -336,7 +358,7 @@ test('long text and filenames remain usable by keyboard; malformed content prepa
     ]
   )
   await writeFile(sourcePath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n')
-  await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
+  await reopenFixtureFromDisk()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1240, 900))
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   const editor = page.getByRole('textbox', { name: '编辑最近的问题', exact: true })
@@ -352,7 +374,7 @@ test('long text and filenames remain usable by keyboard; malformed content prepa
     .message.content.push({ type: 'text', text: 'unsupported second block' })
   const malformed = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
   await writeFile(sourcePath, malformed)
-  await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
+  await reopenFixtureFromDisk()
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('暂不支持')
   expect(await readFile(sourcePath, 'utf8')).toBe(malformed)
@@ -365,10 +387,10 @@ test('image-only latest user leaf has an editor and sends once with retained can
     .map((line) => JSON.parse(line))
     .filter((e) => e.id !== 'latest-answer')
   entries.find((e) => e.id === 'latest').message.content = [
-    { type: 'image', mimeType: 'image/png', data: 'YQ==' }
+    { type: 'image', mimeType: 'image/png', data: FIXTURE_PNG }
   ]
   await writeFile(sourcePath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n')
-  await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
+  await reopenFixtureFromDisk()
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await expect(page.getByRole('textbox', { name: '编辑最近的问题', exact: true })).toHaveValue('')
   await page.getByRole('button', { name: '发送编辑', exact: true }).click()
@@ -381,11 +403,18 @@ test('image-only latest user leaf has an editor and sends once with retained can
     (e) =>
       e.type === 'message' && e.message.role === 'user' && e.id !== 'first' && e.id !== 'latest'
   )
-  expect(user.parentId).toBe('first-answer')
+  // Pi persists transcript system/tool declarations before the edited user turn.
+  let parentId = user.parentId
+  while (parentId !== 'first-answer') {
+    const parent = after.find((entry) => entry.id === parentId)
+    expect(parent).toMatchObject({ type: 'message', message: { role: 'system' } })
+    parentId = parent.parentId
+  }
+  expect(parentId).toBe('first-answer')
   // Pi prompt normalizes to one leading text block, including empty image-only input.
   expect(user.message.content).toEqual([
     { type: 'text', text: '' },
-    { type: 'image', mimeType: 'image/png', data: 'YQ==' }
+    { type: 'image', mimeType: 'image/png', data: FIXTURE_PNG }
   ])
 })
 
@@ -407,7 +436,7 @@ test('model change invalidates preparation; unavailable historical model permits
   for (const e of entries) if (e.type === 'model_change') e.modelId = 'missing'
   const bytes = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
   await writeFile(sourcePath, bytes)
-  await page.evaluate((path) => window.pi.send({ type: 'session:open', path }), sourcePath)
+  await reopenFixtureFromDisk()
   await page.getByRole('button', { name: '编辑问题', exact: true }).click()
   await expect(page.getByRole('textbox', { name: '编辑最近的问题', exact: true })).toHaveValue(
     '最近的问题'

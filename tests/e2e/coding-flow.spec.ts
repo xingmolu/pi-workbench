@@ -148,7 +148,7 @@ async function run(command: string, prompt: string): Promise<void> {
     const { sessionId, generation } = await window.pi.getState()
     return window.pi.send({ type: 'prompt:send', text, sessionId: sessionId!, generation })
   }, command)
-  const draft = page.getByRole('textbox', { name: '给 Pi 的任务', exact: true })
+  const draft = page.getByRole('textbox', { name: '任务输入', exact: true })
   await draft.fill(prompt)
   await draft.press('Enter')
 }

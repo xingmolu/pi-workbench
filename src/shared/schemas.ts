@@ -1,3 +1,4 @@
+import { subagentOperationSchema } from './subagent'
 import { navigationLibrarySchema } from './navigation-library'
 import { z } from 'zod'
 import { sessionSearchCommandSchema, projectSearchCommandSchema, sessionSearchResultSchema, projectSearchResultSchema } from './session-search'
@@ -26,12 +27,15 @@ import {
 } from './text-attachments'
 import { browserRefSchema } from './browser-ref'
 import {
+  endpointDiscoverSchema,
+  endpointDiscoverySchema,
   customEndpointConfigSnapshotSchema,
   customEndpointContextSchema,
   customEndpointSaveRequestSchema,
   customEndpointSaveResultSchema
 } from './custom-endpoints'
-import { AGENT_ENGINE, THINKING_LEVELS } from './contracts'
+import { THINKING_LEVELS } from './contracts'
+import { agentRuntimeManifestSchema, runtimeIdSchema } from './agent-runtime'
 import { normalizeSessionName } from './session-name'
 import type {
   AgentSnapshot,
@@ -136,6 +140,7 @@ const conversationNodeSchema = z.discriminatedUnion('type', [
       originalOutputLength: nonNegativeInteger.optional(),
       truncated: z.boolean().optional(),
       status: toolStatusSchema,
+      subagent: subagentOperationSchema.optional(),
       change: z
         .object({
           path: z.string(),
@@ -159,6 +164,7 @@ const projectInfoSchema = z.object({ path: z.string(), name: z.string() }).stric
 const sessionSummarySchema = z
   .object({
     id: z.string(),
+    runtimeId: runtimeIdSchema.optional(),
     path: z.string(),
     title: z.string(),
     modified: z.string(),
@@ -496,7 +502,8 @@ const agentSnapshotMetaShape = {
     .strict()
     .optional(),
   ready: z.boolean(),
-  engine: z.literal(AGENT_ENGINE),
+  engine: z.string().min(1).max(200),
+  runtime: agentRuntimeManifestSchema.optional(),
   agentDir: z.string(),
   project: projectInfoSchema.nullable(),
   sessions: z.array(sessionSummarySchema),
@@ -553,11 +560,11 @@ export const agentStatePatchSchema: z.ZodType<AgentStatePatch> = z
   .strict()
 
 const bootstrapCommandSchema = z.object({ type: z.literal('bootstrap') }).strict()
-const stateGetCommandSchema = z.object({ type: z.literal('state:get') }).strict()
+const stateGetCommandSchema = z.object({ type: z.literal('state:get'), refreshSessions: z.boolean().optional() }).strict()
 const runtimeRefreshCommandSchema = z.object({ type: z.literal('runtime:refresh') }).strict()
 const runtimeShutdownCommandSchema = z.object({ type: z.literal('runtime:shutdown') }).strict()
 const projectOpenCommandSchema = z
-  .object({ type: z.literal('project:open'), cwd: z.string().min(1) })
+  .object({ type: z.literal('project:open'), cwd: z.string().min(1), runtimeId: runtimeIdSchema.optional() })
   .strict()
 const projectCatalogCommandSchema = z.object({
   type: z.literal('project:catalog'),
@@ -571,14 +578,16 @@ const projectCatalogCommandSchema = z.object({
 const projectNavigateCommandSchema = z.object({
   type: z.literal('project:navigate'),
   cwd: z.string().min(1),
+  runtimeId: runtimeIdSchema.optional(),
   sessionPath: z.string().min(1).optional(),
   sessionId: z.string().min(1).nullable(),
   generation: nonNegativeInteger
 }).strict()
-const sessionNewBareCommandSchema = z.object({ type: z.literal('session:new') }).strict()
+const sessionNewBareCommandSchema = z.object({ type: z.literal('session:new'), runtimeId: runtimeIdSchema.optional() }).strict()
 const sessionNewExactCommandSchema = z
   .object({
     type: z.literal('session:new'),
+    runtimeId: runtimeIdSchema.optional(),
     providerId: z.string().min(1),
     modelId: z.string().min(1)
   })
@@ -632,6 +641,9 @@ const promptSendCommandSchema = z
     images: z.array(promptImageSchema).min(1).max(MAX_PROMPT_IMAGES).optional()
   })
   .strict()
+const sessionTaskCancelCommandSchema = z.object({ type: z.literal('session-task:cancel'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1).max(1024), generation: nonNegativeInteger }).strict()
+const subagentInspectCommandSchema = z.object({ type: z.literal('subagent:inspect'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1), generation: nonNegativeInteger }).strict()
+const accountApiKeySetCommandSchema = z.object({ type: z.literal('account:api-key:set'), providerId: z.string().min(1).max(128), apiKey: z.string().min(1).max(16384), baseUrl: z.string().url().max(4096).optional() }).strict()
 const promptAbortCommandSchema = z.object({ type: z.literal('prompt:abort') }).strict()
 const queueClearCommandSchema = z.object({ type: z.literal('queue:clear') }).strict()
 const permissionSetCommandSchema = z
@@ -701,6 +713,7 @@ const commandSchemas = [
   editQuerySchema,
   attachmentPromptCommandSchema,
   attachmentQueryCommandSchema,
+  endpointDiscoverSchema,
   endpointListCommandSchema,
   endpointSaveCommandSchema,
   bootstrapCommandSchema,
@@ -714,6 +727,9 @@ const commandSchemas = [
   sessionRenameCommandSchema,
   promptSendCommandSchema,
   promptAbortCommandSchema,
+  sessionTaskCancelCommandSchema,
+  subagentInspectCommandSchema,
+  accountApiKeySetCommandSchema,
   queueClearCommandSchema,
   permissionSetCommandSchema,
   permissionRespondCommandSchema,
@@ -753,6 +769,7 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   editQuerySchema.extend(requestIdShape),
   attachmentPromptCommandSchema.extend(requestIdShape),
   attachmentQueryCommandSchema.extend(requestIdShape),
+  endpointDiscoverSchema.extend(requestIdShape),
   endpointListCommandSchema.extend(requestIdShape),
   endpointSaveCommandSchema.extend(requestIdShape),
   bootstrapCommandSchema.extend(requestIdShape),
@@ -767,6 +784,9 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   sessionRenameCommandSchema.extend(requestIdShape),
   promptSendCommandSchema.extend(requestIdShape),
   promptAbortCommandSchema.extend(requestIdShape),
+  sessionTaskCancelCommandSchema.extend(requestIdShape),
+  subagentInspectCommandSchema.extend(requestIdShape),
+  accountApiKeySetCommandSchema.extend(requestIdShape),
   queueClearCommandSchema.extend(requestIdShape),
   permissionSetCommandSchema.extend(requestIdShape),
   permissionRespondCommandSchema.extend(requestIdShape),
@@ -787,11 +807,12 @@ export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kin
   z.object({ kind: z.literal('account-quota'), quota: accountQuotaSchema }).strict(),
   z.object({kind:z.literal('project-catalog'),catalog:z.object({
     projects:z.array(z.object({
-      path:z.string().min(1),name:z.string().min(1),sessions:z.array(sessionSummarySchema).max(50),
+      path:z.string().min(1),name:z.string().min(1),sessions:z.array(sessionSummarySchema),
       totalSessions:nonNegativeInteger,nextOffset:nonNegativeInteger.nullable(),
       error:z.literal('directory-unavailable').optional()
   }).strict()).max(100),totalProjects:nonNegativeInteger,truncated:z.boolean(),skippedDirectories:nonNegativeInteger.optional()
   }).strict()}).strict(),
+  z.object({ kind: z.literal('subagent-inspection'), snapshot: agentSnapshotSchema }).strict(),
   z.object({ kind: z.literal('session-edit'), result: editResultSchema }).strict(),
   z
     .object({
@@ -809,6 +830,7 @@ export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kin
       configPath: z.string()
     })
     .strict(),
+  z.object({ kind: z.literal('endpoint-discovery'), result: endpointDiscoverySchema }).strict(),
   z.object({ kind: z.literal('endpoint-save'), result: customEndpointSaveResultSchema }).strict(),
   z.object({ kind: z.literal('snapshot'), snapshot: agentSnapshotSchema }).strict(),
   z

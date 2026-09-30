@@ -73,6 +73,7 @@ export class SessionWorkerSupervisor {
       capacity: options.capacity,
       canonicalize: options.canonicalize,
       runtime: {
+        ...(runtime.resolveProviderId ? { resolveProviderId: (id?: string) => runtime.resolveProviderId!(id) } : {}),
         createSession: (sessionOptions) =>
           runtime.createSession({
             ...sessionOptions,
@@ -136,6 +137,19 @@ export class SessionWorkerSupervisor {
     return bridge.handle(workerId, this.tryGetSnapshot(workerId), message, reply)
   }
 
+  inspectSessionTask(taskId: string, origin: DesktopCommandOrigin): AgentSnapshot {
+    const scope = this.capture(origin)
+    if (!scope || !origin.sessionId || !this.sessionTaskBridge) throw new Error('子会话已不可用')
+    return this.sessionTaskBridge.inspect(scope.workerId, { sessionId: origin.sessionId, generation: origin.generation }, taskId)
+  }
+
+  async cancelSessionTask(taskId: string, identity: { sessionId: string; generation: number }, origin?: DesktopCommandOrigin): Promise<void> {
+    const scope = this.capture(origin)
+    if (!scope || !this.sessionTaskBridge) throw new Error('子 Agent 已不可用')
+    await this.sessionTaskBridge.cancel(scope.workerId, identity, taskId)
+    this.summaries()
+  }
+
   getDiagnostics() {
     return this.pool.getDiagnostics()
   }
@@ -166,6 +180,8 @@ export class SessionWorkerSupervisor {
   get quiescent(): boolean {
     return this.pool.quiescent
   }
+
+  quiescentFor(runtimeId: string): boolean { return this.pool.quiescentFor(runtimeId) }
 
   isSelected(workerId: string): boolean {
     return this.pool.selectedScope?.workerId === workerId
@@ -333,7 +349,7 @@ export class SessionWorkerSupervisor {
   }
 
   async open(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     expected: SelectedSessionScope | null,
     model?: { providerId: string; modelId: string },
     origin?: DesktopCommandOrigin
@@ -341,7 +357,7 @@ export class SessionWorkerSupervisor {
     this.captureNavigation(origin)
     const result = await this.pool.open(target, expected, async (worker) => {
       if (!target.path && model) await worker.request({ type: 'model:set', ...model })
-      const state = await worker.request({ type: 'state:get' })
+      const state = await worker.request({ type: 'state:get', refreshSessions: true })
       if (state.kind !== 'snapshot') throw new Error('会话状态不可用')
       this.captureNavigation(origin)
       return state.snapshot
@@ -355,7 +371,7 @@ export class SessionWorkerSupervisor {
    * capacity, crash isolation and capability rules as every normal session.
    */
   async openBackground(
-    target: { cwd: string; path?: string },
+    target: { cwd: string; path?: string; runtimeId?: string },
     model?: { providerId: string; modelId: string }
   ): Promise<BackgroundSessionAdmission> {
     const result = await this.pool.openBackground(target, async (worker) => {
@@ -396,7 +412,7 @@ export class SessionWorkerSupervisor {
   summaries(options: { onlyIfChanged?: boolean } = {}): void {
     const summaries = this.pool.getLiveSummaries()
     const data = this.sessionTaskBridge?.decorateSummaries(summaries) ?? summaries
-    // At most eight small sidebar rows, never transcript bodies. Include task
+    // Small sidebar rows with bounded child activity previews. Include task
     // relations before comparing so parent/child changes remain observable.
     const key = JSON.stringify(data)
     if (options.onlyIfChanged && key === this.publishedSummariesKey) return

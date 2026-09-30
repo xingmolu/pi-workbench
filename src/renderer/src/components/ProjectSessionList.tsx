@@ -33,7 +33,7 @@ export default function ProjectSessionList({
   disabledReason
 }: {
   snapshot: AgentSnapshot
-  onNavigate: (cwd: string, sessionPath?: string, workerId?: string) => void
+  onNavigate: (cwd: string, sessionPath?: string, workerId?: string, runtimeId?: string) => void
   onCatalog?: (catalog: ProjectCatalog | null) => void
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
@@ -261,10 +261,11 @@ export default function ProjectSessionList({
                         disabled={Boolean(rowBlocked)}
                         data-navigation-pending={pendingOnly || undefined}
                         onClick={() =>
-                          onNavigate(project.path, session.path ?? undefined, session.workerId)
+                          onNavigate(project.path, session.path ?? undefined, session.workerId, session.runtimeId)
                         }
                       >
                         <span className="session-title">{session.title}</span>
+                        {session.runtimeId && session.runtimeId !== snapshot.runtime?.id ? <small className="session-runtime-label">{session.runtimeId === 'claude' ? 'Claude' : session.runtimeId}</small> : null}
                         {(session.parentSessionPath || session.parentUnavailable) && (
                           <GitFork size={11} className="session-fork-label" aria-label="分叉会话" />
                         )}
@@ -333,7 +334,7 @@ export default function ProjectSessionList({
         )}
         {catalog?.truncated && (
           <p className="catalog-scope">
-            显示 100 / {catalog.totalProjects} 个项目。使用“搜索所有会话”查找其余会话。
+            显示 {catalog.projects.length} / 至少 {catalog.totalProjects} 个项目。使用“搜索所有会话”查找其余会话。
           </p>
         )}
       </div>

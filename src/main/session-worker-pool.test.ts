@@ -85,6 +85,25 @@ function fixture(
 }
 
 describe('session worker ownership', () => {
+  it('can select another resident when a background session file was deleted', async () => {
+    let missing = false
+    const { pool, workers } = fixture(8, {
+      canonicalize: async (path) => {
+        if (missing && path === '/a') throw Object.assign(new Error('deleted'), { code: 'ENOENT' })
+        return path
+      }
+    })
+    const source = await pool.open({ cwd: '/project', path: '/a' })
+    const child = await pool.open({ cwd: '/project', path: '/b' }, source.scope)
+    pool.select(source.scope.workerId)
+    missing = true
+    const reopened = await pool.open({ cwd: '/project', path: '/b' })
+    expect(reopened.scope.workerId).toBe(child.scope.workerId)
+    expect(workers).toHaveLength(2)
+    expect(pool.getSnapshot(source.scope.workerId)?.activeSessionPath).toBe('/a')
+    await expect(pool.open({ cwd: '/project', path: '/a' })).rejects.toMatchObject({ code: 'ENOENT' })
+    await pool.shutdown()
+  })
   it('ignores final runtime snapshots emitted during disposal', async () => {
     let options!: SessionWorkerFactoryOptions
     let delivered = 0

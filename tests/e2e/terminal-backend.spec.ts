@@ -62,6 +62,7 @@ async function create(): Promise<TerminalMetadata> {
     (projectPath) => window.pi.terminal({ type: 'create', projectPath, cols: 80, rows: 24 }),
     project
   )
+  expect(result, 'terminal create result').toMatchObject({ type: 'terminal' })
   if (result.type !== 'terminal') throw new Error('Create failed')
   await page.evaluate(
     (identity) => window.pi.terminal({ type: 'attach', ...identity }),
@@ -127,7 +128,12 @@ test.beforeEach(async ({}, testInfo) => {
     await symlink(resolve('node_modules'), join(appPath, 'node_modules'), 'dir')
     await writeFile(
       join(appPath, 'package.json'),
-      JSON.stringify({ name: 'terminal-fixture', version: '0.0.0', main: './out/main/index.js' })
+      JSON.stringify({
+        name: 'terminal-fixture',
+        // Bundled plugin compatibility is checked against the actual app version.
+        version: JSON.parse(await readFile(resolve('package.json'), 'utf8')).version,
+        main: './out/main/index.js'
+      })
     )
     const hostPath = join(appPath, 'out/main/terminal-host.js')
     await rename(hostPath, join(appPath, 'out/main/terminal-host-production.js'))
@@ -151,6 +157,14 @@ test.beforeEach(async ({}, testInfo) => {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
+  await expect
+    .poll(async () => {
+      const { state } = await page.evaluate(() => window.pi.workbench({ type: 'state:get' }))
+      return state.plugins.some(
+        (plugin) => plugin.pluginId === 'works.pi.terminal' && plugin.desktopEnabled
+      )
+    })
+    .toBe(true)
   await subscribe()
 })
 test.afterEach(async () => {
@@ -332,8 +346,20 @@ test('real utility crash reports failed without fabricating shell exit', async (
 
 test('Pi agent crash does not revoke selected-project user terminal management', async () => {
   const t = await create()
+  const workerId = await page.evaluate(
+    async () => (await window.pi.getState()).desktopScope?.workerId
+  )
+  expect(workerId).toBeTruthy()
   const agentPid = await app.evaluate(
-    ({ app }) => app.getAppMetrics().find((metric) => metric.name === 'Pi Agent Host')?.pid
+    ({ app }, workerId) =>
+      app
+        .getAppMetrics()
+        .find(
+          (metric) =>
+            metric.name === `Pi Session Host ${workerId}` ||
+            metric.serviceName === `Pi Session Host ${workerId}`
+        )?.pid,
+    workerId
   )
   expect(agentPid).toBeGreaterThan(1)
   process.kill(agentPid!, 'SIGKILL')

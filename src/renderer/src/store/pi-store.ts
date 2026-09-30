@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createEmptyAgentSnapshot } from '../../../shared/initial-agent-snapshot'
 import { AGENT_ENGINE, type AgentSnapshot, type AgentStatePatch } from '../../../shared/contracts'
 import { applyStatePatch, type ApplyStatePatchResult } from '../../../shared/state-patch'
 import type { CustomEndpointContext } from '../../../shared/custom-endpoints'
@@ -27,40 +28,7 @@ export function endpointContext(snapshot: AgentSnapshot): CustomEndpointContext 
   }
 }
 
-export const EMPTY_SNAPSHOT: AgentSnapshot = {
-  sessionId: null,
-  generation: 0,
-  revision: 0,
-  ready: false,
-  engine: AGENT_ENGINE,
-  agentDir: '~/.pi/agent',
-  project: null,
-  sessions: [],
-  activeSessionPath: null,
-  nodes: [],
-  accounts: [],
-  models: [],
-  activeProvider: null,
-  activeModel: null,
-  modelAvailability: 'unselected',
-  composeBlockReason: 'project-required',
-  busy: false,
-  status: 'idle',
-  approvals: [],
-  followUp: [],
-  queuedCount: 0,
-  permissionMode: 'ask',
-  metrics: {
-    turns: 0,
-    steps: 0,
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0
-  },
-  login: { phase: 'idle' },
-  loginPrompt: null
-}
+export const EMPTY_SNAPSHOT: AgentSnapshot = createEmptyAgentSnapshot(AGENT_ENGINE, '')
 
 type PiStore = {
   liveSessions: LiveSessionSummary[]

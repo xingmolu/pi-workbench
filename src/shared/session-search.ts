@@ -21,11 +21,13 @@ export const sessionSearchItemSchema = z
     sessionPath: z.string().min(1).max(4096),
     cwd: z.string().min(1).max(4096),
     projectName: z.string().min(1).max(200),
-    modified: z.iso.datetime()
+    modified: z.iso.datetime(),
+    runtimeId: z.string().min(1).optional()
   })
   .strict()
 const metadata = {
   total: z.number().int().nonnegative(),
+  totalIsLowerBound: z.boolean().optional(),
   truncated: z.boolean(),
   skippedDirectories: z.number().int().nonnegative(),
   skippedEntries: z.number().int().nonnegative()

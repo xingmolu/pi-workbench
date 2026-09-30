@@ -729,7 +729,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       )}
       <p className="mcp-footnote">
         当前支持文本工具；远程服务可以通过浏览器 OAuth 登录。不支持 MCP Apps、资源与提示模板或 JSON
-        批量导入。服务报错不会显示为成功；停止工具调用会关闭连接，可以随时重新连接。
+        批量导入。停止工具调用会关闭连接；若调用结果未确认，请重启应用并核对记录后再连接。
       </p>
     </section>
   )

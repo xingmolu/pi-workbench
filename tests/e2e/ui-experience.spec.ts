@@ -268,7 +268,7 @@ test('removing the selected project closes only the foreground and survives a re
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).project))
     .toBeNull()
-  await expect(page.getByText('从一个项目开始。', { exact: true })).toBeVisible()
+  await expect(page.getByText('继续上次的工作。', { exact: true })).toBeVisible()
   expect(await readFile(pa, 'utf8')).toBe(original)
   const catalog = await page.evaluate(() => window.pi.send({ type: 'project:catalog' }))
   expect(catalog.catalog.projects.some((project) => project.path === a)).toBe(false)

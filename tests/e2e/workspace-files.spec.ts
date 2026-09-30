@@ -139,6 +139,11 @@ test('real workspace files: tree, safe preview, search, refresh and project isol
 })
 
 test('filename-inferred TypeScript preview preserves CRLF and trailing blank lines', async () => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '外观', exact: true }).click()
+  await page.getByRole('radiogroup', { name: '主题' }).getByRole('radio', { name: '深色', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   const source = '\tconst count: number = 42  \r\n\r\n'
   await writeFile(join(projectA, 'example.ts'), source)
   const pane = page.getByRole('region', { name: '项目文件' })

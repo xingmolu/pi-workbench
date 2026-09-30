@@ -1,5 +1,7 @@
+import { subagentSummarySchema, type SubagentSummary } from './subagent'
 import type { SessionStatus } from './contracts'
 import { z } from 'zod'
+import { runtimeIdSchema } from './agent-runtime'
 
 /** Desktop ownership is independent of the host's native session and generation. */
 export type SelectedSessionScope = { workerId: string; selectionEpoch: number }
@@ -23,23 +25,30 @@ export const desktopCommandOriginSchema: z.ZodType<DesktopCommandOrigin> = z
   })
   .strict()
 
-/** Minimal read-only relationship metadata used only for Sidebar projection. */
+/** Read-only task relationship and bounded activity for Sidebar/conversation projection. */
 export type LiveSessionTaskRelation = {
   taskId: string
   parentWorkerId: string
+  parentSessionId?: string
+  parentGeneration?: number
   createdAt: number
+  progress?: SubagentSummary
 }
 
 const liveSessionTaskRelationSchema: z.ZodType<LiveSessionTaskRelation> = z
   .object({
     taskId: z.string().min(1).max(256),
     parentWorkerId: z.string().min(1).max(128),
-    createdAt: z.number().finite()
+    parentSessionId: z.string().min(1).max(1024).optional(),
+    parentGeneration: z.number().int().nonnegative().optional(),
+    createdAt: z.number().finite(),
+    progress: subagentSummarySchema.optional()
   })
   .strict()
 
 export type LiveSessionSummary = {
   workerId: string
+  runtimeId?: string
   cwd: string
   sessionPath: string | null
   sessionId: string | null
@@ -53,6 +62,7 @@ export type LiveSessionSummary = {
 export const liveSessionSummarySchema: z.ZodType<LiveSessionSummary> = z
   .object({
     workerId: z.string().min(1).max(128),
+    runtimeId: runtimeIdSchema.optional(),
     cwd: z.string().min(1),
     sessionPath: z.string().nullable(),
     sessionId: z.string().nullable(),

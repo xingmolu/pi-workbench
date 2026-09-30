@@ -175,3 +175,18 @@ export const customEndpointSaveResultSchema: z.ZodType<CustomEndpointSaveResult>
 export function isCustomEndpointId(id: string): boolean {
   return /^custom-[a-z0-9][a-z0-9-]{0,99}$/.test(id)
 }
+
+/** Discovery does not save credentials or mutate the active session. */
+export const endpointDiscoverSchema = z.object({
+  type: z.literal('endpoint:discover'),
+  baseUrl: customEndpointUrlSchema,
+  key: keySchema,
+  api: customEndpointApiSchema
+}).strict()
+export type EndpointDiscoverCommand = z.infer<typeof endpointDiscoverSchema>
+export const endpointDiscoverySchema = z.object({
+  baseUrl: customEndpointUrlSchema,
+  modelIds: z.array(boundedText(200)).max(100),
+  truncated: z.boolean()
+}).strict()
+export type EndpointDiscovery = z.infer<typeof endpointDiscoverySchema>

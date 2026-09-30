@@ -1,3 +1,5 @@
+import { agentSnapshotSchema } from '../shared/schemas'
+import { agentRuntimeCatalogSchema, RUNTIME_CATALOG_CHANNEL } from '../shared/agent-runtime'
 import { NAVIGATION_LIBRARY_CHANNEL, navigationLibraryCommandSchema, navigationLibrarySchema } from '../shared/navigation-library'
 import { contextBridge, ipcRenderer } from 'electron'
 import { SessionOriginTracker } from './session-origin'
@@ -123,12 +125,17 @@ const api: PiDesktopAPI = {
   desktopControl: (command) => desktopControlClient.desktopControl(command),
   getState: async (): Promise<AgentSnapshot> =>
     acceptSnapshot(await ipcRenderer.invoke('pi:state')),
+  legacyPiHistory: () => ipcRenderer.invoke('pi:legacy-history'),
+  importPiHistory: () => ipcRenderer.invoke('pi:import-history'),
+  selectRuntime: async (runtimeId, origin) => agentSnapshotSchema.parse(await ipcRenderer.invoke('pi:runtime-select', runtimeId, origin)),
+  listRuntimes: async () => agentRuntimeCatalogSchema.parse(await ipcRenderer.invoke(RUNTIME_CATALOG_CHANNEL)),
   reconnect: async (): Promise<AgentSnapshot> =>
     acceptSnapshot(await ipcRenderer.invoke('pi:reconnect')),
   selectProject: async (origin): Promise<AgentSnapshot | null> => {
     const snapshot = await ipcRenderer.invoke('pi:select-project', originFor(origin))
     return snapshot ? acceptSnapshot(snapshot) : null
   },
+  inspectSubagent: async (taskId, origin) => agentSnapshotSchema.parse(await ipcRenderer.invoke('pi:subagent-inspect', taskId, desktopCommandOriginSchema.parse(origin))),
   selectSession: async (workerId, origin) =>
     acceptSnapshot(await ipcRenderer.invoke('pi:session-select', workerId, originFor(origin))),
   send: async <Command extends HostCommand>(

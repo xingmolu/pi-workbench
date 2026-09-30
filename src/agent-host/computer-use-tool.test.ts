@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { stream } from '@earendil-works/pi-ai/api/anthropic-messages'
-import type { Model } from '@earendil-works/pi-ai'
+import { normalizeContext, type Model } from '@earendil-works/pi-ai'
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { computerUseOperationSchema } from '../shared/computer-use'
 
@@ -22,16 +22,23 @@ describe('computer tool provider contract', () => {
     let payload: unknown
     const result = await stream(
       model,
-      {
-        messages: [{ role: 'user', content: 'Observe the desktop', timestamp: 0 }],
-        tools: [
+      normalizeContext({
+        messages: [
           {
-            name: 'computer',
-            description: 'Desktop control',
-            parameters: COMPUTER_USE_TOOL_PARAMETERS
-          }
+            role: 'system',
+            content: '',
+            timestamp: 0,
+            toolsAdded: [
+              {
+                name: 'computer',
+                description: 'Desktop control',
+                parameters: COMPUTER_USE_TOOL_PARAMETERS
+              }
+            ]
+          },
+          { role: 'user', content: 'Observe the desktop', timestamp: 0 }
         ]
-      },
+      }),
       {
         apiKey: 'offline-fixture',
         onPayload: (value) => {

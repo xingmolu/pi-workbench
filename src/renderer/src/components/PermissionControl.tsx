@@ -110,7 +110,7 @@ export default function PermissionControl({
           aria-label="工具权限"
         >
           <p className="permission-heading">
-            Pi 可以做什么？
+            {snapshot.runtime?.label ?? 'Agent'} 可以做什么？
             {project ? <span title={project.path}>{project.name}</span> : null}
           </p>
           <div className="permission-modes" role="radiogroup" aria-label="工具权限">
@@ -126,13 +126,13 @@ export default function PermissionControl({
                 <Icon size={16} aria-hidden="true" />
                 <span>
                   <strong>{title}</strong>
-                  <small>{description}</small>
+                  <small>{snapshot.runtime?.id === 'claude' && mode === 'auto' ? '自动批准项目内编辑；运行命令和其他操作仍会询问' : description}</small>
                 </span>
                 {snapshot.permissionMode === mode ? <Check size={14} aria-hidden="true" /> : null}
               </button>
             ))}
           </div>
-          <details className="permission-rules">
+          {(!snapshot.runtime || snapshot.runtime.features.includes('permission-rules')) && <details className="permission-rules">
             <summary>
               <ChevronRight size={13} aria-hidden="true" />
               自定义规则
@@ -207,7 +207,7 @@ export default function PermissionControl({
                 {error}
               </p>
             ) : null}
-          </details>
+          </details>}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

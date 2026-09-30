@@ -152,14 +152,14 @@ export default function ModelPicker({
             ? '运行结束后可以切换模型'
             : [
                 account?.name,
-                current?.name,
+                current?.name || current?.id || snapshot.activeModel,
                 thinking ? `思考 ${THINKING_LABEL[thinking.level]}` : ''
               ]
                 .filter(Boolean)
                 .join(' · ') || '选择模型'
         }
       >
-        <span>{current?.name ?? '选择模型'}</span>
+        <span>{current?.name || current?.id || snapshot.activeModel || '选择模型'}</span>
         {thinking && thinking.level !== 'off' ? (
           <span className="model-chip-effort">{THINKING_LABEL[thinking.level]}</span>
         ) : null}

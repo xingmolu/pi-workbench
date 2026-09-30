@@ -86,6 +86,7 @@ export function liveProjects(
       modified: existing?.modified ?? '',
       messageCount: existing?.messageCount ?? 0,
       workerId: resident.workerId,
+      ...(resident.runtimeId ? { runtimeId: resident.runtimeId } : {}),
       active: resident.selected,
       status: resident.status === 'opening' ? 'idle' : resident.status,
       ...(resident.sessionTask ? { sessionTask: resident.sessionTask } : {})

@@ -107,6 +107,7 @@ export type ConversationNode = {
       originalOutputLength?: number
       truncated?: boolean
       status: ToolStatus
+      subagent?: import('./subagent').SubagentOperation
       change?: ToolFileChange
     }
   | {
@@ -124,6 +125,7 @@ export type ProjectInfo = {
 
 export type SessionSummary = {
   id: string
+  runtimeId?: string
   path: string
   title: string
   modified: string
@@ -395,7 +397,9 @@ export type AgentSnapshot = {
   generation: number
   revision: number
   ready: boolean
-  engine: typeof AGENT_ENGINE
+  engine: string
+  /** Adapter identity/capabilities; separate from the selected language-model provider. */
+  runtime?: import('./agent-runtime').AgentRuntimeManifest
   agentDir: string
   project: ProjectInfo | null
   sessions: SessionSummary[]
@@ -445,7 +449,7 @@ export type AgentStatePatch = {
 }
 
 export type SessionNewCommand =
-  { type: 'session:new' } | { type: 'session:new'; providerId: string; modelId: string }
+  { type: 'session:new'; runtimeId?: string } | { type: 'session:new'; runtimeId?: string; providerId: string; modelId: string }
 
 export type HostCommand =
   | ((SessionSearchCommand | ProjectSearchCommand) & { recentPaths?: string[] })
@@ -461,8 +465,8 @@ export type HostCommand =
   | { type: 'bootstrap' }
   | { type: 'runtime:refresh' }
   | { type: 'runtime:shutdown' }
-  | { type: 'state:get' }
-  | { type: 'project:open'; cwd: string }
+  | { type: 'state:get'; refreshSessions?: boolean }
+  | { type: 'project:open'; cwd: string; runtimeId?: string }
   | SessionNewCommand
   | { type: 'session:open'; path: string }
   | { type: 'session:fork'; sessionId: string; generation: number; entryId: string }
@@ -476,15 +480,19 @@ export type HostCommand =
       images?: PromptImage[]
     }
   | { type: 'prompt:abort' }
+  | { type: 'session-task:cancel'; taskId: string; sessionId: string; generation: number }
+  | { type: 'subagent:inspect'; taskId: string; sessionId: string; generation: number }
   | { type: 'queue:clear' }
   | { type: 'permission:set'; mode: PermissionMode }
   | { type: 'permission:respond'; approvalId: string; allow: boolean; scope?: ApprovalScope }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
+  | { type: 'account:api-key:set'; providerId: string; apiKey: string; baseUrl?: string }
   | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'model:set'; providerId: string; modelId: string }
   | { type: 'thinking:set'; level: ThinkingLevel }
+  | import('./custom-endpoints').EndpointDiscoverCommand
   | { type: 'endpoint:list' }
   | { type: 'endpoint:save'; context: CustomEndpointContext; request: CustomEndpointSaveRequest }
   | { type: 'browser:e2e'; operation: BrowserOperation }
@@ -495,12 +503,13 @@ export type SnapshotHostCommand = Extract<
   HostCommand,
   { type: 'bootstrap' | 'state:get' | 'runtime:refresh' | 'runtime:shutdown' | 'project:open' | 'project:navigate' | 'session:new' | 'session:open' }
 >
-export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' }>
+export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' | 'endpoint:discover' }>
 export type AckHostCommand = Exclude<
   HostCommand,
   | SnapshotHostCommand
   | EndpointHostCommand
   | Extract<HostCommand, { type: 'session:fork' }>
+  | Extract<HostCommand, { type: 'subagent:inspect' }>
   | AttachmentHostCommand
   | SessionEditCommand
   | ProjectCatalogCommand
@@ -524,7 +533,9 @@ export type HostEndpointListResult = {
   configPath: string
 }
 export type HostEndpointSaveResult = { kind: 'endpoint-save'; result: CustomEndpointSaveResult }
+export type HostEndpointDiscoveryResult = { kind: 'endpoint-discovery'; result: import('./custom-endpoints').EndpointDiscovery }
 export type HostResult =
+  | HostEndpointDiscoveryResult
   | { kind: 'session-search'; result: SessionSearchResult }
   | { kind: 'project-search'; result: ProjectSearchResult }
   | { kind: 'skills-list'; catalog: import('./skills').SkillsCatalogSnapshot }
@@ -532,6 +543,7 @@ export type HostResult =
   | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
   | { kind: 'project-catalog'; catalog: ProjectCatalog }
+  | { kind: 'subagent-inspection'; snapshot: AgentSnapshot }
   | { kind: 'session-edit'; result: SessionEditResult }
   | { kind: 'session-fork'; cancelled: boolean; snapshot: AgentSnapshot }
   | HostSnapshotResult
@@ -540,7 +552,9 @@ export type HostResult =
   | HostEndpointSaveResult
   | { kind: 'attachment'; receipt: AttachmentReceipt }
   | HostCheckpointResult
-export type HostResultFor<Command extends HostCommand> = Command extends SessionSearchCommand
+export type HostResultFor<Command extends HostCommand> = Command extends { type: 'subagent:inspect' }
+  ? { kind: 'subagent-inspection'; snapshot: AgentSnapshot }
+  : Command extends SessionSearchCommand
   ? { kind: 'session-search'; result: SessionSearchResult }
   : Command extends ProjectSearchCommand
   ? { kind: 'project-search'; result: ProjectSearchResult }
@@ -564,6 +578,8 @@ export type HostResultFor<Command extends HostCommand> = Command extends Session
       ? HostSnapshotResult
       : Command extends AttachmentHostCommand
         ? { kind: 'attachment'; receipt: AttachmentReceipt }
+        : Command extends { type: 'endpoint:discover' }
+          ? HostEndpointDiscoveryResult
         : Command extends { type: 'endpoint:list' }
           ? HostEndpointListResult
           : Command extends { type: 'endpoint:save' }
@@ -620,8 +636,13 @@ export type PiDesktopAPI = {
     command: import('./desktop-control').DesktopControlCommand
   ) => Promise<import('./desktop-control').DesktopControlResult>
   getState: () => Promise<AgentSnapshot>
+  legacyPiHistory: () => Promise<{ location: string; count: number }>
+  importPiHistory: () => Promise<{ imported: number; skipped: number }>
+  selectRuntime: (runtimeId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
+  listRuntimes: () => Promise<import('./agent-runtime').AgentRuntimeManifest[]>
   reconnect: () => Promise<AgentSnapshot>
   selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>
+  inspectSubagent: (taskId: string, origin: DesktopCommandOrigin) => Promise<AgentSnapshot>
   selectSession: (workerId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
   send: <Command extends HostCommand>(command: Command, origin?: DesktopCommandOrigin) => Promise<HostResultFor<Command>>
   onEvent: (listener: (event: DesktopEvent) => void) => () => void

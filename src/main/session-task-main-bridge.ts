@@ -1,3 +1,4 @@
+import { subagentProgress } from './subagent-progress'
 import type { AgentSnapshot } from '../shared/contracts'
 import type { LiveSessionSummary } from '../shared/session-runtime'
 import type { SessionTaskResponse } from '../shared/session-task-capability'
@@ -12,7 +13,7 @@ export class SessionTaskMainBridge {
   private readonly orchestrator: SessionTaskOrchestrator
   private readonly broker: SessionTaskCapabilityBroker
 
-  constructor(workerSupervisor: SessionWorkerSupervisor) {
+  constructor(private readonly workerSupervisor: SessionWorkerSupervisor) {
     this.service = new BackgroundSessionService(workerSupervisor)
     this.orchestrator = new SessionTaskOrchestrator(this.service, {
       onTasksChanged: () => workerSupervisor.summaries()
@@ -51,15 +52,35 @@ export class SessionTaskMainBridge {
     return summaries.map((summary) => {
       const relation = relations.get(summary.workerId)
       if (!relation) return summary
+      const snapshot = this.workerSupervisor.tryGetSnapshot(summary.workerId)
       return {
         ...summary,
         sessionTask: {
           taskId: relation.taskId,
           parentWorkerId: relation.parentWorkerId,
-          createdAt: relation.createdAt
+          parentSessionId: relation.parentSessionId,
+          parentGeneration: relation.parentGeneration,
+          createdAt: relation.createdAt,
+          ...(snapshot && snapshot.sessionId === summary.sessionId && snapshot.generation === summary.generation
+            ? { progress: subagentProgress(relation.taskId, snapshot, relation.createdAt) } : {})
         }
       }
     })
+  }
+
+  inspect(workerId: string, identity: { sessionId: string; generation: number }, taskId: string): AgentSnapshot {
+    const task = this.orchestrator.status({ workerId, ...identity }, taskId)
+    const snapshot = this.workerSupervisor.tryGetSnapshot(task.workerId)
+    if (!snapshot || snapshot.sessionId !== task.sessionId || snapshot.generation !== task.generation)
+      throw new Error('子会话已不可用')
+    return snapshot
+  }
+
+  async cancel(workerId: string, identity: { sessionId: string; generation: number }, taskId: string): Promise<void> {
+    const snapshot = this.workerSupervisor.tryGetSnapshot(workerId)
+    if (!snapshot || snapshot.sessionId !== identity.sessionId || snapshot.generation !== identity.generation)
+      throw new Error('父会话已改变，请刷新后重试')
+    await this.orchestrator.cancel({ workerId, ...identity }, taskId)
   }
 
   workerExited(workerId: string): void {

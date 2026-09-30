@@ -1,3 +1,6 @@
+import { sessionTaskResultPresentation } from './session-task-presentation'
+import { PI_RUNTIME_MANIFEST } from '../shared/pi-runtime'
+import { discoverEndpointModels } from './endpoint-discovery'
 import { executeComputerUse, COMPUTER_USE_RECOVERY_GUIDELINE, ComputerUseAppGrants, ComputerUseRecoveryFence } from './computer-use-execution'
 import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { appliedToolChange } from './tool-change'
@@ -178,10 +181,12 @@ import { canonicalProjectDirectory, discoverProjectSessions, readProjectCatalog 
 import { searchProjects, searchSessions } from './session-search'
 import type { ProjectNavigateCommand } from '../shared/project-catalog'
 
-const AGENT_DIR = resolveAgentDirectory({
+const runtimeStorage = process.env.PI_DESKTOP_RUNTIME_STORAGE ? JSON.parse(process.env.PI_DESKTOP_RUNTIME_STORAGE) as { config: string; sessions: string } : null
+const AGENT_DIR = process.env.PI_DESKTOP_E2E === '1' ? resolveAgentDirectory({
   e2eMode: process.env.PI_DESKTOP_E2E === '1',
   override: process.env.PI_DESKTOP_E2E_AGENT_DIR
-})
+}) : runtimeStorage!.config
+const SESSION_ROOT = process.env.PI_DESKTOP_E2E === '1' ? join(AGENT_DIR, 'sessions') : runtimeStorage!.sessions
 const MULTI_LOGIN_CONFIG = join(AGENT_DIR, 'pi-multi-login.json')
 process.env.PI_CODING_AGENT_DIR = AGENT_DIR
 process.env.PI_MULTI_LOGIN_CONFIG = MULTI_LOGIN_CONFIG
@@ -191,7 +196,7 @@ function projectSessionDirectory(cwd: string): string {
   const safePath = `--${resolve(cwd)
     .replace(/^[/\\]/, '')
     .replace(/[/\\:]/g, '-')}--`
-  return join(AGENT_DIR, 'sessions', safePath)
+  return join(SESSION_ROOT, safePath)
 }
 const ALIAS_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_TOOL_OUTPUT = 12_000
@@ -530,7 +535,7 @@ class PiDesktopHost {
     await this.initialize()
     if (request.type === 'session:search' || request.type === 'project:search') {
       if (!this.sdk) throw new Error('Pi SDK 尚未加载')
-      const options = { ...request, manager: this.sdk.SessionManager, agentDir: AGENT_DIR,
+      const options = { ...request, manager: this.sdk.SessionManager, agentDir: AGENT_DIR, sessionsRoot: SESSION_ROOT,
         recentPaths: [...(this.projectPath ? [this.projectPath] : []), ...(request.recentPaths ?? [])] }
       try {
         return request.type === 'session:search'
@@ -542,7 +547,7 @@ class PiDesktopHost {
       if (!this.sdk) throw new Error('Pi SDK 尚未加载')
       try {
         return {kind:'project-catalog',catalog:await readProjectCatalog({
-          ...request, manager:this.sdk.SessionManager,agentDir:AGENT_DIR,
+          ...request, manager:this.sdk.SessionManager,agentDir:AGENT_DIR,sessionsRoot:SESSION_ROOT,
           recentPaths:[...(this.projectPath ? [this.projectPath] : []),...(request.recentPaths ?? [])]
         })}
       } catch { throw new Error('项目目录暂时不可读取，请重试') }
@@ -627,6 +632,8 @@ class PiDesktopHost {
       case 'attachment:prompt':
       case 'attachment:query':
         return { kind: 'attachment', receipt: await this.attachmentPrompt(request) }
+      case 'endpoint:discover':
+        return { kind: 'endpoint-discovery', result: await discoverEndpointModels({ type: request.type, baseUrl: request.baseUrl, key: request.key, api: request.api }) }
       case 'endpoint:list':
         return {
           kind: 'endpoint-list',
@@ -645,7 +652,9 @@ class PiDesktopHost {
         return { kind: 'endpoint-save', result }
       }
       case 'bootstrap':
+        break
       case 'state:get':
+        if (request.refreshSessions) await this.refreshSessions()
         break
       case 'runtime:refresh': {
         if (this.runtime?.session.isStreaming || this.pendingPromptsBySession.size || this.loginAbort || this.approvalRegistry.requests(this.sessionGeneration).length || this.sessionEdits.pending)
@@ -716,6 +725,8 @@ class PiDesktopHost {
         })
         this.sendPrompt(request.text, request.images)
         break
+      case 'session-task:cancel':
+        throw new Error('当前运行时不支持直接停止子 Agent')
       case 'prompt:abort':
         await this.abortPrompt()
         break
@@ -738,6 +749,14 @@ class PiDesktopHost {
         break
       case 'account:login':
         await this.startLogin(request.providerId, request.method)
+        break
+      case 'account:api-key:set':
+        if (!this.modelRuntime) throw new Error('模型运行时尚未就绪')
+        if (request.baseUrl) throw new Error('自定义 URL 请使用添加端点')
+        await this.modelRuntime.login(request.providerId, 'api_key', {
+          prompt: async () => request.apiKey, notify: () => {}
+        })
+        await this.refreshAuthProjection()
         break
       case 'account:login:respond':
         this.resolveLoginPrompt(request.promptId, request.value)
@@ -1316,7 +1335,7 @@ class PiDesktopHost {
     if (!cwd || cwd !== request.cwd) throw new Error('所选项目目录不可用，请重试')
     let manager: SessionManager
     if (request.sessionPath) {
-      const sessions = await discoverProjectSessions({manager:this.sdk.SessionManager,agentDir:AGENT_DIR})
+      const sessions = await discoverProjectSessions({manager:this.sdk.SessionManager,agentDir:AGENT_DIR,sessionsRoot:SESSION_ROOT})
       requireProjectSessionPath(sessions,cwd,request.sessionPath)
       manager = this.sdk.SessionManager.open(request.sessionPath, projectSessionDirectory(cwd))
       assertProjectSession(manager,cwd)
@@ -1559,6 +1578,8 @@ class PiDesktopHost {
           ok: !event.isError
         })
         const state = this.toolExecution.end(event.toolCallId, event.isError, now)
+        const tool = this.conversationProjection.view().findLast(node => node.type === 'tool' && node.toolCallId === event.toolCallId)
+        const subagent = sessionTaskResultPresentation(tool?.type === 'tool' ? tool.subagent : undefined, isRecord(event.result) ? event.result.details : undefined)
         const change = event.isError
           ? undefined
           : appliedToolChange(
@@ -1571,7 +1592,8 @@ class PiDesktopHost {
             state.status,
             state.durationMs
           ),
-          ...(change ? { change } : {})
+          ...(change ? { change } : {}),
+          ...(subagent ? { subagent } : {})
         })
         break
       }
@@ -2439,6 +2461,7 @@ class PiDesktopHost {
       revision,
       ready: this.initialized,
       engine: AGENT_ENGINE,
+      runtime: PI_RUNTIME_MANIFEST,
       agentDir: AGENT_DIR,
       project: this.projectPath
         ? { path: this.projectPath, name: basename(this.projectPath) }

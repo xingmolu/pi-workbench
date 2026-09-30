@@ -405,7 +405,7 @@ export class SessionEditService {
           this.owns(draft.state.runtime, draft.scope.sessionId)
         ) {
           rebindAttempted = true
-          session.agent.state.messages = manager.buildSessionContext().messages
+          session.refreshContext()
           await this.operations.rebind()
         }
         this.operations.publish()
@@ -464,7 +464,7 @@ export class SessionEditService {
         })
       }
       const leaf = manager.getLeafId()
-      session.agent.state.messages = manager.buildSessionContext().messages
+      session.refreshContext()
       await reproject()
       this.validate(draft, leaf, draft.scope.generation + 1, false)
       if (controller.signal.aborted)
