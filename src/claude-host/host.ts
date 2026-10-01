@@ -872,7 +872,8 @@ export class ClaudeHost {
             {
               id,
               apiKey: command.apiKey,
-              ...(command.baseUrl ? { baseUrl: command.baseUrl } : {})
+              ...(command.baseUrl ? { baseUrl: command.baseUrl } : {}),
+              ...(command.label ? { label: command.label } : {})
             }
           ]
           config.active = id

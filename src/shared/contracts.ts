@@ -522,7 +522,14 @@ export type HostCommand =
   | { type: 'permission:set'; mode: PermissionMode }
   | { type: 'permission:respond'; approvalId: string; allow: boolean; scope?: ApprovalScope }
   | { type: 'account:login'; providerId: string; method: LoginMethod }
-  | { type: 'account:api-key:set'; providerId: string; apiKey: string; baseUrl?: string }
+  | {
+      type: 'account:api-key:set'
+      providerId: string
+      apiKey: string
+      baseUrl?: string
+      /** Display name of a new API connection (engines with several connections). */
+      label?: string
+    }
   | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }

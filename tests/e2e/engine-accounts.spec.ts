@@ -203,3 +203,45 @@ test('the composer model picker titles subscription groups with the account emai
   await expect(page.locator('.model-picker')).toContainText('robin@example.com')
   await expect(page.locator('.model-picker')).toContainText('Plus')
 })
+
+test('adds an API connection from a service preset', async () => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const apis = page.getByRole('region', { name: 'API 连接' })
+  await apis.getByRole('button', { name: '添加 API 连接', exact: true }).click()
+  const panel = page.getByRole('group', { name: '添加 API 连接' })
+  await expect(panel.getByRole('button', { name: /OpenRouter/ })).toBeVisible()
+  await panel.screenshot({ path: join(artifacts, 'add-api-presets.png') })
+
+  // Anthropic-compatible services can serve either engine, when Claude Code can start.
+  const claudeReady = await page.evaluate(async () =>
+    (await window.pi.runtimeAccounts()).some(
+      (engine) => engine.runtimeId === 'claude' && !engine.error
+    )
+  )
+  await panel.getByRole('button', { name: /^Anthropic/ }).click()
+  await expect(panel.getByRole('radiogroup', { name: '用于哪个引擎' })).toHaveCount(
+    claudeReady ? 1 : 0
+  )
+  await panel.getByRole('button', { name: '返回选择服务' }).click()
+
+  await panel.getByRole('button', { name: /^自定义/ }).click()
+  await expect(panel.getByRole('radiogroup', { name: '用于哪个引擎' })).toHaveCount(0)
+  await panel.getByLabel('名称').fill('公司网关')
+  await panel.getByLabel('服务地址').fill('https://llm.example.test/v1')
+  await panel.getByLabel('API Key').fill('gateway-secret')
+  await panel.getByLabel('手动填写模型 ID').fill('gw-large\ngw-small')
+  await panel.screenshot({ path: join(artifacts, 'add-api-form.png') })
+  await panel.getByRole('button', { name: '保存连接' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(apis).toContainText('公司网关')
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.pi.getState()).models
+          .filter((model) => model.id.startsWith('gw-'))
+          .map((model) => model.id)
+          .sort()
+      )
+    )
+    .toEqual(['gw-large', 'gw-small'])
+})

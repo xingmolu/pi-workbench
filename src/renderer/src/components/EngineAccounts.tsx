@@ -24,9 +24,9 @@ import { engineSummary } from '../store/engine-presentation'
 import { apiRows, subscriptionRows, useRuntimeAccounts } from '../store/runtime-accounts'
 import { AuthPromptCard, LoginState } from './AccountLogin'
 import AccountQuota from './AccountQuota'
+import AddApiConnection from './AddApiConnection'
 import CustomEndpoints from './CustomEndpoints'
 import { SettingsPage } from './SettingsPrimitives'
-import { useSettingsDraft } from './SettingsDraftContext'
 import '../assets/accounts-settings.css'
 import '../assets/engine-accounts.css'
 
@@ -179,65 +179,6 @@ function SubscriptionItem({
   )
 }
 
-function ClaudeApiForm({
-  busy,
-  onSubmit,
-  onCancel
-}: {
-  busy: boolean
-  onSubmit: (apiKey: string, baseUrl: string) => Promise<boolean>
-  onCancel: () => void
-}): React.JSX.Element {
-  const [key, setKey] = useState('')
-  const [url, setUrl] = useState('')
-  useSettingsDraft('claude-api', Boolean(key || url))
-  return (
-    <form
-      className="ea-form"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void onSubmit(key.trim(), url.trim()).then((ok) => {
-          if (ok) {
-            setKey('')
-            setUrl('')
-          }
-        })
-      }}
-    >
-      <label htmlFor="claude-api-url">
-        服务地址 <span>可选，留空使用 Anthropic 官方</span>
-      </label>
-      <input
-        id="claude-api-url"
-        type="url"
-        value={url}
-        placeholder="https://api.anthropic.com"
-        onChange={(event) => setUrl(event.target.value)}
-        disabled={busy}
-      />
-      <label htmlFor="claude-api-key">API Key</label>
-      <input
-        id="claude-api-key"
-        type="password"
-        value={key}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(event) => setKey(event.target.value)}
-        disabled={busy}
-      />
-      <div className="ea-form-actions">
-        <button type="button" className="acct-button" onClick={onCancel} disabled={busy}>
-          取消
-        </button>
-        <button type="submit" className="acct-button is-primary" disabled={busy || !key.trim()}>
-          {busy ? <LoaderCircle size={14} className="spin" /> : null}
-          添加连接
-        </button>
-      </div>
-    </form>
-  )
-}
-
 function LegacyPiHistory(): React.JSX.Element | null {
   const [legacy, setLegacy] = useState<{ location: string; count: number } | null>(null)
   const [state, setState] = useState<{ pending?: boolean; result?: string; error?: string }>({})
@@ -304,9 +245,10 @@ export default function EngineAccounts({
   snapshot: AgentSnapshot
 }): React.JSX.Element {
   const runtimes = useRuntimeCatalog((state) => state.runtimes)
-  const { engines, error, pending, run } = useRuntimeAccounts()
+  const { engines, error, pending, reload, run } = useRuntimeAccounts()
   const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
   const [addingApi, setAddingApi] = useState(false)
+  const [endpointsKey, setEndpointsKey] = useState(0)
   useEffect(() => {
     let live = true
     void window.pi.defaultRuntime().then((id) => live && setDefaultEngine(id))
@@ -452,9 +394,36 @@ export default function EngineAccounts({
 
       <section className="sp-group" aria-label="API 连接">
         <div className="sp-group-header">
-          <h3>API 连接</h3>
-          <p>用 API Key 接入官方或兼容服务，可以添加多个。</p>
+          <div className="ea-group-header">
+            <div>
+              <h3>API 连接</h3>
+              <p>用 API Key 接入官方或兼容服务，可以添加多个。</p>
+            </div>
+            {!addingApi ? (
+              <button
+                type="button"
+                className="acct-button"
+                disabled={Boolean(pending)}
+                onClick={() => setAddingApi(true)}
+              >
+                <Plus size={14} />
+                添加 API 连接
+              </button>
+            ) : null}
+          </div>
         </div>
+
+        {addingApi ? (
+          <AddApiConnection
+            claudeAvailable={Boolean(claude && !claude.error)}
+            onClose={() => setAddingApi(false)}
+            onSaved={() => {
+              setAddingApi(false)
+              setEndpointsKey((key) => key + 1)
+              void reload()
+            }}
+          />
+        ) : null}
 
         {claude ? (
           <div className="ea-subgroup">
@@ -463,17 +432,6 @@ export default function EngineAccounts({
                 <strong>Claude Code API</strong>
                 <small>Anthropic 兼容接口，可以添加多个</small>
               </span>
-              {!addingApi && !claude.error ? (
-                <button
-                  type="button"
-                  className="acct-button"
-                  disabled={Boolean(pending)}
-                  onClick={() => setAddingApi(true)}
-                >
-                  <Plus size={14} />
-                  添加连接
-                </button>
-              ) : null}
             </div>
             {claude.error ? (
               <details className="acct-notice is-warning ea-error">
@@ -511,35 +469,19 @@ export default function EngineAccounts({
                   </li>
                 ))}
               </ul>
-            ) : !addingApi && !claude.error ? (
-              <p className="ea-empty">还没有 API 连接。</p>
-            ) : null}
-            {addingApi ? (
-              <ClaudeApiForm
-                busy={pending === 'claude-api'}
-                onCancel={() => setAddingApi(false)}
-                onSubmit={async (apiKey, baseUrl) => {
-                  const ok = await run(
-                    'claude',
-                    {
-                      type: 'account:api-key:set',
-                      providerId: 'new',
-                      apiKey,
-                      ...(baseUrl ? { baseUrl } : {})
-                    },
-                    'claude-api'
-                  )
-                  if (ok) setAddingApi(false)
-                  return ok
-                }}
-              />
+            ) : !claude.error ? (
+              <p className="ea-empty">还没有 Claude Code 的 API 连接。</p>
             ) : null}
           </div>
         ) : null}
 
         {runtimes.some((runtime) => runtime.id === 'pi') ? (
           <div className="ea-subgroup">
-            <CustomEndpoints snapshot={snapshot} detached={snapshot.runtime?.id !== 'pi'} />
+            <CustomEndpoints
+              key={endpointsKey}
+              snapshot={snapshot}
+              detached={snapshot.runtime?.id !== 'pi'}
+            />
           </div>
         ) : null}
       </section>

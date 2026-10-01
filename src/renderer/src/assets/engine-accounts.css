@@ -360,3 +360,188 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+/* Add-API panel: pick a service, then one flat form. */
+.ea-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-sm, none);
+}
+
+.ea-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ea-panel-head strong {
+  flex: 1;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ea-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.ea-preset {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.ea-preset:hover {
+  border-color: var(--border-strong);
+}
+
+.ea-preset:focus-visible,
+.ea-segment button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ea-preset strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ea-preset small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ea-form.is-flat {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.ea-form select,
+.ea-form textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ea-form select {
+  height: 34px;
+  padding-block: 0;
+}
+
+.ea-form textarea {
+  resize: vertical;
+}
+
+.ea-form select:focus-visible,
+.ea-form textarea:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.ea-segment {
+  display: inline-flex;
+  justify-self: start;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.ea-segment button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ea-segment button[aria-checked='true'] {
+  background: var(--surface-floating);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.ea-models {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ea-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ea-model-list {
+  display: grid;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.ea-form .ea-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.ea-form .ea-check:hover {
+  background: var(--surface-hover);
+}
+
+.ea-form .ea-check input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.ea-form .ea-check span {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-hint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
