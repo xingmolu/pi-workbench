@@ -142,20 +142,22 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div className="sidebar-runtime">{runtimePicker}</div>
       <div className="sidebar-project-actions">
-        <button
-          type="button"
-          className="sidebar-new-session"
-          data-shortcut={shortcutLabel('N')}
-          onClick={onNewSession}
-          disabled={!newSessionEnabled}
-          data-navigation-pending={snapshot.project ? pendingOnly : undefined}
-          title={reason ?? '在当前项目中新建会话'}
-        >
-          <MessageSquarePlus size={15} />
-          新会话
-        </button>
+        <div className={`sidebar-new-session-group${runtimePicker ? ' has-engine' : ''}`}>
+          <button
+            type="button"
+            className="sidebar-new-session"
+            data-shortcut={shortcutLabel('N')}
+            onClick={onNewSession}
+            disabled={!newSessionEnabled}
+            data-navigation-pending={snapshot.project ? pendingOnly : undefined}
+            title={reason ?? `在当前项目中新建会话（${snapshot.runtime?.label ?? 'Pi'}）`}
+          >
+            <MessageSquarePlus size={15} />
+            新会话
+          </button>
+          {runtimePicker}
+        </div>
         <button
           type="button"
           className="sidebar-add-project"

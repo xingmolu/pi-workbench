@@ -150,6 +150,50 @@ it('merges same-project catalogs and retains the runtime of unloaded session pat
   await directory.shutdown()
 })
 
+it('keeps the other engines in the sidebar when one engine cannot answer', async () => {
+  const { directory } = await setup((id, _command, path) => {
+    if (id === 'claude') throw new Error('Claude executable is missing')
+    return {
+      kind: 'project-catalog',
+      catalog: {
+        projects: [
+          {
+            path: '/project',
+            name: 'project',
+            sessions: [
+              {
+                id,
+                path,
+                title: id,
+                modified: '2026-09-30T00:00:00.000Z',
+                active: false,
+                messageCount: 1,
+                status: 'idle'
+              }
+            ],
+            totalSessions: 1,
+            nextOffset: null
+          }
+        ],
+        totalProjects: 1,
+        truncated: false
+      }
+    } satisfies HostResult
+  })
+  const catalog = await directory.query({ type: 'project:catalog' })
+  if (catalog.kind !== 'project-catalog') throw new Error('Wrong result')
+  expect(catalog.catalog.projects[0].sessions.map((item) => item.runtimeId)).toEqual(['pi'])
+  await directory.shutdown()
+})
+
+it('reports a failure when no engine can list projects', async () => {
+  const { directory } = await setup(() => {
+    throw new Error('nothing starts')
+  })
+  await expect(directory.query({ type: 'project:catalog' })).rejects.toThrow('nothing starts')
+  await directory.shutdown()
+})
+
 it('refreshes one engine and restarts an exited host without replacing another engine', async () => {
   const { directory, hosts, requests, disposals } = await setup()
   await directory.request('pi', { type: 'state:get' })

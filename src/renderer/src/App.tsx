@@ -106,6 +106,7 @@ export default function App(): React.JSX.Element {
     })
   }, [])
   const forkPending = usePiStore((state) => state.forkPending)
+  const runtimeCount = useRuntimeCatalog((state) => state.runtimes.length)
   const editPhase = useSessionEdit((state) => state.phase)
   const skillAttachmentsBlocked = useTextAttachments((state) =>
     Boolean(state.files.length || state.staging || state.sending || state.submission)
@@ -675,7 +676,17 @@ export default function App(): React.JSX.Element {
         collapsed={layout.sidebarCollapsed}
         collapseLocked={layout.settingsOpen}
         snapshot={snapshot}
-        runtimePicker={<RuntimePicker />}
+        runtimePicker={
+          runtimeCount > 1 ? (
+            <RuntimePicker
+              variant="split"
+              disabled={Boolean(navigationDisabledReason)}
+              onNewSession={() => {
+                if (snapshot.project) void navigateProject(snapshot.project.path)
+              }}
+            />
+          ) : null
+        }
         onToggle={() => dispatchLayout({ type: 'sidebar:toggle' })}
         onChooseProject={() => void chooseProject()}
         onNewSession={() => {

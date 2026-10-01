@@ -199,12 +199,23 @@
 }
 .shell .conversation-head {
   /* Reserve both floating controls outside the native drag rectangle. */
+  position: relative;
   margin-right: 84px;
   padding-right: 0;
   height: 48px;
   min-height: 48px;
   flex: 0 0 48px;
   flex-wrap: nowrap;
+}
+.shell .conversation-head::after {
+  /* Continue the header's divider under the floating controls to the window edge. */
+  position: absolute;
+  left: 100%;
+  bottom: -1px;
+  width: 84px;
+  border-bottom: 1px solid var(--line-soft);
+  content: '';
+  pointer-events: none;
 }
 .conversation {
   container: conversation / inline-size;

@@ -108,7 +108,15 @@ export class RuntimeDirectory {
     const runtimes = this.options.registry
       .manifests()
       .filter((runtime) => runtime.features.includes('project-catalog'))
-    const results = await Promise.all(runtimes.map((runtime) => this.request(runtime.id, command)))
+    // One engine that cannot start (not installed, crashed, unsupported platform) must not
+    // hide every other engine's projects and sessions. Only fail when none answered.
+    const settled = await Promise.allSettled(
+      runtimes.map((runtime) => this.request(runtime.id, command))
+    )
+    const results = settled.flatMap((outcome) =>
+      outcome.status === 'fulfilled' ? [outcome.value] : []
+    )
+    if (!results.length && settled[0]?.status === 'rejected') throw settled[0].reason
     if (command.type === 'project:catalog') {
       const projects = new Map<string, CatalogProject>()
       let truncated = false,

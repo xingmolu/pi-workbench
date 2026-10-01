@@ -2,8 +2,38 @@
 .shell {
   --reading-width: 820px;
 }
-.sidebar-runtime {
-  padding: 0 12px 8px;
+/* New chat + engine chevron read as one control; the chevron only appears with 2+ engines. */
+.sidebar-new-session-group {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.shell .sidebar-new-session-group.has-engine .sidebar-new-session {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.runtime-picker-split {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin-left: -1px;
+  border: 1px solid var(--line);
+  border-radius: 0 8px 8px 0;
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.runtime-picker-split:hover:not(:disabled),
+.runtime-picker-split[data-state='open'] {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.runtime-picker-split:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .runtime-picker-trigger {
   display: inline-flex;
