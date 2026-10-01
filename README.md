@@ -104,6 +104,14 @@ PTY 的 native 准备不可省略：干净安装的 node-pty 1.1.0 预构建 hel
 `npm run build:native:mac`。编译成功不代表已获得辅助功能权限；请在实际运行的
 Pi Desktop 中检查授权，并保持桌面解锁。
 
+### 引擎按需下载
+
+安装包只带 Pi。Claude Code 与 Codex 的命令行程序（各 100–160 MB）在「设置 › 引擎与账号」里第一次使用时下载，
+来源是官方 npm 包里对应平台的构建，下载后按仓库里固定的 sha512（`src/shared/engine-binaries.generated.ts`）
+校验，再解压到应用数据目录的 `engines/` 下，可以随时删除。开发环境里 `node_modules` 已有的
+Claude Code 会直接使用；也可以用 `PI_DESKTOP_CLAUDE_EXECUTABLE` / `PI_DESKTOP_CODEX_EXECUTABLE` 指定本机程序。
+升级 SDK 或 Codex 版本后运行 `node scripts/pin-engine-binaries.mjs [--codex <版本>]` 更新固定值。
+
 ### 离线演示（不需要真实账号，也不需要手机）
 
 ```bash

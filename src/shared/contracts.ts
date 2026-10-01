@@ -222,6 +222,8 @@ export type RuntimeAccounts = {
   authGeneration: number
   /** The engine could not start (not installed, crashed, unsupported platform). */
   error?: string
+  /** Engines whose CLI is downloaded on demand report whether it is here yet. */
+  binary?: import('./engine-binaries').EngineBinaryStatus
 }
 export type RuntimeConfigCommand = Extract<
   HostCommand,
@@ -686,6 +688,11 @@ export type PiDesktopAPI = {
   selectRuntime: (runtimeId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
   /** Accounts of every engine, read from configuration hosts; independent of the open chat. */
   runtimeAccounts: () => Promise<RuntimeAccounts[]>
+  /** Downloads or removes an engine's CLI; progress shows up in `runtimeAccounts`. */
+  engineBinary: (
+    runtimeId: string,
+    action: 'install' | 'remove'
+  ) => Promise<import('./engine-binaries').EngineBinaryStatus>
   /** Account and endpoint commands addressed to one engine's configuration, not the open chat. */
   runtimeConfig: <Command extends RuntimeConfigCommand>(
     runtimeId: string,

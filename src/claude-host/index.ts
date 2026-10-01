@@ -20,6 +20,9 @@ void import('./host')
     const host = new ClaudeHost({
       storage,
       role: process.env.PI_DESKTOP_RUNTIME_ROLE === 'configuration' ? 'configuration' : 'session',
+      ...(process.env.PI_DESKTOP_CLAUDE_EXECUTABLE
+        ? { executable: process.env.PI_DESKTOP_CLAUDE_EXECUTABLE }
+        : {}),
       post: (message) => port.postMessage(message)
     })
     dispatch = (message) => {

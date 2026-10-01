@@ -51,13 +51,21 @@ function EngineCards({
       {runtimes.map((runtime) => {
         const engine = engines?.find((item) => item.runtimeId === runtime.id)
         const ready = engine?.accounts.filter((account) => account.connected).length ?? 0
+        const binary = engine?.binary
         const status = !engine
           ? { tone: '', text: '读取中…' }
-          : engine.error
-            ? { tone: 'is-error', text: '无法启动' }
-            : ready
-              ? { tone: 'is-ready', text: `已就绪 · ${ready} 个账号或连接` }
-              : { tone: 'is-warning', text: '需要登录或添加 API' }
+          : binary?.state === 'downloading'
+            ? { tone: 'is-warning', text: `下载中 ${percent(binary.received, binary.size)}` }
+            : binary && binary.state !== 'ready'
+              ? {
+                  tone: 'is-warning',
+                  text: binary.state === 'unsupported' ? '不支持此系统' : '未下载'
+                }
+              : engine.error
+                ? { tone: 'is-error', text: '无法启动' }
+                : ready
+                  ? { tone: 'is-ready', text: `已就绪 · ${ready} 个账号或连接` }
+                  : { tone: 'is-warning', text: '需要登录或添加 API' }
         const checked = selected === runtime.id
         return (
           <button
@@ -81,6 +89,109 @@ function EngineCards({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+const percent = (received = 0, size = 0): string =>
+  size ? `${Math.min(99, Math.floor((received / size) * 100))}%` : ''
+const megabytes = (bytes: number): string => `${Math.max(1, Math.round(bytes / 1048576))} MB`
+
+/** Engines the installer leaves out: download, follow progress, or free the space again. */
+function EngineDownloads({
+  engines,
+  onChange
+}: {
+  engines: RuntimeAccounts[]
+  onChange: () => Promise<void>
+}): React.JSX.Element | null {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const rows = engines.filter(
+    (engine) =>
+      engine.binary && (engine.binary.state !== 'ready' || engine.binary.source === 'downloaded')
+  )
+  if (!rows.length) return null
+  const act = async (runtimeId: string, action: 'install' | 'remove'): Promise<void> => {
+    setBusy(runtimeId)
+    setError('')
+    try {
+      await window.pi.engineBinary(runtimeId, action)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(null)
+      await onChange()
+    }
+  }
+  return (
+    <div className="ea-downloads" role="group" aria-label="引擎下载">
+      {rows.map((engine) => {
+        const binary = engine.binary!
+        const downloading = binary.state === 'downloading'
+        return (
+          <div className="ea-download" key={engine.runtimeId}>
+            <span className="ea-download-text">
+              <strong>{engine.label}</strong>
+              <small>
+                {binary.state === 'ready'
+                  ? `已下载 ${binary.version}`
+                  : binary.state === 'unsupported'
+                    ? '没有适用于这台电脑的版本'
+                    : downloading
+                      ? `正在下载 ${megabytes(binary.received ?? 0)} / ${megabytes(binary.size)}`
+                      : binary.state === 'error'
+                        ? `下载失败：${binary.error ?? ''}`
+                        : `首次使用需要下载（约 ${megabytes(binary.size)}）`}
+              </small>
+              {downloading ? (
+                <span
+                  className="ea-progress"
+                  role="progressbar"
+                  aria-label={`${engine.label} 下载进度`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.floor(((binary.received ?? 0) / (binary.size || 1)) * 100)}
+                >
+                  <span
+                    style={{ width: `${((binary.received ?? 0) / (binary.size || 1)) * 100}%` }}
+                  />
+                </span>
+              ) : null}
+            </span>
+            {binary.state === 'ready' ? (
+              <button
+                type="button"
+                className="acct-button is-quiet"
+                disabled={busy !== null}
+                onClick={() => {
+                  if (window.confirm(`删除已下载的 ${engine.label}？之后使用时需要重新下载。`))
+                    void act(engine.runtimeId, 'remove')
+                }}
+              >
+                删除
+              </button>
+            ) : binary.state !== 'unsupported' ? (
+              <button
+                type="button"
+                className="acct-button is-primary"
+                disabled={busy !== null || downloading}
+                onClick={() => void act(engine.runtimeId, 'install')}
+              >
+                {downloading || busy === engine.runtimeId ? (
+                  <LoaderCircle size={14} className="spin" />
+                ) : null}
+                {downloading ? '下载中' : binary.state === 'error' ? '重试' : '下载'}
+              </button>
+            ) : null}
+          </div>
+        )
+      })}
+      {error ? (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -291,6 +402,7 @@ export default function EngineAccounts({
             void window.pi.setDefaultRuntime(id)
           }}
         />
+        {engines ? <EngineDownloads engines={engines} onChange={reload} /> : null}
       </section>
 
       <section className="sp-group" aria-label="订阅账号">

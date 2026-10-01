@@ -39,6 +39,7 @@ import {
   powerSaveBlocker,
   screen,
   clipboard,
+  net,
   shell,
   systemPreferences,
   utilityProcess,
@@ -56,10 +57,10 @@ import {
   formatTextContext
 } from '../shared/text-attachments'
 import { mkdir, mkdtemp } from 'node:fs/promises'
-import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync } from 'node:fs'
+import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type ElectronStore from 'electron-store'
@@ -99,6 +100,8 @@ import { RemoteBrowser } from './remote-browser'
 import { RemoteTerminals } from './remote-terminals'
 import { createRemoteViewsBridge } from './remote-views-bridge'
 import { MobilePluginViews } from './mobile-plugin-views'
+import { EngineBinaries } from './engine-binaries'
+import { isDownloadableEngine } from '../shared/engine-binaries'
 import type { RemoteViewAccess } from '../shared/remote-views'
 import { ComputerUseService } from './computer-use-service'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
@@ -383,9 +386,37 @@ runtimeProviders.registerPlugin(
   })
 )
 
+/** Engine CLIs are downloaded on first use rather than shipped in the installer. */
+const engineBinaries = new EngineBinaries({
+  root: join(app.getPath('userData'), 'engines'),
+  fetch: (url) => net.fetch(url),
+  // Tests serve their own archives; production always uses the pins built into the app.
+  ...(E2E_MODE && process.env.PI_DESKTOP_E2E_ENGINE_PINS
+    ? { pins: JSON.parse(readFileSync(process.env.PI_DESKTOP_E2E_ENGINE_PINS, 'utf8')) }
+    : {}),
+  override: (engine) => process.env[`PI_DESKTOP_${engine.toUpperCase()}_EXECUTABLE`] || undefined,
+  bundled: (engine) => {
+    if (engine !== 'claude' || (E2E_MODE && process.env.PI_DESKTOP_E2E_NO_BUNDLED_ENGINES))
+      return undefined
+    // Development checkouts still have the SDK's platform package installed.
+    try {
+      const packagePath = require.resolve(
+        `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`
+      )
+      return join(
+        dirname(packagePath).replace('app.asar/', 'app.asar.unpacked/'),
+        process.platform === 'win32' ? 'claude.exe' : 'claude'
+      )
+    } catch {
+      return undefined
+    }
+  }
+})
+
 runtimeProviders.registerPlugin(
   createClaudeRuntimePlugin({
     script: join(__dirname, 'claude-host.js'),
+    executable: () => engineBinaries.executable('claude'),
     onMessage: (worker, message, reply) =>
       handleWorkerCapability(worker.workerId, worker.cwd, message, reply)
   })
@@ -1047,7 +1078,23 @@ async function runtimeAccounts(): Promise<RuntimeAccounts[]> {
       .manifests()
       .filter((runtime) => runtime.features.includes('auth-login'))
       .map(async (runtime): Promise<RuntimeAccounts> => {
-        const base = { runtimeId: runtime.id, label: runtime.label }
+        const binary = isDownloadableEngine(runtime.id)
+          ? engineBinaries.status(runtime.id)
+          : undefined
+        const base = {
+          runtimeId: runtime.id,
+          label: runtime.label,
+          ...(binary ? { binary } : {})
+        }
+        // An engine that is not downloaded yet has nothing to ask.
+        if (binary && binary.state !== 'ready')
+          return {
+            ...base,
+            accounts: [],
+            login: { phase: 'idle' },
+            loginPrompt: null,
+            authGeneration: 0
+          }
         try {
           const result = await callLobby({ type: 'state:get' }, runtime.id)
           if (result.kind !== 'snapshot') throw new Error('引擎未返回状态')
@@ -1742,6 +1789,25 @@ function registerIpc(): void {
     )
       throw new Error('无效的配置操作')
     return runtimeConfig(runtimeId, parsed.data as RuntimeConfigCommand)
+  })
+  ipcMain.handle('pi:engine-binary', async (event, runtimeId: unknown, action: unknown) => {
+    assertTrustedRenderer(event)
+    if (typeof runtimeId !== 'string' || !isDownloadableEngine(runtimeId))
+      throw new Error('这个引擎不需要下载')
+    if (action === 'remove') {
+      await runtimeDirectory.restart(runtimeId)
+      await engineBinaries.remove(runtimeId)
+      return engineBinaries.status(runtimeId)
+    }
+    if (action !== 'install') throw new Error('无效的引擎操作')
+    // Answer at once; Settings follows progress through runtimeAccounts.
+    void engineBinaries
+      .install(runtimeId)
+      .then(() => runtimeDirectory.restart(runtimeId))
+      .catch((error) =>
+        console.warn(`Engine download failed (${runtimeId}):`, errorMessage(error))
+      )
+    return engineBinaries.status(runtimeId)
   })
   ipcMain.handle('pi:default-runtime', (event) => {
     assertTrustedRenderer(event)

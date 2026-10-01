@@ -42,9 +42,15 @@ export type ClaudeConfig = z.infer<typeof configSchema>
 export function bundledClaudeExecutable(): string {
   const require = createRequire(import.meta.url)
   const platform = process.platform === 'win32' ? 'win32' : process.platform
-  const packagePath = require.resolve(
-    `@anthropic-ai/claude-agent-sdk-${platform}-${process.arch}/package.json`
-  )
+  let packagePath: string
+  try {
+    packagePath = require.resolve(
+      `@anthropic-ai/claude-agent-sdk-${platform}-${process.arch}/package.json`
+    )
+  } catch {
+    // Installers no longer ship the CLI; Settings downloads it on first use.
+    throw new Error('Claude Code 尚未下载：在「设置 › 引擎与账号」里下载后即可使用')
+  }
   return join(
     dirname(packagePath).replace('app.asar/', 'app.asar.unpacked/'),
     process.platform === 'win32' ? 'claude.exe' : 'claude'

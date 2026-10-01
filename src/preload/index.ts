@@ -129,6 +129,7 @@ const api: PiDesktopAPI = {
   importPiHistory: () => ipcRenderer.invoke('pi:import-history'),
   selectRuntime: async (runtimeId, origin) => agentSnapshotSchema.parse(await ipcRenderer.invoke('pi:runtime-select', runtimeId, origin)),
   runtimeAccounts: () => ipcRenderer.invoke('pi:runtime-accounts'),
+  engineBinary: (runtimeId, action) => ipcRenderer.invoke('pi:engine-binary', runtimeId, action),
   runtimeConfig: (runtimeId, command) =>
     ipcRenderer.invoke('pi:runtime-config', runtimeId, command),
   defaultRuntime: () => ipcRenderer.invoke('pi:default-runtime'),

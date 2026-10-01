@@ -222,6 +222,15 @@ export class RuntimeDirectory {
     }
   }
 
+  /** Stops one engine's configuration host; the next request starts it afresh. */
+  async restart(runtimeId: string): Promise<void> {
+    const host = this.hosts.get(runtimeId)
+    if (!host) return
+    this.hosts.delete(runtimeId)
+    this.snapshots.delete(runtimeId)
+    await host.then((session) => session.dispose()).catch(() => undefined)
+  }
+
   async shutdown(): Promise<void> {
     await Promise.allSettled([...this.hosts.values()].map(async (host) => (await host).dispose()))
     this.hosts.clear()

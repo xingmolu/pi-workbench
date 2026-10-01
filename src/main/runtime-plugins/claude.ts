@@ -6,6 +6,8 @@ import { CLAUDE_RUNTIME_MANIFEST } from '../../shared/claude-runtime'
 export function createClaudeRuntimePlugin(options: {
   script: string
   env?: Record<string, string | undefined>
+  /** The Claude Code CLI to run; looked up for every new host so a fresh download is used. */
+  executable?: () => string | undefined
   onMessage(
     worker: AgentRuntimeSessionOptions,
     message: unknown,
@@ -20,6 +22,7 @@ export function createClaudeRuntimePlugin(options: {
         env: {
           ...process.env,
           ...options.env,
+          PI_DESKTOP_CLAUDE_EXECUTABLE: options.executable?.() ?? '',
           PI_DESKTOP_RUNTIME_STORAGE: JSON.stringify(sessionOptions.storage)
         },
         provider: {

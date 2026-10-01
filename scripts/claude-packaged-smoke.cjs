@@ -22,12 +22,20 @@ async function request(command) {
     host.postMessage({ ...command, requestId })
   })
 }
+function checkoutClaude() {
+  const packagePath = require.resolve(
+    `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`
+  )
+  return join(packagePath, '..', process.platform === 'win32' ? 'claude.exe' : 'claude')
+}
 async function startHost(asar, script, storage) {
   host = utilityProcess.fork(join(asar, 'out/main', script), [], {
     env: {
       ...process.env,
       PI_DESKTOP_E2E: '0',
       PI_DESKTOP_RUNTIME_STORAGE: JSON.stringify(storage),
+      // Installers no longer ship the CLI; use a downloaded one or the checkout's copy.
+      PI_DESKTOP_CLAUDE_EXECUTABLE: process.env.PI_DESKTOP_CLAUDE_EXECUTABLE ?? checkoutClaude(),
       PI_DESKTOP_RUNTIME_ROLE: 'session'
     },
     stdio: 'pipe'

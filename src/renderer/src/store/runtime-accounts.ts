@@ -37,7 +37,9 @@ export function apiRows(engines: readonly RuntimeAccounts[], runtimeId: string):
 }
 
 export function loginInProgress(engines: readonly RuntimeAccounts[]): boolean {
-  return engines.some((engine) => ACTIVE_LOGIN.has(engine.login.phase))
+  return engines.some(
+    (engine) => ACTIVE_LOGIN.has(engine.login.phase) || engine.binary?.state === 'downloading'
+  )
 }
 
 /**
