@@ -157,8 +157,11 @@ Engines are plugins; accounts are not owned by whichever chat is open.
   mutations go through the engine's configuration gate and mark resident chats for refresh, as
   other global settings do. A default engine for new chats is a separate preference
   (`defaultRuntimeId`); without it new chats inherit the current engine.
-- **Limits** — Claude Code's selected connection, like its model, is an engine-wide default rather
-  than per chat. Sharing one ChatGPT login between Pi and a future Codex engine needs a common
+- **Per-session connection** — each Claude Code session reference stores the connection it runs
+  on. A new session takes the composer's choice, else the default (`active` in `desktop.json`,
+  set from Settings or by adding a connection). Picking another account in a session's model menu
+  moves only that session; a removed connection falls back to the default.
+- **Limits** — sharing one ChatGPT login between Pi and a future Codex engine needs a common
   credential format and is not implemented.
 
 ## Adapter implementation choices

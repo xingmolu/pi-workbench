@@ -299,7 +299,7 @@ export class ClaudeHost {
       if (!server.disabled) enabledMcp[id] = mcpConfig(server)
     const queryOptions: Options = {
       cwd: this.snapshot.project?.path ?? this.options.storage.cache,
-      env: connectionEnvironment(this.options.storage, this.config, activeConnection(this.config)),
+      env: connectionEnvironment(this.options.storage, this.config, this.connection()),
       pathToClaudeCodeExecutable: this.options.executable ?? bundledClaudeExecutable(),
       settingSources: ['user'],
       persistSession: !!this.snapshot.project && this.options.role !== 'configuration',
@@ -500,7 +500,7 @@ export class ClaudeHost {
     const [models, account] = await Promise.all([native.supportedModels(), native.accountInfo()])
     if (epoch !== this.queryEpoch) throw new Error('Claude initialization was cancelled')
     this.models = models
-    const active = activeConnection(this.config)
+    const active = this.connection()
     const signedIn = !!(
       account.email ||
       (account.apiKeySource && account.apiKeySource !== 'none') ||
@@ -574,7 +574,11 @@ export class ClaudeHost {
       ? { level: this.config.effort ?? 'high', available: model.supportedEffortLevels ?? [] }
       : null
   }
-  private async transition(cwd: string, reference?: SessionReference): Promise<HostResult> {
+  private async transition(
+    cwd: string,
+    reference?: SessionReference,
+    connection?: string
+  ): Promise<HostResult> {
     this.assertIdle()
     this.transitioning = true
     try {
@@ -589,7 +593,10 @@ export class ClaudeHost {
         runtimeId: 'claude',
         nativeSessionId: randomUUID(),
         cwd: project,
-        created: new Date().toISOString()
+        created: new Date().toISOString(),
+        // A new session starts on the chosen connection, else the current default, and
+        // keeps it when the default changes later.
+        connection: connection ?? activeConnection(await readConfig(this.options.storage))
       }
       if (this.reference.cwd !== project) throw new Error('Session belongs to a different project')
       this.snapshot.project = { path: project, name: basename(project) }
@@ -723,6 +730,7 @@ export class ClaudeHost {
         if ('modelId' in command) {
           this.validateModel(command.providerId, command.modelId)
           this.snapshot.activeModel = command.modelId
+          return this.transition(this.snapshot.project.path, undefined, command.providerId)
         }
         return this.transition(this.snapshot.project.path)
       case 'session:rename': {
@@ -838,7 +846,7 @@ export class ClaudeHost {
       case 'model:set':
         this.assertIdle()
         this.validateModel(command.providerId, command.modelId)
-        if (command.providerId !== activeConnection(this.config)) {
+        if (command.providerId !== this.connection()) {
           this.config.model = command.modelId
           this.snapshot.activeModel = command.modelId
           await this.useConnection(command.providerId)
@@ -1047,12 +1055,27 @@ export class ClaudeHost {
     }
     await saveConfig(this.options.storage, this.config)
   }
-  /** Moves new queries to another connection; only between turns. */
+  /** The connection this session runs on: its own binding while it still exists. */
+  private connection(): string {
+    const bound = this.reference?.connection
+    return bound && connections(this.config).some((item) => item.id === bound)
+      ? bound
+      : activeConnection(this.config)
+  }
+  /**
+   * Moves this session's next queries to another connection, only between turns. Without a
+   * session (the configuration host) it changes the default for new sessions instead.
+   */
   private async useConnection(id: string): Promise<void> {
-    if (activeConnection(this.config) === id) return
+    if (this.connection() === id) return
     this.assertIdle()
-    this.config.active = id
-    await saveConfig(this.options.storage, this.config)
+    if (this.reference) {
+      this.reference.connection = id
+      await this.store.save(this.reference)
+    } else {
+      this.config.active = id
+      await saveConfig(this.options.storage, this.config)
+    }
     await this.stopQuery()
     await this.initialize()
   }
@@ -1278,6 +1301,11 @@ export class ClaudeHost {
         config.active = provider
         this.config = config
         await saveConfig(this.options.storage, config)
+        // Signing in from a session's composer moves that session to the new login too.
+        if (this.reference) {
+          this.reference.connection = provider
+          await this.store.save(this.reference)
+        }
         await this.stopQuery()
         await this.initialize()
         const account = this.snapshot.accounts.find((item) => item.id === provider)

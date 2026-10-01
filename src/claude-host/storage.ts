@@ -14,6 +14,8 @@ const referenceSchema = z
     cwd: z.string().min(1),
     created: z.string(),
     title: z.string().optional(),
+    /** The account or API connection this session runs on; absent means the default. */
+    connection: z.string().max(64).optional(),
     parentSessionPath: z.string().optional()
   })
   .strict()

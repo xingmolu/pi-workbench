@@ -110,19 +110,27 @@ async function waitFor(check: () => boolean, timeout = 20_000) {
 }
 
 describe('Claude official SDK runtime', () => {
-  it('keeps several API connections, lists models per connection and switches between them', async () => {
+  it('keeps several API connections and binds each session to its own connection', async () => {
     const { host, fixture, cwd, storage } = await setup()
     await host.handle({ type: 'bootstrap' })
     await host.handle({ type: 'project:open', cwd })
+    const first = host.getState().activeSessionPath!
     await host.handle({
       type: 'account:api-key:set',
       providerId: 'new',
       apiKey: 'second-key',
-      baseUrl: fixture.baseUrl
+      baseUrl: fixture.baseUrl,
+      label: 'Gateway'
     })
     const added = host.getState().accounts.find((account) => account.id !== 'anthropic')!
-    expect(added).toMatchObject({ authType: 'api_key', connected: true, endpoint: '127.0.0.1' })
-    expect(host.getState().activeProvider).toBe(added.id)
+    expect(added).toMatchObject({
+      name: 'Gateway',
+      authType: 'api_key',
+      connected: true,
+      endpoint: '127.0.0.1'
+    })
+    // A new connection becomes the default for new sessions; this one keeps its own.
+    expect(host.getState().activeProvider).toBe('anthropic')
     const providers = new Set(host.getState().models.map((model) => model.provider))
     expect(providers).toEqual(new Set(['anthropic', added.id]))
 
@@ -139,18 +147,34 @@ describe('Claude official SDK runtime', () => {
       return fixture.requests.slice(before).find((request) => request.path.includes('/messages'))
         ?.apiKey
     }
+    const savedConfig = async () =>
+      JSON.parse(await readFile(join(storage.config, 'desktop.json'), 'utf8'))
+    expect(await send('on the session connection')).toBe('fixture-key')
+    await host.handle({
+      type: 'model:set',
+      providerId: added.id,
+      modelId: host.getState().activeModel!
+    })
+    expect(host.getState().activeProvider).toBe(added.id)
     expect(await send('through the second connection')).toBe('second-key')
     await host.handle({
       type: 'model:set',
       providerId: 'anthropic',
       modelId: host.getState().activeModel!
     })
-    expect(host.getState().activeProvider).toBe('anthropic')
     expect(await send('back on the first connection')).toBe('fixture-key')
+    // Switching inside a session never moves the default.
+    expect((await savedConfig()).active).toBe(added.id)
+
+    await host.handle({ type: 'session:new' })
+    expect(host.getState().activeProvider).toBe(added.id)
+    expect(await send('a new session starts on the default')).toBe('second-key')
+    await host.handle({ type: 'session:open', path: first })
+    expect(host.getState().activeProvider).toBe('anthropic')
 
     await host.handle({ type: 'account:remove', providerId: added.id })
     expect(host.getState().accounts.map((account) => account.id)).toEqual(['anthropic'])
-    const saved = JSON.parse(await readFile(join(storage.config, 'desktop.json'), 'utf8'))
+    const saved = await savedConfig()
     expect(saved.apis).toEqual([])
     expect(JSON.stringify(saved)).not.toContain('second-key')
   })
