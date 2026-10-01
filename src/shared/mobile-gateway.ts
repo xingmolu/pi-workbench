@@ -75,6 +75,8 @@ export const mobileGatewayCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('start') }),
   z.strictObject({ type: z.literal('stop') }),
   z.strictObject({ type: z.literal('pairing:create') }),
+  /** Opens the phone UI in a phone-sized desktop window, paired as the preview device. */
+  z.strictObject({ type: z.literal('preview:open') }),
   z.strictObject({
     type: z.literal('device:revoke'),
     deviceId: z.string().uuid()
@@ -226,6 +228,13 @@ export function publicDevice(record: PairedDeviceRecord): PairedDevicePublic {
     createdAt: record.createdAt,
     lastSeenAt: record.lastSeenAt
   }
+}
+
+/** The preview window's user agent starts with this; it is also its device name. */
+export const MOBILE_PREVIEW_AGENT = 'PiDesktopPreview'
+
+export function isPreviewDevice(name: string): boolean {
+  return name.startsWith(MOBILE_PREVIEW_AGENT)
 }
 
 export function sanitizeDeviceName(value: string, fallback = '手机'): string {

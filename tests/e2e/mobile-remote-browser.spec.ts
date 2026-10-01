@@ -191,3 +191,27 @@ test('a paired phone watches, taps and resizes the desktop browser through the g
   expect((await fetch(`${gateway}/api/views/browser/events`, { headers })).status).toBe(403)
   stream.stop()
 })
+
+test('Settings opens the phone UI in a preview window that pairs itself', async () => {
+  await page.evaluate(() => window.pi.mobileGateway({ type: 'remote-views', access: 'control' }))
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '手机', exact: true }).click()
+  const opened = app.waitForEvent('window')
+  await page.getByRole('button', { name: '打开预览', exact: true }).click()
+  const preview = await opened
+  await expect(preview.getByRole('button', { name: '打开标签页' }).first()).toBeVisible()
+  await expect(page.getByText('电脑预览', { exact: true })).toBeVisible()
+  await preview.getByRole('button', { name: '打开标签页' }).first().click()
+  await preview.getByRole('button', { name: /Git/ }).click()
+  // The project is not a repository; the Git page says so inside its sandboxed frame.
+  await expect(preview.frameLocator('iframe.m-plugin-frame').locator('#empty')).toContainText('Git')
+  await preview.screenshot({ path: resolve('artifacts/e2e/mobile-preview-window.png') })
+
+  // Opening it again re-pairs instead of piling up preview devices.
+  await page.getByRole('button', { name: '打开预览', exact: true }).click()
+  await expect(preview.getByRole('button', { name: '打开标签页' }).first()).toBeVisible()
+  const state = await page.evaluate(() => window.pi.mobileGateway({ type: 'state' }))
+  expect(state.devices.filter((device) => device.name.startsWith('PiDesktopPreview'))).toHaveLength(
+    1
+  )
+})

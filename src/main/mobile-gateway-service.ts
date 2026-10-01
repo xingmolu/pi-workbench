@@ -1,5 +1,6 @@
 import {
   EMPTY_MOBILE_GATEWAY_STATE,
+  isPreviewDevice,
   mobileGatewayCommandSchema,
   type MobileGatewayCommand,
   type MobileGatewayState,
@@ -33,6 +34,8 @@ export type MobileGatewayServiceOptions = {
   enableTailscaleServe?: typeof enableTailscaleServe
   disableTailscaleServe?: typeof disableTailscaleServe
   writeClipboard?: (text: string) => void
+  /** Shows the phone UI at `url` in a phone-sized desktop window. */
+  openPreview?: (url: string) => void
   /** Listening port; the default is the fixed gateway port phones were paired with. */
   port?: number
   /** Remote workbench views; access is the desktop user's choice and defaults to off. */
@@ -140,6 +143,19 @@ export class MobileGatewayService {
       this.startPowerSave()
       this.tailscale = await (this.options.probeTailscale ?? probeTailscale)()
       this.pairing.createOffer()
+      return
+    }
+    if (command.type === 'preview:open') {
+      const open = this.options.openPreview
+      if (!open) throw new Error('当前环境不支持预览')
+      if (!this.gateway.isRunning) await this.gateway.start()
+      this.startPowerSave()
+      // One preview device at a time: the window pairs afresh, replacing the last one.
+      for (const device of this.pairing.list())
+        if (isPreviewDevice(device.name)) this.pairing.revoke(device.deviceId)
+      const url = this.gateway.loopbackUrl(this.pairing.createOffer().token)
+      if (!url) throw new Error('网关未启动')
+      open(url)
       return
     }
     if (command.type === 'remote-views') {

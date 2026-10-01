@@ -116,6 +116,7 @@ import { createWorkbenchPanelIpcRouter } from './workbench-panel-ipc'
 import { createPiPackageRootsLifecycle } from './workbench-package-roots'
 import {
   MOBILE_GATEWAY_CHANNEL,
+  MOBILE_PREVIEW_AGENT,
   type MobileConversationSnapshot,
   type PairedDeviceRecord
 } from '../shared/mobile-gateway'
@@ -2002,6 +2003,43 @@ function registerIpc(): void {
   )
 }
 
+let mobilePreview: BrowserWindow | null = null
+/**
+ * The phone UI in a phone-sized window, so it can be tried without a phone. Its own
+ * persistent session keeps the preview device's token apart from the app's renderer.
+ */
+function openMobilePreview(url: string): void {
+  const origin = new URL(url).origin
+  if (!mobilePreview || mobilePreview.isDestroyed()) {
+    mobilePreview = new BrowserWindow({
+      width: 400,
+      height: 840,
+      minWidth: 320,
+      title: '手机端预览',
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#181818' : '#ffffff',
+      webPreferences: {
+        partition: 'persist:pi-mobile-preview',
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
+    mobilePreview.webContents.setUserAgent(
+      `${MOBILE_PREVIEW_AGENT} (iPhone; Mobile) ${mobilePreview.webContents.getUserAgent()}`
+    )
+    mobilePreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    mobilePreview.webContents.on('will-navigate', (event, target) => {
+      if (new URL(target).origin !== origin) event.preventDefault()
+    })
+    mobilePreview.on('closed', () => {
+      mobilePreview = null
+    })
+  }
+  void mobilePreview.loadURL(url)
+  mobilePreview.show()
+  mobilePreview.focus()
+}
+
 function updateWindowBackgrounds(): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed())
@@ -2309,6 +2347,7 @@ app.whenReady().then(async () => {
       }
     },
     writeClipboard: (text) => clipboard.writeText(text),
+    openPreview: openMobilePreview,
     // Isolated E2E apps must not contend for the fixed gateway port.
     ...(E2E_MODE && Number(process.env.PI_DESKTOP_E2E_MOBILE_PORT) > 0
       ? { port: Number(process.env.PI_DESKTOP_E2E_MOBILE_PORT) }

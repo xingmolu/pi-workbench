@@ -69,3 +69,35 @@ describe('mobile gateway service clipboard and tailscale errors', () => {
     expect(state.error).toBe(MISSING_TAILSCALE_CLI)
   })
 })
+
+describe('mobile preview window', () => {
+  it('pairs the preview afresh each time and keeps a single preview device', async () => {
+    let devices: import('../shared/mobile-gateway').PairedDeviceRecord[] = []
+    const opened: string[] = []
+    const service = new MobileGatewayService({
+      devices: { load: () => devices, save: (next) => (devices = next) },
+      sessions: stubSessions(),
+      publish: () => undefined,
+      port: 0,
+      probeTailscale: async () => missingTailscaleStatus(),
+      openPreview: (url) => opened.push(url)
+    })
+    try {
+      await service.dispatch({ type: 'preview:open' })
+      expect(opened[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?pair=\w+/)
+      const pair = (url: string): void => {
+        service.pairing.pair(new URL(url).searchParams.get('pair')!, 'PiDesktopPreview (iPhone)')
+      }
+      pair(opened[0]!)
+      service.pairing.pair(service.pairing.createOffer().token, 'iPhone')
+      await service.dispatch({ type: 'preview:open' })
+      pair(opened[1]!)
+      expect(devices.map((device) => device.name).sort()).toEqual([
+        'PiDesktopPreview (iPhone)',
+        'iPhone'
+      ])
+    } finally {
+      await service.dispatch({ type: 'stop' })
+    }
+  })
+})

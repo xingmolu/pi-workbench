@@ -3,6 +3,7 @@ import {
   MOBILE_KEEP_AWAKE_COPY,
   MOBILE_SECURITY_COPY,
   EMPTY_MOBILE_GATEWAY_STATE,
+  isPreviewDevice,
   type MobileGatewayState
 } from '../../../shared/mobile-gateway'
 import { Smartphone } from 'lucide-react'
@@ -156,6 +157,23 @@ export default function MobileGatewaySettings(): React.JSX.Element {
                 </button>
               </div>
             </div>
+            <div className="sp-row">
+              <div className="sp-row-text">
+                <span className="sp-row-label">在电脑上预览</span>
+                <span className="sp-row-description">
+                  不用手机：在一个手机大小的窗口里打开手机端，自动配对为「电脑预览」。
+                </span>
+              </div>
+              <div className="sp-row-control">
+                <button
+                  type="button"
+                  className="mobile-button"
+                  onClick={() => void run({ type: 'preview:open' })}
+                >
+                  打开预览
+                </button>
+              </div>
+            </div>
             {state.pairing ? (
               <div className="mobile-pairing-card">
                 <div className="qr-frame">
@@ -243,7 +261,7 @@ export default function MobileGatewaySettings(): React.JSX.Element {
                       <Smartphone size={15} />
                     </span>
                     <span>
-                      <strong>{device.name}</strong>
+                      <strong>{isPreviewDevice(device.name) ? '电脑预览' : device.name}</strong>
                       <small>配对于 {new Date(device.createdAt).toLocaleString()}</small>
                     </span>
                     <button
