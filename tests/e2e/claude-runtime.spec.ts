@@ -204,11 +204,11 @@ test('real SDK write approval can be denied and allowed; native controls hide Pi
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: '添加文本文件' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '赞', exact: true })).toHaveCount(0)
+  // Settings list every engine's accounts whichever chat is open, so a Claude chat still
+  // sees Pi's endpoints; Claude's own connections are managed in the same page.
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await expect(page.getByRole('button', { name: '设备码', exact: true })).toHaveCount(0)
-  await expect(page.getByText('自定义端点', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'API 连接' })).toContainText('Claude Code API')
   await page.screenshot({ path: join(screenshots, 'claude-settings.png') })
-  await page.getByRole('button', { name: 'Agent 引擎', exact: true }).click()
   await expect(page.getByText('导入旧 Pi 历史', { exact: true })).toHaveCount(0)
 })
 

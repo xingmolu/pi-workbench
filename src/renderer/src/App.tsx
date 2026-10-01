@@ -35,7 +35,6 @@ import McpSettings from './components/McpSettings'
 import SkillsSettings from './components/SkillsSettings'
 import { useSkillInsertion } from './store/skill-draft'
 import { useTextAttachments } from './store/text-attachments'
-import AccountQuota from './components/AccountQuota'
 import { modelSelectionCommand } from './store/composer-model-selection'
 import { projectNavigationReason } from '../../shared/project-catalog'
 import type { ProjectCatalog, ProjectNavigationFailures } from '../../shared/project-catalog'
@@ -858,30 +857,12 @@ export default function App(): React.JSX.Element {
           )
         }
         mcpContent={<McpSettings snapshot={snapshot} />}
-        renderAccountQuota={
-          snapshot.runtime && !snapshot.runtime.features.includes('account-quota')
-            ? undefined
-            : (account) => (
-                <AccountQuota
-                  account={account}
-                  authGeneration={snapshot.authGeneration ?? 0}
-                  loginActive={['starting', 'browser', 'device_code', 'waiting'].includes(
-                    snapshot.login.phase
-                  )}
-                />
-              )
-        }
         open={layout.settingsOpen}
         returnFocusRef={settingsOpenerRef}
         onOpenChange={(open) => (open ? openSettings() : closeSettings())}
         agentSnapshot={snapshot}
         workbenchSnapshot={workbenchStatus.snapshot}
         onWorkbenchCommand={sendWorkbench}
-        onLogin={login}
-        onAddAlias={(slug) => void send({ type: 'account:alias:add', slug })}
-        onLoginPrompt={(promptId, value) => {
-          void send({ type: 'account:login:respond', promptId, value })
-        }}
       />
     </div>
   )

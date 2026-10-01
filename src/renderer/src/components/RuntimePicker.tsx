@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as Dropdown from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Cpu, LoaderCircle } from 'lucide-react'
 import { useRuntimeCatalog } from '../store/runtime-catalog'
+import { engineSummary } from '../store/engine-presentation'
 import { confirmDiscardSettingsDraft, useSettingsDraftController } from './SettingsDraftContext'
 import { commandOrigin, usePiStore } from '../store/pi-store'
 
@@ -78,11 +79,7 @@ export default function RuntimePicker({
             >
               <span>
                 <strong>{runtime.label}</strong>
-                <small>
-                  {runtime.subagents === 'native'
-                    ? '原生子 Agent · Claude 模型'
-                    : '多供应商模型 · 桌面子 Agent'}
-                </small>
+                <small>{engineSummary(runtime)}</small>
               </span>
               {current?.id === runtime.id ? <Check size={14} /> : null}
             </Dropdown.Item>

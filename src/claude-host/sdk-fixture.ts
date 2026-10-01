@@ -11,13 +11,18 @@ export async function createClaudeHttpFixture(options: {
   childDelayMs?: number
   streamDelayMs?: number
 }) {
-  const requests: { path: string; body: Record<string, unknown> }[] = []
+  const requests: { path: string; body: Record<string, unknown>; apiKey?: string }[] = []
   let sequence = 0
   const server: Server = createServer(async (request, response) => {
     const chunks: Buffer[] = []
     for await (const chunk of request) chunks.push(Buffer.from(chunk))
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}') as Record<string, unknown>
-    requests.push({ path: request.url ?? '', body })
+    const apiKey = request.headers['x-api-key']
+    requests.push({
+      path: request.url ?? '',
+      body,
+      ...(typeof apiKey === 'string' ? { apiKey } : {})
+    })
     if (request.url?.includes('count_tokens')) {
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify({ input_tokens: 100 }))

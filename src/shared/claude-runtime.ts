@@ -23,5 +23,7 @@ export const CLAUDE_RUNTIME_MANIFEST: AgentRuntimeManifest = {
   subagents: 'native',
   toolDelivery: 'mcp',
   skills: 'native',
-  storage: 'desktop'
+  storage: 'desktop',
+  accountProviders: [{ platform: 'claude', label: 'Claude', login: ['browser'] }],
+  credentials: { accounts: ['claude'], apis: ['anthropic-messages'] }
 }

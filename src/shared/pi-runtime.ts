@@ -35,5 +35,10 @@ export const PI_RUNTIME_MANIFEST: AgentRuntimeManifest = {
   subagents: 'desktop',
   toolDelivery: 'native',
   skills: 'native',
-  storage: 'desktop'
+  storage: 'desktop',
+  accountProviders: [{ platform: 'chatgpt', label: 'ChatGPT', login: ['browser', 'device_code'] }],
+  credentials: {
+    accounts: ['chatgpt'],
+    apis: ['openai-completions', 'openai-responses', 'anthropic-messages']
+  }
 }

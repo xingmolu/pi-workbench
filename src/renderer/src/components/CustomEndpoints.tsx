@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, RefreshCw, Server } from 'lucide-react'
-import type { AgentSnapshot } from '../../../shared/contracts'
+import type { AgentSnapshot, RuntimeConfigCommand } from '../../../shared/contracts'
 import {
   endpointDiscoverSchema,
   createCustomEndpointSchema,
@@ -45,10 +45,21 @@ const emptyForm = (): Form => ({
 })
 
 export default function CustomEndpoints({
-  snapshot
+  snapshot,
+  detached = false
 }: {
   snapshot: AgentSnapshot
+  /**
+   * Manage Pi's endpoints through its configuration host from Settings, whatever chat is
+   * open; resident chats pick the change up like any other global setting.
+   */
+  detached?: boolean
 }): React.JSX.Element {
+  const send = (
+    detached
+      ? (command: RuntimeConfigCommand) => window.pi.runtimeConfig('pi', command)
+      : window.pi.send
+  ) as typeof window.pi.send
   const [catalog, setCatalog] = useState<CustomEndpointConfigSnapshot | null>(null)
   const [path, setPath] = useState('')
   const [form, setForm] = useState<Form | null>(null)
@@ -66,12 +77,12 @@ export default function CustomEndpoints({
   const submitting = useRef(false)
   const baseline = useRef<Form | null>(null)
   const context = endpointContext(snapshot)
-  const identity = JSON.stringify(context)
+  const identity = detached ? 'detached' : JSON.stringify(context)
   const currentIdentity = useRef(identity)
   currentIdentity.current = identity
-  const loginActive = !['idle', 'success', 'error'].includes(snapshot.login.phase)
-  const disabled =
-    !snapshot.ready || snapshot.busy || loginActive || pending || loading || discovering
+  const loginActive = !detached && !['idle', 'success', 'error'].includes(snapshot.login.phase)
+  const sessionBlocked = !detached && (!snapshot.ready || snapshot.busy || loginActive)
+  const disabled = sessionBlocked || pending || loading || discovering
 
   const refresh = async (): Promise<void> => {
     const operation = ++epoch.current
@@ -84,7 +95,7 @@ export default function CustomEndpoints({
     setDiscovering(false)
     setLoading(true)
     try {
-      const response = await window.pi.send({ type: 'endpoint:list' })
+      const response = await send({ type: 'endpoint:list' })
       if (!mounted.current || operation !== epoch.current) return
       setCatalog(response.snapshot)
       setPath(response.configPath)
@@ -183,7 +194,7 @@ export default function CustomEndpoints({
     setError('')
     setDiscoveryNote('')
     try {
-      const response = await window.pi.send(parsed.data)
+      const response = await send(parsed.data)
       if (!mounted.current || operation !== epoch.current) return
       update({ modelIds: response.result.modelIds.join('\n'), baseUrl: response.result.baseUrl })
       setDiscoveryNote(
@@ -236,7 +247,7 @@ export default function CustomEndpoints({
     setOutcome(null)
     setKey('')
     try {
-      const response = await window.pi.send({
+      const response = await send({
         type: 'endpoint:save',
         context,
         request: {
@@ -278,16 +289,16 @@ export default function CustomEndpoints({
     <section className="sp-group acct-endpoints" aria-label="自定义端点">
       <div className="sp-group-header acct-group-header">
         <div>
-          <h3>自定义端点</h3>
+          <h3>Pi 自定义端点</h3>
           <p>
-            接入 OpenAI / Anthropic 兼容 API。全局生效，影响所有工作区及 Pi
+            OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi
             CLI；新端点不会自动成为当前模型。
           </p>
         </div>
         <button
           type="button"
           className="acct-button"
-          disabled={pending || loading || !snapshot.ready}
+          disabled={pending || loading || (!detached && !snapshot.ready)}
           onClick={() => {
             if (!confirmDiscardSettingsDraft(dirty)) return
             baseline.current = null
@@ -298,7 +309,7 @@ export default function CustomEndpoints({
           刷新列表
         </button>
       </div>
-      {snapshot.busy || loginActive ? (
+      {!detached && (snapshot.busy || loginActive) ? (
         <p className="acct-notice is-warning" role="note">
           {loginActive
             ? '登录正在进行，完成后才能保存端点。'

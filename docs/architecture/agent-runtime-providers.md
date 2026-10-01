@@ -132,6 +132,35 @@ Initial provider IDs:
 Do not advertise a runtime as selectable until its adapter passes the same capability,
 session-lifecycle, cancellation, and approval conformance suite.
 
+## Accounts and credentials
+
+Engines are plugins; accounts are not owned by whichever chat is open.
+
+- **Account providers** — a runtime manifest declares `accountProviders` (`platform`, `label`,
+  `login` methods). The plugin owns the mechanics: Pi runs the ChatGPT OAuth flow, Claude Code
+  runs the official `claude auth login`. Subscription logins from a third-party OAuth client are
+  not used for Claude.
+- **Credentials** — `credentials.accounts` and `credentials.apis` declare what a chat on that
+  engine can be bound to (`chatgpt`, `claude`; `openai-completions`, `openai-responses`,
+  `anthropic-messages`). Settings uses this for the "add account" menu and the "used by" labels.
+- **Identity** — an account is shown by email and plan. Pi reads them from the stored ChatGPT
+  access token claims; Claude Code reads them from the SDK's `accountInfo()` and remembers them per
+  account. Adding an account never asks for a name: Pi generates the alias id, Claude Code a
+  configuration-home id. A login whose email is already present is folded into the existing row.
+- **Isolation** — each Claude Code subscription account has its own configuration home under
+  `<engine config>/accounts/<id>`; the CLI derives its keychain item from that path, so logins
+  never overwrite each other. `projects` in every home links to the shared transcripts, so a chat
+  can resume under any account. API connections keep their key in the engine's own config file
+  and are injected only into that connection's child environment.
+- **Configuration route** — Settings reads `runtimeAccounts()` and sends account and endpoint
+  commands through `runtimeConfig(runtimeId, command)` to the engine's configuration host. Global
+  mutations go through the engine's configuration gate and mark resident chats for refresh, as
+  other global settings do. A default engine for new chats is a separate preference
+  (`defaultRuntimeId`); without it new chats inherit the current engine.
+- **Limits** — Claude Code's selected connection, like its model, is an engine-wide default rather
+  than per chat. Sharing one ChatGPT login between Pi and a future Codex engine needs a common
+  credential format and is not implemented.
+
 ## Adapter implementation choices
 
 ### Pi

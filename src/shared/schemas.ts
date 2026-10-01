@@ -182,7 +182,11 @@ const accountSummarySchema = z
     authType: z.enum(['api_key', 'oauth']),
     connected: z.boolean(),
     subscription: z.boolean(),
-    alias: z.boolean()
+    alias: z.boolean(),
+    platform: z.enum(['chatgpt', 'claude']).optional(),
+    email: z.string().max(254).optional(),
+    plan: z.string().max(40).optional(),
+    endpoint: z.string().max(253).optional()
   })
   .strict()
 const modelSummarySchema = z
@@ -674,6 +678,16 @@ const accountLoginRespondCommandSchema = z
 const accountAliasAddCommandSchema = z
   .object({ type: z.literal('account:alias:add'), slug: z.string().min(1) })
   .strict()
+const accountAddCommandSchema = z
+  .object({
+    type: z.literal('account:add'),
+    platform: z.enum(['chatgpt', 'claude']),
+    method: z.enum(['browser', 'device_code'])
+  })
+  .strict()
+const accountRemoveCommandSchema = z
+  .object({ type: z.literal('account:remove'), providerId: z.string().min(1).max(120) })
+  .strict()
 const thinkingSetCommandSchema = z
   .object({ type: z.literal('thinking:set'), level: thinkingLevelSchema })
   .strict()
@@ -736,6 +750,8 @@ const commandSchemas = [
   accountLoginCommandSchema,
   accountLoginRespondCommandSchema,
   accountAliasAddCommandSchema,
+  accountAddCommandSchema,
+  accountRemoveCommandSchema,
   modelSetCommandSchema,
   thinkingSetCommandSchema,
   browserE2ECommandSchema
@@ -793,6 +809,8 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   accountLoginCommandSchema.extend(requestIdShape),
   accountLoginRespondCommandSchema.extend(requestIdShape),
   accountAliasAddCommandSchema.extend(requestIdShape),
+  accountAddCommandSchema.extend(requestIdShape),
+  accountRemoveCommandSchema.extend(requestIdShape),
   modelSetCommandSchema.extend(requestIdShape),
   thinkingSetCommandSchema.extend(requestIdShape),
   browserE2ECommandSchema.extend(requestIdShape)

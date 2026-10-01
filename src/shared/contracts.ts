@@ -136,6 +136,9 @@ export type SessionSummary = {
   parentUnavailable?: boolean
 }
 
+/** Subscription platforms an engine can sign in to; each account is one login. */
+export type SubscriptionPlatform = 'chatgpt' | 'claude'
+
 export type AccountSummary = {
   id: string
   name: string
@@ -143,6 +146,13 @@ export type AccountSummary = {
   connected: boolean
   subscription: boolean
   alias: boolean
+  /** Set for subscription logins; their identity is the email, not an alias name. */
+  platform?: SubscriptionPlatform
+  email?: string
+  /** Plan label as the platform reports it, e.g. Plus, Pro, Max. */
+  plan?: string
+  /** Host of an API connection's base URL. */
+  endpoint?: string
 }
 
 export type ModelSummary = {
@@ -202,6 +212,32 @@ export type ApprovalRequest = {
   /** Offered as "allow for the rest of this task": Computer Use actions in this app. */
   grant?: { kind: 'computer-app'; app: string; bundleId: string }
 }
+
+export type RuntimeAccounts = {
+  runtimeId: string
+  label: string
+  accounts: AccountSummary[]
+  login: LoginStatus
+  loginPrompt: LoginPrompt | null
+  authGeneration: number
+  /** The engine could not start (not installed, crashed, unsupported platform). */
+  error?: string
+}
+export type RuntimeConfigCommand = Extract<
+  HostCommand,
+  {
+    type:
+      | 'account:add'
+      | 'account:remove'
+      | 'account:login'
+      | 'account:login:respond'
+      | 'account:api-key:set'
+      | 'account:quota'
+      | 'endpoint:list'
+      | 'endpoint:save'
+      | 'endpoint:discover'
+  }
+>
 
 /** `turn`: also allow what `grant` names until the current task ends. */
 export type ApprovalScope = 'once' | 'turn'
@@ -490,6 +526,8 @@ export type HostCommand =
   | { type: 'account:quota'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
+  | { type: 'account:add'; platform: SubscriptionPlatform; method: LoginMethod }
+  | { type: 'account:remove'; providerId: string }
   | { type: 'model:set'; providerId: string; modelId: string }
   | { type: 'thinking:set'; level: ThinkingLevel }
   | import('./custom-endpoints').EndpointDiscoverCommand
@@ -639,6 +677,16 @@ export type PiDesktopAPI = {
   legacyPiHistory: () => Promise<{ location: string; count: number }>
   importPiHistory: () => Promise<{ imported: number; skipped: number }>
   selectRuntime: (runtimeId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
+  /** Accounts of every engine, read from configuration hosts; independent of the open chat. */
+  runtimeAccounts: () => Promise<RuntimeAccounts[]>
+  /** Account and endpoint commands addressed to one engine's configuration, not the open chat. */
+  runtimeConfig: <Command extends RuntimeConfigCommand>(
+    runtimeId: string,
+    command: Command
+  ) => Promise<HostResultFor<Command>>
+  /** Engine new chats use; picking another engine in the sidebar does not change it. */
+  defaultRuntime: () => Promise<string>
+  setDefaultRuntime: (runtimeId: string) => Promise<void>
   listRuntimes: () => Promise<import('./agent-runtime').AgentRuntimeManifest[]>
   reconnect: () => Promise<AgentSnapshot>
   selectProject: (origin?: DesktopCommandOrigin) => Promise<AgentSnapshot | null>

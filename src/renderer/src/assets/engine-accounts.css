@@ -1,0 +1,362 @@
+/* Engines & accounts: one row shape for every credential, one status vocabulary
+   (ready / needs sign-in / error), one primary action per view. */
+
+.ea-group-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ea-engines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.ea-engine {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.ea-engine:hover {
+  border-color: var(--border-strong);
+}
+
+.ea-engine.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.ea-engine:focus-visible,
+.ea-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ea-engine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ea-engine-head strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ea-engine small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ea-radio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: #fff;
+}
+
+.ea-engine.is-selected .ea-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ea-engine-status {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ea-engine-status::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  content: '';
+  vertical-align: 1px;
+}
+
+.ea-engine-status.is-ready::before,
+.ea-pill.is-ready::before {
+  background: var(--success);
+}
+
+.ea-engine-status.is-warning::before {
+  background: var(--warning);
+}
+
+.ea-engine-status.is-error {
+  color: var(--danger);
+}
+
+.ea-engine-status.is-error::before {
+  background: var(--danger);
+}
+
+.ea-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ea-row + .ea-row {
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.ea-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 12px 10px 14px;
+}
+
+.ea-row-detail {
+  padding: 0 14px 12px 58px;
+}
+
+.ea-avatar {
+  display: inline-flex;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ea-avatar.is-chatgpt {
+  background: color-mix(in srgb, #10a37f 16%, var(--surface-subtle));
+  color: color-mix(in srgb, #10a37f 80%, var(--text));
+}
+
+.ea-avatar.is-claude {
+  background: color-mix(in srgb, #d97757 16%, var(--surface-subtle));
+  color: color-mix(in srgb, #d97757 80%, var(--text));
+}
+
+.ea-row-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ea-row-text strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-row-text small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ea-pill::before {
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  content: '';
+}
+
+.ea-more {
+  flex: 0 0 auto;
+}
+
+.ea-menu {
+  z-index: 140;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-md);
+}
+
+.ea-menu-item {
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.ea-menu-item small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ea-menu-item[data-highlighted] {
+  background: var(--surface-hover);
+}
+
+.ea-menu-item[data-disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ea-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.ea-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line-soft);
+}
+
+.ea-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.ea-login {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ea-subgroup + .ea-subgroup {
+  margin-top: 18px;
+}
+
+.ea-subgroup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 2px 8px;
+}
+
+.ea-subgroup-head span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ea-subgroup-head strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ea-subgroup-head small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ea-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-floating);
+}
+
+.ea-form label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ea-form label span {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.ea-form input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ea-form input:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.ea-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ea-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ea-error summary {
+  cursor: pointer;
+}
+
+.ea-error p {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Pi's endpoint editor sits under the same subgroup heading style. */
+.ea-subgroup .acct-endpoints > .sp-group-header h3 {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}

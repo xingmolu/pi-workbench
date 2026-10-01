@@ -12,20 +12,13 @@ import {
   Sparkles,
   X
 } from 'lucide-react'
-import RuntimeSettings from './RuntimeSettings'
 import GeneralSettings from './GeneralSettings'
 import AppearanceSettings from './AppearanceSettings'
 import MobileGatewaySettings from './MobileGatewaySettings'
 import DesktopControlSettings from './DesktopControlSettings'
-import type {
-  AgentSnapshot,
-  LoginMethod,
-  WorkbenchCommand,
-  WorkbenchSnapshot
-} from '../../../shared/contracts'
-import SettingsAccounts from './SettingsAccounts'
+import type { AgentSnapshot, WorkbenchCommand, WorkbenchSnapshot } from '../../../shared/contracts'
+import EngineAccounts from './EngineAccounts'
 import PluginSettings from './PluginSettings'
-import { SettingsPage } from './SettingsPrimitives'
 import {
   SettingsDraftProvider,
   confirmDiscardSettingsDraft,
@@ -40,16 +33,19 @@ export type SettingsDialogProps = {
   agentSnapshot: AgentSnapshot
   workbenchSnapshot: WorkbenchSnapshot
   onWorkbenchCommand: (command: WorkbenchCommand) => Promise<void>
-  onLogin: (providerId: string, method: LoginMethod) => void
-  onAddAlias: (slug: string) => void
-  onLoginPrompt: (promptId: string, value?: string) => void
   mcpContent?: ReactNode
   skillsContent?: ReactNode
-  renderAccountQuota?: (account: AgentSnapshot['accounts'][number]) => ReactNode
 }
 
 const sections = [
-  { id: 'runtimes', label: 'Agent 引擎', group: '基础设置', icon: Puzzle, keywords: 'runtime 运行时 claude pi sdk 历史 导入' },
+  {
+    id: 'engines',
+    label: '引擎与账号',
+    group: '基础设置',
+    icon: KeyRound,
+    keywords:
+      'agent 引擎 runtime claude code pi codex chatgpt 订阅 账号 邮箱 登录 api key 端点 模型 默认 历史 导入'
+  },
   {
     id: 'general',
     label: '常规',
@@ -70,13 +66,6 @@ const sections = [
     group: '连接',
     icon: Smartphone,
     keywords: '远程 配对 二维码 tailscale gateway'
-  },
-  {
-    id: 'accounts',
-    label: '账号与模型',
-    group: '连接',
-    icon: KeyRound,
-    keywords: 'openai codex anthropic api key 自定义端点 登录 模型'
   },
   {
     id: 'skills',
@@ -126,7 +115,7 @@ function SettingsDialogContent({
   skillsContent,
   ...props
 }: SettingsDialogProps): React.JSX.Element {
-  const [section, setSection] = useState<SettingsSection>('accounts')
+  const [section, setSection] = useState<SettingsSection>('engines')
   const [query, setQuery] = useState('')
   const draft = useSettingsDraftController()
 
@@ -232,19 +221,14 @@ function SettingsDialogContent({
             </nav>
             <div className="settings-content" data-settings-section={section}>
               <div className="settings-content-inner">
-                {section === 'runtimes' ? <RuntimeSettings /> : section === 'general' ? (
+                {section === 'engines' ? (
+                  <EngineAccounts snapshot={props.agentSnapshot} />
+                ) : section === 'general' ? (
                   <GeneralSettings />
                 ) : section === 'appearance' ? (
                   <AppearanceSettings />
                 ) : section === 'mobile' ? (
                   <MobileGatewaySettings />
-                ) : section === 'accounts' ? (
-                  <SettingsPage
-                    title="账号与模型"
-                    description="登录编程套餐或添加自定义端点；凭据只保存在本机。"
-                  >
-                    <SettingsAccounts {...props} />
-                  </SettingsPage>
                 ) : section === 'skills' ? (
                   (skillsContent ?? <p className="inline-hint">技能设置模块尚未加载。</p>)
                 ) : section === 'plugins' ? (

@@ -119,7 +119,9 @@ export function toMobileSnapshot(
     })),
     permissionMode: snapshot.permissionMode,
     thinking: snapshot.thinking ?? null,
-    providers: Object.fromEntries(snapshot.accounts.map((account) => [account.id, account.name])),
+    providers: Object.fromEntries(
+      snapshot.accounts.map((account) => [account.id, account.email ?? account.name])
+    ),
     ...(snapshot.checkpoints ? { checkpoints: snapshot.checkpoints } : {}),
     ...(snapshot.error ? { error: snapshot.error } : {}),
     nodes

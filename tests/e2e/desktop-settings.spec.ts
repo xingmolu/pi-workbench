@@ -86,7 +86,7 @@ test('appearance theme persists, follows system changes, and updates highlighted
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe('light')
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  for (const section of ['手机', '账号与模型', 'MCP 服务器', 'Skills 技能', 'Desktop 插件', '桌面控制']) {
+  for (const section of ['手机', '引擎与账号', 'MCP 服务器', 'Skills 技能', 'Desktop 插件', '桌面控制']) {
     await page.getByRole('button', { name: section, exact: true }).click()
     expect(await page.locator('.settings-dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   }
@@ -116,7 +116,7 @@ test('trusted IPC persists across restart, resets only preferences, and shows gr
   await expect(page.getByRole('button', { name: 'MCP 服务器', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '外观', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: '清空设置搜索', exact: true }).click()
-  await expect(page.getByRole('button', { name: '账号与模型', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: '引擎与账号', exact: true })).toHaveAttribute(
     'aria-current',
     'page'
   )

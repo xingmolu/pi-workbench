@@ -67,6 +67,7 @@ import {
   type AgentStatePatch,
   type ApprovalRequest,
   type ApprovalScope,
+  type SubscriptionPlatform,
   type BrowserCapabilityCancel,
   type BrowserCapabilityRequest,
   type BrowserCapabilityResponse,
@@ -129,7 +130,9 @@ import {
 import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
 import { SessionEditService, latestUserId, type EditHostState } from './session-edit'
-import { selectProjectedProviders } from './auth-projection'
+import { isCodexFamilyProvider, selectProjectedProviders } from './auth-projection'
+import { codexIdentity, type CodexIdentity } from './codex-identity'
+import { createAliasProvider, type AliasEntry } from './codex-alias'
 import { AccountQuotaReader } from './account-quota'
 import { McpConfigStore } from './mcp-config'
 import { McpRuntime, usesOAuth } from './mcp-runtime'
@@ -519,6 +522,7 @@ class PiDesktopHost {
           displayQuarantine.run(() => this.history.refresh())
         }
       })
+      this.registerConfiguredAliases()
       await this.refreshAuthProjection()
       this.initialized = true
       this.emitSnapshot()
@@ -763,6 +767,12 @@ class PiDesktopHost {
         break
       case 'account:alias:add':
         await this.addAlias(request.slug)
+        break
+      case 'account:add':
+        await this.addAccount(request.platform, request.method)
+        break
+      case 'account:remove':
+        await this.removeAccount(request.providerId)
         break
       case 'model:set':
         await this.setModel(request.providerId, request.modelId)
@@ -1688,10 +1698,29 @@ class PiDesktopHost {
       )
     )
     const checked = new Map(checks)
-    this.accounts = relevant.map((provider) =>
-      this.accountSummary(provider, stored.get(provider.id), Boolean(checked.get(provider.id)))
-    )
+    const identities = this.storedCodexIdentities()
+    this.accounts = relevant.map((provider) => ({
+      ...this.accountSummary(provider, stored.get(provider.id), Boolean(checked.get(provider.id))),
+      ...(isCodexFamilyProvider(provider.id)
+        ? { platform: 'chatgpt' as const, ...identities.get(provider.id) }
+        : {})
+    }))
     this.models = available.map((model) => this.modelRejections.project(this.modelSummary(model)))
+  }
+
+  /** Email and plan of each stored ChatGPT login; auth.json is this host's own file. */
+  private storedCodexIdentities(): Map<string, CodexIdentity> {
+    const identities = new Map<string, CodexIdentity>()
+    try {
+      const stored: unknown = JSON.parse(readFileSync(join(AGENT_DIR, 'auth.json'), 'utf8'))
+      if (!isRecord(stored)) return identities
+      for (const [id, credential] of Object.entries(stored))
+        if (isCodexFamilyProvider(id) && isRecord(credential) && credential.type === 'oauth')
+          identities.set(id, codexIdentity(credential.access))
+    } catch {
+      // Missing or unreadable auth.json only loses display metadata.
+    }
+    return identities
   }
 
   private accountSummary(
@@ -2201,7 +2230,11 @@ class PiDesktopHost {
     }
   }
 
-  private async startLogin(providerId: string, method: LoginMethod): Promise<void> {
+  private async startLogin(
+    providerId: string,
+    method: LoginMethod,
+    after?: { success(): Promise<void>; failure(): Promise<void> }
+  ): Promise<void> {
     if (!this.modelRuntime) throw new Error('登录运行时尚未就绪')
     const provider = this.modelRuntime.getProvider(providerId)
     if (!provider?.auth.oauth) throw new Error('该账号不支持 Pi OAuth 登录')
@@ -2268,10 +2301,12 @@ class PiDesktopHost {
             this.login = login
           }
         })
+        await after?.success()
         this.emitPatch()
       })
       .catch((error) => {
         this.rejectLoginPrompts()
+        void after?.failure().catch(() => undefined)
         if (controller.signal.aborted) return
         this.login = { phase: 'error', providerId, message: errorMessage(error) }
         this.emitPatch()
@@ -2319,19 +2354,26 @@ class PiDesktopHost {
     if (this.loginAbort) throw new Error('登录仍在进行，请完成登录后再添加账号')
     const safety = this.readEndpointSafety()
     if (safety.busy || safety.promptPending) throw new Error('当前会话正在运行，请结束后再添加账号')
-    if (!this.runtime) throw new Error('请先选择工作区，再添加第二个 Codex 账号')
     const normalized = slug.trim()
     if (!ALIAS_SLUG.test(normalized)) throw new Error('账号别名只能使用小写字母、数字和单个连字符')
-    const id = `openai-codex-${normalized}`
-    if (this.modelRuntime?.getProvider(id)) throw new Error('这个账号别名已经存在')
+    this.createAlias(normalized)
+    await this.refreshAuthProjection()
+  }
 
+  private readAliasDocument(): { document: Record<string, unknown>; aliases: AliasEntry[] } {
     let document: Record<string, unknown> = {}
     if (existsSync(MULTI_LOGIN_CONFIG)) {
       const parsed: unknown = JSON.parse(readFileSync(MULTI_LOGIN_CONFIG, 'utf8'))
       if (isRecord(parsed)) document = parsed
     }
-    const current = Array.isArray(document.aliases) ? document.aliases : []
-    const aliases = [...current, { base: 'openai-codex', suffix: normalized }]
+    const aliases = (Array.isArray(document.aliases) ? document.aliases : []).filter(
+      (entry): entry is AliasEntry =>
+        isRecord(entry) && typeof entry.base === 'string' && typeof entry.suffix === 'string'
+    )
+    return { document, aliases }
+  }
+
+  private writeAliases(document: Record<string, unknown>, aliases: AliasEntry[]): void {
     const temporary = `${MULTI_LOGIN_CONFIG}.${randomUUID()}.tmp`
     mkdirSync(dirname(MULTI_LOGIN_CONFIG), { recursive: true })
     try {
@@ -2344,8 +2386,91 @@ class PiDesktopHost {
     } finally {
       rmSync(temporary, { force: true })
     }
+  }
 
-    await this.runtime.session.reload()
+  /**
+   * Aliases normally arrive with the multi-login extension when a project session loads.
+   * Registering them on the shared model runtime too lets Settings list, add and sign in
+   * accounts before any project is open; the extension later re-registers the same ids.
+   */
+  private registerConfiguredAliases(): void {
+    if (!this.modelRuntime) return
+    let aliases: AliasEntry[] = []
+    try {
+      aliases = this.readAliasDocument().aliases
+    } catch {
+      return
+    }
+    for (const entry of aliases) this.registerAlias(entry)
+  }
+
+  private registerAlias(entry: AliasEntry): void {
+    const runtime = this.modelRuntime
+    const id = `${entry.base}-${entry.suffix}`
+    if (!runtime || runtime.getProvider(id)) return
+    const base = runtime.getProvider(entry.base)
+    if (base?.auth.oauth) runtime.registerNativeProvider(createAliasProvider(base, entry))
+  }
+
+  private createAlias(suffix: string): string {
+    const id = `openai-codex-${suffix}`
+    if (this.modelRuntime?.getProvider(id)) throw new Error('这个账号别名已经存在')
+    const { document, aliases } = this.readAliasDocument()
+    const entry = { base: 'openai-codex', suffix }
+    this.writeAliases(document, [...aliases, entry])
+    this.registerAlias(entry)
+    return id
+  }
+
+  /**
+   * One step from "add a ChatGPT account" to a signed-in row: the first login uses the
+   * main slot, later ones get a generated alias the user never types. An abandoned or
+   * duplicate login leaves nothing behind.
+   */
+  private async addAccount(platform: SubscriptionPlatform, method: LoginMethod): Promise<void> {
+    if (platform !== 'chatgpt') throw new Error('Pi 引擎只能添加 ChatGPT 订阅账号')
+    if (this.loginAbort) throw new Error('登录仍在进行，请完成登录后再添加账号')
+    const safety = this.readEndpointSafety()
+    if (safety.busy || safety.promptPending) throw new Error('当前会话正在运行，请结束后再添加账号')
+    const main = this.accounts.find((account) => account.id === 'openai-codex')
+    if (!main?.connected) return this.startLogin('openai-codex', method)
+    const id = this.createAlias(`acct-${randomUUID().slice(0, 6)}`)
+    await this.refreshAuthProjection()
+    this.emitPatch()
+    await this.startLogin(id, method, {
+      success: async () => {
+        const email = this.accounts.find((account) => account.id === id)?.email
+        const existing = email
+          ? this.accounts.find(
+              (account) => account.id !== id && account.connected && account.email === email
+            )
+          : undefined
+        if (!existing) return
+        await this.removeAccount(id)
+        this.login = {
+          phase: 'error',
+          providerId: existing.id,
+          message: `${email} 已经添加过，已刷新它的登录状态`
+        }
+      },
+      failure: () => this.removeAccount(id)
+    })
+  }
+
+  /** Signs an account out; generated aliases are deleted entirely, config first. */
+  private async removeAccount(providerId: string): Promise<void> {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('模型运行时尚未就绪')
+    if (this.loginAbort && this.login.phase !== 'idle' && 'providerId' in this.login &&
+      this.login.providerId === providerId) this.loginAbort.abort()
+    if (providerId.startsWith('openai-codex-')) {
+      const { document, aliases } = this.readAliasDocument()
+      const remaining = aliases.filter((entry) => `${entry.base}-${entry.suffix}` !== providerId)
+      if (remaining.length !== aliases.length) this.writeAliases(document, remaining)
+      runtime.unregisterProvider(providerId)
+    }
+    await runtime.logout(providerId).catch(() => undefined)
+    this.accountQuota.invalidate()
     await this.refreshAuthProjection()
   }
 

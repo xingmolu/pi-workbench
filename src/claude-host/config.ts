@@ -4,14 +4,40 @@ import { readFile, mkdir, writeFile, rename } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { ClaudeStorage } from './storage'
+/** A Claude subscription login kept in its own configuration home under `accounts/<id>`. */
+const accountSchema = z
+  .object({
+    id: z.string().regex(/^claude-[a-z0-9]{6,16}$/),
+    email: z.string().max(254).optional(),
+    plan: z.string().max(40).optional()
+  })
+  .strict()
+/** An Anthropic-compatible API connection; it shares the default configuration home. */
+const apiSchema = z
+  .object({
+    id: z.string().regex(/^claude-api-[a-z0-9]{6,16}$/),
+    label: z.string().max(80).optional(),
+    apiKey: z.string().min(1),
+    baseUrl: z.string().url().optional()
+  })
+  .strict()
 const configSchema = z
   .object({
     apiKey: z.string().optional(),
     baseUrl: z.string().url().optional(),
     model: z.string().optional(),
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional()
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+    /** Email of the login in the default configuration home, learned from the SDK. */
+    email: z.string().max(254).optional(),
+    plan: z.string().max(40).optional(),
+    accounts: z.array(accountSchema).max(32).optional(),
+    apis: z.array(apiSchema).max(32).optional(),
+    /** Connection new queries use: `anthropic` (default home) or an account/API id. */
+    active: z.string().max(40).optional()
   })
   .strict()
+export type ClaudeAccountConfig = z.infer<typeof accountSchema>
+export type ClaudeApiConfig = z.infer<typeof apiSchema>
 export type ClaudeConfig = z.infer<typeof configSchema>
 export function bundledClaudeExecutable(): string {
   const require = createRequire(import.meta.url)
@@ -44,14 +70,15 @@ export async function saveConfig(storage: ClaudeStorage, config: ClaudeConfig): 
 /** Remove inherited provider credentials, CLI overrides and auth helpers before SDK startup. */
 export function claudeEnvironment(
   storage: ClaudeStorage,
-  config: ClaudeConfig,
-  parent = process.env
+  config: Pick<ClaudeConfig, 'apiKey' | 'baseUrl'>,
+  parent = process.env,
+  configHome = storage.config
 ): Record<string, string | undefined> {
   const env = { ...parent }
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_|CLAUDECODE$|CLAUDE_CONFIG_DIR$)/.test(key)) delete env[key]
   }
-  env.CLAUDE_CONFIG_DIR = storage.config
+  env.CLAUDE_CONFIG_DIR = configHome
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
   env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS = '1'
   if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey

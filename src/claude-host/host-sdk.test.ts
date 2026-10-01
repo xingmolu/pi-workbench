@@ -110,6 +110,51 @@ async function waitFor(check: () => boolean, timeout = 20_000) {
 }
 
 describe('Claude official SDK runtime', () => {
+  it('keeps several API connections, lists models per connection and switches between them', async () => {
+    const { host, fixture, cwd, storage } = await setup()
+    await host.handle({ type: 'bootstrap' })
+    await host.handle({ type: 'project:open', cwd })
+    await host.handle({
+      type: 'account:api-key:set',
+      providerId: 'new',
+      apiKey: 'second-key',
+      baseUrl: fixture.baseUrl
+    })
+    const added = host.getState().accounts.find((account) => account.id !== 'anthropic')!
+    expect(added).toMatchObject({ authType: 'api_key', connected: true, endpoint: '127.0.0.1' })
+    expect(host.getState().activeProvider).toBe(added.id)
+    const providers = new Set(host.getState().models.map((model) => model.provider))
+    expect(providers).toEqual(new Set(['anthropic', added.id]))
+
+    const send = async (text: string): Promise<string | undefined> => {
+      const before = fixture.requests.length
+      const state = host.getState()
+      await host.handle({
+        type: 'prompt:send',
+        sessionId: state.sessionId!,
+        generation: state.generation,
+        text
+      })
+      await waitFor(() => !host.getState().busy)
+      return fixture.requests.slice(before).find((request) => request.path.includes('/messages'))
+        ?.apiKey
+    }
+    expect(await send('through the second connection')).toBe('second-key')
+    await host.handle({
+      type: 'model:set',
+      providerId: 'anthropic',
+      modelId: host.getState().activeModel!
+    })
+    expect(host.getState().activeProvider).toBe('anthropic')
+    expect(await send('back on the first connection')).toBe('fixture-key')
+
+    await host.handle({ type: 'account:remove', providerId: added.id })
+    expect(host.getState().accounts.map((account) => account.id)).toEqual(['anthropic'])
+    const saved = JSON.parse(await readFile(join(storage.config, 'desktop.json'), 'utf8'))
+    expect(saved.apis).toEqual([])
+    expect(JSON.stringify(saved)).not.toContain('second-key')
+  })
+
   it('boots without a paid prompt, admits asynchronously, persists native history and supports rename/fork/resume', async () => {
     const { host, fixture, cwd, storage } = await setup(120)
     const boot = await host.handle({ type: 'bootstrap' })

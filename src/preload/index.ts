@@ -128,6 +128,13 @@ const api: PiDesktopAPI = {
   legacyPiHistory: () => ipcRenderer.invoke('pi:legacy-history'),
   importPiHistory: () => ipcRenderer.invoke('pi:import-history'),
   selectRuntime: async (runtimeId, origin) => agentSnapshotSchema.parse(await ipcRenderer.invoke('pi:runtime-select', runtimeId, origin)),
+  runtimeAccounts: () => ipcRenderer.invoke('pi:runtime-accounts'),
+  runtimeConfig: (runtimeId, command) =>
+    ipcRenderer.invoke('pi:runtime-config', runtimeId, command),
+  defaultRuntime: () => ipcRenderer.invoke('pi:default-runtime'),
+  setDefaultRuntime: async (runtimeId) => {
+    await ipcRenderer.invoke('pi:default-runtime:set', runtimeId)
+  },
   listRuntimes: async () => agentRuntimeCatalogSchema.parse(await ipcRenderer.invoke(RUNTIME_CATALOG_CHANNEL)),
   reconnect: async (): Promise<AgentSnapshot> =>
     acceptSnapshot(await ipcRenderer.invoke('pi:reconnect')),

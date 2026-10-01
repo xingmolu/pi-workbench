@@ -34,6 +34,15 @@ import { nativeSkillPlugins } from './skills'
 import { ClaudeBridge } from './bridge'
 import { officialAuthUrl } from './auth'
 import {
+  DEFAULT_CONNECTION,
+  activeConnection,
+  connectionEnvironment,
+  connections,
+  newConnectionId,
+  prepareAccountHome,
+  removeAccountHome
+} from './connections'
+import {
   bundledClaudeExecutable,
   claudeEnvironment,
   readConfig,
@@ -290,7 +299,7 @@ export class ClaudeHost {
       if (!server.disabled) enabledMcp[id] = mcpConfig(server)
     const queryOptions: Options = {
       cwd: this.snapshot.project?.path ?? this.options.storage.cache,
-      env: claudeEnvironment(this.options.storage, this.config),
+      env: connectionEnvironment(this.options.storage, this.config, activeConnection(this.config)),
       pathToClaudeCodeExecutable: this.options.executable ?? bundledClaudeExecutable(),
       settingSources: ['user'],
       persistSession: !!this.snapshot.project && this.options.role !== 'configuration',
@@ -491,30 +500,59 @@ export class ClaudeHost {
     const [models, account] = await Promise.all([native.supportedModels(), native.accountInfo()])
     if (epoch !== this.queryEpoch) throw new Error('Claude initialization was cancelled')
     this.models = models
-    this.snapshot.models = models.map((model) => ({
-      provider: 'anthropic',
-      id: model.value,
-      name: model.displayName,
-      contextWindow: 0,
-      reasoning: !!model.supportsEffort || !!model.supportsAdaptiveThinking,
-      input: ['text', 'image']
-    }))
-    const connected = !!(
+    const active = activeConnection(this.config)
+    const signedIn = !!(
       account.email ||
       (account.apiKeySource && account.apiKeySource !== 'none') ||
       (account.tokenSource && account.tokenSource !== 'none')
     )
-    this.snapshot.accounts = [
-      {
-        id: 'anthropic',
-        name: account.email ?? 'Anthropic',
-        authType: account.apiKeySource && account.apiKeySource !== 'none' ? 'api_key' : 'oauth',
-        connected,
-        subscription: !!account.subscriptionType,
-        alias: false
+    await this.rememberIdentity(active, account.email, account.subscriptionType)
+    this.snapshot.accounts = connections(this.config).map((connection) => {
+      if (connection.kind === 'api') {
+        const endpoint = connection.baseUrl ? hostOf(connection.baseUrl) : 'api.anthropic.com'
+        return {
+          id: connection.id,
+          name: connection.label ?? endpoint,
+          authType: 'api_key' as const,
+          connected: true,
+          subscription: false,
+          alias: false,
+          endpoint
+        }
       }
-    ]
-    this.snapshot.activeProvider = 'anthropic'
+      const apiKey = connection.kind === 'default' && !!this.config.apiKey
+      return {
+        id: connection.id,
+        name: connection.email ?? (apiKey ? 'Anthropic API' : 'Claude'),
+        authType: apiKey ? ('api_key' as const) : ('oauth' as const),
+        // Only the active connection is verified by the SDK; the others were when added.
+        connected: connection.id === active ? signedIn : !!(connection.email || apiKey),
+        subscription: !apiKey,
+        alias: connection.kind === 'account',
+        ...(apiKey
+          ? { endpoint: this.config.baseUrl ? hostOf(this.config.baseUrl) : 'api.anthropic.com' }
+          : { platform: 'claude' as const }),
+        ...(connection.email && !apiKey ? { email: connection.email } : {}),
+        ...(connection.plan && !apiKey ? { plan: connection.plan } : {})
+      }
+    })
+    // Claude offers the same models through every connection; list them per connection so
+    // the composer can switch account and model in one choice.
+    // The active connection always lists its models, signed in or not, so discovery works
+    // before login; other connections only once they can actually be used.
+    this.snapshot.models = this.snapshot.accounts
+      .filter((item) => item.connected || item.id === active)
+      .flatMap((item) =>
+        models.map((model) => ({
+          provider: item.id,
+          id: model.value,
+          name: model.displayName,
+          contextWindow: 0,
+          reasoning: !!model.supportsEffort || !!model.supportsAdaptiveThinking,
+          input: ['text', 'image'] as Array<'text' | 'image'>
+        }))
+      )
+    this.snapshot.activeProvider = active
     this.snapshot.activeModel ??= this.config.model ?? models[0]?.value ?? null
     this.updateModelState()
     this.snapshot.ready = true
@@ -800,6 +838,11 @@ export class ClaudeHost {
       case 'model:set':
         this.assertIdle()
         this.validateModel(command.providerId, command.modelId)
+        if (command.providerId !== activeConnection(this.config)) {
+          this.config.model = command.modelId
+          this.snapshot.activeModel = command.modelId
+          await this.useConnection(command.providerId)
+        }
         await this.native?.setModel(command.modelId)
         this.snapshot.activeModel = command.modelId
         this.config.model = command.modelId
@@ -821,7 +864,26 @@ export class ClaudeHost {
       }
       case 'account:api-key:set':
         this.assertIdle()
-        if (command.providerId !== 'anthropic')
+        if (command.providerId === 'new') {
+          const config = await readConfig(this.options.storage)
+          const id = newConnectionId('api')
+          config.apis = [
+            ...(config.apis ?? []),
+            {
+              id,
+              apiKey: command.apiKey,
+              ...(command.baseUrl ? { baseUrl: command.baseUrl } : {})
+            }
+          ]
+          config.active = id
+          this.config = config
+          await saveConfig(this.options.storage, config)
+          await this.stopQuery()
+          await this.initialize()
+          this.publish()
+          return this.ack()
+        }
+        if (command.providerId !== DEFAULT_CONNECTION)
           throw new Error('Claude runtime supports the Anthropic account')
         this.config = {
           ...(await readConfig(this.options.storage)),
@@ -838,6 +900,14 @@ export class ClaudeHost {
       case 'account:login':
         this.assertIdle()
         await this.login(command.providerId, command.method)
+        return this.ack()
+      case 'account:add':
+        if (command.platform !== 'claude') throw new Error('Claude Code 只能添加 Claude 订阅账号')
+        await this.addAccount()
+        return this.ack()
+      case 'account:remove':
+        await this.removeConnection(command.providerId)
+        this.publish()
         return this.ack()
       case 'session-task:cancel':
         if (!this.projection.tasks.has(command.taskId)) throw new Error('Unknown Claude task')
@@ -955,10 +1025,87 @@ export class ClaudeHost {
   }
   private validateModel(provider: string, id: string): void {
     if (
-      provider !== 'anthropic' ||
+      !connections(this.config).some((connection) => connection.id === provider) ||
       !this.models.some((model) => model.value === id || model.resolvedModel === id)
     )
       throw new Error('Claude model is unavailable')
+  }
+  /** Keeps the email and plan the SDK reported for a subscription connection. */
+  private async rememberIdentity(id: string, email?: string, plan?: string): Promise<void> {
+    if (!email) return
+    const label = plan ? planLabel(plan) : undefined
+    if (id === DEFAULT_CONNECTION) {
+      if (this.config.apiKey || (this.config.email === email && this.config.plan === label)) return
+      this.config.email = email
+      if (label) this.config.plan = label
+    } else {
+      const entry = this.config.accounts?.find((item) => item.id === id)
+      if (!entry || (entry.email === email && entry.plan === label)) return
+      entry.email = email
+      if (label) entry.plan = label
+    }
+    await saveConfig(this.options.storage, this.config)
+  }
+  /** Moves new queries to another connection; only between turns. */
+  private async useConnection(id: string): Promise<void> {
+    if (activeConnection(this.config) === id) return
+    this.assertIdle()
+    this.config.active = id
+    await saveConfig(this.options.storage, this.config)
+    await this.stopQuery()
+    await this.initialize()
+  }
+  private async addAccount(): Promise<void> {
+    this.assertIdle()
+    const id = newConnectionId('account')
+    await prepareAccountHome(this.options.storage, id)
+    await this.login(id, 'browser')
+  }
+  private async removeConnection(id: string): Promise<void> {
+    this.assertIdle()
+    const config = await readConfig(this.options.storage)
+    if (id === DEFAULT_CONNECTION) {
+      if (!config.apiKey) await this.signOut(id).catch(() => undefined)
+      delete config.apiKey
+      delete config.baseUrl
+      delete config.email
+      delete config.plan
+    } else if (config.accounts?.some((item) => item.id === id)) {
+      await this.signOut(id).catch(() => undefined)
+      config.accounts = config.accounts.filter((item) => item.id !== id)
+      await removeAccountHome(this.options.storage, id)
+    } else if (config.apis?.some((item) => item.id === id)) {
+      config.apis = config.apis.filter((item) => item.id !== id)
+    } else throw new Error('Unknown Claude connection')
+    if (config.active === id) delete config.active
+    this.config = config
+    await saveConfig(this.options.storage, config)
+    await this.stopQuery()
+    await this.initialize()
+  }
+  /** The official CLI clears the keychain item that belongs to this configuration home. */
+  private signOut(id: string): Promise<void> {
+    const env = connectionEnvironment(
+      this.options.storage,
+      { ...this.config, apiKey: undefined },
+      id
+    )
+    delete env.ANTHROPIC_API_KEY
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        this.options.executable ?? bundledClaudeExecutable(),
+        ['auth', 'logout'],
+        {
+          env,
+          cwd: this.options.storage.cache,
+          stdio: 'ignore'
+        }
+      )
+      child.once('error', reject)
+      child.once('exit', (code) =>
+        code === 0 ? resolve() : reject(new Error(`Claude auth logout exited (${code})`))
+      )
+    })
   }
   private async catalog(
     options: Omit<ProjectCatalogCommand, 'type'>,
@@ -1072,17 +1219,20 @@ export class ClaudeHost {
     }
   }
   private async login(provider: string, method: string): Promise<void> {
-    if (provider !== 'anthropic' || method !== 'browser')
+    const existing = connections(this.config).find((item) => item.id === provider)
+    const added = !existing && /^claude-[a-z0-9]{6,16}$/.test(provider)
+    if (method !== 'browser' || (!added && existing?.kind === 'api') || (!existing && !added))
       throw new Error('Claude supports Anthropic browser login')
     if (this.authProcess) throw new Error('Claude login is already running')
     // Official auth command uses only app-owned configuration; no credential import.
-    const authConfig = { ...this.config }
-    delete authConfig.apiKey
-    delete authConfig.baseUrl
+    const home =
+      provider === DEFAULT_CONNECTION
+        ? this.options.storage.config
+        : await prepareAccountHome(this.options.storage, provider)
     this.snapshot.login = { phase: 'starting', providerId: provider }
     this.publish()
     const child = spawn(this.options.executable ?? bundledClaudeExecutable(), ['auth', 'login'], {
-      env: claudeEnvironment(this.options.storage, authConfig),
+      env: claudeEnvironment(this.options.storage, {}, process.env, home),
       cwd: this.options.storage.cache,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -1102,10 +1252,14 @@ export class ClaudeHost {
         this.publish()
       }
     }
+    const abandon = async (): Promise<void> => {
+      if (added) await removeAccountHome(this.options.storage, provider).catch(() => undefined)
+    }
     child.stdout?.on('data', receive)
     child.stderr?.on('data', receive)
     child.once('error', (error) => {
       this.authProcess = undefined
+      void abandon()
       this.snapshot.login = { phase: 'error', providerId: provider, message: error.message }
       this.publish()
     })
@@ -1115,18 +1269,56 @@ export class ClaudeHost {
       void (async () => {
         if (code !== 0) throw new Error(`Claude auth login exited (${code})`)
         this.assertIdle()
-        this.config = authConfig
-        await saveConfig(this.options.storage, authConfig)
+        const config = await readConfig(this.options.storage)
+        if (provider === DEFAULT_CONNECTION) {
+          delete config.apiKey
+          delete config.baseUrl
+        } else if (added) config.accounts = [...(config.accounts ?? []), { id: provider }]
+        config.active = provider
+        this.config = config
+        await saveConfig(this.options.storage, config)
         await this.stopQuery()
         await this.initialize()
-        if (!this.snapshot.accounts.some((account) => account.connected))
+        const account = this.snapshot.accounts.find((item) => item.id === provider)
+        if (!account?.connected)
           throw new Error('Claude SDK did not confirm authenticated account status')
-        this.snapshot.login = { phase: 'success', providerId: provider }
+        const duplicate = account.email
+          ? this.snapshot.accounts.find(
+              (item) => item.id !== provider && item.email === account.email
+            )
+          : undefined
+        if (duplicate && added) {
+          await this.removeConnection(provider)
+          await this.useConnection(duplicate.id)
+          this.snapshot.login = {
+            phase: 'error',
+            providerId: duplicate.id,
+            message: `${account.email} 已经添加过，已切换到这个账号`
+          }
+        } else this.snapshot.login = { phase: 'success', providerId: provider }
         this.publish()
-      })().catch((error) => {
+      })().catch(async (error) => {
+        if (added && !this.config.accounts?.some((item) => item.id === provider)) await abandon()
         this.snapshot.login = { phase: 'error', providerId: provider, message: errorText(error) }
         this.publish()
       })
     })
   }
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.slice(0, 253)
+  } catch {
+    return url.slice(0, 80)
+  }
+}
+
+/** The SDK reports plans as identifiers such as `max` or `claude_pro`. */
+function planLabel(plan: string): string {
+  const name = plan.replace(/^claude_/, '').toLowerCase()
+  return (
+    { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise', free: 'Free' }[name] ??
+    plan.slice(0, 40)
+  )
 }

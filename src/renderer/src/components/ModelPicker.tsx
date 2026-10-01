@@ -151,7 +151,7 @@ export default function ModelPicker({
           snapshot.busy
             ? '运行结束后可以切换模型'
             : [
-                account?.name,
+                account?.email ?? account?.name,
                 current?.name || current?.id || snapshot.activeModel,
                 thinking ? `思考 ${THINKING_LABEL[thinking.level]}` : ''
               ]
@@ -215,8 +215,10 @@ export default function ModelPicker({
                     key={provider.id}
                     heading={
                       <span className="model-group-heading">
-                        <span>{provider.name}</span>
-                        {provider.subscription ? <em>订阅</em> : null}
+                        <span>{provider.email ?? provider.name}</span>
+                        {provider.plan || provider.subscription ? (
+                          <em>{provider.plan ?? '订阅'}</em>
+                        ) : null}
                         {!query ? <small>{models.length}</small> : null}
                       </span>
                     }

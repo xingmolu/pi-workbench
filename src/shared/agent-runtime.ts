@@ -49,7 +49,36 @@ export const agentRuntimeManifestSchema = z
     toolDelivery: z.enum(['native', 'mcp', 'none']),
     skills: z.enum(['native', 'prompt', 'none']),
     /** Legacy adapters can retain existing config/history while migration is designed separately. */
-    storage: z.enum(['desktop', 'legacy'])
+    storage: z.enum(['desktop', 'legacy']),
+    /**
+     * Subscription logins this plugin can perform. The plugin owns the mechanics (official
+     * CLI or OAuth flow); the host lists the resulting accounts by email.
+     */
+    accountProviders: z
+      .array(
+        z
+          .object({
+            platform: z.enum(['chatgpt', 'claude']),
+            label: z.string().min(1).max(60),
+            login: z
+              .array(z.enum(['browser', 'device_code']))
+              .min(1)
+              .max(2)
+          })
+          .strict()
+      )
+      .max(8)
+      .optional(),
+    /** Credentials a chat on this engine can be bound to. */
+    credentials: z
+      .object({
+        accounts: z.array(z.enum(['chatgpt', 'claude'])).max(8),
+        apis: z
+          .array(z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']))
+          .max(8)
+      })
+      .strict()
+      .optional()
   })
   .strict()
 export type AgentRuntimeManifest = z.infer<typeof agentRuntimeManifestSchema>
@@ -86,6 +115,8 @@ const COMMAND_FEATURE: Record<HostCommand['type'], RuntimeFeature | null> = {
   'account:api-key:set': null,
   'account:login:respond': 'auth-login',
   'account:alias:add': 'account-aliases',
+  'account:add': 'auth-login',
+  'account:remove': 'auth-login',
   'account:quota': 'account-quota',
   'endpoint:list': 'custom-endpoints',
   'endpoint:save': 'custom-endpoints',

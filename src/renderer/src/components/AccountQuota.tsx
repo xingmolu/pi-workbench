@@ -6,11 +6,14 @@ import type { AccountQuota as Quota } from '../../../shared/account-quota'
 export default function AccountQuota({
   account,
   authGeneration,
-  loginActive
+  loginActive,
+  runtimeId
 }: {
   account: AccountSummary
   authGeneration: number
   loginActive: boolean
+  /** Read through this engine's configuration instead of the open chat. */
+  runtimeId?: string
 }): React.JSX.Element {
   const [quota, setQuota] = useState<Quota | null>(null)
   const [error, setError] = useState('')
@@ -32,7 +35,10 @@ export default function AccountQuota({
     setQuota(null)
     setError('')
     try {
-      const result = await window.pi.send({ type: 'account:quota', providerId: account.id })
+      const command = { type: 'account:quota' as const, providerId: account.id }
+      const result = runtimeId
+        ? await window.pi.runtimeConfig(runtimeId, command)
+        : await window.pi.send(command)
       if (attempt !== epoch.current) return
       if (
         result.quota.providerId !== account.id ||

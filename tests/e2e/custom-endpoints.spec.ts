@@ -81,7 +81,6 @@ async function launchFixture(): Promise<void> {
   page = await app.firstWindow()
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
 }
 test.afterEach(async () => {
   await app?.close()
@@ -152,7 +151,7 @@ test('settings modal traps focus and preserves sidebar, workbench and conversati
   await page.getByRole('button', { name: 'MCP 服务器', exact: true }).click()
   await page.getByRole('button', { name: 'Desktop 插件', exact: true }).click()
   await expect(page.getByRole('button', { name: '重新加载', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '账号与模型', exact: true }).click()
+  await page.getByRole('button', { name: '引擎与账号', exact: true }).click()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
   await page.screenshot({ path: resolve('artifacts/e2e/settings-modal-1440.png') })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 720))
@@ -200,7 +199,6 @@ test('creates all three protocols through canonical Pi files without selecting a
   ).not.toContain('isolated-test-key')
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
   await expect(section).toContainText('Chat Completions')
   await section.getByRole('button', { name: '编辑 Chat Completions', exact: true }).click()
   for (const width of [1440, 960]) {
@@ -409,7 +407,6 @@ test('UI-only delayed list disables edits and a closed form ignores its late sav
   )
   await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await page.getByRole('button', { name: '自定义端点 API Key · 兼容服务' }).click()
   await section.getByRole('button', { name: '编辑 未登录端点', exact: true }).click()
   await section.getByLabel('显示名称', { exact: true }).fill('新表单')
   await section.getByLabel('API Key', { exact: true }).fill('new-ephemeral-key')
@@ -695,11 +692,10 @@ test('edits metadata without credentials, validates input and cancels without wr
   await section.getByRole('button', { name: '保存端点', exact: true }).click()
   await expect(section.getByRole('status')).toContainText('端点已保存')
   await expect(section).toContainText('改名后的端点')
-  await page.getByRole('button', { name: 'OpenAI Codex 编程套餐 / 订阅' }).click()
-  await expect(page.getByRole('button', { name: '浏览器登录', exact: true }).first()).toBeVisible()
-  await page.getByRole('button', { name: 'Anthropic 连接方式说明' }).click()
-  await expect(page.getByText(/在 Pi 引擎中使用 Anthropic 模型/)).toBeVisible()
-  await expect(page.getByText(/请在“Agent 引擎”中切换/)).toBeVisible()
+  // Subscriptions and both engines' API connections share the page with Pi's endpoints.
+  await expect(page.getByRole('region', { name: '订阅账号' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /添加订阅账号/ })).toBeEnabled()
+  await expect(page.getByRole('region', { name: 'API 连接' })).toContainText('Claude Code API')
 })
 
 test('canonical metadata survives runtime refresh failure and list refresh truthfully only rereads it', async () => {

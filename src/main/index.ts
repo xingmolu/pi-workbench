@@ -70,6 +70,8 @@ import type {
   DesktopEvent,
   HostResult,
   PermissionMode,
+  RuntimeConfigCommand,
+  RuntimeAccounts,
   SnapshotHostCommand,
   WorkbenchEvent
 } from '../shared/contracts'
@@ -587,6 +589,8 @@ type Preferences = {
   recentProjects?: string[]
   lastProjectPath?: string
   lastRuntimeId?: string
+  /** Engine for new chats once the user picked one in Settings; otherwise chats inherit. */
+  defaultRuntimeId?: string
   lastSessionPath?: string
   workbenchDesktopEnabled?: Record<string, boolean>
   workbenchPanelState?: Record<string, unknown>
@@ -1000,7 +1004,10 @@ async function openWorker(
   sessionWorkers.validateSelected(expected)
   const source = expected ? sessionWorkers.getSnapshot(expected.workerId) : null
   const runtimeId = runtimeProviders.resolveProviderId(
-    target.runtimeId ?? source?.runtime?.id ?? lobbyRuntimeId
+    target.runtimeId ??
+      (target.path ? undefined : configuredDefaultRuntime()) ??
+      source?.runtime?.id ??
+      lobbyRuntimeId
   )
   if (configurationFor(runtimeId).gate.busy) throw new Error('此引擎配置正在更新，请稍后切换会话')
   const model =
@@ -1012,6 +1019,79 @@ async function openWorker(
       ? { providerId: source.activeProvider, modelId: source.activeModel }
       : undefined)
   return sessionWorkers.open({ ...target, runtimeId }, expected, model, origin)
+}
+
+function configuredDefaultRuntime(): string | undefined {
+  const id = preferenceStore().get('defaultRuntimeId')
+  return id && runtimeProviders.manifests().some((runtime) => runtime.id === id) ? id : undefined
+}
+
+const RUNTIME_CONFIG_COMMANDS = new Set<RuntimeConfigCommand['type']>([
+  'account:add',
+  'account:remove',
+  'account:login',
+  'account:login:respond',
+  'account:api-key:set',
+  'account:quota',
+  'endpoint:list',
+  'endpoint:save',
+  'endpoint:discover'
+])
+
+/** Every engine's accounts for Settings; one engine that cannot start reports only itself. */
+async function runtimeAccounts(): Promise<RuntimeAccounts[]> {
+  return Promise.all(
+    runtimeProviders
+      .manifests()
+      .filter((runtime) => runtime.features.includes('auth-login'))
+      .map(async (runtime): Promise<RuntimeAccounts> => {
+        const base = { runtimeId: runtime.id, label: runtime.label }
+        try {
+          const result = await callLobby({ type: 'state:get' }, runtime.id)
+          if (result.kind !== 'snapshot') throw new Error('引擎未返回状态')
+          const { accounts, login, loginPrompt, authGeneration } = result.snapshot
+          return { ...base, accounts, login, loginPrompt, authGeneration: authGeneration ?? 0 }
+        } catch (error) {
+          return {
+            ...base,
+            accounts: [],
+            login: { phase: 'idle' },
+            loginPrompt: null,
+            authGeneration: 0,
+            error: errorMessage(error)
+          }
+        }
+      })
+  )
+}
+
+/**
+ * Account changes go to the engine's configuration host whatever chat is open, then reach
+ * that engine's resident chats the same way other global settings do.
+ */
+async function runtimeConfig(runtimeId: string, input: RuntimeConfigCommand): Promise<HostResult> {
+  if (!runtimeProviders.manifests().some((runtime) => runtime.id === runtimeId))
+    throw new Error('未知的 Agent 引擎')
+  let command: HostCommand = input
+  if (command.type === 'endpoint:save') {
+    // The configuration host has no chat; its own identity is the safe save context.
+    const host = runtimeDirectory.snapshot(runtimeId)
+    command = {
+      ...command,
+      context: { projectPath: null, sessionId: null, generation: host?.generation ?? 0 }
+    }
+  }
+  if (!globalMutations.has(command.type)) return callLobby(command, runtimeId)
+  const configuration = configurationFor(runtimeId)
+  if (configuration.gate.busy) throw new Error('此引擎配置正在更新，请稍后重试')
+  return configuration.gate.run(async () => {
+    configuration.dirty = true
+    const result = await callLobby(command, runtimeId)
+    if (result.kind === 'endpoint-save' && !result.result.ok) return result
+    if (command.type !== 'account:login' && command.type !== 'account:add')
+      await refreshWorkers(runtimeId)
+    return result
+  })
 }
 
 const configurations = new Map<string, { gate: GlobalConfigurationGate; dirty: boolean }>()
@@ -1042,6 +1122,8 @@ const globalMutations = new Set([
   'account:login',
   'account:api-key:set',
   'account:alias:add',
+  'account:add',
+  'account:remove',
   'endpoint:save',
   'mcp:save',
   'mcp:toggle',
@@ -1641,6 +1723,34 @@ function registerIpc(): void {
       await refreshWorkers('pi')
       return result
     })
+  })
+  ipcMain.handle('pi:runtime-accounts', (event) => {
+    assertTrustedRenderer(event)
+    return runtimeAccounts()
+  })
+  ipcMain.handle('pi:runtime-config', (event, runtimeId: unknown, raw: unknown) => {
+    assertTrustedRenderer(event)
+    const parsed = hostCommandSchema.safeParse(raw)
+    if (
+      typeof runtimeId !== 'string' ||
+      !parsed.success ||
+      !RUNTIME_CONFIG_COMMANDS.has(parsed.data.type as RuntimeConfigCommand['type'])
+    )
+      throw new Error('无效的配置操作')
+    return runtimeConfig(runtimeId, parsed.data as RuntimeConfigCommand)
+  })
+  ipcMain.handle('pi:default-runtime', (event) => {
+    assertTrustedRenderer(event)
+    return configuredDefaultRuntime() ?? currentRuntimeId()
+  })
+  ipcMain.handle('pi:default-runtime:set', (event, runtimeId: unknown) => {
+    assertTrustedRenderer(event)
+    if (
+      typeof runtimeId !== 'string' ||
+      !runtimeProviders.manifests().some((runtime) => runtime.id === runtimeId)
+    )
+      throw new Error('未知的 Agent 引擎')
+    preferenceStore().set('defaultRuntimeId', runtimeId)
   })
   ipcMain.handle('pi:runtime-select', async (event, runtimeId: unknown, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)

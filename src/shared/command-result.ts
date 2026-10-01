@@ -65,6 +65,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'account:api-key:set':
     case 'account:login:respond':
     case 'account:alias:add':
+    case 'account:add':
+    case 'account:remove':
     case 'model:set':
     case 'thinking:set':
     case 'browser:e2e':
