@@ -46,7 +46,7 @@ export default function SubagentTool({
               <button
                 type="button"
                 key={`${node.toolCallId}:${index}`}
-                className={`subagent-summary is-${child.state} tone-${index % 4}`}
+                className={`subagent-summary is-${child.state}`}
                 data-subagent-id={child.id}
                 aria-label={`查看子 Agent：${child.title}`}
                 onClick={() => inspect(child)}
@@ -54,8 +54,6 @@ export default function SubagentTool({
               >
                 <Bot className="subagent-summary-icon" size={15} aria-hidden="true" />
                 <span className={`subagent-kind${active ? ' is-active' : ''}`}>子 Agent</span>
-                <span className="subagent-name">Worker {index + 1}</span>
-                <span className="subagent-separator">·</span>
                 <span className="subagent-summary-content" key={child.activity ?? child.title}>
                   {active && child.activity ? child.activity : child.title}
                 </span>

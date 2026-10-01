@@ -86,7 +86,7 @@
 .runtime-picker-option strong {
   display: block;
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 600;
 }
 .runtime-picker-option small {
   display: block;
@@ -101,61 +101,6 @@
   color: var(--muted);
   font-size: 11px;
   line-height: 1.6;
-}
-.conversation-head {
-  min-height: 46px;
-  padding: 8px 20px;
-  padding-right: 56px;
-}
-.conversation-session-title {
-  font-size: 13px;
-  font-weight: 550;
-}
-.conversation-head-meta {
-  font-size: 11px;
-}
-.subagent-pane-header {
-  background: var(--canvas);
-}
-.subagent-pane-readonly {
-  font-size: 10px;
-}
-.subagent-summary {
-  border-radius: 6px;
-}
-.subagent-name,
-.subagent-separator {
-  display: none;
-}
-.subagent-kind {
-  font-size: 11px;
-  color: var(--muted);
-}
-.subagent-summary-content {
-  color: var(--text-soft);
-  font-size: 12px;
-}
-.subagent-pane-title {
-  font-size: 15px;
-  font-weight: 550;
-  line-height: 1.5;
-}
-@media (max-width: 1000px) {
-  .conversation-head-meta {
-    margin-left: 0;
-  }
-}
-@media (max-width: 760px) {
-  .conversation-head {
-    padding-inline: 14px 46px;
-    gap: 5px;
-  }
-  .runtime-key-footer {
-    align-items: start;
-  }
-}
-:root[data-reduced-motion='true'] .composer {
-  transition: none;
 }
 .subagent-directory-toggle {
   position: fixed;
@@ -181,7 +126,7 @@
   margin: 6px 0 12px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 450;
+  font-weight: 400;
 }
 .subagent-directory-group > p {
   padding: 0 10px;
@@ -224,7 +169,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 450;
+  font-weight: 400;
   color: var(--text-soft);
 }
 .subagent-directory-content small {
@@ -238,7 +183,7 @@
 }
 .subagent-directory-row time {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
   margin-top: 4px;
 }
@@ -252,4 +197,9 @@
 .subagent-directory-row:focus-visible .subagent-directory-arrow {
   opacity: 1;
 }
-.session-runtime-label { color: var(--muted); font-size: 10px; margin-inline: 3px; flex-shrink: 0; }
+.session-runtime-label {
+  flex-shrink: 0;
+  margin-inline: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
