@@ -1298,7 +1298,8 @@ export class ClaudeHost {
           delete config.apiKey
           delete config.baseUrl
         } else if (added) config.accounts = [...(config.accounts ?? []), { id: provider }]
-        config.active = provider
+        // A new account becomes the default; signing in again leaves the default alone.
+        if (added) config.active = provider
         this.config = config
         await saveConfig(this.options.storage, config)
         // Signing in from a session's composer moves that session to the new login too.

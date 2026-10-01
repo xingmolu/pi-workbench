@@ -298,3 +298,13 @@ it('accepts image prompts only with supported types, valid base64 and at most fo
   )
   expect(hostCommandSchema.safeParse({ ...base, images: [] }).success).toBe(false)
 })
+
+it('keeps API keys off plain HTTP except on this machine', () => {
+  const command = { type: 'account:api-key:set', providerId: 'new', apiKey: 'k' }
+  const accepts = (baseUrl: string): boolean =>
+    hostCommandSchema.safeParse({ ...command, baseUrl }).success
+  expect(accepts('https://llm.example.com')).toBe(true)
+  expect(accepts('http://localhost:8080')).toBe(true)
+  expect(accepts('http://llm.example.com')).toBe(false)
+  expect(accepts('javascript:alert(1)')).toBe(false)
+})

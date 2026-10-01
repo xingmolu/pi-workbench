@@ -97,6 +97,9 @@ const TYPES: Record<string, string> = {
   '.ttf': 'font/ttf'
 }
 const MAX_FILE_BYTES = 8 * 1024 * 1024
+/** Outstanding grants per device; the oldest go first. */
+const MAX_FRAMES_PER_DEVICE = 16
+const MAX_CONFIRMATIONS_PER_DEVICE = 32
 
 type Frame = { deviceId: string; viewId: string; root: string; expires: number }
 type Confirmation = { deviceId: string; key: string; expires: number }
@@ -146,6 +149,7 @@ export class MobilePluginViews {
       root: view.root,
       expires: this.now() + FRAME_TTL_MS
     })
+    this.cap(this.frames, deviceId, MAX_FRAMES_PER_DEVICE)
     const entry = relative(view.root, view.entryPath).split(sep).map(encodeURIComponent).join('/')
     return {
       url: `${MOBILE_PLUGIN_FRAME_PREFIX}${token}/${entry}`,
@@ -191,6 +195,7 @@ export class MobilePluginViews {
         // Nothing ran: the host asks before it acts. The phone confirms, then repeats the call.
         const token = randomBytes(24).toString('base64url')
         this.confirmations.set(token, { deviceId, key, expires: this.now() + CONFIRM_TTL_MS })
+        this.cap(this.confirmations, deviceId, MAX_CONFIRMATIONS_PER_DEVICE)
         const { title, detail } = asked
         return { ok: false, confirm: { token, title, detail } }
       }
@@ -256,6 +261,12 @@ export class MobilePluginViews {
           html.slice(head.index + head[0].length)
         : bridge + html
     }
+  }
+
+  /** Keeps at most `limit` entries for a device, dropping the oldest (Maps keep insertion order). */
+  private cap(map: Map<string, { deviceId: string }>, deviceId: string, limit: number): void {
+    const mine = [...map].filter(([, entry]) => entry.deviceId === deviceId)
+    for (const [token] of mine.slice(0, Math.max(0, mine.length - limit))) map.delete(token)
   }
 
   private sweep(): void {

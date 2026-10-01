@@ -32,7 +32,8 @@ import {
   customEndpointConfigSnapshotSchema,
   customEndpointContextSchema,
   customEndpointSaveRequestSchema,
-  customEndpointSaveResultSchema
+  customEndpointSaveResultSchema,
+  customEndpointUrlSchema
 } from './custom-endpoints'
 import { THINKING_LEVELS } from './contracts'
 import { agentRuntimeManifestSchema, runtimeIdSchema } from './agent-runtime'
@@ -647,7 +648,7 @@ const promptSendCommandSchema = z
   .strict()
 const sessionTaskCancelCommandSchema = z.object({ type: z.literal('session-task:cancel'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1).max(1024), generation: nonNegativeInteger }).strict()
 const subagentInspectCommandSchema = z.object({ type: z.literal('subagent:inspect'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1), generation: nonNegativeInteger }).strict()
-const accountApiKeySetCommandSchema = z.object({ type: z.literal('account:api-key:set'), providerId: z.string().min(1).max(128), apiKey: z.string().min(1).max(16384), baseUrl: z.string().url().max(4096).optional(), label: z.string().trim().min(1).max(80).optional() }).strict()
+const accountApiKeySetCommandSchema = z.object({ type: z.literal('account:api-key:set'), providerId: z.string().min(1).max(128), apiKey: z.string().min(1).max(16384), baseUrl: customEndpointUrlSchema.optional(), label: z.string().trim().min(1).max(80).optional() }).strict()
 const promptAbortCommandSchema = z.object({ type: z.literal('prompt:abort') }).strict()
 const queueClearCommandSchema = z.object({ type: z.literal('queue:clear') }).strict()
 const permissionSetCommandSchema = z

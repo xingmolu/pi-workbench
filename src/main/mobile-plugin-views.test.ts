@@ -113,3 +113,12 @@ it('serves only files inside the plugin root through a frame token, with the bri
   expect(await views.file('/plugin-frame/not-a-token/views/page.js')).toBeNull()
   expect(() => views.open('d1', 'acme.other.page')).toThrow('没有开放给手机')
 })
+
+it('keeps a bounded number of open frames per device', async () => {
+  const { views } = await fixture()
+  const first = views.open('d1', 'acme.tool.page').url
+  for (let index = 0; index < 16; index += 1) views.open('d1', 'acme.tool.page')
+  const other = views.open('d2', 'acme.tool.page').url
+  expect(await views.file(first)).toBeNull()
+  expect(await views.file(other)).not.toBeNull()
+})

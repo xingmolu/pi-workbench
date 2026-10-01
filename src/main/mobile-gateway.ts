@@ -659,7 +659,10 @@ export class MobileGatewayServer {
         return
       }
     } catch (error) {
-      json(response, 404, { error: error instanceof Error ? error.message : '插件页面不可用' })
+      const message = error instanceof Error ? error.message : '插件页面不可用'
+      json(response, error instanceof SyntaxError || message === '请求参数无效' ? 400 : 404, {
+        error: error instanceof SyntaxError ? '请求参数无效' : message
+      })
       return
     }
     json(response, 404, { error: '未知接口' })

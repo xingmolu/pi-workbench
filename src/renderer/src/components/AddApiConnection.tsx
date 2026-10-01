@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, Check, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import {
   createCustomEndpointSchema,
+  customEndpointUrlSchema,
   endpointDiscoverSchema,
   type CustomEndpointApi
 } from '../../../shared/custom-endpoints'
@@ -155,13 +156,17 @@ export default function AddApiConnection({
   const save = async (): Promise<void> => {
     setError('')
     if (engine === 'claude') {
+      const url = baseUrl.trim()
       if (!key.trim()) {
         setError('请填写 API Key。')
         return
       }
+      if (url && !customEndpointUrlSchema.safeParse(url).success) {
+        setError('服务地址必须是 HTTPS，或本机 http://localhost。')
+        return
+      }
       setBusy('save')
       try {
-        const url = baseUrl.trim()
         await window.pi.runtimeConfig('claude', {
           type: 'account:api-key:set',
           providerId: 'new',
