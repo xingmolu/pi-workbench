@@ -1334,7 +1334,9 @@ function createMobileSessionBridge(): MobileSessionBridge {
 
 async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
   const store = preferenceStore()
-  const storedPath = store.get('lastProjectPath')
+  // `npm run demo` starts in its seeded project the first time.
+  const storedPath =
+    store.get('lastProjectPath') ?? (E2E_MODE ? process.env.PI_DESKTOP_DEMO_PROJECT : undefined)
   if (storedPath === undefined) return null
 
   const canonicalPath = await resolveExistingProjectPath(storedPath)

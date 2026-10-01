@@ -19,6 +19,7 @@
     "dev:renderer": "electron-vite dev --rendererOnly",
     "prestart": "npm run build:native:mac",
     "start": "electron-vite preview",
+    "demo": "node --experimental-strip-types --no-warnings scripts/demo.mjs",
     "build:native:mac": "node scripts/build-macos-computer-use-helper.cjs"
   },
   "homepage": "https://github.com/xingmolu/pi-desktop",
