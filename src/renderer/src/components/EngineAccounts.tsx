@@ -393,6 +393,20 @@ export default function EngineAccounts({
             </Dropdown.Portal>
           </Dropdown.Root>
         </div>
+        {snapshot.login.phase !== 'idle' || snapshot.loginPrompt ? (
+          // A sign-in started from the open chat (e.g. the model picker) runs in that chat.
+          <div className="ea-login">
+            <LoginState login={snapshot.login} />
+            {snapshot.loginPrompt ? (
+              <AuthPromptCard
+                prompt={snapshot.loginPrompt}
+                onRespond={(promptId, value) =>
+                  void window.pi.send({ type: 'account:login:respond', promptId, value })
+                }
+              />
+            ) : null}
+          </div>
+        ) : null}
         {signingIn.map((engine) => (
           <div className="ea-login" key={engine.runtimeId}>
             <LoginState login={engine.login} />
