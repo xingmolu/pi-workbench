@@ -336,3 +336,15 @@ module.exports = {
 - 能力仍在宿主：浏览器的原生视图（WebContentsView）、快照、点击和导航由 `browser-manager` 实现；终端的 PTY 进程由 `terminal-manager` 与终端宿主进程实现，界面是渲染层的终端面板。插件包只决定面板是否出现，以及宿主是否接受对应请求。
 - 浏览器关闭时：面板隐藏，正在显示的浏览器被收起，Agent 的 `browser` 工具返回"浏览器插件已关闭"的错误；重新打开后立即恢复，无需重启会话。
 - 终端关闭时：面板隐藏，正在运行的终端被关闭（不会在后台留下看不见的 shell），新建终端的请求被拒绝；⌘J 不再打开终端。Agent 的 `bash` 工具不受影响——它不经过终端面板，由工具闸门单独审批。
+
+## 20. 手机端插件页面
+
+同一个页面写一次，桌面和手机都能用，不需要为手机再写一遍。
+
+- 声明：`contributes.views[]` 的沙箱页面加 `"surfaces": ["desktop", "mobile"]`。不写时只在桌面显示；宿主视图（浏览器、终端）忽略这个字段，它们在手机上有自己的远程视图。内置 Git 插件已经声明。
+- 入口：手机端顶部的「打开标签页」列出开放给手机的插件页面、电脑上的浏览器和终端。需要项目的页面（`activation: onProject`）在电脑没有打开项目时显示为不可用。
+- 运行方式：页面在手机上以 `sandbox="allow-scripts allow-forms"` 的 iframe 加载，来源是不透明的，读不到配对设备的 cookie，CSP 为 `connect-src 'none'`，也不能直接请求网关接口。页面文件通过 30 分钟有效的随机令牌 URL（`/plugin-frame/<token>/…`）提供，只能读插件根目录内、非隐藏的常见静态文件。宿主在 HTML 的 `<head>` 前注入桥脚本。
+- API：仍然是 `window.piPlugin`（`getContext` / `call` / `onContext` / `getState` / `setState`），`piPlugin.surface === 'mobile'`，根元素带 `data-pi-surface="mobile"`，页面可以据此放大点击区域。调用经 `postMessage` 交给手机页面，再由手机页面带设备凭据请求 `/api/plugins/call`，最后进入和桌面同一个插件网关（同样的授权、审计、项目校验）。`getState` / `setState` 在手机上只保存在当前页面内。
+- 访问级别：沿用「设置 › 手机 › 远程工作台」。关闭时什么都不能调用；「只看」只允许读取类方法（`git.status/diff/log`、`fs.list/stat/readText`、`storage.get`、`project.current`、`workspace.get`、`plugin.getSettings`、`app.getAppearance`）；「可操作」再允许写入类方法（`git.stage/unstage/discard/commit/push`、`fs.writeText`、`storage.set`）。只影响电脑本身的方法（剪贴板、打开视图）以及插件进程自定义通道在手机上不可用。
+- 确认：网关要确认的写操作不会弹到电脑上，而是先返回确认请求（标题和详情与桌面一致），什么都没执行；手机上确认后带一次性令牌重发，令牌绑定设备、视图、方法和参数，两分钟内有效。`ui.showToast` / `ui.notify` 显示在手机上。
+- 上下文：页面看到的项目是电脑当前的项目；电脑切换项目后，手机页面会收到 `onContext`。

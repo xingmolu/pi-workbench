@@ -1,3 +1,4 @@
+import type { MobilePluginView } from '../shared/remote-views'
 import type {
   DesktopPluginSummary,
   JsonValue,
@@ -47,6 +48,12 @@ import {
 } from '../shared/plugin-agent'
 
 /** The part of PluginRuntime the Workbench state depends on. */
+export type MobilePluginViewSource = MobilePluginView & {
+  /** Canonical plugin root; the phone may load files from inside it only. */
+  root: string
+  entryPath: string
+}
+
 export type WorkbenchPluginRuntime = {
   sync(plugins: readonly RuntimePlugin[]): void
   status(pluginId: string): PluginRuntimeStatus
@@ -116,6 +123,8 @@ export type WorkbenchHostState = {
   pluginForView(viewId: string): GatewayPlugin | null
   /** Agent tools, skills and MCP servers from enabled plugins, each behind its grant. */
   agentContributions(): PluginAgentContributions
+  /** Pages of enabled plugins that opted into the phone, with where their files live. */
+  mobileViews(): MobilePluginViewSource[]
   /** Waits for registry reloads in flight, e.g. the one a session switch starts. */
   whenLoaded(): Promise<void>
   /** Declared settings merged with stored values. */
@@ -1138,6 +1147,27 @@ export function createWorkbenchHostState(
         }
       }
       return contributions
+    },
+    mobileViews() {
+      return discovery.plugins
+        .filter((plugin) => isDesktopEnabled(plugin.pluginId))
+        .flatMap((plugin) =>
+          plugin.workbench.flatMap(({ contribution, canonicalEntryPath, mobile }) =>
+            mobile && canonicalEntryPath
+              ? [
+                  {
+                    id: contribution.viewId,
+                    pluginId: plugin.pluginId,
+                    pluginName: plugin.name,
+                    title: contribution.title,
+                    available: isAvailable(contribution.activation),
+                    root: plugin.canonicalRootPath,
+                    entryPath: canonicalEntryPath
+                  }
+                ]
+              : []
+          )
+        )
     },
     pluginForView(viewId) {
       const plugin = discovery.plugins.find((candidate) =>

@@ -9,6 +9,13 @@ import { encodeQrMatrix, renderQrSvg } from '../shared/qr'
 import { assertGatewayBindAddress, pairingUrl, primaryLanIpv4 } from './mobile-gateway-net'
 import type { MobilePairingStore } from './mobile-pairing'
 import type { MobileSessionBridge } from './mobile-session-bridge'
+import {
+  MOBILE_PLUGIN_FRAME_CSP,
+  MOBILE_PLUGIN_FRAME_PREFIX,
+  mobilePluginCallSchema,
+  mobilePluginOpenSchema,
+  type MobilePluginViews
+} from './mobile-plugin-views'
 import { MobileSnapshotStream, type MobileSnapshotStreamOptions } from './mobile-snapshot-stream'
 import {
   MOBILE_PAGE_CSP,
@@ -79,6 +86,8 @@ export type MobileViewsBridge = {
   subscribe(id: string, send: (event: string, data: unknown) => void): (() => void) | null
   /** Validates `input` for the view's kind before acting. */
   input(id: string, input: unknown): Promise<void>
+  /** Plugin pages that opted into the phone. */
+  plugins?: MobilePluginViews
 }
 
 /** Frames are dropped, never queued, while a phone's connection is behind. */
@@ -396,6 +405,23 @@ export class MobileGatewayServer {
         )
         return
       }
+      if (request.method === 'GET' && url.pathname.startsWith(MOBILE_PLUGIN_FRAME_PREFIX)) {
+        // Frames load with an opaque origin and no device cookie; the URL token is the grant.
+        const plugins = this.options.views?.plugins
+        const file =
+          plugins && this.options.views?.access() !== 'off'
+            ? await plugins.file(url.pathname)
+            : null
+        response.writeHead(file ? file.status : 404, {
+          'content-type': file ? file.type : 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-security-policy': MOBILE_PLUGIN_FRAME_CSP,
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer'
+        })
+        response.end(file ? file.body : '未找到')
+        return
+      }
       const device = this.requireDevice(request, url)
       if (!device) {
         json(response, 401, { error: '尚未配对' })
@@ -439,6 +465,10 @@ export class MobileGatewayServer {
       }
       if (url.pathname === '/api/views' || url.pathname.startsWith('/api/views/')) {
         await this.handleViews(request, response, url, device.deviceId)
+        return
+      }
+      if (url.pathname === '/api/plugins' || url.pathname.startsWith('/api/plugins/')) {
+        await this.handlePlugins(request, response, url, device.deviceId)
         return
       }
       const sessionMatch = /^\/api\/sessions\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname)
@@ -591,6 +621,48 @@ export class MobileGatewayServer {
       const status = /配对码|尚未配对|已达到/.test(message) ? 401 : 400
       if (!response.headersSent) json(response, status, { error: message })
     }
+  }
+
+  private async handlePlugins(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    deviceId: string
+  ): Promise<void> {
+    const plugins = this.options.views?.plugins
+    const access = this.options.views?.access() ?? 'off'
+    if (request.method === 'GET' && url.pathname === '/api/plugins') {
+      json(response, 200, { access, views: access === 'off' || !plugins ? [] : plugins.list() })
+      return
+    }
+    if (!plugins) {
+      json(response, 404, { error: '未知接口' })
+      return
+    }
+    if (access === 'off') {
+      json(response, 403, { error: '电脑未允许远程查看工作台：请在「设置 › 手机」中开启。' })
+      return
+    }
+    try {
+      if (request.method === 'POST' && url.pathname === '/api/plugins/open') {
+        const body = parse(mobilePluginOpenSchema, JSON.parse((await readBody(request)) || '{}'))
+        json(response, 200, plugins.open(deviceId, body.viewId))
+        return
+      }
+      if (request.method === 'GET' && url.pathname === '/api/plugins/context') {
+        json(response, 200, { context: plugins.context(url.searchParams.get('viewId') ?? '') })
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/plugins/call') {
+        const body = parse(mobilePluginCallSchema, JSON.parse((await readBody(request)) || '{}'))
+        json(response, 200, await plugins.call(deviceId, access, body))
+        return
+      }
+    } catch (error) {
+      json(response, 404, { error: error instanceof Error ? error.message : '插件页面不可用' })
+      return
+    }
+    json(response, 404, { error: '未知接口' })
   }
 
   private async handleViews(

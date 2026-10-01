@@ -17,6 +17,23 @@ export type RemoteViewSummary = {
   live: boolean
 }
 
+/** A plugin page that declared the `mobile` surface, shown on the phone in a sandboxed frame. */
+export type MobilePluginView = {
+  /** The workbench view id, `<pluginId>.<view>`. */
+  id: string
+  pluginId: string
+  pluginName: string
+  title: string
+  /** False while the page needs an open project and the desktop has none. */
+  available: boolean
+}
+
+/** A phone call to a plugin page's host API; `confirm` asks the phone before anything runs. */
+export type MobilePluginCallResult =
+  | { ok: true; value?: unknown }
+  | { ok: false; code: string; message: string }
+  | { ok: false; confirm: { token: string; title: string; detail: string } }
+
 export type RemoteBrowserFrame = {
   /** Base64 JPEG of the page's viewport. */
   data: string

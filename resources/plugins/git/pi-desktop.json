@@ -13,7 +13,8 @@
         "title": { "zh-CN": "Git", "en": "Git" },
         "icon": "git-branch",
         "entry": "views/changes.html",
-        "activation": "onProject"
+        "activation": "onProject",
+        "surfaces": ["desktop", "mobile"]
       }
     ]
   }

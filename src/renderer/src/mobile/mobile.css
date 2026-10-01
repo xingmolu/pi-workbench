@@ -1987,3 +1987,135 @@ code {
   font-size: 11px;
   font-style: normal;
 }
+
+/* ---------- Desktop tabs on the phone ---------- */
+
+.m-tabs {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.m-tabs-note {
+  margin: 0 4px 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.m-tab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 14px);
+  background: var(--surface);
+  text-align: left;
+}
+
+.m-tab:disabled {
+  opacity: 0.55;
+}
+
+.m-tab-icon {
+  display: inline-flex;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.m-tab-icon.is-plugin {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-subtle));
+  color: var(--accent);
+}
+
+.m-tab-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.m-tab-text strong {
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.m-tab-text small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-tab-chevron {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+}
+
+.m-plugin {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.m-plugin-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+}
+
+.m-plugin-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--text-strong);
+  color: var(--bg);
+  font-size: 13px;
+  transform: translateX(-50%);
+}
+
+.m-plugin-confirm {
+  display: grid;
+  gap: 10px;
+}
+
+.m-plugin-confirm strong {
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.m-plugin-confirm pre {
+  max-height: 40vh;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.m-plugin-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}

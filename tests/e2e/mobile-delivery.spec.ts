@@ -1,10 +1,12 @@
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { MobileGatewayServer, type MobileViewsBridge } from '../../src/main/mobile-gateway'
 import { MobilePairingStore } from '../../src/main/mobile-pairing'
+import { MobilePluginViews } from '../../src/main/mobile-plugin-views'
+import { PluginApiError } from '../../src/shared/plugin-api'
 import type { MobileSessionBridge } from '../../src/main/mobile-session-bridge'
 import type {
   MobileConversationSnapshot,
@@ -692,8 +694,10 @@ test('remote workbench: the desktop browser as frames with taps, and a terminal 
   const fixture = await launchMobile('initial-state', false, 1024, views)
   const { page } = fixture
   await expect(page.locator('#chat-scroll')).toContainText('initial-state')
-  await page.getByRole('button', { name: '电脑工作台' }).click()
-  await expect(page.getByRole('heading', { name: '电脑工作台' })).toBeVisible()
+  await page.getByRole('button', { name: '打开标签页' }).click()
+  await expect(page.getByRole('heading', { name: '打开标签页' })).toBeVisible()
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-tabs.png') })
+  await page.getByRole('button', { name: /浏览器/ }).click()
   const frame = page.locator('.m-rb-frame')
   await expect(frame).toBeVisible()
   await expect(page.getByRole('textbox', { name: '网址' })).toHaveValue('http://localhost:5173/')
@@ -719,6 +723,7 @@ test('remote workbench: the desktop browser as frames with taps, and a terminal 
     ])
 
   // Terminal: the replay renders, keys and a typed command travel as input.
+  await page.getByRole('button', { name: '返回' }).click()
   await page.getByRole('button', { name: /终端 1/ }).click()
   await expect(page.locator('.m-rt-screen')).toContainText('hello from the desktop terminal')
   await page.getByRole('button', { name: '^C' }).click()
@@ -737,4 +742,105 @@ test('remote workbench: the desktop browser as frames with taps, and a terminal 
   await page.reload()
   await expect(page.getByText('只读').first()).toBeVisible()
   await expect(page.getByRole('textbox', { name: '输入命令' })).toHaveCount(0)
+})
+
+test('plugin pages open on the phone in a sandboxed frame and confirm writes there', async () => {
+  let access: 'off' | 'view' | 'control' = 'control'
+  const calls: [string, unknown][] = []
+  const gitRoot = await realpath(resolve('resources/plugins/git'))
+  const context = {
+    pluginId: 'works.pi.git',
+    viewId: 'works.pi.git.changes',
+    projectPath: '/fixture/shop',
+    sessionId: null,
+    generation: 1
+  }
+  const plugins = new MobilePluginViews({
+    views: () => [
+      {
+        id: 'works.pi.git.changes',
+        pluginId: 'works.pi.git',
+        pluginName: 'Git',
+        title: 'Git',
+        available: true,
+        root: gitRoot,
+        entryPath: join(gitRoot, 'views', 'changes.html')
+      }
+    ],
+    context: () => context,
+    call: async (_viewId, method, params, approve) => {
+      if (method === 'git.status')
+        return {
+          branch: 'main',
+          upstream: 'origin/main',
+          ahead: 1,
+          behind: 0,
+          files: [
+            { path: 'src/app.ts', index: 'M', worktree: ' ' },
+            { path: 'README.md', index: ' ', worktree: 'M' }
+          ]
+        }
+      if (method === 'git.log')
+        return { commits: [{ hash: 'abc1234', subject: 'Init', author: 'me', date: '' }] }
+      if (method === 'git.diff') return { patch: '' }
+      if (method === 'git.stage') {
+        const paths = (params as { paths: string[] }).paths
+        if (!(await approve({ title: `暂存 ${paths.length} 个文件`, detail: paths.join('\n') })))
+          throw new PluginApiError('PERMISSION_DENIED', '用户拒绝了这次操作')
+        calls.push([method, params])
+        return undefined
+      }
+      throw new PluginApiError('UNSUPPORTED', method)
+    }
+  })
+  const views: MobileViewsBridge = {
+    access: () => access,
+    list: () => [],
+    subscribe: () => null,
+    input: async () => undefined,
+    plugins
+  }
+  const { page } = await launchMobile('initial-state', false, 1024, views)
+  await expect(page.locator('#chat-scroll')).toContainText('initial-state')
+  await page.getByRole('button', { name: '打开标签页' }).click()
+  await page.getByRole('button', { name: /Git/ }).click()
+  const git = page.frameLocator('iframe.m-plugin-frame')
+  await expect(git.getByText('app.ts')).toBeVisible()
+  await expect(git.locator('#branch-name')).toHaveText('main')
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-plugin-git.png') })
+
+  // The page has an opaque origin: no device cookie, no gateway API.
+  const frame = page.frames().find((item) => item.url().includes('/plugin-frame/'))!
+  expect(
+    await frame.evaluate(async () => {
+      let cookie = 'readable'
+      try {
+        void document.cookie
+      } catch {
+        cookie = 'denied'
+      }
+      const api = await fetch('/api/me').then(
+        () => 'reachable',
+        () => 'blocked'
+      )
+      return { cookie, api }
+    })
+  ).toEqual({ cookie: 'denied', api: 'blocked' })
+
+  // A write asks on the phone; declining runs nothing, allowing runs it once.
+  await git.getByRole('button', { name: '暂存 README.md' }).click()
+  const sheet = page.getByRole('dialog', { name: '确认操作' })
+  await expect(sheet).toContainText('暂存 1 个文件')
+  await sheet.getByRole('button', { name: '取消' }).click()
+  expect(calls).toEqual([])
+  await git.getByRole('button', { name: '暂存 README.md' }).click()
+  await page.screenshot({ path: resolve('artifacts/e2e/mobile-plugin-confirm.png') })
+  await page.getByRole('dialog', { name: '确认操作' }).getByRole('button', { name: '允许' }).click()
+  await expect.poll(() => calls).toEqual([['git.stage', { paths: ['README.md'] }]])
+
+  // View-only access keeps reads and refuses writes before the desktop is asked.
+  access = 'view'
+  await git.getByRole('button', { name: '暂存 README.md' }).click()
+  await expect(git.locator('#notice')).toContainText('只允许查看')
+  expect(calls).toHaveLength(1)
 })

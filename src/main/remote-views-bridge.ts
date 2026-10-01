@@ -5,6 +5,7 @@ import {
   type RemoteViewSummary
 } from '../shared/remote-views'
 import type { MobileViewsBridge } from './mobile-gateway'
+import type { MobilePluginViews } from './mobile-plugin-views'
 import type { RemoteBrowser } from './remote-browser'
 import type { RemoteTerminals } from './remote-terminals'
 
@@ -18,12 +19,14 @@ export function createRemoteViewsBridge(options: {
   browserSummary(): { detail?: string; live: boolean }
   terminals: RemoteTerminals
   terminalEnabled(): boolean
+  plugins?: MobilePluginViews
 }): MobileViewsBridge {
   const invalid = (): never => {
     throw new Error('请求参数无效')
   }
   return {
     access: options.access,
+    ...(options.plugins ? { plugins: options.plugins } : {}),
     list: () => {
       const views: RemoteViewSummary[] = []
       if (options.browserEnabled() && options.browser())

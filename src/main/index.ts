@@ -98,6 +98,7 @@ import { BrowserManager } from './browser-manager'
 import { RemoteBrowser } from './remote-browser'
 import { RemoteTerminals } from './remote-terminals'
 import { createRemoteViewsBridge } from './remote-views-bridge'
+import { MobilePluginViews } from './mobile-plugin-views'
 import type { RemoteViewAccess } from '../shared/remote-views'
 import { ComputerUseService } from './computer-use-service'
 import { assertE2EModeAllowed, canonicalExistingTempDirectory } from './e2e-temp-directory'
@@ -2328,7 +2329,18 @@ app.whenReady().then(async () => {
           }
         },
         terminals: remoteTerminals,
-        terminalEnabled: terminalPluginEnabled
+        terminalEnabled: terminalPluginEnabled,
+        plugins: new MobilePluginViews({
+          views: () => workbenchHost?.mobileViews() ?? [],
+          context: (viewId) => {
+            if (!workbenchHost) throw new Error('插件宿主尚未就绪')
+            return workbenchHost.panelContext(viewId)
+          },
+          call: (viewId, method, params, approve) => {
+            if (!workbenchHost) return Promise.reject(new Error('插件宿主尚未就绪'))
+            return workbenchHost.mobileCall(viewId, method, params, approve)
+          }
+        })
       })
     }
   })

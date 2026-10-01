@@ -377,6 +377,9 @@ $('unstage-all').addEventListener('click', () => {
     .map((f) => f.path)
   if (paths.length) act('git.unstage', paths)
 })
+// On the phone there is no ⌘ key to mention.
+if (api.surface === 'mobile') $('message').placeholder = '提交信息'
+
 $('message').addEventListener('input', render)
 $('message').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {

@@ -180,7 +180,7 @@ export function ChatPane({
         >
           <SquarePen size={18} />
         </button>
-        <button type="button" className="m-icon" aria-label="电脑工作台" onClick={onWorkbench}>
+        <button type="button" className="m-icon" aria-label="打开标签页" onClick={onWorkbench}>
           <MonitorSmartphone size={18} />
         </button>
         <ThemeButton choice={theme} onChoice={onTheme} />

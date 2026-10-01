@@ -133,7 +133,7 @@ export function SessionList({
             {notifications.state === 'on' ? <Bell size={18} /> : <BellOff size={18} />}
           </button>
         ) : null}
-        <button type="button" className="m-icon" aria-label="电脑工作台" onClick={onWorkbench}>
+        <button type="button" className="m-icon" aria-label="打开标签页" onClick={onWorkbench}>
           <MonitorSmartphone size={18} />
         </button>
         <ThemeButton choice={theme} onChoice={onTheme} />

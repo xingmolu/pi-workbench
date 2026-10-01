@@ -2,7 +2,10 @@ import type { PermissionMode, PromptImage, ThinkingLevel } from '../../../shared
 import type { CheckpointPlan, CheckpointRestoreOutcome } from '../../../shared/checkpoints'
 import type { MobileConversationSnapshot } from '../../../shared/mobile-gateway'
 import type { SkillSummary } from '../../../shared/skills'
+import type { PluginPanelContext } from '../../../shared/workbench-contracts'
 import type {
+  MobilePluginCallResult,
+  MobilePluginView,
   RemoteBrowserInput,
   RemoteTerminalInput,
   RemoteViewAccess,
@@ -149,6 +152,20 @@ export const mobileApi = {
   viewEvents: (id: string) => new EventSource(`/api/views/${encodeURIComponent(id)}/events`),
   viewInput: (id: string, input: RemoteBrowserInput | RemoteTerminalInput) =>
     post(`/api/views/${encodeURIComponent(id)}/input`, input),
+  plugins: () => api<{ access: RemoteViewAccess; views: MobilePluginView[] }>('/api/plugins'),
+  openPlugin: (viewId: string) =>
+    post<{ url: string; context: PluginPanelContext }>('/api/plugins/open', { viewId }),
+  pluginContext: (viewId: string) =>
+    api<{ context: PluginPanelContext }>(
+      `/api/plugins/context?viewId=${encodeURIComponent(viewId)}`
+    ),
+  pluginCall: (viewId: string, method: string, params: unknown, confirm?: string) =>
+    post<MobilePluginCallResult>('/api/plugins/call', {
+      viewId,
+      method,
+      params,
+      ...(confirm ? { confirm } : {})
+    }),
   abort: (workerId: string) => post(session(workerId, 'abort'), {}),
   clearQueue: (workerId: string) => post(session(workerId, 'queue/clear'), {}),
   respond: (

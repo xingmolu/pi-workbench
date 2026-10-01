@@ -48,6 +48,7 @@ import {
 } from './workbench-panel-security'
 import {
   createWorkbenchHostState,
+  type MobilePluginViewSource,
   type WorkbenchHostContext,
   type WorkbenchHostState,
   type WorkbenchPanelView,
@@ -58,6 +59,18 @@ import {
 export interface WorkbenchHost {
   /** A `pi.*` call from a plugin view, authorized against the view's owning plugin. */
   pluginCall(viewId: string, method: string, params: unknown): Promise<unknown>
+  /**
+   * A `pi.*` call from a plugin page on the paired phone. Only host methods are reachable and
+   * `approve` answers any confirmation instead of the desktop prompt.
+   */
+  mobileCall(
+    viewId: string,
+    method: string,
+    params: unknown,
+    approve: NonNullable<PluginRuntimeDependencies['approve']>
+  ): Promise<unknown>
+  /** Plugin pages that opted into the phone. */
+  mobileViews(): MobilePluginViewSource[]
   /** What enabled plugins contribute to agent sessions, once the registry has loaded. */
   agentContributions(): Promise<PluginAgentContributions>
   /** Runs a plugin agent tool after checking the input against its declared schema. */
@@ -386,7 +399,12 @@ class WorkbenchHostImplementation implements WorkbenchHost {
     private readonly cleanupSessions: () => void,
     private readonly cleanupPanelSenders: (host: WorkbenchHost) => void,
     private readonly plugins: {
-      call(viewId: string, method: string, params: unknown): Promise<unknown>
+      call(
+        viewId: string,
+        method: string,
+        params: unknown,
+        approve?: NonNullable<PluginRuntimeDependencies['approve']>
+      ): Promise<unknown>
       runTool(pluginId: string, name: string, input: unknown, signal?: AbortSignal): Promise<string>
       respond(id: string, allow: boolean): void
     }
@@ -394,6 +412,21 @@ class WorkbenchHostImplementation implements WorkbenchHost {
 
   pluginCall(viewId: string, method: string, params: unknown): Promise<unknown> {
     return this.plugins.call(viewId, method, params)
+  }
+
+  mobileCall(
+    viewId: string,
+    method: string,
+    params: unknown,
+    approve: NonNullable<PluginRuntimeDependencies['approve']>
+  ): Promise<unknown> {
+    if (!this.state.mobileViews().some((view) => view.id === viewId))
+      return Promise.reject(new PluginApiError('NOT_FOUND', '这个插件页面没有开放给手机'))
+    return this.plugins.call(viewId, method, params, approve)
+  }
+
+  mobileViews(): MobilePluginViewSource[] {
+    return this.state.mobileViews()
   }
 
   async agentContributions(): Promise<PluginAgentContributions> {
@@ -569,11 +602,11 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     () => cleanupWorkbenchPanelSessions(sessionOwnership),
     (owner) => panelSenderBinding?.unbindHost(owner),
     {
-      call: async (viewId, method, params) => {
+      call: async (viewId, method, params, approve) => {
         const plugin = state.pluginForView(viewId)
         if (!plugin) throw new PluginApiError('NOT_FOUND', '插件未启用')
         if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
-        return runtime.callFromView(plugin, method, params)
+        return runtime.callFromView(plugin, method, params, approve ? { approve } : undefined)
       },
       runTool: async (pluginId, name, input, signal) => {
         if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')

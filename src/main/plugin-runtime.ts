@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   PLUGIN_HOST_METHODS,
   PLUGIN_PERMISSIONS,
@@ -113,6 +114,10 @@ export class PluginRuntime {
   private readonly running = new Map<string, Running>()
   private readonly failures = new Map<string, PluginRuntimeStatus>()
   private readonly timeouts: typeof PLUGIN_TIMEOUTS
+  /** The phone's approver for a call made from its view, instead of the desktop prompt. */
+  private readonly remoteApproval = new AsyncLocalStorage<
+    NonNullable<PluginRuntimeDependencies['approve']>
+  >()
 
   constructor(private readonly dependencies: PluginRuntimeDependencies) {
     this.timeouts = { ...PLUGIN_TIMEOUTS, ...dependencies.timeouts }
@@ -378,11 +383,22 @@ export class PluginRuntime {
     if (this.running.get(pluginId) === running) running.handle.postMessage(reply)
   }
 
-  /** A call from one of the plugin's sandboxed views. Same gateway, same audit, no commands. */
-  async callFromView(plugin: GatewayPlugin, method: string, params: unknown): Promise<unknown> {
+  /**
+   * A call from one of the plugin's sandboxed views. Same gateway, same audit, no commands.
+   * A view on the phone passes its own `approve` so confirmations happen where the user is,
+   * and never reaches the plugin process's own channels.
+   */
+  async callFromView(
+    plugin: GatewayPlugin,
+    method: string,
+    params: unknown,
+    remote?: { approve: NonNullable<PluginRuntimeDependencies['approve']> }
+  ): Promise<unknown> {
     try {
       if (Object.hasOwn(PLUGIN_HOST_METHODS, method) && !isViewCallable(method as PluginHostMethod))
         throw new PluginApiError('UNSUPPORTED', '面板不能调用此方法')
+      if (remote && !Object.hasOwn(PLUGIN_HOST_METHODS, method))
+        throw new PluginApiError('UNSUPPORTED', '手机端暂不支持插件自定义调用')
       // Channels the host does not implement go to the plugin's own `onPanelInvoke`.
       const running = this.running.get(plugin.pluginId)
       const value =
@@ -395,7 +411,11 @@ export class PluginRuntime {
               this.timeouts.command,
               '插件面板调用超时'
             )
-          : await this.execute(plugin, null, method, params)
+          : remote
+            ? await this.remoteApproval.run(remote.approve, () =>
+                this.execute(plugin, null, method, params)
+              )
+            : await this.execute(plugin, null, method, params)
       if (auditsSuccess(method))
         this.dependencies.audit({ pluginId: plugin.pluginId, method, outcome: 'ok' })
       return value
@@ -428,7 +448,8 @@ export class PluginRuntime {
   ): Promise<void> {
     const mode = this.dependencies.context().permissionMode ?? 'ask'
     if (level !== 'always' && (mode === 'open' || (mode === 'auto' && !level))) return
-    const approved = await (this.dependencies.approve?.({
+    const approve = this.remoteApproval.getStore() ?? this.dependencies.approve
+    const approved = await (approve?.({
       pluginId: plugin.pluginId,
       pluginName: plugin.name,
       title,

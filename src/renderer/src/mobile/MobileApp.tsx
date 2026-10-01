@@ -288,7 +288,9 @@ export function MobileApp(): React.JSX.Element {
             <WorkbenchPane
               viewId={route.viewId}
               theme={theme.resolved}
-              onSelect={(viewId) => go({ view: 'workbench', viewId }, true)}
+              onSelect={(viewId) =>
+                go(viewId ? { view: 'workbench', viewId } : { view: 'workbench' }, true)
+              }
               onBack={() => {
                 if (history.length > 1) history.back()
                 else go({ view: 'list' })

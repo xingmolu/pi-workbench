@@ -22,6 +22,8 @@ export type ValidatedWorkbenchEntry = {
    * the host draws itself.
    */
   canonicalEntryPath?: string
+  /** The page also works on the paired phone (`surfaces` includes `mobile`). */
+  mobile?: boolean
 }
 
 export type ValidatedWorkbenchPlugin = {
@@ -171,7 +173,16 @@ const manifestViewSchema = z
      */
     host: z.enum(['browser', 'terminal']).optional(),
     order: z.number().int().min(0).max(10_000).optional(),
-    activation: workbenchActivationSchema.default('onProject')
+    activation: workbenchActivationSchema.default('onProject'),
+    /**
+     * Where the page can be shown. `mobile` opts a page into the paired phone, where it runs
+     * in a sandboxed frame with the same `window.piPlugin` API; host views ignore it.
+     */
+    surfaces: z
+      .array(z.enum(['desktop', 'mobile']))
+      .min(1)
+      .max(2)
+      .optional()
   })
   .strict()
   .refine((view) => (view.entry === undefined) !== (view.host === undefined), {
@@ -680,7 +691,8 @@ export async function discoverWorkbenchManifests({
           activation: view.activation,
           surface: { kind: 'sandboxed-web' }
         },
-        canonicalEntryPath
+        canonicalEntryPath,
+        ...(view.surfaces?.includes('mobile') ? { mobile: true } : {})
       })
     }
     if (invalidEntry) continue
