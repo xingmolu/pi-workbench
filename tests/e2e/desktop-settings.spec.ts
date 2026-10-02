@@ -440,3 +440,23 @@ test('desktop control settings exposes permission without requiring a TCC grant'
   await expect(page.getByRole('button', { name: '确认点击' })).toBeDisabled()
   await page.screenshot({ path: 'artifacts/e2e/desktop-control-settings.png' })
 })
+
+test('General settings shows the version and exports a redacted diagnostics report', async () => {
+  const report = join(root, 'report.md')
+  await app.close()
+  await launch({ PI_DESKTOP_E2E_DIAGNOSTICS_PATH: report })
+  // A warning with a secret in it lands in the main log, but not in the report.
+  await app.evaluate(() => console.warn('fixture warning sk-ant-api03-SECRETSECRETSECRET'))
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '常规', exact: true }).click()
+  await expect(page.getByText('版本与更新', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status', { name: '更新状态' })).toContainText('开发版本不检查更新')
+  await expect(page.getByRole('status', { name: '诊断状态' })).toContainText('没有进程意外退出')
+  await page.getByRole('button', { name: '导出…' }).click()
+  await expect(page.getByRole('status', { name: '诊断状态' })).toContainText('已保存到')
+  const text = await readFile(report, 'utf8')
+  expect(text).toContain('# Pi Desktop 诊断信息')
+  expect(text).toContain('fixture warning sk-…')
+  expect(text).not.toContain('SECRETSECRET')
+  expect(text).toMatch(/- 引擎程序: \[".*claude: /)
+})

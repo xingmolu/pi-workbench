@@ -689,6 +689,10 @@ export type PiDesktopAPI = {
   appUpdate: (
     command: import('./app-updates').AppUpdateCommand
   ) => Promise<import('./app-updates').AppUpdateStatus>
+  /** Local logs and crash records; export writes a redacted report the user chooses to share. */
+  diagnostics: <Command extends import('./diagnostics').DiagnosticsCommand>(
+    command: Command
+  ) => Promise<import('./diagnostics').DiagnosticsResult<Command>>
   onAppUpdate: (listener: (status: import('./app-updates').AppUpdateStatus) => void) => () => void
   onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void
   gitReview: (command: GitReviewCommand) => Promise<GitReviewResult>

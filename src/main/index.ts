@@ -45,6 +45,7 @@ import {
   powerSaveBlocker,
   screen,
   clipboard,
+  crashReporter,
   net,
   safeStorage,
   shell,
@@ -56,6 +57,8 @@ import {
 import { randomUUID } from 'node:crypto'
 import { MarkdownTableExporter } from './markdown-table-export'
 import { AppUpdates } from './app-updates'
+import { Diagnostics } from './diagnostics'
+import { DIAGNOSTICS_CHANNEL, type DiagnosticsCommand } from '../shared/diagnostics'
 import {
   APP_UPDATE_CHANNEL,
   APP_UPDATE_EVENT_CHANNEL,
@@ -69,10 +72,10 @@ import {
   attachmentCommandSchema,
   formatTextContext
 } from '../shared/text-attachments'
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { homedir, userInfo } from 'node:os'
+import { homedir, release, userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -1556,6 +1559,31 @@ const appUpdates = new AppUpdates({
   }
 })
 
+// Crash dumps stay on this machine; Settings › 常规 › 诊断 summarises what went wrong.
+crashReporter.start({ uploadToServer: false })
+let diagnosticsInstance: Diagnostics | null = null
+const diagnostics = (): Diagnostics =>
+  (diagnosticsInstance ??= new Diagnostics(join(app.getPath('userData'), 'logs')))
+
+function diagnosticFacts(): Record<string, unknown> {
+  return {
+    版本: app.getVersion(),
+    系统: `${process.platform} ${process.arch} ${release()}`,
+    Electron: process.versions.electron,
+    Chromium: process.versions.chrome,
+    Node: process.versions.node,
+    语言: app.getLocale(),
+    打包版本: app.isPackaged,
+    默认引擎: configuredDefaultRuntime() ?? currentRuntimeId(),
+    引擎程序: (['claude', 'codex'] as const).map((engine) => {
+      const status = engineBinaries.status(engine)
+      return `${engine}: ${status.state}${'source' in status && status.source ? ` (${status.source})` : ''} ${status.version}`
+    }),
+    更新: appUpdates.status().state,
+    崩溃转储: app.getPath('crashDumps')
+  }
+}
+
 const APP_UPDATE_COMMANDS = new Set<AppUpdateCommand['type']>([
   'status',
   'check',
@@ -1567,6 +1595,33 @@ const APP_UPDATE_COMMANDS = new Set<AppUpdateCommand['type']>([
 ])
 
 function registerIpc(): void {
+  ipcMain.handle(DIAGNOSTICS_CHANNEL, async (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    const type = (command as DiagnosticsCommand | undefined)?.type
+    if (type === 'summary')
+      return { crashes: diagnostics().crashes().length, directory: dirname(diagnostics().logFile) }
+    if (type === 'open-folder') {
+      const error = await shell.openPath(dirname(diagnostics().logFile))
+      if (error) throw new Error(error)
+      return { opened: true }
+    }
+    if (type !== 'export') throw new Error('无效的诊断操作')
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+    const target =
+      E2E_MODE && process.env.PI_DESKTOP_E2E_DIAGNOSTICS_PATH
+        ? process.env.PI_DESKTOP_E2E_DIAGNOSTICS_PATH
+        : (
+            await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender)!, {
+              title: '导出诊断信息',
+              defaultPath: join(app.getPath('downloads'), `pi-desktop-诊断-${stamp}.md`),
+              filters: [{ name: 'Markdown', extensions: ['md'] }],
+              properties: ['showOverwriteConfirmation']
+            })
+          ).filePath
+    if (!target) return { cancelled: true }
+    await writeFile(target, diagnostics().report(diagnosticFacts()), { mode: 0o600 })
+    return { saved: target }
+  })
   ipcMain.handle(APP_UPDATE_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     const value = command as AppUpdateCommand | undefined
@@ -2591,6 +2646,23 @@ app.whenReady().then(async () => {
         })
       })
     }
+  })
+  diagnostics().capture(console)
+  app.on('render-process-gone', (_event, _contents, details) => {
+    if (details.reason !== 'clean-exit' && !quitInProgress)
+      diagnostics().crash({ kind: 'renderer', reason: details.reason, exitCode: details.exitCode })
+  })
+  app.on('child-process-gone', (_event, details) => {
+    // Engine hosts the app restarts on purpose end as `killed`.
+    if (details.reason === 'clean-exit' || details.reason === 'killed' || quitInProgress) return
+    diagnostics().crash({
+      kind: details.type.toLowerCase(),
+      reason: details.reason,
+      exitCode: details.exitCode,
+      ...(details.serviceName || details.name
+        ? { name: details.serviceName ?? details.name }
+        : {})
+    })
   })
   registerIpc()
   startAgentHost()
