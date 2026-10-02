@@ -29,4 +29,4 @@ export type AppUpdateCommand =
 
 export const APP_UPDATE_CHANNEL = 'pi:app-update'
 export const APP_UPDATE_EVENT_CHANNEL = 'pi:app-update:event'
-export const RELEASES_REPOSITORY = { owner: 'xingmolu', repo: 'pi-desktop' } as const
+export const RELEASES_REPOSITORY = { owner: 'xingmolu', repo: 'pi-workbench' } as const

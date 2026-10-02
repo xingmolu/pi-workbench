@@ -59,7 +59,11 @@ it('downloads and installs a newer nightly in place on Windows', async () => {
     install: 'auto'
   })
   expect(updater).toMatchObject({ allowPrerelease: true, autoDownload: true })
-  expect(updater.feed).toMatchObject({ provider: 'github', owner: 'xingmolu', repo: 'pi-desktop' })
+  expect(updater.feed).toMatchObject({
+    provider: 'github',
+    owner: 'xingmolu',
+    repo: 'pi-workbench'
+  })
   expect(await updates.handle({ type: 'download' })).toMatchObject({
     state: 'ready',
     next: '0.1.0-nightly.9'
@@ -82,7 +86,7 @@ it('sends macOS users to the release page instead of installing an unsigned buil
   })
   expect(updater.autoDownload).toBe(false)
   await updates.handle({ type: 'download' })
-  expect(opened).toEqual(['https://github.com/xingmolu/pi-desktop/releases/tag/v0.1.0-nightly.9'])
+  expect(opened).toEqual(['https://github.com/xingmolu/pi-workbench/releases/tag/v0.1.0-nightly.9'])
 })
 
 it('asks for a token when the private repository hides its releases, then uses it', async () => {

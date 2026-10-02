@@ -50,5 +50,5 @@ publish:
   # Nightly builds from main are GitHub prereleases; the app reads them to offer updates.
   provider: github
   owner: xingmolu
-  repo: pi-desktop
+  repo: pi-workbench
   releaseType: prerelease
