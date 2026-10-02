@@ -10,9 +10,10 @@ import type { AgentSnapshot, HostEvent } from '../shared/contracts'
 /** These tests run the real Codex CLI; point PI_DESKTOP_CODEX_EXECUTABLE at one to enable. */
 const executable = process.env.PI_DESKTOP_CODEX_EXECUTABLE
 const cleanup: (() => Promise<void>)[] = []
+// Windows keeps Codex's files locked for a while after it exits, so removing them can take time.
 afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) await step()
-})
+}, 60_000)
 
 const jwt = (claims: Record<string, unknown>): string =>
   ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.')
@@ -32,8 +33,8 @@ async function setup() {
   cleanup.push(async () => {
     await fixture.close()
     // Codex may still be syncing plugins into its home when the test ends.
-    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
-    await rm(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    await rm(root, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
+    await rm(cwd, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 })
   })
   const storage = {
     root,
