@@ -135,8 +135,15 @@ export function piToolCategory(
       return { category: 'mcp' }
     case 'session_task':
       return { category: 'task' }
+    case 'read':
+    case 'grep':
+    case 'find':
+    case 'ls':
+      return { category: 'read' }
   }
   const plugin = pluginTool(toolName)
   if (plugin) return { category: 'plugin', readOnly: plugin.readOnly }
-  return { category: 'read' }
+  // A tool the desktop does not know, such as one a user extension registers, may change
+  // anything: like a plugin tool that is not read-only, it is confirmed at the ask level.
+  return { category: 'plugin', readOnly: false }
 }

@@ -121,4 +121,36 @@ describe('pi tool categories', () => {
       )
     ).toEqual({ category: 'plugin', readOnly: true })
   })
+
+  it("treats only pi's own read tools as reads; any other tool needs confirmation when asking", async () => {
+    for (const name of ['read', 'grep', 'find', 'ls'])
+      expect(piToolCategory(name, {}).category).toBe('read')
+    // A tool from a user extension is unknown to the desktop and may change anything.
+    const unknown = piToolCategory('deploy_site', {})
+    expect(unknown).toEqual({ category: 'plugin', readOnly: false })
+    const confirmations: string[] = []
+    const gate = (mode: 'ask' | 'auto') =>
+      new ToolGate({
+        mode: () => mode,
+        rulesAllow: () => false,
+        confirm: async (call) => {
+          confirmations.push(`${mode}:${call.tool}`)
+          return false
+        },
+        acquire: async () => undefined,
+        release: () => undefined,
+        checkpoint: { capture: () => undefined, settle: () => undefined }
+      })
+    const call = {
+      sessionId: 's',
+      toolCallId: 't',
+      tool: 'deploy_site',
+      input: {},
+      cwd: '/p',
+      ...unknown
+    }
+    expect((await gate('ask').before(call)).decision).toBe('deny')
+    expect((await gate('auto').before(call)).decision).toBe('allow')
+    expect(confirmations).toEqual(['ask:deploy_site'])
+  })
 })
