@@ -1693,12 +1693,30 @@ class PiDesktopHost {
     )
   }
 
+  /**
+   * Models whose provider has usable auth right now. Registering a provider (an extension does
+   * so while a session binds) starts a background availability pass in the runtime; a
+   * `getAvailable()` running at the same time is superseded by it and answers with the list
+   * from before the registration, and nothing reports when the newer pass lands. Checking each
+   * provider's auth directly reads the current providers instead.
+   */
+  private async currentAvailable(runtime: ModelRuntime): Promise<Model<string>[]> {
+    await runtime.getAvailable()
+    const checks = await Promise.all(
+      runtime
+        .getProviders()
+        .map(async (provider) => [provider.id, await runtime.checkAuth(provider.id)] as const)
+    )
+    const authed = new Set(checks.filter(([, auth]) => auth).map(([id]) => id))
+    return runtime.getModels().filter((model) => authed.has(model.provider))
+  }
+
   private async refreshAuthProjection(): Promise<void> {
     if (!this.modelRuntime) return
     const providers = this.modelRuntime.getProviders()
     const credentials = await this.modelRuntime.listCredentials()
     const stored = new Map(credentials.map((item) => [item.providerId, item]))
-    const available = await this.modelRuntime.getAvailable()
+    const available = await this.currentAvailable(this.modelRuntime)
     const availableProviders = new Set(available.map((model) => model.provider))
     let modelsJsonIds = new Set<string>()
     try {

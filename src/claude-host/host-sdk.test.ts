@@ -22,7 +22,8 @@ async function setup(
 ) {
   // Projects arrive canonical (long names on Windows, where the temp dir may be 8.3 short).
   const root = await realpath(await mkdtemp(join(tmpdir(), 'claude-runtime-sdk-')))
-  cleanup.push(() => rm(root, { recursive: true, force: true }))
+  // On Windows the exiting Claude process can hold the project directory for a moment.
+  cleanup.push(() => rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }))
   const storage: ClaudeStorage = {
     root,
     config: join(root, 'config'),
