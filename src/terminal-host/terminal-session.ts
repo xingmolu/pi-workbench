@@ -6,6 +6,7 @@ import {
   type TerminalIdentity,
   type TerminalMetadata
 } from '../shared/terminal'
+import { shellName } from '../shared/terminal-shell'
 
 export type PtyPort = {
   onData(listener: (data: string) => void): { dispose(): void }
@@ -125,7 +126,7 @@ export class TerminalSession {
     const check = (): void => {
       let name: string
       try {
-        name = (this.pty?.process ?? '').split('/').pop()!.replace(/^-/, '')
+        name = shellName(this.pty?.process ?? '')
       } catch {
         return
       }

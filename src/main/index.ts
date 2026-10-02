@@ -109,7 +109,11 @@ import { GitReviewProcess } from './git-review-process'
 import { createUserGitPushRunner, PluginFileService, PluginGitService } from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
-import { resolveShell, terminalEnvironment } from '../shared/terminal-shell'
+import {
+  resolveShell,
+  terminalEnvironment,
+  windowsTerminalFixtureEnv
+} from '../shared/terminal-shell'
 import { BrowserManager } from './browser-manager'
 import { RemoteBrowser } from './remote-browser'
 import { RemoteTerminals } from './remote-terminals'
@@ -292,19 +296,21 @@ const terminalManager = new TerminalManager({
     // The isolated fixture keeps a fixed, minimal environment; real use inherits the user's.
     const shell = resolveShell(E2E_MODE ? [] : [account.shell, process.env.SHELL], executable)
     const terminalEnv = E2E_MODE
-      ? {
-          HOME: terminalHome,
-          USER: 'terminal-fixture',
-          LOGNAME: 'terminal-fixture',
-          SHELL: shell,
-          PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
-          TMPDIR: app.getPath('temp'),
-          LANG: 'en_US.UTF-8',
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-          TERM_PROGRAM: 'PiDesktop',
-          ZDOTDIR: terminalHome
-        }
+      ? process.platform === 'win32'
+        ? windowsTerminalFixtureEnv(shell, terminalHome, app.getPath('temp'))
+        : {
+            HOME: terminalHome,
+            USER: 'terminal-fixture',
+            LOGNAME: 'terminal-fixture',
+            SHELL: shell,
+            PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+            TMPDIR: app.getPath('temp'),
+            LANG: 'en_US.UTF-8',
+            TERM: 'xterm-256color',
+            COLORTERM: 'truecolor',
+            TERM_PROGRAM: 'PiDesktop',
+            ZDOTDIR: terminalHome
+          }
       : terminalEnvironment(process.env, {
           shell,
           home: terminalHome,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isAbsoluteShellPath } from './terminal-shell'
 
 export const TERMINAL_CHANNEL = 'pi:terminal'
 export const TERMINAL_EVENT_CHANNEL = 'pi:terminal:event'
@@ -21,7 +22,7 @@ const projectPath = z
   .string()
   .min(1)
   .max(4096)
-  .refine((v) => v.startsWith('/') && !v.includes('\0'))
+  .refine((v) => isAbsoluteShellPath(v) && !v.includes('\0'))
 const identity = {
   projectPath,
   terminalId: z.uuid(),

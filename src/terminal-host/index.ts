@@ -2,7 +2,7 @@ import { spawn, type IPty } from 'node-pty'
 import { isAbsolute } from 'node:path'
 import { terminalHostCommandSchema, TERMINAL_LIMITS, type TerminalEvent } from '../shared/terminal'
 import { TerminalSession } from './terminal-session'
-import { shellArgs, shellName, terminalEnvironment } from '../shared/terminal-shell'
+import { resolveShell, shellArgs, shellName, terminalEnvironment } from '../shared/terminal-shell'
 
 // This entry is only launched by Main. There is no agent/plugin/renderer endpoint.
 const parent = process.parentPort
@@ -11,7 +11,10 @@ const sessions = new Map<string, TerminalSession>()
 let shuttingDown = false
 const fixture = process.argv.includes('--isolated-terminal-fixture')
 // Main resolved the shell and built the environment; the host only drops its own runtime.
-const shell = process.env.SHELL && isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
+const shell =
+  process.env.SHELL && isAbsolute(process.env.SHELL)
+    ? process.env.SHELL
+    : resolveShell([], () => true)
 const env = terminalEnvironment(process.env, { shell })
 const args = shellArgs(shell, fixture)
 
@@ -60,7 +63,11 @@ parent.on('message', ({ data }: { data: unknown }) => {
           encoding: 'utf8',
           handleFlowControl: false
         })
-        return Object.assign(pty, { pendingWriteBytes: () => pendingWriteBytes(pty) })
+        return Object.assign(pty, {
+          pendingWriteBytes: () => pendingWriteBytes(pty),
+          // Windows has no signals; node-pty rejects one there and ends the console instead.
+          ...(process.platform === 'win32' ? { kill: () => pty.kill() } : {})
+        })
       }
     })
     // Registry precedes native start; immediate output/exit belongs to this identity.
