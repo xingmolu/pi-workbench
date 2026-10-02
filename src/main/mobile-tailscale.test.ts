@@ -25,6 +25,7 @@ describe('tailscale binary resolution', () => {
     const found = await resolveTailscaleBinary({
       exists: (file) => file === '/opt/homebrew/bin/tailscale',
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(found).toBe('/opt/homebrew/bin/tailscale')
@@ -34,6 +35,7 @@ describe('tailscale binary resolution', () => {
     const found = await resolveTailscaleBinary({
       exists: (file) => file === '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(found).toBe('/Applications/Tailscale.app/Contents/MacOS/Tailscale')
@@ -43,6 +45,7 @@ describe('tailscale binary resolution', () => {
     const found = await resolveTailscaleBinary({
       exists: (file) => file === '/tmp/custom/tailscale',
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => '/tmp/custom/tailscale'
     })
     expect(found).toBe('/tmp/custom/tailscale')
@@ -52,9 +55,30 @@ describe('tailscale binary resolution', () => {
     const found = await resolveTailscaleBinary({
       exists: () => false,
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(found).toBeNull()
+  })
+
+  it('finds tailscale.exe in Program Files or on PATH on Windows', async () => {
+    const installed = 'C:\\Program Files\\Tailscale\\tailscale.exe'
+    expect(
+      await resolveTailscaleBinary({
+        exists: (file) => file === installed,
+        envPath: 'C:\\Windows',
+        platform: 'win32',
+        which: async () => null
+      })
+    ).toBe(installed)
+    expect(
+      await resolveTailscaleBinary({
+        exists: (file) => file === 'D:\\tools\\tailscale.exe',
+        envPath: 'C:\\Windows;D:\\tools',
+        platform: 'win32',
+        which: async () => null
+      })
+    ).toBe('D:\\tools\\tailscale.exe')
   })
 })
 

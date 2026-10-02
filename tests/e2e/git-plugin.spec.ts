@@ -9,14 +9,17 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import { systemGit } from '../../src/main/system-git'
+import { displayEnv } from './display-env'
 
 const artifacts = resolve('artifacts/e2e/git-plugin')
+const GIT = systemGit()
 let app: ElectronApplication, page: Page, root: string, project: string, remote: string
 
 const git = (...args: string[]): string =>
-  execFileSync('/usr/bin/git', args, {
+  execFileSync(GIT.path, args, {
     cwd: project,
-    env: { PATH: '/usr/bin:/bin', HOME: join(root, 'home') }
+    env: { ...GIT.env, HOME: join(root, 'home') }
   })
     .toString()
     .trim()
@@ -32,7 +35,7 @@ test.beforeEach(async () => {
     mkdir(join(root, 'user-data')),
     mkdir(artifacts, { recursive: true })
   ])
-  execFileSync('/usr/bin/git', ['init', '-q', '--bare', '-b', 'main', remote])
+  execFileSync(GIT.path, ['init', '-q', '--bare', '-b', 'main', remote])
   git('init', '-q', '-b', 'main')
   git('config', 'user.name', 'E2E')
   git('config', 'user.email', 'e2e@example.com')
@@ -54,6 +57,7 @@ test.beforeEach(async () => {
       TMPDIR: root,
       TMP: root,
       TEMP: root,
+      ...displayEnv(),
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data')
@@ -144,7 +148,7 @@ test('the bundled Git plugin takes changes from the working tree to the remote',
   await page.screenshot({ path: join(artifacts, 'push-approval.png'), animations: 'disabled' })
   await dialog.getByRole('button', { name: '拒绝' }).click()
   expect(
-    execFileSync('/usr/bin/git', ['--git-dir', remote, 'log', '-1', '--format=%s'])
+    execFileSync(GIT.path, ['--git-dir', remote, 'log', '-1', '--format=%s'])
       .toString()
       .trim()
   ).toBe('init')
@@ -153,7 +157,7 @@ test('the bundled Git plugin takes changes from the working tree to the remote',
   await page.getByRole('alertdialog').getByRole('button', { name: '允许一次' }).click()
   await expect
     .poll(() =>
-      execFileSync('/usr/bin/git', ['--git-dir', remote, 'log', '-1', '--format=%s'])
+      execFileSync(GIT.path, ['--git-dir', remote, 'log', '-1', '--format=%s'])
         .toString()
         .trim()
     )

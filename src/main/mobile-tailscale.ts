@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import type { TailscaleGatewayStatus } from '../shared/mobile-gateway'
 
@@ -16,6 +16,13 @@ export const TAILSCALE_BINARY_CANDIDATES = [
   '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
   '/usr/bin/tailscale'
 ] as const
+
+/** Where the Windows installer puts the CLI; Windows only runs it by its full file name. */
+function windowsCandidates(env: NodeJS.ProcessEnv): string[] {
+  return [env.ProgramW6432, env.ProgramFiles, 'C:\\Program Files']
+    .filter((root): root is string => Boolean(root) && win32.isAbsolute(root!))
+    .map((root) => win32.join(root, 'Tailscale', 'tailscale.exe'))
+}
 
 const EXTRA_PATH_DIRS = [
   '/opt/homebrew/bin',
@@ -39,6 +46,7 @@ export type TailscaleIo = {
   which?: () => Promise<string | null>
   resolveBinary?: () => Promise<string | null>
   envPath?: string
+  platform?: NodeJS.Platform
 }
 
 function asIo(input?: ExecFileFn | TailscaleIo): TailscaleIo {
@@ -136,13 +144,16 @@ export async function resolveTailscaleBinary(
   const options = asIo(io)
   if (options.resolveBinary) return options.resolveBinary()
   const exists = options.exists ?? defaultExists
-  for (const candidate of TAILSCALE_BINARY_CANDIDATES) {
+  const windows = (options.platform ?? process.platform) === 'win32'
+  for (const candidate of windows ? windowsCandidates(process.env) : TAILSCALE_BINARY_CANDIDATES) {
     if (await pathExists(candidate, exists)) return candidate
   }
-  const pathEnv = augmentPath(options.envPath ?? process.env.PATH)
-  for (const dir of pathEnv.split(delimiter)) {
+  const pathEnv = windows
+    ? (options.envPath ?? process.env.PATH ?? '')
+    : augmentPath(options.envPath ?? process.env.PATH)
+  for (const dir of pathEnv.split(windows ? ';' : delimiter)) {
     if (!dir) continue
-    const candidate = join(dir, 'tailscale')
+    const candidate = windows ? win32.join(dir, 'tailscale.exe') : join(dir, 'tailscale')
     if (await pathExists(candidate, exists)) return candidate
   }
   if (options.which) {
@@ -152,11 +163,11 @@ export async function resolveTailscaleBinary(
   }
   try {
     const exec = options.exec ?? execFileAsync
-    const { stdout } = await exec('which', ['tailscale'], {
+    const { stdout } = await exec(windows ? 'where' : 'which', ['tailscale'], {
       timeout: 1500,
       env: { ...process.env, PATH: pathEnv }
     })
-    const found = stdoutText(stdout).trim().split('\n')[0]
+    const found = stdoutText(stdout).trim().split(/\r?\n/)[0]
     if (found && (await pathExists(found, exists))) return found
   } catch {
     /* which is a fallback only */

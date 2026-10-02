@@ -33,7 +33,9 @@ jobs:
         run: npm test
 
       - name: Fetch the pinned Codex CLI
-        run: echo "PI_DESKTOP_CODEX_EXECUTABLE=$(node scripts/fetch-engine.mjs codex .engines)" >> "$GITHUB_ENV"
+        run: |
+          executable=$(node scripts/fetch-engine.mjs codex .engines)
+          echo "PI_DESKTOP_CODEX_EXECUTABLE=$executable" >> "$GITHUB_ENV"
 
       - name: Codex host against the real CLI
         run: npx vitest run src/codex-host
@@ -55,3 +57,14 @@ jobs:
           tests/e2e/session-history.spec.ts
           tests/e2e/ui-experience.spec.ts
           --reporter=line
+
+      # The page snapshot Playwright saved for each failed spec, since artifacts are awkward to read.
+      - name: Page state of failed specs
+        if: failure()
+        run: |
+          for file in test-results/*/error-context.md; do
+            [ -f "$file" ] || continue
+            echo "=== $file"
+            head -c 6000 "$file"
+            echo
+          done

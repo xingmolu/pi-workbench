@@ -35,7 +35,8 @@ if (!existsSync(executable)) {
   await mkdir(directory, { recursive: true })
   const file = join(directory, 'archive.tgz')
   await writeFile(file, archive)
-  execFileSync('tar', ['-xzf', file, '-C', directory])
+  // A relative name: GNU tar reads `C:\…` as a remote host.
+  execFileSync('tar', ['-xzf', 'archive.tgz'], { cwd: directory })
   await rm(file)
 }
 process.stdout.write(executable)

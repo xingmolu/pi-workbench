@@ -7,7 +7,9 @@ import {
 } from '@playwright/test'
 import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { displayEnv } from './display-env'
 import { build } from 'esbuild'
 
 let app: ElectronApplication, page: Page, root: string
@@ -27,6 +29,7 @@ async function launch(extraEnv: Record<string, string> = {}) {
       ...(xauthority ? { XAUTHORITY: xauthority } : {}),
       ...(process.env.WAYLAND_DISPLAY ? { WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY } : {}),
       ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
+      ...displayEnv(),
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'user-data'),
@@ -309,6 +312,37 @@ test('actual conversation fonts, wrap override, copy, work attention and keyboar
   await expect(harness.locator('.context-meter')).toBeVisible()
 })
 
+/**
+ * Windows only runs the CLI as an .exe, so the fake is a small C# program built with the
+ * compiler that ships with Windows PowerShell; it answers like the shell script used elsewhere.
+ */
+async function fakeWindowsTailscale(binDir: string, serveState: string): Promise<void> {
+  const state = JSON.stringify(serveState)
+  const json = (value: unknown): string => JSON.stringify(JSON.stringify(value))
+  const source = join(binDir, 'tailscale.cs')
+  await writeFile(
+    source,
+    `using System; using System.IO;
+class Tailscale {
+  static int Main(string[] a) {
+    string state = ${state};
+    bool on = File.Exists(state) && File.ReadAllText(state) == "on";
+    if (a.Length > 0 && a[0] == "status") Console.Write(${json({ BackendState: 'Running', Self: { DNSName: 'my-mac.tail123.ts.net.', Online: true } })});
+    else if (a.Length > 1 && a[0] == "serve" && a[1] == "status") Console.Write(on ? ${json({ URL: 'https://my-mac.tail123.ts.net' })} : "{}");
+    else if (a.Length > 1 && a[0] == "serve" && a[1] == "--bg") File.WriteAllText(state, "on");
+    else if (a.Length > 1 && a[0] == "serve" && a[1] == "off") File.WriteAllText(state, "off");
+    return 0;
+  }
+}
+`
+  )
+  execFileSync('powershell.exe', [
+    '-NoProfile',
+    '-Command',
+    `Add-Type -TypeDefinition (Get-Content -Raw -LiteralPath '${source}') -OutputAssembly '${join(binDir, 'tailscale.exe')}' -OutputType ConsoleApplication`
+  ])
+}
+
 test('mobile Tailscale settings resolve a PATH CLI, enable Serve, and copy the URL', async () => {
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '手机', exact: true }).click()
@@ -319,9 +353,11 @@ test('mobile Tailscale settings resolve a PATH CLI, enable Serve, and copy the U
   const binDir = join(root, 'bin')
   await mkdir(binDir, { recursive: true })
   const serveState = join(root, 'tailscale-serve-state')
-  await writeFile(
-    join(binDir, 'tailscale'),
-    `#!/bin/sh
+  if (process.platform === 'win32') await fakeWindowsTailscale(binDir, serveState)
+  else {
+    await writeFile(
+      join(binDir, 'tailscale'),
+      `#!/bin/sh
 state=${JSON.stringify(serveState)}
 on() { [ -f "$state" ] && [ "$(cat "$state")" = "on" ]; }
 if [ "$1" = "status" ]; then
@@ -344,11 +380,15 @@ if [ "$1" = "serve" ] && [ "$2" = "off" ]; then
 fi
 exit 0
 `
-  )
-  await chmod(join(binDir, 'tailscale'), 0o755)
+    )
+    await chmod(join(binDir, 'tailscale'), 0o755)
+  }
   await app.close()
   await launch({
-    PATH: `${binDir}:/usr/bin:/bin`,
+    PATH: [
+      binDir,
+      ...(process.platform === 'win32' ? [process.env.PATH ?? ''] : ['/usr/bin', '/bin'])
+    ].join(delimiter),
     TAILSCALE_SERVE_STATE: serveState
   })
   await page.getByRole('button', { name: '设置', exact: true }).click()
