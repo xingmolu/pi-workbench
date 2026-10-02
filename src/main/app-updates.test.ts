@@ -64,6 +64,8 @@ it('downloads and installs a newer nightly in place on Windows', async () => {
     state: 'ready',
     next: '0.1.0-nightly.9'
   })
+  // A later check leaves the downloaded update alone.
+  expect(await updates.handle({ type: 'check' })).toMatchObject({ state: 'ready' })
   await updates.handle({ type: 'install' })
   expect(updater.installed).toBe(true)
 })

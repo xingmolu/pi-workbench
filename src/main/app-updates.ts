@@ -128,7 +128,8 @@ export class AppUpdates {
 
   private async check(): Promise<void> {
     if (!this.options.packaged) return
-    if (this.state.state === 'checking' || this.state.state === 'downloading') return
+    // A downloaded update waits for the user; checking again would only hide its button.
+    if (['checking', 'downloading', 'ready'].includes(this.state.state)) return
     this.set({ state: 'checking' })
     try {
       const result = await this.updater().checkForUpdates()

@@ -433,9 +433,15 @@ jobs:
       - name: Keep the ten newest nightlies
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-prepare.outputs.version }}
         run: |
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | contains("-nightly."))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          # Runs cancelled by a newer push leave drafts behind; those go, and of the published
+          # nightlies the ten newest stay.
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt,isDraft \
+            --jq '[.[] | select(.tagName | contains("-nightly."))] | sort_by(.createdAt) | reverse
+                  | ([.[] | select(.isDraft)] + ([.[] | select(.isDraft | not)] | .[10:])) | .[].tagName' |
             while read -r tag; do
-              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              if [ "$tag" != "v$VERSION" ]; then
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              fi
             done
