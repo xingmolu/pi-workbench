@@ -31,7 +31,14 @@ async function selectEngine(label: string) {
   await page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).click()
   await expect.poll(async () => (await state()).runtime?.label).toBe(label)
 }
-async function launch() {
+async function launch(attempt = 1): Promise<void> {
+  // Electron occasionally segfaults while starting under xvfb right after the previous instance
+  // closed; that happens before any app code runs, so one fresh launch is tried.
+  if (attempt === 1)
+    return launch(2).catch((error: Error) => {
+      if (!/Process failed to launch/.test(error.message)) throw error
+      return launch(3)
+    })
   app = await electron.launch({
     args: [resolve('.')],
     env: {
@@ -79,7 +86,8 @@ test.beforeEach(async () => {
     cwd: project,
     delayMs: 120,
     childDelayMs: 400,
-    streamDelayMs: 3
+    // Slow enough that the long reply is still streaming while the test types and presses Stop.
+    streamDelayMs: 25
   })
   await launch()
   await selectEngine('Claude Code')
