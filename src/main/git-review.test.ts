@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitReview } from './git-review'
@@ -8,6 +10,8 @@ import type { GitProcessOptions } from './git-review-process'
 import { systemGit } from './system-git'
 
 const GIT = systemGit()
+// Windows file names cannot hold newlines, tabs, colons or backslashes, or end in a space.
+const WINDOWS = process.platform === 'win32'
 
 const temporary: string[] = []
 afterEach(async () => {
@@ -16,6 +20,17 @@ afterEach(async () => {
     temporary.splice(0).map((path) => fs.rm(path, { recursive: true, force: true }))
   )
 })
+/** A stand-in `git status` printing `records`, read from a file: Windows caps a command line at 32K characters. */
+function fakeStatus(records: string, options: SpawnOptions): ChildProcess {
+  const file = join(tmpdir(), `pi-git-status-${randomUUID()}`)
+  writeFileSync(file, records)
+  temporary.push(file)
+  return spawn(
+    process.execPath,
+    ['-e', 'process.stdout.write(require("fs").readFileSync(process.argv[1]))', file],
+    options
+  )
+}
 async function fixture(execute?: GitProcessOptions['spawn']) {
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'pi-git-review-')))
   temporary.push(root)
@@ -68,7 +83,7 @@ describe('project-bound Git Review', () => {
       let previews = 0
       let refreshed: ReturnType<typeof f.list> | undefined
       vi.spyOn(fs, 'lstat').mockImplementation(async (path) => {
-        if (String(path).includes('/missing')) {
+        if (/[\\/]missing/.test(String(path))) {
           if (++previews === 1) {
             if (change === 'project') f.service.setProject(null)
             else refreshed = f.list('unstaged')
@@ -88,19 +103,13 @@ describe('project-bound Git Review', () => {
   it('rejects an oversized inventory before issuing preview stats', async () => {
     const records = Array.from({ length: 5001 }, (_, i) => `? missing${i}\0`).join('')
     const f = await fixture((executable, args, options) =>
-      args.includes('status')
-        ? spawn(
-            process.execPath,
-            ['-e', `process.stdout.write(${JSON.stringify(records)})`],
-            options
-          )
-        : spawn(executable, args, options)
+      args.includes('status') ? fakeStatus(records, options) : spawn(executable, args, options)
     )
     const lstat = fs.lstat.bind(fs)
     const info = await lstat(f.project)
     let previews = 0
     vi.spyOn(fs, 'lstat').mockImplementation(async (path) => {
-      if (String(path).includes('/missing')) {
+      if (/[\\/]missing/.test(String(path))) {
         previews++
         return info
       }
@@ -112,13 +121,7 @@ describe('project-bound Git Review', () => {
   it('accepts exactly 5,000 inventory entries without silently truncating', async () => {
     const records = Array.from({ length: 5000 }, (_, i) => `? nested${i}/\0`).join('')
     const f = await fixture((executable, args, options) =>
-      args.includes('status')
-        ? spawn(
-            process.execPath,
-            ['-e', `process.stdout.write(${JSON.stringify(records)})`],
-            options
-          )
-        : spawn(executable, args, options)
+      args.includes('status') ? fakeStatus(records, options) : spawn(executable, args, options)
     )
     const review = await f.list('unstaged')
     expect(review.type).toBe('list')
@@ -333,7 +336,9 @@ describe('project-bound Git Review', () => {
   })
   it('does not mistake markers inside unusual filenames for binary or type-only patches', async () => {
     const f = await fixture()
-    const name = 'line\nBinary files x differ\nold mode 100644'
+    const name = WINDOWS
+      ? 'Binary files x differ old mode 100644'
+      : 'line\nBinary files x differ\nold mode 100644'
     await f.write(name, 'base\n')
     f.git('add', '.')
     f.git('commit', '-qm', 'base')
@@ -368,13 +373,15 @@ describe('project-bound Git Review', () => {
     expect(review.type).toBe('list')
     if (review.type !== 'list') return
     const sentinel = join(f.root, 'transport-executed')
+    // Git runs the upload-pack command through sh, which reads backslashes as escapes.
+    const posix = (path: string): string => path.replaceAll('\\', '/')
     const script = join(f.root, 'transport.sh')
-    await fs.writeFile(script, `#!/bin/sh\ntouch '${sentinel}'\nexit 1\n`, { mode: 0o700 })
+    await fs.writeFile(script, `#!/bin/sh\ntouch '${posix(sentinel)}'\nexit 1\n`, { mode: 0o700 })
     f.git('config', 'core.repositoryformatversion', '1')
     f.git('config', 'extensions.partialClone', 'origin')
     f.git('config', 'remote.origin.promisor', 'true')
     f.git('config', 'remote.origin.url', f.root)
-    f.git('config', 'remote.origin.uploadpack', script)
+    f.git('config', 'remote.origin.uploadpack', posix(script))
     await fs.unlink(join(f.project, '.git/objects', blob.slice(0, 2), blob.slice(2)))
     // Positive control: an ordinary Git read really attempts the local transport.
     expect(() => f.git('cat-file', '-p', blob)).toThrow()
@@ -513,7 +520,7 @@ describe('project-bound Git Review', () => {
     await f.write('file', 'base\n')
     f.git('add', '.')
     f.git('commit', '-qm', 'base')
-    const linked = join(f.root, 'linked \n')
+    const linked = join(f.root, WINDOWS ? 'linked tree' : 'linked \n')
     f.git('worktree', 'add', '--detach', '-q', linked)
     await fs.writeFile(join(linked, 'file'), 'linked change\n')
     f.service.setProject(linked)
@@ -643,34 +650,36 @@ describe('project-bound Git Review', () => {
   })
   it('scopes nested projects, preserves odd names, and serves deleted historical patches', async () => {
     const f = await fixture()
-    await fs.mkdir(join(f.project, 'nested '))
+    const nested = WINDOWS ? ' nested dir' : 'nested '
+    const odd = WINDOWS
+      ? ['-dash', 'semi;colon', ' 中文']
+      : ['-dash', ':colon', 'back\\slash', 'tab\tname', 'line\nname', ' 中文 ']
+    await fs.mkdir(join(f.project, nested))
     await f.write('outside.txt', 'private sibling\n')
-    await f.write('nested /old.txt', 'old\n')
+    await f.write(`${nested}/old.txt`, 'old\n')
     f.git('add', '.')
     f.git('commit', '-qm', 'base')
-    await fs.rename(join(f.project, 'nested /old.txt'), join(f.project, 'moved.txt'))
-    for (const name of ['-dash', ':colon', 'back\\slash', 'tab\tname', 'line\nname', ' 中文 '])
-      await f.write(`nested /${name}`, 'new\n')
-    f.service.setProject(join(f.project, 'nested '))
+    await fs.rename(join(f.project, `${nested}/old.txt`), join(f.project, 'moved.txt'))
+    for (const name of odd) await f.write(`${nested}/${name}`, 'new\n')
+    f.service.setProject(join(f.project, nested))
     const review = await f.service.dispatch({
       type: 'list',
-      projectPath: join(f.project, 'nested '),
+      projectPath: join(f.project, nested),
       view: 'unstaged'
     })
     expect(review.type).toBe('list')
     if (review.type !== 'list') return
-    expect(review.entries.map((e) => e.path).sort()).toEqual(
-      ['old.txt', '-dash', ':colon', 'back\\slash', 'tab\tname', 'line\nname', ' 中文 '].sort()
-    )
-    expect(review.entries.find((e) => e.path === ':colon')).toMatchObject({
-      kind: 'untracked',
-      previewUnavailable: expect.any(String)
-    })
+    expect(review.entries.map((e) => e.path).sort()).toEqual(['old.txt', ...odd].sort())
+    if (!WINDOWS)
+      expect(review.entries.find((e) => e.path === ':colon')).toMatchObject({
+        kind: 'untracked',
+        previewUnavailable: expect.any(String)
+      })
     const deleted = review.entries.find((e) => e.path === 'old.txt')!
     expect(
       await f.service.dispatch({
         type: 'patch',
-        projectPath: join(f.project, 'nested '),
+        projectPath: join(f.project, nested),
         reviewId: review.reviewId,
         entryId: deleted.entryId
       })
