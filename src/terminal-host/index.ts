@@ -60,7 +60,9 @@ parent.on('message', ({ data }: { data: unknown }) => {
           rows: command.rows,
           cwd: command.projectPath,
           env,
-          encoding: 'utf8',
+          // Windows always yields UTF-8 text and warns on stderr when asked, which Main
+          // treats as a host failure.
+          ...(process.platform === 'win32' ? {} : { encoding: 'utf8' }),
           handleFlowControl: false
         })
         return Object.assign(pty, {

@@ -82,7 +82,7 @@ jobs:
             const pty = spawn(shell, ['-NoLogo', '-NoProfile'], {
               name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(),
               env: { SystemRoot: process.env.SystemRoot, Path: process.env.Path ?? process.env.PATH },
-              encoding: 'utf8', handleFlowControl: false
+              handleFlowControl: false
             })
             let out = ''
             pty.onData((data) => { out += data })
