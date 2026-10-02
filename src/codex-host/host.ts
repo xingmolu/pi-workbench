@@ -32,6 +32,7 @@ import { diffState } from '../shared/state-patch'
 import { ApprovalRegistry } from '../agent-host/approval-registry'
 import { SerialExecutor } from '../agent-host/serial-executor'
 import { AppServerClient, type AppServerNotification, type AppServerRequest } from './app-server'
+import { CodexMcp } from './mcp'
 import { CodexProjection, displayCommand, type CodexItem } from './projection'
 import { CodexSessionStore, type CodexSessionReference, type CodexStorage } from './storage'
 
@@ -91,6 +92,11 @@ export class CodexHost {
   private signedInAs: string | undefined
   private crashes: number[] = []
   private missingAccount: string | undefined
+  private readonly mcp = new CodexMcp(
+    () => this.server_(),
+    () => this.reference?.threadId,
+    (url) => this.options.post({ type: 'event', event: 'open-external', data: { url, mcp: true } })
+  )
   private turn: { threadId: string; turnId: string } | undefined
   private running = false
   private disposed = false
@@ -349,6 +355,16 @@ export class CodexHost {
         )
       case 'account:remove':
         throw new Error('ChatGPT 账号由 Pi 管理，请在「设置 › 引擎与账号」中移除')
+      case 'mcp:list':
+      case 'mcp:shutdown':
+      case 'mcp:reload':
+      case 'mcp:save':
+      case 'mcp:toggle':
+      case 'mcp:login':
+      case 'mcp:logout':
+        if (command.type !== 'mcp:list') this.assertIdle()
+        await this.start()
+        return { kind: 'mcp', result: await this.mcp.handle(command) }
       case 'project:catalog':
         return { kind: 'project-catalog', catalog: await this.catalog(command) }
       default:
@@ -825,6 +841,10 @@ export class CodexHost {
   }
 
   private notification({ method, params }: AppServerNotification): void {
+    if (method === 'mcpServer/oauthLogin/completed') {
+      this.mcp.loginCompleted(params as { name: string; success: boolean; error?: string })
+      return
+    }
     const threadId = params.threadId as string | undefined
     if (threadId && threadId !== this.reference?.threadId) return
     switch (method) {

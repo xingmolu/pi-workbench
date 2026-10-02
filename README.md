@@ -110,11 +110,14 @@ Pi Desktop 中检查授权，并保持桌面解锁。
 来源是官方 npm 包里对应平台的构建，下载后按仓库里固定的 sha512（`src/shared/engine-binaries.generated.ts`）
 校验，再解压到应用数据目录的 `engines/` 下，可以随时删除。开发环境里 `node_modules` 已有的
 Claude Code 会直接使用；也可以用 `PI_DESKTOP_CLAUDE_EXECUTABLE` / `PI_DESKTOP_CODEX_EXECUTABLE` 指定本机程序。
+下载中断后会自动续传（最多三次），之后点「重试」也从断点继续；应用更新换了固定版本时，旧版本仍可使用，
+设置里会显示「有新版本」和「更新」按钮。Codex 意外退出会自动重启并接上当前对话。
 升级 SDK 或 Codex 版本后运行 `node scripts/pin-engine-binaries.mjs [--codex <版本>]` 更新固定值。
 
 Codex 不需要单独登录：它使用在 Pi 里登录的 ChatGPT 账号。某个账号第一次被 Codex 使用时会弹窗询问
 （不允许 / 仅这次 / 始终允许），Codex 只拿到短期访问令牌，刷新令牌一直留在 Pi；
 「设置 › 引擎与账号」的账号行会显示「用于 Pi、Codex」，菜单里可以撤销。
+Codex 的 MCP 服务器写在它自己的 config.toml 里，可以在「设置 › MCP」里增删、开关和登录。
 Codex 的端到端测试需要本机的 Codex 程序：`PI_DESKTOP_CODEX_EXECUTABLE=/path/to/codex npx playwright test tests/e2e/codex-runtime.spec.ts`。
 
 ### 离线演示（不需要真实账号，也不需要手机）

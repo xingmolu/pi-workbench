@@ -216,7 +216,11 @@ approvals become desktop approval cards; the permission level maps to Codex appr
 and sandbox (`ask` → untrusted/workspace-write, `auto` → on-request, `open` → never/full
 access). The CLI is downloaded on demand like Claude Code. Tests run the real CLI against a
 local Responses API stand-in (`responses-fixture.ts`) when `PI_DESKTOP_CODEX_EXECUTABLE` is
-set. Codex chats can be forked at any turn (`thread/fork`), list Codex's own skills and send `/skill:name` as a native skill input. Quota is read through Pi for the same ChatGPT account. Not yet supported for Codex: message editing and MCP management.
+set. Codex chats can be forked at any turn (`thread/fork`), list Codex's own skills and send `/skill:name` as a native skill input. Quota is read through Pi for the same ChatGPT account. MCP servers are Codex's own `[mcp_servers]` in its config.toml, read and written through
+app-server (`config/read`, `config/value/write`, `config/mcpServer/reload`), with status from
+`mcpServerStatus/list` and browser sign-in from `mcpServer/oauth/login`. A crashed app-server is
+restarted and the open thread resumed (at most three times a minute). Not yet supported for Codex:
+message editing.
 
 ## Conformance tests
 

@@ -264,4 +264,60 @@ describe.skipIf(!executable)('Codex app-server runtime', () => {
     expect(nodes(host.getState(), 'assistant').length).toBe(2)
     expect(host.getState().activeSessionPath).toBe(path)
   }, 90000)
+
+  it('adds, lists and turns off MCP servers in Codex config', async () => {
+    const { make, cwd, storage } = await setup()
+    const host = make()
+    await host.handle({ type: 'bootstrap' })
+    await host.handle({ type: 'project:open', cwd })
+    const identity = () => ({
+      sessionId: host.getState().sessionId,
+      generation: host.getState().generation
+    })
+    const mcp = async (command: Record<string, unknown>) => {
+      const result = await host.handle(command as never)
+      if (result.kind !== 'mcp') throw new Error('expected an MCP result')
+      return result.result
+    }
+    const empty = await mcp({ type: 'mcp:list' })
+    expect(empty.servers).toEqual([])
+    const saved = await mcp({
+      type: 'mcp:save',
+      ...identity(),
+      revision: empty.revision,
+      id: 'docs',
+      server: { url: 'http://127.0.0.1:9/mcp', headers: { 'X-Team': 'pi' } },
+      enabled: true,
+      create: true
+    })
+    expect(saved).toMatchObject({ saved: true })
+    expect(saved.servers).toMatchObject([
+      {
+        id: 'docs',
+        transport: 'http',
+        url: 'http://127.0.0.1:9/mcp',
+        headerKeys: ['X-Team'],
+        enabled: true
+      }
+    ])
+    const toml = await readFile(join(storage.config, 'config.toml'), 'utf8')
+    expect(toml).toContain('[mcp_servers.docs]')
+    const off = await mcp({
+      type: 'mcp:toggle',
+      ...identity(),
+      revision: saved.revision,
+      id: 'docs',
+      enabled: false
+    })
+    expect(off.servers[0]).toMatchObject({ id: 'docs', enabled: false, status: 'disabled' })
+    await expect(
+      mcp({
+        type: 'mcp:toggle',
+        ...identity(),
+        revision: saved.revision,
+        id: 'docs',
+        enabled: true
+      })
+    ).rejects.toThrow('MCP 配置已变化')
+  }, 90000)
 })

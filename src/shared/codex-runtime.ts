@@ -19,6 +19,7 @@ export const CODEX_RUNTIME_MANIFEST: AgentRuntimeManifest = {
     'thinking',
     'images',
     'skills',
+    'mcp',
     'auth-login'
   ],
   authentication: ['external'],
