@@ -100,8 +100,7 @@ npm run build && npx electron-builder --linux   # 打包（或 --win；macOS 先
 
 ## 参与贡献
 
-欢迎提 Issue 和 Pull Request。提交前请运行 `npm run typecheck` 和 `npm test`；
-界面相关的改动最好附带一个端到端测试。
+欢迎提 Issue 和 Pull Request，详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。安全问题请按 [SECURITY.md](./SECURITY.md) 私下报告。
 
 ## 许可
 

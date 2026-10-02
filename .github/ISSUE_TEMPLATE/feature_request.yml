@@ -1,0 +1,15 @@
+name: 功能建议 / Feature request
+description: 想要的新功能或改进 / Something you would like the app to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题 / The problem
+      description: 你在做什么时遇到了不便 / What were you trying to do
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你设想的做法 / Your idea

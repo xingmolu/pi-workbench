@@ -1,0 +1,47 @@
+name: 问题反馈 / Bug report
+description: 应用出错、崩溃或行为不对 / Something broke or behaves wrongly
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / What happened
+      description: 你做了什么，期望什么，实际看到了什么 / What you did, what you expected, what you saw
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: 设置 › 常规 › 版本与更新 / Settings › General › Version
+      placeholder: 0.1.0-nightly.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 系统 / Operating system
+      options: [macOS (Apple silicon), macOS (Intel), Windows, Linux (AppImage), Linux (deb)]
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: 引擎 / Engine
+      options: [Pi, Claude Code, Codex, 不确定 / not sure]
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断报告 / Diagnostics
+      description: |
+        设置 › 常规 › 诊断 › 导出…，把文件拖到这里。报告已去掉密钥和令牌，提交前请再看一眼。
+        Settings › General › Diagnostics › Export…, then drop the file here. Keys and tokens are
+        removed; please look it over before posting.

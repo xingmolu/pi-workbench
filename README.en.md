@@ -117,8 +117,8 @@ Plugins: [PLUGINS.md](./PLUGINS.md). Engine integration: [docs/architecture](./d
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm run typecheck` and `npm test` before sending
-changes; UI changes should ideally come with an end-to-end test.
+Issues and pull requests are welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md). Please report
+security problems privately as described in [SECURITY.md](./SECURITY.md).
 
 ## License
 
