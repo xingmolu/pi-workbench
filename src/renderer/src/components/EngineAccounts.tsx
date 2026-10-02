@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSettingsIntent } from '../store/settings-intent'
 import * as Dropdown from '@radix-ui/react-dropdown-menu'
 import {
   Check,
@@ -388,7 +389,8 @@ export default function EngineAccounts({
   const runtimes = useRuntimeCatalog((state) => state.runtimes)
   const { engines, error, pending, reload, run } = useRuntimeAccounts()
   const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
-  const [addingApi, setAddingApi] = useState(false)
+  // The home page's "API Key" choice opens Settings straight on the add-API panel.
+  const [addingApi, setAddingApi] = useState(() => useSettingsIntent.getState().take('add-api'))
   const [endpointsKey, setEndpointsKey] = useState(0)
   const [grants, setGrants] = useState<CredentialGrant[]>([])
   useEffect(() => {

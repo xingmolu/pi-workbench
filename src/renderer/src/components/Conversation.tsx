@@ -47,7 +47,9 @@ import {
   Globe2,
   LockKeyhole,
   ListPlus,
+  KeyRound,
   MessageSquare,
+  Sparkles,
   Monitor,
   Plus,
   Search,
@@ -106,6 +108,8 @@ type ConversationProps = {
   onChooseModel: (providerId: string, modelId: string) => void
   onLogin: () => void
   onOpenSettings: () => void
+  /** The home page's "connect a model" choices. */
+  onConnect?: (choice: ConnectChoice) => void
   onApproval: ApprovalHandler
 }
 
@@ -135,6 +139,70 @@ const STARTERS = [
   { icon: Bug, label: '排查一个问题', prompt: '帮我排查这个问题：' },
   { icon: FlaskConical, label: '补充测试', prompt: '为最近修改的代码补充测试，并运行确认通过。' }
 ] as const
+
+export type ConnectChoice = 'chatgpt' | 'claude' | 'api'
+
+const CONNECT_CHOICES: Record<
+  ConnectChoice,
+  { icon: typeof Compass; title: string; detail: (runtimeId?: string) => string }
+> = {
+  chatgpt: {
+    icon: MessageSquare,
+    title: 'ChatGPT 账号',
+    detail: () => '用 Plus / Pro 订阅在浏览器里登录，Pi 和 Codex 都能用'
+  },
+  claude: {
+    icon: Sparkles,
+    title: 'Claude 账号',
+    detail: (runtimeId) =>
+      runtimeId === 'claude'
+        ? '用 Pro / Max 订阅在浏览器里登录'
+        : 'Pro / Max 订阅在 Claude Code 引擎里使用，首次需要下载引擎'
+  },
+  api: {
+    icon: KeyRound,
+    title: 'API Key',
+    detail: () => 'OpenRouter、DeepSeek、Kimi、Anthropic 等服务，或公司网关'
+  }
+}
+
+/** Shown on the home page until the engine has an account it can send with. */
+function ConnectChoices({
+  runtimeId,
+  onConnect
+}: {
+  runtimeId?: string
+  onConnect?: (choice: ConnectChoice) => void
+}): React.JSX.Element {
+  const choices: ConnectChoice[] =
+    runtimeId === 'claude'
+      ? ['claude', 'api']
+      : runtimeId === 'codex'
+        ? ['chatgpt']
+        : ['chatgpt', 'api', 'claude']
+  return (
+    <section className="home-connect" aria-label="连接模型">
+      <p className="home-connect-title">先连接一个模型账号，就可以开始了</p>
+      <div className="home-connect-options">
+        {choices.map((choice) => {
+          const { icon: Icon, title, detail } = CONNECT_CHOICES[choice]
+          return (
+            <button
+              key={choice}
+              type="button"
+              className="home-connect-option"
+              onClick={() => onConnect?.(choice)}
+            >
+              <Icon size={16} aria-hidden="true" />
+              <strong>{title}</strong>
+              <span>{detail(runtimeId)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
 
 const STATUS_LABEL = {
   queued: '排队中',
@@ -883,7 +951,7 @@ function Composer({
         : snapshot.composeBlockReason === 'project-required'
           ? '先选择一个工作区'
           : snapshot.composeBlockReason === 'login-required'
-            ? '登录 Codex'
+            ? '先连接一个模型账号'
             : snapshot.composeBlockReason === 'pinned-model-unavailable'
               ? '此会话模型不可用 · 选择其他模型继续'
               : snapshot.composeBlockReason === 'model-unavailable'
@@ -891,7 +959,7 @@ function Composer({
                 : '选择模型后才能发送'
   const lockAction =
     snapshot.composeBlockReason === 'login-required'
-      ? onLogin
+      ? onOpenSettings
       : snapshot.composeBlockReason === 'model-unavailable' ||
           snapshot.composeBlockReason === 'endpoint-selection-invalidated' ||
           snapshot.composeBlockReason === 'pinned-model-unavailable' ||
@@ -1452,19 +1520,23 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
         <Composer {...props} />
         {home ? (
           <div className="home-below">
-            <div className="hero-starters" aria-label="快速开始">
-              {STARTERS.map(({ icon: Icon, label, prompt }) => (
-                <button
-                  key={label}
-                  type="button"
-                  className="hero-starter"
-                  onClick={() => useComposerPrefill.getState().request(prompt)}
-                >
-                  <Icon size={15} aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
+            {snapshot.ready && snapshot.composeBlockReason === 'login-required' ? (
+              <ConnectChoices runtimeId={snapshot.runtime?.id} onConnect={props.onConnect} />
+            ) : (
+              <div className="hero-starters" aria-label="快速开始">
+                {STARTERS.map(({ icon: Icon, label, prompt }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="hero-starter"
+                    onClick={() => useComposerPrefill.getState().request(prompt)}
+                  >
+                    <Icon size={15} aria-hidden="true" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {recentSessions.length > 0 ? (
               <nav className="home-recent" aria-label="最近会话">
                 <span className="home-recent-label">最近会话</span>

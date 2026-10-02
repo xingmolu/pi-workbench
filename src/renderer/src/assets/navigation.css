@@ -564,6 +564,56 @@ body.is-sidebar-resizing * {
     border-color 120ms ease,
     color 120ms ease;
 }
+.home-connect {
+  margin-top: 24px;
+  text-align: center;
+}
+.home-connect-title {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.home-connect-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+.home-connect-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center;
+  justify-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.home-connect-option > svg { color: var(--accent); }
+.home-connect-option strong { font-size: 13.5px; font-weight: 600; }
+.home-connect-option span {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.home-connect-option:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+}
+.home-connect-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .hero-starter > svg { color: var(--muted-2); }
 .hero-starter:hover {
   border-color: var(--border-strong);

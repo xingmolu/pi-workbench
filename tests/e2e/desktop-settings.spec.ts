@@ -460,3 +460,22 @@ test('General settings shows the version and exports a redacted diagnostics repo
   expect(text).not.toContain('SECRETSECRET')
   expect(text).toMatch(/- 引擎程序: \[".*claude: /)
 })
+
+test('a new user without accounts is offered ways to connect a model', async () => {
+  const project = join(root, 'project')
+  await mkdir(project)
+  await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
+  const connect = page.getByRole('region', { name: '连接模型' })
+  await expect(connect).toBeVisible()
+  await expect(connect.getByRole('button')).toHaveText([
+    /ChatGPT 账号/,
+    /API Key/,
+    /Claude 账号.*首次需要下载引擎/
+  ])
+  await expect(page.locator('.composer-lock')).toContainText('先连接一个模型账号')
+  await mkdir(resolve('artifacts/e2e'), { recursive: true })
+  await page.screenshot({ path: resolve('artifacts/e2e/home-connect.png') })
+  // "API Key" lands on the add-API panel in Settings.
+  await connect.getByRole('button', { name: /API Key/ }).click()
+  await expect(page.getByRole('group', { name: '添加 API 连接' })).toBeVisible()
+})

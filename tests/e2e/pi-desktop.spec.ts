@@ -754,7 +754,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect(
       page.locator('.project-group-toggle').filter({ hasText: basename(paths.project) })
     ).toHaveAttribute('title', paths.project)
-    await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
+    await expect(page.locator('.composer-lock')).toContainText('先连接一个模型账号')
     const beforeSessionId = opened.snapshot.sessionId
     const beforeWorkerId = opened.snapshot.desktopScope!.workerId
     const sessionResult = await page.evaluate(async () =>
@@ -773,7 +773,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     expect(await readdir(paths.agentDir)).toContain('sessions')
     expect((await readdir(join(paths.agentDir, 'sessions'))).length).toBeGreaterThan(0)
     await expectBaitUntouched()
-    await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
+    await expect(page.locator('.composer-lock')).toContainText('先连接一个模型账号')
     await expectNoRealIdentityInRenderer(page)
     await page.screenshot({ path: join(artifactDir, '03-project-locked.png') })
   })
@@ -814,7 +814,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
     await expect(
       page.locator('.project-group-toggle').filter({ hasText: basename(paths.project) })
     ).toHaveAttribute('title', paths.project)
-    await expect(page.locator('.composer-lock')).toContainText('登录 Codex')
+    await expect(page.locator('.composer-lock')).toContainText('先连接一个模型账号')
     await expectNoRealIdentityInRenderer(page)
     await page.screenshot({ path: join(artifactDir, '04-restored.png') })
   })

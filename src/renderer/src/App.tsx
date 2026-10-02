@@ -1,3 +1,4 @@
+import { useSettingsIntent } from './store/settings-intent'
 import SubagentDirectory from './components/SubagentDirectory'
 import { Bot } from 'lucide-react'
 import RuntimePicker from './components/RuntimePicker'
@@ -733,6 +734,13 @@ export default function App(): React.JSX.Element {
               login(snapshot.runtime?.id === 'claude' ? 'anthropic' : 'openai-codex', 'browser')
             }}
             onOpenSettings={openSettings}
+            onConnect={(choice) => {
+              if (choice === 'api') useSettingsIntent.getState().request('add-api')
+              openSettings()
+              const runtime = snapshot.runtime?.id ?? 'pi'
+              if (choice === 'chatgpt' && runtime === 'pi') login('openai-codex', 'browser')
+              if (choice === 'claude' && runtime === 'claude') login('anthropic', 'browser')
+            }}
             onApproval={respondToApproval}
           />
         }
