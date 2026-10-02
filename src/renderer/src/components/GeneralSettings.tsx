@@ -67,6 +67,7 @@ function LanguageSettings(): React.JSX.Element {
           }}
         >
           <option value="system">{t('跟随系统')}</option>
+          {/* i18n-ignore: each language is named in itself */}
           <option value="zh-CN">中文</option>
           <option value="en">English</option>
         </SelectControl>

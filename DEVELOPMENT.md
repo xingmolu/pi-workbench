@@ -317,6 +317,18 @@ agentDir 覆盖只允许在未打包的显式 E2E 模式中使用，生产构建
 Browser 使用 project 路径的不可逆 hash 生成独立 Electron partition；cookie、localStorage
 等网站会话数据留在该 profile，不写入 Pi 的 `auth.json`，也不会通过 snapshot 返回给 agent。
 
+## 界面语言
+
+界面有中文和英文两种。代码里的界面文字都用中文写，并经过 `t()`（`src/shared/i18n`）：
+
+```ts
+t('已撤销 {restored} 个文件', { restored })
+```
+
+`t()` 按当前语言在词表里查找（英文词表是 `src/shared/i18n/en.ts`，以中文原文为键），找不到时显示中文原文；`{name}` 占位符可以在译文里换位置。每个进程在加载其他模块之前就确定语言：Main 由 `locale-boot.ts` 读取「设置 › 常规 › 界面语言」或系统语言，引擎和插件宿主通过环境变量 `PI_DESKTOP_LOCALE` 继承，桌面窗口从 preload 读取，手机页面读取 Main 写入的 `<meta name="pi-locale">`。切换语言后重启生效。
+
+`src/shared/i18n/catalog.test.ts` 检查两件事：每个 `t()` 的中文原文都有英文译文且占位符一致；界面代码里没有绕过 `t()` 的中文。确实要保留中文的地方（例如语言选项「中文」）在同一行或上一行写 `// i18n-ignore: 原因`。端到端测试默认以中文运行，`PI_DESKTOP_E2E_LOCALE=en` 切到英文（见 `tests/e2e/english.spec.ts`）。
+
 ## 架构
 
 运行时接口与存储边界见 [Agent runtime 架构](docs/architecture/agent-runtime-boundary.md) 与 [引擎接入](docs/architecture/agent-runtime-providers.md)。

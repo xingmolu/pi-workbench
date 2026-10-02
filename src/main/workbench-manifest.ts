@@ -9,7 +9,7 @@ import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
 import { normalizeManifestJson, MANIFEST_JSON_FILE } from './manifest-compat'
 import { MAX_THEME_CSS_BYTES, sanitizeThemeCss } from '../shared/theme-tokens'
-import { t } from '../shared/i18n'
+import { locale, t } from '../shared/i18n'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
 
@@ -121,19 +121,23 @@ const localIdentifierSchema = z
   .string()
   .regex(/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/, 'Expected a lowercase local identifier')
 
-/** `{ en, "zh-CN" }` titles as in `manifest.json` plugins; the UI is Chinese-first. */
-const localizedTitleSchema = z.union([
-  z.string().trim().min(1).max(256),
-  z
-    .object({
-      en: z.string().trim().min(1).max(256),
-      'zh-CN': z.string().trim().min(1).max(256).optional()
-    })
-    .strict()
-])
+/** Text as a string or `{ en, "zh-CN" }`, as in `manifest.json` plugins. */
+const localizedText = (max: number) =>
+  z.union([
+    z.string().trim().min(1).max(max),
+    z
+      .object({
+        en: z.string().trim().min(1).max(max),
+        'zh-CN': z.string().trim().min(1).max(max).optional()
+      })
+      .strict()
+  ])
+const localizedTitleSchema = localizedText(256)
 type LocalizedTitle = z.infer<typeof localizedTitleSchema>
+/** The interface language's text, falling back to the other one. */
 function resolveTitle(title: LocalizedTitle): string {
-  return typeof title === 'string' ? title : (title['zh-CN'] ?? title.en)
+  if (typeof title === 'string') return title
+  return locale() === 'en' ? title.en : (title['zh-CN'] ?? title.en)
 }
 
 /** Common icon tokens map onto the host's own icon set. */
@@ -250,8 +254,8 @@ const workbenchManifestSchema = z
     schemaVersion: z.literal(1),
     id: namespacedIdentifierSchema,
     version: z.string().trim().min(1).max(128),
-    name: z.string().trim().min(1).max(256),
-    description: z.string().max(4096).optional(),
+    name: localizedText(256),
+    description: localizedText(4096).optional(),
     engines: z.object({ piDesktop: z.string().trim().min(1).max(128) }).strict(),
     permissions: z.array(z.string().trim().min(1).max(256)).max(128).optional(),
     main: z.string().min(1).max(4096).optional(),
@@ -814,9 +818,11 @@ export async function discoverWorkbenchManifests({
     diagnostics.push(...compatDiagnostics)
     plugins.push({
       pluginId: manifest.id,
-      name: manifest.name,
+      name: resolveTitle(manifest.name),
       version: manifest.version,
-      ...(manifest.description === undefined ? {} : { description: manifest.description }),
+      ...(manifest.description === undefined
+        ? {}
+        : { description: resolveTitle(manifest.description) }),
       requestedPermissions,
       source: root.source,
       scope: root.scope,

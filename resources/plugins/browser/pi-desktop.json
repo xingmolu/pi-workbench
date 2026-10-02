@@ -2,15 +2,26 @@
   "schemaVersion": 1,
   "id": "works.pi.browser",
   "version": "0.1.0",
-  "name": "浏览器",
-  "description": "在工作台里打开网页和本地服务，Pi 也可以通过 browser 工具查看和操作这里的页面。关闭后面板隐藏，Pi 也无法使用浏览器。随 Pi Desktop 分发。",
-  "engines": { "piDesktop": ">=0.1.0" },
+  "name": {
+    "en": "Browser",
+    "zh-CN": "浏览器"
+  },
+  "description": {
+    "en": "Open web pages and local services in the workbench; Pi can also look at and operate these pages with its browser tool. When off, the panel is hidden and Pi can't use the browser. Shipped with Pi Desktop.",
+    "zh-CN": "在工作台里打开网页和本地服务，Pi 也可以通过 browser 工具查看和操作这里的页面。关闭后面板隐藏，Pi 也无法使用浏览器。随 Pi Desktop 分发。"
+  },
+  "engines": {
+    "piDesktop": ">=0.1.0"
+  },
   "permissions": ["ui.view", "browser.control"],
   "contributes": {
     "views": [
       {
         "id": "view",
-        "title": { "zh-CN": "浏览器", "en": "Browser" },
+        "title": {
+          "zh-CN": "浏览器",
+          "en": "Browser"
+        },
         "icon": "browser",
         "host": "browser",
         "activation": "onApp"

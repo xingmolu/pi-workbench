@@ -18,7 +18,7 @@ export default function UserMessageEdit(): React.JSX.Element | null {
     unknown = edit.phase === 'uncertain'
   const close = async () => {
     await closeSessionEdit()
-    document.querySelector<HTMLButtonElement>(t('button[aria-label="编辑问题"]'))?.focus()
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${t('编辑问题')}"]`)?.focus()
   }
   return (
     <section

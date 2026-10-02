@@ -14,6 +14,8 @@ const api = createPluginPanelClient({
   }
 })
 
-contextBridge.exposeInMainWorld('piPlugin', api)
+// The interface language, so plugin pages can match it.
+const locale = ipcRenderer.sendSync('pi:locale') === 'en' ? 'en' : 'zh-CN'
+contextBridge.exposeInMainWorld('piPlugin', { ...api, locale })
 // `manifest.json` plugins use this name.
 contextBridge.exposeInMainWorld('pluginBridge', createPiDesktopPluginBridge(api))

@@ -3,12 +3,44 @@
 
 const api = window.piPlugin
 const $ = (id) => document.getElementById(id)
+// Pi Desktop's interface language: Chinese unless the host says English.
+const english = api.locale === 'en'
+const tr = (zh, en) => (english ? en : zh)
 
 const icons = {
   stage: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>',
   unstage: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" /></svg>',
   discard:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6.5h6a3 3 0 0 1 0 6H7M6 4 3.5 6.5 6 9" /></svg>'
+}
+
+/** The page is written in Chinese; in English its fixed labels are replaced once. */
+if (english) {
+  document.documentElement.lang = 'en'
+  const set = (id, property, value) => {
+    const element = $(id)
+    if (element) element[property] = value
+  }
+  set('branch', 'title', 'Current branch')
+  set('refresh', 'title', 'Refresh')
+  $('refresh')?.setAttribute('aria-label', 'Refresh')
+  set('push', 'textContent', 'Push')
+  set('message', 'placeholder', 'Commit message (⌘/Ctrl + Enter to commit)')
+  $('message')?.setAttribute('aria-label', 'Commit message')
+  set('commit', 'textContent', 'Commit')
+  set('unstage-all', 'textContent', 'Unstage all')
+  $('staged')?.setAttribute('aria-label', 'Staged changes')
+  set('stage-all', 'textContent', 'Stage all')
+  $('changes')?.setAttribute('aria-label', 'Unstaged changes')
+  for (const [id, text] of [
+    ['staged-count', 'Staged'],
+    ['changes-count', 'Changes']
+  ]) {
+    const label = $(id)?.previousElementSibling
+    if (label) label.textContent = text
+  }
+  const summary = document.querySelector('summary')
+  if (summary) summary.textContent = 'Recent commits'
 }
 
 const state = {
@@ -23,8 +55,8 @@ const state = {
 
 const describeError = (error) => {
   const code = error && error.code
-  if (code === 'PERMISSION_DENIED' && /拒绝/.test(error.message || '')) return null
-  return (error && error.message) || '操作失败'
+  if (code === 'PERMISSION_DENIED' && /拒绝|declined|denied/i.test(error.message || '')) return null
+  return (error && error.message) || tr('操作失败', 'Action failed')
 }
 
 let noticeTimer = 0
@@ -50,7 +82,9 @@ function badgeFor(code) {
   return code === 'R' || code === 'C' ? 'M' : code
 }
 
-const BADGE_TITLE = { M: '已修改', A: '新增', D: '已删除', U: '未跟踪', C: '冲突' }
+const BADGE_TITLE = english
+  ? { M: 'Modified', A: 'Added', D: 'Deleted', U: 'Untracked', C: 'Conflict' }
+  : { M: '已修改', A: '新增', D: '已删除', U: '未跟踪', C: '冲突' }
 
 function split(path) {
   const slash = path.lastIndexOf('/')
@@ -105,14 +139,24 @@ function fileRow(file, staged) {
   actions.className = 'actions'
   if (staged) {
     actions.append(
-      button(`取消暂存 ${file.path}`, icons.unstage, () => act('git.unstage', [file.path]))
+      button(tr(`取消暂存 ${file.path}`, `Unstage ${file.path}`), icons.unstage, () =>
+        act('git.unstage', [file.path])
+      )
     )
   } else {
     if (code !== '?')
       actions.append(
-        button(`丢弃 ${file.path} 的改动`, icons.discard, () => act('git.discard', [file.path]))
+        button(
+          tr(`丢弃 ${file.path} 的改动`, `Discard changes to ${file.path}`),
+          icons.discard,
+          () => act('git.discard', [file.path])
+        )
       )
-    actions.append(button(`暂存 ${file.path}`, icons.stage, () => act('git.stage', [file.path])))
+    actions.append(
+      button(tr(`暂存 ${file.path}`, `Stage ${file.path}`), icons.stage, () =>
+        act('git.stage', [file.path])
+      )
+    )
   }
 
   row.append(mark, name, actions)
@@ -135,12 +179,12 @@ function fileRow(file, staged) {
 function diffBlock(file, staged, code) {
   const box = document.createElement('li')
   box.className = 'diff'
-  box.setAttribute('aria-label', `${file.path} 的差异`)
+  box.setAttribute('aria-label', tr(`${file.path} 的差异`, `Diff of ${file.path}`))
   if (code === '?') {
-    box.innerHTML = '<div class="note">新文件，暂存后可查看内容差异</div>'
+    box.innerHTML = `<div class="note">${tr('新文件，暂存后可查看内容差异', 'New file; stage it to see its diff')}</div>`
     return box
   }
-  box.innerHTML = '<div class="note">正在加载…</div>'
+  box.innerHTML = `<div class="note">${tr('正在加载…', 'Loading…')}</div>`
   api
     .call('git.diff', { path: file.path, staged })
     .then(({ patch }) => {
@@ -149,7 +193,7 @@ function diffBlock(file, staged, code) {
       const start = lines.findIndex((line) => line.startsWith('@@'))
       const body = start < 0 ? [] : lines.slice(start)
       if (body.length === 0) {
-        box.innerHTML = '<div class="note">没有可显示的文本差异</div>'
+        box.innerHTML = `<div class="note">${tr('没有可显示的文本差异', 'No text diff to show')}</div>`
         return
       }
       for (const line of body.slice(0, 4000)) {
@@ -171,7 +215,7 @@ function diffBlock(file, staged, code) {
       box.innerHTML = ''
       const note = document.createElement('div')
       note.className = 'note'
-      note.textContent = describeError(error) || '无法加载差异'
+      note.textContent = describeError(error) || tr('无法加载差异', "Can't load the diff")
       box.append(note)
     })
   return box
@@ -199,18 +243,22 @@ function render() {
     return
   }
 
-  $('branch-name').textContent = status.branch || '分离的 HEAD'
+  $('branch-name').textContent = status.branch || tr('分离的 HEAD', 'Detached HEAD')
   const sync = []
   if (status.ahead) sync.push(`↑${status.ahead}`)
   if (status.behind) sync.push(`↓${status.behind}`)
   $('sync').textContent = sync.join(' ')
-  $('sync').title = status.upstream ? `跟踪 ${status.upstream}` : '尚未推送到远程'
+  $('sync').title = status.upstream
+    ? tr(`跟踪 ${status.upstream}`, `Tracking ${status.upstream}`)
+    : tr('尚未推送到远程', 'Not pushed to a remote yet')
 
   const push = $('push')
   const canPush = Boolean(status.branch) && (!status.upstream || status.ahead > 0)
   push.hidden = !canPush
   push.disabled = state.busy
-  push.textContent = status.upstream ? `推送 ↑${status.ahead}` : '推送分支'
+  push.textContent = status.upstream
+    ? tr(`推送 ↑${status.ahead}`, `Push ↑${status.ahead}`)
+    : tr('推送分支', 'Push branch')
 
   const staged = status.files.filter((file) => file.index !== ' ' && file.index !== '?')
   const changes = status.files.filter((file) => file.worktree !== ' ')
@@ -232,16 +280,16 @@ function render() {
 
   const empty = $('empty')
   empty.hidden = status.files.length > 0
-  empty.textContent = '工作区是干净的'
+  empty.textContent = tr('工作区是干净的', 'Working tree is clean')
 
   const message = $('message').value.trim()
   const commit = $('commit')
   commit.textContent =
     staged.length > 0
-      ? `提交 ${staged.length} 个文件`
+      ? tr(`提交 ${staged.length} 个文件`, `Commit ${staged.length} files`)
       : changes.length > 0
-        ? '暂存全部并提交'
-        : '提交'
+        ? tr('暂存全部并提交', 'Stage all and commit')
+        : tr('提交', 'Commit')
   commit.disabled = state.busy || !message || status.files.length === 0
 }
 
@@ -273,10 +321,13 @@ async function loadLog() {
 
 function relativeTime(iso) {
   const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (seconds < 60) return '刚刚'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
-  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)} 天前`
+  if (seconds < 60) return tr('刚刚', 'just now')
+  if (seconds < 3600)
+    return tr(`${Math.floor(seconds / 60)} 分钟前`, `${Math.floor(seconds / 60)} min ago`)
+  if (seconds < 86400)
+    return tr(`${Math.floor(seconds / 3600)} 小时前`, `${Math.floor(seconds / 3600)} h ago`)
+  if (seconds < 86400 * 30)
+    return tr(`${Math.floor(seconds / 86400)} 天前`, `${Math.floor(seconds / 86400)} d ago`)
   return new Date(iso).toLocaleDateString()
 }
 
@@ -296,10 +347,10 @@ async function refresh({ log = false } = {}) {
       state.status = null
       state.error =
         error && error.code === 'NOT_FOUND'
-          ? error.message === '没有打开的项目'
-            ? '打开项目后可查看改动'
-            : '此项目不是 Git 仓库'
-          : describeError(error) || '无法读取仓库状态'
+          ? /没有打开的项目|No project is open/.test(error.message || '')
+            ? tr('打开项目后可查看改动', 'Open a project to see its changes')
+            : tr('此项目不是 Git 仓库', "This project isn't a Git repository")
+          : describeError(error) || tr('无法读取仓库状态', "Can't read the repository status")
     } finally {
       state.loading = false
       refreshing = null
@@ -351,14 +402,24 @@ async function commit() {
   const result = await act('git.commit', null, { message })
   if (result && result.hash) {
     $('message').value = ''
-    showNotice(`已提交 ${result.hash.slice(0, 7)}`, 'info')
+    showNotice(
+      tr(`已提交 ${result.hash.slice(0, 7)}`, `Committed ${result.hash.slice(0, 7)}`),
+      'info'
+    )
     render()
   }
 }
 
 async function push() {
   const result = await act('git.push', null, {})
-  if (result) showNotice(`已推送到 ${result.remote}/${result.branch}`, 'info')
+  if (result)
+    showNotice(
+      tr(
+        `已推送到 ${result.remote}/${result.branch}`,
+        `Pushed to ${result.remote}/${result.branch}`
+      ),
+      'info'
+    )
 }
 
 $('refresh').addEventListener('click', () => {
@@ -378,7 +439,7 @@ $('unstage-all').addEventListener('click', () => {
   if (paths.length) act('git.unstage', paths)
 })
 // On the phone there is no ⌘ key to mention.
-if (api.surface === 'mobile') $('message').placeholder = '提交信息'
+if (api.surface === 'mobile') $('message').placeholder = tr('提交信息', 'Commit message')
 
 $('message').addEventListener('input', render)
 $('message').addEventListener('keydown', (event) => {

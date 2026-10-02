@@ -619,7 +619,11 @@ export class MobileGatewayServer {
       json(response, 404, { error: t('未知接口') })
     } catch (error) {
       const message = error instanceof Error ? error.message : t('网关错误')
-      const status = /配对码|尚未配对|已达到/.test(message) ? 401 : 400
+      const status =
+        [t('配对码无效或已过期'), t('尚未配对'), t('实时连接已达到上限')].includes(message) ||
+        message === t('已达到配对设备上限，请先在桌面撤销一台设备')
+          ? 401
+          : 400
       if (!response.headersSent) json(response, status, { error: message })
     }
   }

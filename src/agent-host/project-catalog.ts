@@ -1,3 +1,4 @@
+// i18n-ignore-file: loaded directly by Node in SDK tests, so it imports no runtime code from shared/.
 import { comparePinned, projectDisplayName, projectIsHidden, sessionIsArchived, type NavigationLibraryState } from '../shared/navigation-library.ts'
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, resolve } from 'node:path'

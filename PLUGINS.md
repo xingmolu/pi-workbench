@@ -218,7 +218,7 @@ interface ToolGate {
 
 已实现：
 
-- manifest（仍为插件根目录下的 `pi-desktop.json`）新增 `main`、`contributes.views`、`contributes.commands`；旧的 `contributes.workbench` 继续可用。`views` 的本地 id 映射为全局视图 id `<pluginId>.<id>`，`{ en, "zh-CN" }` 标题优先显示中文，常见的图标 token 映射到宿主图标集。
+- manifest（仍为插件根目录下的 `pi-desktop.json`）新增 `main`、`contributes.views`、`contributes.commands`；旧的 `contributes.workbench` 继续可用。`views` 的本地 id 映射为全局视图 id `<pluginId>.<id>`，`{ en, "zh-CN" }` 标题按界面语言显示（`name`、`description` 同样可以这样写），常见的图标 token 映射到宿主图标集。
 - 授权：含 `main` 或申请 `ui.view` 以外已知权限的插件默认关闭；在设置 → Desktop 插件中打开开关时先展示所请求的权限及风险，确认即授予。之后 manifest 申请了新权限，插件自动暂停，需重新授权。关闭即撤销授权。仅含视图的插件保持原有的默认启用行为。未知权限名照常显示，标注"此版本不支持，不会授予"。
 - 进程：每个启用的插件一个 `utilityProcess`（`out/main/plugin-host.js`），只继承 `PATH`、`HOME`、`USER`、`LANG`、临时目录与 `PI_PLUGIN_ID`。
 - 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次；第三阶段起成功的调用只记高风险方法，见 §15）。
@@ -264,6 +264,7 @@ module.exports = {
 - `pi.fs`：`list`、`stat`、`readText`（≤ 1 MiB、UTF-8）、`writeText`（≤ 2 MiB 字符）。路径一律相对当前项目，参数层拒绝绝对路径、`..` 和反斜杠；Main 再按解析符号链接后的真实路径确认仍在项目内，写入前父目录创建后再校验一次。列目录跳过 `.git`，最多 2,000 项。
 - `pi.git`：`status`、`diff`（可指定路径与已暂存）、`log`；`stage`、`unstage`、`discard`、`commit`。复用 Review 的加固执行器：不运行仓库 hooks、关闭 fsmonitor、忽略全局与系统配置、禁止终端提示；仓库配置了 clean/process 过滤器时拒绝操作，因为暂存和比较会执行它们。提交身份优先用仓库本地配置，否则只从用户全局配置读取 `user.name` 与 `user.email` 两项。
 - 推送暂未提供：加固执行器不读取用户的凭据配置，推送需要单独的执行路径，放到第三阶段。
+- 界面语言：`window.piPlugin.locale` 是 `'zh-CN'` 或 `'en'`，与 Pi Desktop 当前的界面语言一致（切换语言后重启生效）。
 - 视图调用：面板页面通过 `window.piPlugin.call(method, params)` 调用同一套网关，与插件进程共享权限、参数校验和审计；视图不能注册命令。失败时以普通对象 `{ name, code, message }` 拒绝（`contextBridge` 会丢掉 Error 的自定义字段）。只有视图、没有 `main` 的插件同样可以申请 `fs.read`、`git.read` 等权限，启用前同样需要授权。
 - 写操作审批沿用当前会话的项目档位：请求批准下每次写入、暂存、取消暂存、提交、丢弃都会弹出确认；帮我批准下只有丢弃需要确认；完全访问不再询问。确认框明确标出发起的插件，覆盖在原生插件视图之上（视图会暂时隐藏），2 分钟无响应视为拒绝。审批期间切换项目会取消该次写入。
 - Files 迁移为插件推后：现有 Files 依赖"添加到对话"、⌘K 文件搜索等宿主能力，迁移不带来用户可见的变化；以 Git 插件作为公开接口的第一个真实使用者。

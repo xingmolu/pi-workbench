@@ -178,6 +178,7 @@ jobs:
           tests/e2e/plugin-agent.spec.ts
           tests/e2e/pi-compat.spec.ts
           tests/e2e/themes.spec.ts
+          tests/e2e/english.spec.ts
           --reporter=line
 
       - name: Upload E2E diagnostics

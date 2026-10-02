@@ -71,6 +71,7 @@ export async function mobilePageHtml(root = MOBILE_WEB_ROOT): Promise<string | n
     return html
       .replace('<html lang="zh-CN">', `<html lang="${languageTag()}">`)
       .replace('<head>', `<head>\n    <meta name="pi-locale" content="${locale()}" />`)
+      // i18n-ignore: the title as written in mobile.html
       .replace('<title>Pi 远程对话</title>', `<title>${t('Pi 远程对话')}</title>`)
   } catch {
     return null

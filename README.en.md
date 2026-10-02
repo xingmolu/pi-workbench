@@ -18,7 +18,7 @@ It embeds the [Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi
 directly and can switch to the Claude Code or Codex engine. Accounts and keys stay on your computer.
 
 > A community project, not affiliated with the Pi project, Anthropic or OpenAI. It is in early
-> testing; feedback is very welcome. The interface is currently in Chinese.
+> testing; feedback is very welcome. The interface is available in English and Chinese.
 
 ## Features
 
@@ -51,6 +51,7 @@ directly and can switch to the Claude Code or Codex engine. Accounts and keys st
 <p align="center"><img src=".github/screenshots/mobile.png" width="320" alt="Phone companion"></p>
 
 **Everyday comforts**
+- English and Chinese interface: follows the system language, or choose one in Settings › General.
 - Subscription quota, a model picker with capabilities and recents, session search and archive,
   light and dark themes with accent colours.
 - In-app update checks, and a diagnostics report you can export from Settings (keys and tokens are

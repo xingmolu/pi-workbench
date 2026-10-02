@@ -208,7 +208,7 @@ export default function PermissionControl({
                   </button>
                 </form>
                 <small className="permission-note">
-                  {t('按开头的词匹配；含 ; &amp;&amp; | 重定向或 $() 的组合命令始终需要确认。')}
+                  {t('按开头的词匹配；含 ; && | 重定向或 $() 的组合命令始终需要确认。')}
                 </small>
               </div>
               {error ? (

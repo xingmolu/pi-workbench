@@ -1,3 +1,4 @@
+// i18n-ignore-file: loaded directly by Node in SDK tests, so it imports no runtime code from shared/.
 import { isAbsolute, resolve } from 'node:path'
 import { realpathSync } from 'node:fs'
 import type { SessionManager } from '@earendil-works/pi-coding-agent'

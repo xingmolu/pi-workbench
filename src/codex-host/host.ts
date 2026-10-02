@@ -1070,7 +1070,13 @@ export class CodexHost {
 /** Engine errors in words a user can act on; the original text stays at the end. */
 export function explain(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  if (/已不在 Pi 中|没有允许|重新登录/.test(message)) return message
+  // Already explained by Pi's own account broker, in either interface language.
+  if (
+    /已不在 Pi 中|没有允许|重新登录|no longer in Pi|isn't allowed to use|sign in again/i.test(
+      message
+    )
+  )
+    return message
   if (
     /\b401\b|unauthori[sz]ed|invalid[_ ]token|token (?:is )?expired|refresh[_ ]token/i.test(message)
   )

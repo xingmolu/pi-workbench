@@ -191,7 +191,7 @@ export default function App(): React.JSX.Element {
       ;(
         directoryRow ??
         opener ??
-        document.querySelector<HTMLElement>(t('[aria-label="关闭子 Agent 列表"]'))
+        document.querySelector<HTMLElement>(`[aria-label="${t('关闭子 Agent 列表')}"]`)
       )?.focus({ preventScroll: true })
     })
   }, [])
@@ -863,7 +863,7 @@ export default function App(): React.JSX.Element {
               }
               onInsert={(request) => {
                 settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>(
-                  t('textarea[aria-label="任务输入"]')
+                  `textarea[aria-label="${t('任务输入')}"]`
                 )
                 useSkillInsertion.getState().request(request)
                 closeSettings()
