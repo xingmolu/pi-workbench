@@ -395,7 +395,7 @@ runtimeProviders.registerPlugin(
 /** Engine CLIs are downloaded on first use rather than shipped in the installer. */
 const engineBinaries = new EngineBinaries({
   root: join(app.getPath('userData'), 'engines'),
-  fetch: (url) => net.fetch(url),
+  fetch: (url, init) => net.fetch(url, init),
   // Tests serve their own archives; production always uses the pins built into the app.
   ...(E2E_MODE && process.env.PI_DESKTOP_E2E_ENGINE_PINS
     ? { pins: JSON.parse(readFileSync(process.env.PI_DESKTOP_E2E_ENGINE_PINS, 'utf8')) }

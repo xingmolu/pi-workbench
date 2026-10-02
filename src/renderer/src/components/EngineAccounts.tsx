@@ -136,13 +136,15 @@ function EngineDownloads({
               <strong>{engine.label}</strong>
               <small>
                 {binary.state === 'ready'
-                  ? `已下载 ${binary.version}`
+                  ? binary.outdated
+                    ? `已下载 ${binary.outdated}，有新版本 ${binary.version}（约 ${megabytes(binary.size)}）`
+                    : `已下载 ${binary.version}`
                   : binary.state === 'unsupported'
                     ? '没有适用于这台电脑的版本'
                     : downloading
                       ? `正在下载 ${megabytes(binary.received ?? 0)} / ${megabytes(binary.size)}`
                       : binary.state === 'error'
-                        ? `下载失败：${binary.error ?? ''}`
+                        ? (binary.error ?? '下载失败')
                         : `首次使用需要下载（约 ${megabytes(binary.size)}）`}
               </small>
               {downloading ? (
@@ -160,6 +162,17 @@ function EngineDownloads({
                 </span>
               ) : null}
             </span>
+            {binary.state === 'ready' && binary.outdated ? (
+              <button
+                type="button"
+                className="acct-button is-primary"
+                disabled={busy !== null}
+                onClick={() => void act(engine.runtimeId, 'install')}
+              >
+                {busy === engine.runtimeId ? <LoaderCircle size={14} className="spin" /> : null}
+                更新
+              </button>
+            ) : null}
             {binary.state === 'ready' ? (
               <button
                 type="button"

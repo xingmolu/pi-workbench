@@ -1,10 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createWriteStream, existsSync, type WriteStream } from 'node:fs'
-import { chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readdirSync,
+  type WriteStream
+} from 'node:fs'
+import { chmod, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { isAbsolute, join, normalize, sep } from 'node:path'
-import { Readable } from 'node:stream'
-import type { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { createGunzip } from 'node:zlib'
 import { ENGINE_BINARY_PINS } from '../shared/engine-binaries.generated'
 import type { DownloadableEngine, EngineBinaryStatus } from '../shared/engine-binaries'
@@ -27,7 +31,9 @@ export type EngineBinariesOptions = {
   platform?: NodeJS.Platform
   arch?: string
   /** Electron's `net.fetch` in the app so system proxies apply. */
-  fetch: (url: string) => Promise<Response>
+  fetch: (url: string, init?: RequestInit) => Promise<Response>
+  /** Pause between automatic retries of an interrupted download. */
+  retryDelayMs?: number
   /** An engine shipped with a development checkout, used when nothing was downloaded. */
   bundled?: (engine: DownloadableEngine) => string | undefined
   /** An explicit executable from the environment wins over everything. */
@@ -37,6 +43,7 @@ export type EngineBinariesOptions = {
 }
 
 const COMPLETE = '.pi-desktop-complete'
+const ATTEMPTS = 3
 
 /**
  * Engine CLIs are large (100–330 MB each), so the installer ships none of them. The first time
@@ -73,10 +80,38 @@ export class EngineBinaries {
     return existsSync(join(directory, COMPLETE)) && existsSync(executable) ? executable : undefined
   }
 
+  /**
+   * A complete download of another version. After an app update pins a newer CLI, the old one
+   * keeps working until the user updates, instead of the engine disappearing.
+   */
+  private previous(
+    engine: DownloadableEngine
+  ): { version: string; executable: string } | undefined {
+    const pin = this.pin(engine)
+    if (!pin) return undefined
+    const parent = join(this.options.root, engine)
+    let entries: string[]
+    try {
+      entries = readdirSync(parent)
+    } catch {
+      return undefined
+    }
+    for (const version of entries.sort().reverse()) {
+      if (version.startsWith('.') || version === this.pins[engine].version) continue
+      const executable = join(parent, version, pin.executable)
+      if (existsSync(join(parent, version, COMPLETE)) && existsSync(executable))
+        return { version, executable }
+    }
+    return undefined
+  }
+
   /** The executable to run, or undefined when the engine still has to be downloaded. */
   executable(engine: DownloadableEngine): string | undefined {
     return (
-      this.options.override?.(engine) ?? this.downloaded(engine) ?? this.options.bundled?.(engine)
+      this.options.override?.(engine) ??
+      this.downloaded(engine) ??
+      this.previous(engine)?.executable ??
+      this.options.bundled?.(engine)
     )
   }
 
@@ -87,6 +122,9 @@ export class EngineBinaries {
     if (this.downloaded(engine)) return { ...base, state: 'ready', source: 'downloaded' }
     const progress = this.progress.get(engine)
     if (progress) return { ...base, state: 'downloading', received: progress.received }
+    const previous = this.previous(engine)
+    if (previous)
+      return { ...base, state: 'ready', source: 'downloaded', outdated: previous.version }
     if (this.options.bundled?.(engine)) return { ...base, state: 'ready', source: 'bundled' }
     if (!pin) return { ...base, state: 'unsupported' }
     const error = this.errors.get(engine)
@@ -121,33 +159,29 @@ export class EngineBinaries {
     this.progress.set(engine, { received: 0 })
     this.options.onChange?.()
     const parent = join(this.options.root, engine)
+    await mkdir(parent, { recursive: true })
+    const version = this.pins[engine].version
+    // The archive lands next to the install first, so an interrupted download resumes.
+    const part = join(parent, `.download-${version}.tgz.part`)
     const staging = join(parent, `.staging-${randomBytes(6).toString('hex')}`)
-    await mkdir(staging, { recursive: true })
     try {
-      const response = await this.options.fetch(pin.tarball)
-      if (!response.ok || !response.body) throw new Error(`下载失败（HTTP ${response.status}）`)
+      await this.fetchArchive(engine, pin, part)
       const [algorithm, expected] = pin.integrity.split('-', 2) as [string, string]
       const hash = createHash(algorithm)
-      const source = Readable.fromWeb(response.body as unknown as WebReadableStream)
-      let received = 0
-      let lastReport = 0
-      source.on('data', (chunk: Buffer) => {
-        hash.update(chunk)
-        received += chunk.length
-        this.progress.set(engine, { received })
-        if (received - lastReport > 1024 * 1024) {
-          lastReport = received
-          this.options.onChange?.()
-        }
-      })
+      for await (const chunk of createReadStream(part)) hash.update(chunk as Buffer)
+      if (hash.digest('base64') !== expected) {
+        await rm(part, { force: true })
+        throw new Error('下载内容校验失败，已丢弃')
+      }
+      // Nothing is unpacked before the archive matches the pinned digest.
+      await mkdir(staging, { recursive: true })
       const gunzip = createGunzip()
+      const source = createReadStream(part)
       source.on('error', (error) => gunzip.destroy(error))
       source.pipe(gunzip)
       const extractor = new TarExtractor(staging, pin.root, pin.skip ?? [])
       for await (const chunk of gunzip) await extractor.push(chunk as Buffer)
       await extractor.end()
-      // Nothing unpacked runs before the archive matches the pinned digest.
-      if (hash.digest('base64') !== expected) throw new Error('下载内容校验失败，已丢弃')
       const executable = join(staging, pin.executable)
       if (!existsSync(executable)) throw new Error('下载的包里没有找到引擎程序')
       await chmod(executable, 0o755)
@@ -155,9 +189,10 @@ export class EngineBinaries {
       const target = this.directory(engine)
       await rm(target, { recursive: true, force: true })
       await rename(staging, target)
+      await rm(part, { force: true })
       // Older versions are dead weight once the pinned one is in place.
       for (const entry of await readdir(parent))
-        if (entry !== this.pins[engine].version)
+        if (entry !== version && !entry.startsWith('.download-'))
           await rm(join(parent, entry), { recursive: true, force: true })
     } catch (error) {
       await rm(staging, { recursive: true, force: true })
@@ -165,6 +200,59 @@ export class EngineBinaries {
       this.errors.set(engine, message)
       throw new Error(message)
     }
+  }
+
+  /** Fetches the archive into `part`, resuming with HTTP ranges across up to three attempts. */
+  private async fetchArchive(engine: DownloadableEngine, pin: Pin, part: string): Promise<void> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+      const have = await stat(part).then(
+        (info) => info.size,
+        () => 0
+      )
+      if (pin.size && have === pin.size) return
+      this.progress.set(engine, { received: have })
+      this.options.onChange?.()
+      try {
+        const response = await this.options.fetch(
+          pin.tarball,
+          have ? { headers: { range: `bytes=${have}-` } } : undefined
+        )
+        const resumed = have > 0 && response.status === 206
+        if (!response.ok || !response.body) throw new Error(`下载失败（HTTP ${response.status}）`)
+        const output = createWriteStream(part, { flags: resumed ? 'a' : 'w' })
+        let received = resumed ? have : 0
+        let lastReport = received
+        try {
+          // Read the web stream directly so every byte received before a drop reaches the disk.
+          const reader = response.body.getReader()
+          for (;;) {
+            const { done, value: chunk } = await reader.read()
+            if (done) break
+            if (!output.write(chunk)) await once(output, 'drain')
+            received += chunk.length
+            this.progress.set(engine, { received })
+            if (received - lastReport > 1024 * 1024) {
+              lastReport = received
+              this.options.onChange?.()
+            }
+          }
+        } finally {
+          output.end()
+          await once(output, 'close').catch(() => undefined)
+        }
+        return
+      } catch (error) {
+        lastError = error
+        // Server errors and digest failures are not helped by retrying; network drops are.
+        if (error instanceof Error && error.message.startsWith('下载失败（HTTP 4')) break
+        await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs ?? 1000))
+      }
+    }
+    if (lastError instanceof Error && lastError.message.startsWith('下载失败')) throw lastError
+    throw lastError instanceof Error
+      ? new Error(`下载中断：${lastError.message}，可以点「重试」从断点继续`)
+      : new Error('下载中断，可以点「重试」从断点继续')
   }
 }
 

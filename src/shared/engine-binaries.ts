@@ -17,4 +17,6 @@ export type EngineBinaryStatus = {
   size: number
   received?: number
   error?: string
+  /** A ready engine running an older download; `version` is the one this app pins. */
+  outdated?: string
 }
