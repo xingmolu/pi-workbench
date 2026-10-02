@@ -54,6 +54,7 @@ function fileChange(change: { path?: unknown; kind?: unknown; diff?: unknown }):
 export class CodexProjection {
   nodes: ConversationNode[] = []
   private readonly index = new Map<string, number>()
+  private notices = 0
 
   clear(): void {
     this.nodes = []
@@ -237,6 +238,11 @@ export class CodexProjection {
 
   stopped(id: string): void {
     this.upsert({ id, type: 'stopped', message: '已停止' })
+  }
+
+  /** A quiet line in the conversation, e.g. after the engine was restarted. */
+  notice(message: string): void {
+    this.upsert({ id: `notice-${++this.notices}`, type: 'stopped', message })
   }
 
   /** Anything still streaming when a turn ends is final as it stands. */

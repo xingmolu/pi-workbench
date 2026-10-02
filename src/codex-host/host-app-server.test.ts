@@ -48,6 +48,7 @@ async function setup() {
       role: 'session',
       executable: executable!,
       config: fixture.config,
+      restartDelayMs: 50,
       post: (message) => {
         const value = message as Record<string, unknown>
         if (value.type === 'credential:request') {
@@ -236,5 +237,31 @@ describe.skipIf(!executable)('Codex app-server runtime', () => {
     await send(host, '/skill:greet-user please')
     await waitFor(() => !host.getState().busy)
     expect(JSON.stringify(fixture.requests.at(-1)?.input)).toContain('SAY-HELLO-MARKER')
+  }, 90000)
+
+  it('restarts a crashed app-server and carries on in the same thread', async () => {
+    const { make, cwd } = await setup()
+    const host = make()
+    await host.handle({ type: 'bootstrap' })
+    await host.handle({ type: 'project:open', cwd })
+    await send(host, 'before the crash')
+    await waitFor(() => !host.getState().busy)
+    const path = host.getState().activeSessionPath
+
+    const child = (host as unknown as { server: { child: { kill(signal: string): void } } }).server
+      .child
+    child.kill('SIGKILL')
+    await waitFor(() => host.getState().error?.includes('Codex 已退出') === true)
+    expect(nodes(host.getState(), 'error').length).toBe(1)
+    await waitFor(() =>
+      host.getState().nodes.some((node) => node.type === 'stopped' && /自动重启/.test(node.message))
+    )
+    expect(host.getState()).toMatchObject({ ready: true, activeSessionPath: path })
+    expect(host.getState().error).toBeFalsy()
+
+    await send(host, 'after the crash')
+    await waitFor(() => !host.getState().busy)
+    expect(nodes(host.getState(), 'assistant').length).toBe(2)
+    expect(host.getState().activeSessionPath).toBe(path)
   }, 90000)
 })

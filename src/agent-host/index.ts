@@ -605,7 +605,10 @@ class PiDesktopHost {
         if (!/^openai-codex(?:-[a-z0-9][a-z0-9-]*)?$/.test(request.providerId))
           throw new Error('只能共享 ChatGPT 账号')
         await this.initialize()
-        const auth = await this.modelRuntime!.getAuth(request.providerId)
+        const auth = await this.modelRuntime!.getAuth(request.providerId).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error)
+          throw new Error(`这个 ChatGPT 账号的登录已失效，请在「设置 › 引擎与账号」重新登录（${reason}）`)
+        })
         const accessToken = auth?.auth.apiKey
         if (!accessToken) throw new Error('这个 ChatGPT 账号需要重新登录')
         const stored = this.storedAccountIds().get(request.providerId)

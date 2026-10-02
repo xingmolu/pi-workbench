@@ -42,6 +42,8 @@ export type CodexHostOptions = {
   /** `-c key=value` overrides, used by tests to point Codex at a local model server. */
   config?: string[]
   version?: string
+  /** Pause before restarting a crashed app-server. */
+  restartDelayMs?: number
   post(message: unknown): void
 }
 
@@ -87,6 +89,8 @@ export class CodexHost {
   private shared: SharedChatgptAccount[] = []
   private configured = false
   private signedInAs: string | undefined
+  private crashes: number[] = []
+  private missingAccount: string | undefined
   private turn: { threadId: string; turnId: string } | undefined
   private running = false
   private disposed = false
@@ -371,12 +375,18 @@ export class CodexHost {
         onExit: (error) => {
           if (this.server !== server) return
           this.server = undefined
+          this.signedInAs = undefined
           this.running = false
           this.turn = undefined
+          this.snapshot.status = 'idle'
+          this.approvals.clear(this.snapshot.generation, 'abort')
           this.snapshot.ready = false
           this.snapshot.error = error?.message ?? 'Codex 已退出'
           this.projection.settle()
+          if (this.snapshot.project)
+            this.projection.error(`codex-exit-${Date.now()}`, this.snapshot.error)
           this.publish()
+          this.scheduleRestart()
         }
       })
       this.server = server
@@ -396,6 +406,38 @@ export class CodexHost {
         this.starting = undefined
       })
     return this.starting
+  }
+
+  /**
+   * A crashed app-server is started again and the open thread resumed, so the chat carries on.
+   * Repeated crashes stop the automatic restarts; the next prompt still tries once more.
+   */
+  private scheduleRestart(): void {
+    if (this.disposed) return
+    const now = Date.now()
+    this.crashes = [...this.crashes.filter((time) => now - time < 60_000), now]
+    if (this.crashes.length > 3) {
+      this.snapshot.error = `Codex 反复退出，已停止自动重启：${this.snapshot.error ?? ''}`
+      this.publish()
+      return
+    }
+    const timer = setTimeout(() => {
+      void this.commands.run(() => this.revive()).catch(() => undefined)
+    }, this.options.restartDelayMs ?? 1000)
+    timer.unref?.()
+  }
+
+  private async revive(): Promise<void> {
+    if (this.server || this.disposed) return
+    await this.start()
+    if (this.reference?.threadId && this.snapshot.project)
+      await this.server_().request('thread/resume', {
+        threadId: this.reference.threadId,
+        cwd: this.snapshot.project.path,
+        ...POLICY[this.snapshot.permissionMode]
+      })
+    this.projection.notice('Codex 意外退出，已自动重启并接上当前对话')
+    this.publish()
   }
 
   private server_(): AppServerClient {
@@ -518,6 +560,14 @@ export class CodexHost {
     this.snapshot.approvals = []
     this.snapshot.metrics = { turns: 0, steps: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
     await this.refreshAccounts()
+    const missing = this.reference.account
+    if (
+      this.reference.threadId &&
+      missing &&
+      missing !== this.snapshot.activeProvider &&
+      !this.snapshot.accounts.some((account) => account.id === missing)
+    )
+      this.missingAccount = missing
     if (this.reference.threadId) {
       const server = this.server_()
       await server.request('thread/resume', {
@@ -530,6 +580,17 @@ export class CodexHost {
       }>('thread/read', { threadId: this.reference.threadId, includeTurns: true })
       for (const turn of read.thread.turns ?? [])
         for (const item of turn.items) this.projection.item(item, true, turn.id)
+    }
+    if (this.missingAccount) {
+      const now = this.snapshot.accounts.find(
+        (account) => account.id === this.snapshot.activeProvider
+      )
+      this.projection.notice(
+        now
+          ? `这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，接下来会改用 ${now.email ?? now.name}`
+          : '这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，请在「设置 › 引擎与账号」添加账号'
+      )
+      this.missingAccount = undefined
     }
     await this.refreshSessions()
     this.publish(true)
@@ -685,9 +746,18 @@ export class CodexHost {
     this.assertIdle()
     if (this.snapshot.composeBlockReason)
       throw new Error(`Codex cannot compose: ${this.snapshot.composeBlockReason}`)
+    if (!this.server) await this.revive()
     const server = this.server_()
     const account = this.snapshot.activeProvider!
-    await this.signIn(account)
+    try {
+      await this.signIn(account)
+    } catch (error) {
+      const message = explain(error)
+      this.snapshot.status = 'error'
+      this.projection.error(randomUUID(), message)
+      this.publish()
+      throw new Error(message)
+    }
     const policy = POLICY[this.snapshot.permissionMode]
     if (!this.reference.threadId) {
       const started = await server.request<{ thread: { id: string } }>('thread/start', {
@@ -747,7 +817,7 @@ export class CodexHost {
     } catch (error) {
       this.running = false
       this.snapshot.status = 'error'
-      this.projection.error(randomUUID(), error instanceof Error ? error.message : String(error))
+      this.projection.error(randomUUID(), explain(error))
       this.publish()
       throw error
     }
@@ -805,7 +875,7 @@ export class CodexHost {
         this.snapshot.metrics = { ...this.snapshot.metrics, turns: this.snapshot.metrics.turns + 1 }
         if (turn.status === 'failed') {
           this.snapshot.status = 'error'
-          this.projection.error(randomUUID(), turn.error?.message ?? 'Codex 回合失败')
+          this.projection.error(randomUUID(), explain(turn.error?.message ?? 'Codex 回合失败'))
         } else if (turn.status === 'interrupted') this.snapshot.status = 'stopped'
         else this.snapshot.status = 'idle'
         void this.refreshSessions().then(() => this.publish())
@@ -814,7 +884,7 @@ export class CodexHost {
       case 'error': {
         if (params.willRetry) break
         const error = params.error as { message?: string } | undefined
-        this.projection.error(randomUUID(), error?.message ?? 'Codex 出错')
+        this.projection.error(randomUUID(), explain(error?.message ?? 'Codex 出错'))
         break
       }
       case 'thread/name/updated':
@@ -970,4 +1040,21 @@ export class CodexHost {
   async clearCache(): Promise<void> {
     await rm(join(this.options.storage.cache, 'images'), { recursive: true, force: true })
   }
+}
+
+/** Engine errors in words a user can act on; the original text stays at the end. */
+export function explain(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/已不在 Pi 中|没有允许|重新登录/.test(message)) return message
+  if (
+    /\b401\b|unauthori[sz]ed|invalid[_ ]token|token (?:is )?expired|refresh[_ ]token/i.test(message)
+  )
+    return `ChatGPT 登录已失效，请在「设置 › 引擎与账号」重新登录这个账号后再发送（${message}）`
+  if (
+    /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|error sending request|stream disconnected|network/i.test(
+      message
+    )
+  )
+    return `连不上模型服务，请检查网络或代理后重试（${message}）`
+  return message
 }
