@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import type { TerminalEvent, TerminalIdentity, TerminalMetadata } from '../../src/shared/terminal'
+import { displayEnv } from './display-env'
 
 declare global {
   interface Window {
@@ -142,6 +143,7 @@ test.beforeEach(async ({}, testInfo) => {
   app = await electron.launch({
     args: [appPath],
     env: {
+      ...displayEnv(),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

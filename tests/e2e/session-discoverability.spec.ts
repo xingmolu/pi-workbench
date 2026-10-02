@@ -19,6 +19,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { PiDesktopAPI } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 
 declare global {
   interface Window {
@@ -121,6 +122,7 @@ test.beforeEach(async () => {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

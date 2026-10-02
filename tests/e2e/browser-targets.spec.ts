@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { BrowserTargets } from '../../src/main/browser-targets'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication
 let root: string
@@ -50,6 +51,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: join(root, 'project'),
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

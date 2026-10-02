@@ -3,6 +3,7 @@ import { build } from 'esbuild'
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { displayEnv } from './display-env'
 
 // Mount the real component in an isolated Electron renderer. No account credential,
 // production bridge, network request, or application bundle rewrite is involved.
@@ -14,6 +15,7 @@ test('quota discards late same-provider results across login and auth generation
     app = await electron.launch({
       args: [resolve('.')],
       env: {
+        ...displayEnv(),
         PATH: process.env.PATH ?? '',
         HOME: join(root, 'home'),
         LANG: 'en_US.UTF-8',

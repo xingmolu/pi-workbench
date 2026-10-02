@@ -40,6 +40,11 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Codex host against the real CLI
+        run: |
+          export PI_DESKTOP_CODEX_EXECUTABLE="$(node scripts/fetch-engine.mjs codex .engines)"
+          npx vitest run src/codex-host
+
       - name: Build
         run: npm run build
 
@@ -67,6 +72,55 @@ jobs:
         run: |
           test -x resources/native/pi-computer-use-helper
           file resources/native/pi-computer-use-helper
+
+  macos-engines:
+    # The engines users actually run on a Mac: real Claude Code and Codex CLIs, offline models.
+    needs: verify
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch the pinned Codex CLI
+        run: echo "PI_DESKTOP_CODEX_EXECUTABLE=$(node scripts/fetch-engine.mjs codex .engines)" >> "$GITHUB_ENV"
+
+      - name: Engine hosts against the real CLIs
+        run: npx vitest run src/codex-host src/claude-host src/main/engine-binaries.test.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Engines in the real app
+        run: >-
+          npx playwright test
+          tests/e2e/codex-runtime.spec.ts
+          tests/e2e/claude-runtime.spec.ts
+          tests/e2e/engine-download.spec.ts
+          tests/e2e/engine-accounts.spec.ts
+          --reporter=line
+
+      - name: Upload engine diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-engines-diagnostics-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            test-results/
+            artifacts/e2e/
 
   e2e-smoke:
     needs: verify
@@ -98,9 +152,15 @@ jobs:
       - name: Install Electron test runtime
         run: node node_modules/electron/install.js
 
+      - name: Fetch the pinned Codex CLI
+        run: echo "PI_DESKTOP_CODEX_EXECUTABLE=$(node scripts/fetch-engine.mjs codex .engines)" >> "$GITHUB_ENV"
+
       - name: Electron architecture and UI smoke
         run: >-
           xvfb-run -a npx playwright test
+          tests/e2e/engine-accounts.spec.ts
+          tests/e2e/engine-download.spec.ts
+          tests/e2e/codex-runtime.spec.ts
           tests/e2e/multi-session.spec.ts
           tests/e2e/claude-runtime.spec.ts
           tests/e2e/mobile-delivery.spec.ts
@@ -122,6 +182,8 @@ jobs:
 
       - name: Upload E2E diagnostics
         if: failure()
+        # The account's artifact storage can fill up; that must not turn CI red.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: e2e-smoke-diagnostics-${{ github.run_id }}
@@ -134,6 +196,8 @@ jobs:
 
       - name: Upload UI previews
         if: always()
+        # The account's artifact storage can fill up; that must not turn CI red.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ui-experience-previews-${{ github.run_id }}
@@ -200,6 +264,8 @@ jobs:
           EOF
 
       - name: Upload PR installer
+        # The account's artifact storage can fill up; that must not turn CI red.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: pi-desktop-macos-arm64-pr-${{ github.event.pull_request.number }}-adhoc-${{ github.sha }}
@@ -253,6 +319,16 @@ jobs:
       - name: Package installer
         run: ${{ matrix.command }}
 
+      - name: Report installer size
+        shell: bash
+        run: |
+          {
+            echo "### Installer size (${{ matrix.name }})"
+            echo '```'
+            find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -exec du -h {} \;
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Verify packaged Computer Use helper
         if: startsWith(matrix.name, 'macos-')
         shell: bash
@@ -263,6 +339,8 @@ jobs:
           codesign --verify --strict --verbose=2 "$app_path/Contents/Helpers/pi-computer-use-helper"
 
       - name: Upload installer
+        # The account's artifact storage can fill up; that must not turn CI red.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: pi-desktop-${{ matrix.name }}-${{ github.sha }}

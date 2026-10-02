@@ -9,6 +9,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, utimes } from 'node:
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { PiDesktopAPI } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 
 declare global {
   interface Window {
@@ -109,6 +110,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: a,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

@@ -143,6 +143,8 @@ test('runtime plugins expose scoped metadata and reject unknown selections witho
     apiVersion: 1, id: 'pi', label: 'Pi', subagents: 'desktop', storage: 'legacy'
   }), expect.objectContaining({
     apiVersion: 1, id: 'claude', label: 'Claude Code', subagents: 'native', storage: 'desktop'
+  }), expect.objectContaining({
+    apiVersion: 1, id: 'codex', label: 'Codex', authentication: ['external'], storage: 'desktop'
   })])
   const current = await page.evaluate(() => window.pi.getState())
   expect(current.runtime).toEqual(runtimes[0])

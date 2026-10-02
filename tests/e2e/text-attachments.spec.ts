@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { parseTextContext } from '../../src/shared/text-attachments'
+import { displayEnv } from './display-env'
 let root: string
 let project: string
 let app: ElectronApplication
@@ -64,6 +65,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: root,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

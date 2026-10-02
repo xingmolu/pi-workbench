@@ -9,6 +9,7 @@ import { chmod, mkdtemp, mkdir, realpath, readFile, writeFile, rm } from 'node:f
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { formatTextContext, parseTextContext } from '../../src/shared/text-attachments'
+import { displayEnv } from './display-env'
 
 const FIXTURE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
 
@@ -115,6 +116,7 @@ async function launchFixtureApp(): Promise<void> {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

@@ -9,6 +9,7 @@ import {
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication
 let page: Page
@@ -65,6 +66,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: join(root, 'project'),
     env: {
+      ...displayEnv(),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

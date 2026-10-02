@@ -15,3 +15,4 @@ test-results/
 test-results-quota/
 playwright-report/
 .playwright-mcp/
+.engines/

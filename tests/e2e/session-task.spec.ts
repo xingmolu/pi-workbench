@@ -231,6 +231,8 @@ test('parent Agent batch delegates, supervises and collects two background resul
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
+      ...(process.env.XAUTHORITY ? { XAUTHORITY: process.env.XAUTHORITY } : {}),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

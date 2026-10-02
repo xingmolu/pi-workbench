@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AgentSnapshot } from '../../src/shared/contracts'
 import { build as bundleFixture } from 'esbuild'
+import { displayEnv } from './display-env'
 let app: ElectronApplication, page: Page, root: string, state: AgentSnapshot
 test('profile long-reply renderer CPU with and without streaming preview', async () => {
   test.skip(process.env.PI_DESKTOP_PERF_TEST !== '1', 'Opt-in synthetic CPU comparison')
@@ -159,6 +160,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: root,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

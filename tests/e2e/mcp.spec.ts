@@ -13,6 +13,7 @@ import { McpServer as SdkServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication, page: Page, root: string, agent: string, http: ChildProcess
 const fixture = resolve('tests/fixtures/mcp-server.mjs')
@@ -56,6 +57,7 @@ async function launchFixtureApp(): Promise<void> {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

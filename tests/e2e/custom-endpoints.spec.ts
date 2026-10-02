@@ -11,6 +11,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { PiDesktopAPI } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 
 declare global {
   interface Window {
@@ -67,6 +68,7 @@ async function launchFixture(): Promise<void> {
     args: [resolve('.')],
     cwd: join(root, 'project'),
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

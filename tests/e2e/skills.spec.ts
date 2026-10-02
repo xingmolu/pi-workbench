@@ -9,6 +9,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication, page: Page, root: string, project: string
 test.beforeEach(async () => {
@@ -63,6 +64,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: root,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

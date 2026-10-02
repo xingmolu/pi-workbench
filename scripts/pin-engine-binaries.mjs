@@ -78,7 +78,7 @@ async function codex(version) {
 let previous = {}
 try {
   const text = await readFile(output, 'utf8')
-  previous = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
+  previous = new Function(`return ${text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)}`)()
 } catch {
   // First run.
 }

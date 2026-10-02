@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { openWorkbenchTool } from './workbench-helpers'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication
 let page: Page
@@ -133,6 +134,7 @@ test.beforeEach(async () => {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

@@ -9,6 +9,7 @@ import {
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication
 let page: Page
@@ -53,6 +54,7 @@ test.beforeEach(async () => {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

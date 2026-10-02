@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { BrowserManager, BrowserAgentScope } from '../../src/main/browser-manager'
 import type { BrowserOperation, BrowserSnapshotResult } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 
 type Harness = { manager: BrowserManager; scope: BrowserAgentScope }
 let app: ElectronApplication, root: string, server: Server, url: string
@@ -39,6 +40,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: join(root, 'project'),
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

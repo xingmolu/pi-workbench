@@ -9,6 +9,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { PiDesktopAPI } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 declare global {
   interface Window {
     pi: PiDesktopAPI
@@ -158,6 +159,7 @@ test.beforeEach(async () => {
     args: [resolve('.')],
     cwd: a,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',
@@ -233,6 +235,7 @@ test('restart restores the selected runtime and exact session after switching re
     args: [resolve('.')],
     cwd: a,
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

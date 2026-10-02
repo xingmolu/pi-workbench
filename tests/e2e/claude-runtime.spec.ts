@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createClaudeHttpFixture } from '../../src/claude-host/sdk-fixture'
 import type { AgentSnapshot } from '../../src/shared/contracts'
+import { displayEnv } from './display-env'
 
 let app: ElectronApplication, page: Page, root: string, project: string
 let fixture: Awaited<ReturnType<typeof createClaudeHttpFixture>>
@@ -34,6 +35,7 @@ async function launch() {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',

@@ -45,6 +45,7 @@ test.beforeEach(async () => {
   app = await electron.launch({
     args: [resolve('.')],
     env: {
+      ...displayEnv(),
       PATH: process.env.PATH ?? '',
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',
@@ -375,3 +376,4 @@ test('isolated transport fixture: late patches, preview, mode/project changes an
   await expect(pane.locator('pre')).toHaveText('CURRENT PATCH')
 })
 import { openWorkbenchTool } from './workbench-helpers'
+import { displayEnv } from './display-env'
