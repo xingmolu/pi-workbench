@@ -1,15 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from 'node:fs'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import type { PermissionMode } from '../shared/contracts'
 import {
   EMPTY_PERMISSION_RULES,
@@ -19,6 +10,7 @@ import {
   type PermissionRules
 } from '../shared/permission-rules'
 import { resolveToolPath } from './checkpoints'
+import { isInside } from './project-path'
 
 /** Per-project allow rules, owned by the Host so the Renderer can only request changes.
  * Stored outside the project so they never end up in a repository. */
@@ -155,29 +147,4 @@ export class PermissionRulesStore {
       return 'missing'
     }
   }
-}
-
-/** Resolves symlinks on the deepest existing ancestor, so a link inside the project that
- * points elsewhere does not count as a project file. */
-function realish(path: string): string {
-  let current = path
-  const rest: string[] = []
-  while (!existsSync(current)) {
-    const parent = dirname(current)
-    if (parent === current) return path
-    rest.unshift(current.slice(parent.length + 1))
-    current = parent
-  }
-  try {
-    return resolve(realpathSync(current), ...rest)
-  } catch {
-    return path
-  }
-}
-
-export function isInside(path: string, root: string): boolean {
-  const target = realish(path)
-  const base = realish(root)
-  const rel = relative(base, target)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
 }

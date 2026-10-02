@@ -23,6 +23,7 @@ import { CLAUDE_RUNTIME_MANIFEST } from '../shared/claude-runtime'
 import { SerialExecutor } from '../agent-host/serial-executor'
 import { ApprovalRegistry } from '../agent-host/approval-registry'
 import { ProjectMutationClient } from '../agent-host/project-mutation-client'
+import { isInside } from '../agent-host/project-path'
 import { mutationResponseSchema } from '../shared/runtime-capabilities'
 import { mcpServerSchema, type McpServer, type McpSnapshot } from '../shared/mcp'
 import { ClaudeSessionStore, type ClaudeStorage, type SessionReference } from './storage'
@@ -76,6 +77,23 @@ const READ_TOOLS = new Set([
   'ListMcpResourcesTool',
   'ReadMcpResourceTool'
 ])
+/** Fetching a URL can carry what the agent read to whoever owns the address, so the
+ * "帮我批准" level asks for it as Pi does for its browser. */
+const ASKED_WHEN_AUTO = new Set(['WebFetch'])
+const EDIT_PATHS: Record<string, string> = {
+  Write: 'file_path',
+  Edit: 'file_path',
+  NotebookEdit: 'notebook_path'
+}
+
+/** What "帮我批准" runs without asking: reads, and edits to files inside the project. */
+export function autoApproves(name: string, input: unknown, project: string | undefined): boolean {
+  if (READ_TOOLS.has(name)) return !ASKED_WHEN_AUTO.has(name)
+  const key = EDIT_PATHS[name]
+  const path =
+    key && input && typeof input === 'object' ? (input as Record<string, unknown>)[key] : undefined
+  return typeof path === 'string' && !!project && isInside(resolve(project, path), project)
+}
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -325,7 +343,7 @@ export class ClaudeHost {
         const allow =
           this.snapshot.permissionMode === 'open' ||
           (this.snapshot.permissionMode === 'auto' &&
-            (READ_TOOLS.has(name) || ['Write', 'Edit', 'NotebookEdit'].includes(name))) ||
+            autoApproves(name, input, this.snapshot.project?.path)) ||
           (await this.approvals.request(
             {
               id: `claude:${context.toolUseID}`,
