@@ -11,3 +11,10 @@ it('migrates last project and deduplicates confirmed canonical paths with a visi
     )
   ).length(100)
 })
+
+it('keeps Windows drive paths and drops relative ones', () => {
+  expect(mergeRecentProjects(['C:\\work\\a', 'relative', 'D:\\b'], 'C:\\work\\c', 'win32')).toEqual(
+    ['C:\\work\\c', 'C:\\work\\a', 'D:\\b']
+  )
+  expect(mergeRecentProjects(['C:\\work\\a', 'relative', '/a'], undefined, 'linux')).toEqual(['/a'])
+})

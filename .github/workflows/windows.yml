@@ -65,6 +65,7 @@ jobs:
           for file in test-results/*/error-context.md; do
             [ -f "$file" ] || continue
             echo "=== $file"
-            head -c 6000 "$file"
+            # The error and the page snapshot, without the spec's own source.
+            awk '/^# Test source/ { skip = 1; next } /^# / { skip = 0 } !skip' "$file" | head -c 8000
             echo
           done
