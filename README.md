@@ -1,5 +1,15 @@
 # Pi Desktop
 
+**A desktop workbench for coding agents.** Pi Desktop runs the [Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
+Claude Code and Codex side by side in one Electron app: parallel sessions per project, approvals with
+diffs and undo, subagents, a built-in browser, terminal and Git, MCP servers, skills, plugins and a
+phone companion. Bring a ChatGPT or Claude subscription, or any API key (OpenRouter, DeepSeek, Kimi,
+Anthropic, OpenAI-compatible gateways). Nightly builds for macOS, Windows and Linux are on the
+[Releases](https://github.com/xingmolu/pi-workbench/releases) page. MIT licensed; not affiliated with
+the Pi project, Anthropic or OpenAI.
+
+---
+
 Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 `@earendil-works/pi-coding-agent`。它不复制 Pi 的会话或凭证。
 
