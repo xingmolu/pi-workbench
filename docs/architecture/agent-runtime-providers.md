@@ -161,8 +161,16 @@ Engines are plugins; accounts are not owned by whichever chat is open.
   on. A new session takes the composer's choice, else the default (`active` in `desktop.json`,
   set from Settings or by adding a connection). Picking another account in a session's model menu
   moves only that session; a removed connection falls back to the default.
-- **Limits** — sharing one ChatGPT login between Pi and a future Codex engine needs a common
-  credential format and is not implemented.
+- **Lending accounts between engines** — Codex declares `authentication: ['external']` and owns no
+  login. Its host asks the desktop (`credential:request` on the worker channel) for the ChatGPT
+  accounts Pi holds and for a token of the one a chat uses. `EngineCredentialBroker` in Main asks
+  the user the first time an engine uses an account ("允许 Codex 使用 robin@…？": not now, this
+  run only, always), stores "always" in `engineGrants` keyed by email, and fetches a fresh access
+  token from Pi with the Main-only `account:token` command. The token goes to Codex through
+  app-server's external-auth login (`chatgptAuthTokens`); when it expires Codex asks for a new one
+  (`account/chatgptAuthTokens/refresh`) and the same path answers. Refresh tokens never leave
+  Pi, so the two engines cannot invalidate each other's refresh tokens. Settings lists a lent
+  account once, as "用于 Pi、Codex", with a menu item to take the permission back.
 
 ## Adapter implementation choices
 
@@ -198,6 +206,17 @@ currently experimental and should remain behind a provider feature flag until st
 
 The Codex adapter therefore owns App Server JSON-RPC/session projection while Browser and
 Computer Use remain host-owned services.
+
+Implemented in `src/codex-host/`: one `codex app-server` process per worker, with
+`CODEX_HOME` inside the desktop's runtime storage. Desktop session references
+(`sessions/<id>.json`) point at Codex threads, which are created on the first prompt and
+resumed with `thread/resume` + `thread/read`. Items (messages, reasoning, commands, file
+changes, MCP calls, web search) are projected into conversation nodes; command and file-change
+approvals become desktop approval cards; the permission level maps to Codex approval policy
+and sandbox (`ask` → untrusted/workspace-write, `auto` → on-request, `open` → never/full
+access). The CLI is downloaded on demand like Claude Code. Tests run the real CLI against a
+local Responses API stand-in (`responses-fixture.ts`) when `PI_DESKTOP_CODEX_EXECUTABLE` is
+set. Not yet supported for Codex: forking, editing, MCP management, skills and quotas.
 
 ## Conformance tests
 

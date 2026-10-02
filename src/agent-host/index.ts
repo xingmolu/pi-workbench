@@ -131,7 +131,7 @@ import { clearFollowUpQueue } from './queue-state'
 import { SerialExecutor } from './serial-executor'
 import { SessionEditService, latestUserId, type EditHostState } from './session-edit'
 import { isCodexFamilyProvider, selectProjectedProviders } from './auth-projection'
-import { codexIdentity, type CodexIdentity } from './codex-identity'
+import { codexAccount, codexIdentity, type CodexIdentity } from './codex-identity'
 import { createAliasProvider, type AliasEntry } from './codex-alias'
 import { AccountQuotaReader } from './account-quota'
 import { McpConfigStore } from './mcp-config'
@@ -599,6 +599,24 @@ class PiDesktopHost {
       case 'mcp:login':
       case 'mcp:logout':
         return { kind: 'mcp', result: await this.manageMcp(request) }
+      case 'account:token': {
+        // Only ChatGPT logins, and only for the desktop's own engines (Main never routes this
+        // command from a renderer). The refresh token stays in auth.json.
+        if (!/^openai-codex(?:-[a-z0-9][a-z0-9-]*)?$/.test(request.providerId))
+          throw new Error('只能共享 ChatGPT 账号')
+        await this.initialize()
+        const auth = await this.modelRuntime!.getAuth(request.providerId)
+        const accessToken = auth?.auth.apiKey
+        if (!accessToken) throw new Error('这个 ChatGPT 账号需要重新登录')
+        const stored = this.storedAccountIds().get(request.providerId)
+        const claims = codexAccount(accessToken)
+        const chatgptAccountId = claims.accountId ?? stored
+        if (!chatgptAccountId) throw new Error('无法确定这个 ChatGPT 账号的 ID，请重新登录')
+        return {
+          kind: 'account-token',
+          token: { accessToken, chatgptAccountId, planType: claims.planType ?? null }
+        }
+      }
       case 'account:quota':
         if (!this.modelRuntime) throw new Error('Pi 引擎尚未连接')
         return { kind: 'account-quota', quota: await this.accountQuota.read(this.modelRuntime, request.providerId) }
@@ -1706,6 +1724,21 @@ class PiDesktopHost {
         : {})
     }))
     this.models = available.map((model) => this.modelRejections.project(this.modelSummary(model)))
+  }
+
+  /** `accountId` Pi recorded for each ChatGPT login when it signed in. */
+  private storedAccountIds(): Map<string, string> {
+    try {
+      const stored: unknown = JSON.parse(readFileSync(join(AGENT_DIR, 'auth.json'), 'utf8'))
+      if (!stored || typeof stored !== 'object') return new Map()
+      return new Map(
+        Object.entries(stored as Record<string, { accountId?: unknown }>).flatMap(([id, entry]) =>
+          typeof entry?.accountId === 'string' ? [[id, entry.accountId] as [string, string]] : []
+        )
+      )
+    } catch {
+      return new Map()
+    }
   }
 
   /** Email and plan of each stored ChatGPT login; auth.json is this host's own file. */

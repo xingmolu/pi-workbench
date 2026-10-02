@@ -46,3 +46,14 @@ export function codexIdentity(accessToken: unknown): CodexIdentity {
       : {})
   }
 }
+
+/** The raw ChatGPT account id and plan another engine needs alongside the access token. */
+export function codexAccount(accessToken: string): { accountId?: string; planType?: string } {
+  const auth = record(payload(accessToken)?.[AUTH_CLAIM])
+  const accountId = auth?.chatgpt_account_id
+  const plan = auth?.chatgpt_plan_type
+  return {
+    ...(typeof accountId === 'string' && accountId ? { accountId } : {}),
+    ...(typeof plan === 'string' && plan ? { planType: plan } : {})
+  }
+}

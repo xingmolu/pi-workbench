@@ -224,6 +224,8 @@ export type RuntimeAccounts = {
   error?: string
   /** Engines whose CLI is downloaded on demand report whether it is here yet. */
   binary?: import('./engine-binaries').EngineBinaryStatus
+  /** The engine signs in with accounts another engine holds (Codex uses Pi's ChatGPT logins). */
+  borrowsAccounts?: boolean
 }
 export type RuntimeConfigCommand = Extract<
   HostCommand,
@@ -533,6 +535,8 @@ export type HostCommand =
       label?: string
     }
   | { type: 'account:quota'; providerId: string }
+  /** Main-only: a fresh ChatGPT access token for another engine; never routed from a renderer. */
+  | { type: 'account:token'; providerId: string }
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'account:add'; platform: SubscriptionPlatform; method: LoginMethod }
@@ -560,7 +564,7 @@ export type AckHostCommand = Exclude<
   | AttachmentHostCommand
   | SessionEditCommand
   | ProjectCatalogCommand
-  | Extract<HostCommand, { type: 'account:quota' }>
+  | Extract<HostCommand, { type: 'account:quota' | 'account:token' }>
   | CheckpointCommand
   | SessionSearchCommand | ProjectSearchCommand
   | import('./mcp').McpCommand
@@ -589,6 +593,7 @@ export type HostResult =
   | { kind: 'skills-detail'; detail: import('./skills').SkillDetail }
   | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
+  | { kind: 'account-token'; token: import('./engine-credentials').ChatgptAccessToken }
   | { kind: 'project-catalog'; catalog: ProjectCatalog }
   | { kind: 'subagent-inspection'; snapshot: AgentSnapshot }
   | { kind: 'session-edit'; result: SessionEditResult }
@@ -613,6 +618,8 @@ export type HostResultFor<Command extends HostCommand> = Command extends { type:
   ? { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   : Command extends { type: 'account:quota' }
   ? { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
+  : Command extends { type: 'account:token' }
+  ? { kind: 'account-token'; token: import('./engine-credentials').ChatgptAccessToken }
   : Command extends ProjectCatalogCommand
   ? { kind: 'project-catalog'; catalog: ProjectCatalog }
   : Command extends SessionEditCommand
@@ -660,6 +667,8 @@ export type DesktopEvent =
   | { type: 'event'; event: 'navigation-library'; data: import('./navigation-library').NavigationLibraryState }
   | { type: 'event'; event: 'command-palette'; data: { source: 'native-view'; token: string } }
   | { type: 'event'; event: 'mobile-gateway'; data: import('./mobile-gateway').MobileGatewayState }
+  | { type: 'event'; event: 'credential-grant'; data: import('./engine-credentials').CredentialGrantPrompt }
+  | { type: 'event'; event: 'credential-grant-closed'; data: { id: string } }
   | {
       type: 'event'
       event: 'disconnected'
@@ -688,6 +697,16 @@ export type PiDesktopAPI = {
   selectRuntime: (runtimeId: string, origin?: DesktopCommandOrigin) => Promise<AgentSnapshot>
   /** Accounts of every engine, read from configuration hosts; independent of the open chat. */
   runtimeAccounts: () => Promise<RuntimeAccounts[]>
+  /** Answers "may this engine use this ChatGPT account?". */
+  respondCredentialGrant: (
+    id: string,
+    decision: import('./engine-credentials').CredentialGrantDecision
+  ) => Promise<void>
+  credentialGrants: () => Promise<import('./engine-credentials').CredentialGrant[]>
+  revokeCredentialGrant: (
+    runtimeId: string,
+    account: string
+  ) => Promise<import('./engine-credentials').CredentialGrant[]>
   /** Downloads or removes an engine's CLI; progress shows up in `runtimeAccounts`. */
   engineBinary: (
     runtimeId: string,

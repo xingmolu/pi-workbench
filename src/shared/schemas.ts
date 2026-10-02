@@ -649,6 +649,7 @@ const promptSendCommandSchema = z
 const sessionTaskCancelCommandSchema = z.object({ type: z.literal('session-task:cancel'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1).max(1024), generation: nonNegativeInteger }).strict()
 const subagentInspectCommandSchema = z.object({ type: z.literal('subagent:inspect'), taskId: z.string().min(1).max(256), sessionId: z.string().min(1), generation: nonNegativeInteger }).strict()
 const accountApiKeySetCommandSchema = z.object({ type: z.literal('account:api-key:set'), providerId: z.string().min(1).max(128), apiKey: z.string().min(1).max(16384), baseUrl: customEndpointUrlSchema.optional(), label: z.string().trim().min(1).max(80).optional() }).strict()
+const accountTokenCommandSchema = z.object({ type: z.literal('account:token'), providerId: z.string().min(1).max(128) }).strict()
 const promptAbortCommandSchema = z.object({ type: z.literal('prompt:abort') }).strict()
 const queueClearCommandSchema = z.object({ type: z.literal('queue:clear') }).strict()
 const permissionSetCommandSchema = z
@@ -716,6 +717,7 @@ const commandSchemas = [
   skillsListSchema, skillsDetailSchema,
   mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpLoginSchema, mcpLogoutSchema,
   accountQuotaCommandSchema,
+  accountTokenCommandSchema,
   messageFeedbackCommandSchema,
   checkpointPlanCommandSchema,
   checkpointRestoreCommandSchema,
@@ -774,6 +776,7 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   mcpLoginSchema.extend(requestIdShape),
   mcpLogoutSchema.extend(requestIdShape),
   accountQuotaCommandSchema.extend(requestIdShape),
+  accountTokenCommandSchema.extend(requestIdShape),
   messageFeedbackCommandSchema.extend(requestIdShape),
   checkpointPlanCommandSchema.extend(requestIdShape),
   checkpointRestoreCommandSchema.extend(requestIdShape),
@@ -824,6 +827,7 @@ export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kin
   z.object({ kind: z.literal('skills-detail'), detail: skillDetailSchema }).strict(),
   z.object({ kind: z.literal('mcp'), result: mcpSnapshotSchema }).strict(),
   z.object({ kind: z.literal('account-quota'), quota: accountQuotaSchema }).strict(),
+  z.object({ kind: z.literal('account-token'), token: z.object({ accessToken: z.string().min(1), chatgptAccountId: z.string().min(1), planType: z.string().nullable() }).strict() }).strict(),
   z.object({kind:z.literal('project-catalog'),catalog:z.object({
     projects:z.array(z.object({
       path:z.string().min(1),name:z.string().min(1),sessions:z.array(sessionSummarySchema),

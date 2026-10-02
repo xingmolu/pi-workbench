@@ -13,17 +13,20 @@ export type SubscriptionRow = { runtimeId: string; engine: string; account: Acco
 export type ApiRow = SubscriptionRow
 
 export function subscriptionRows(engines: readonly RuntimeAccounts[]): SubscriptionRow[] {
-  return engines.flatMap((engine) =>
-    engine.accounts
-      // An empty login slot (never signed in, no email) is not an account yet.
-      .filter(
-        (account) =>
-          account.platform &&
-          account.authType === 'oauth' &&
-          (account.connected || account.email || account.alias)
-      )
-      .map((account) => ({ runtimeId: engine.runtimeId, engine: engine.label, account }))
-  )
+  // Borrowed accounts are the lender's rows; the lender's row says who else may use them.
+  return engines
+    .filter((engine) => !engine.borrowsAccounts)
+    .flatMap((engine) =>
+      engine.accounts
+        // An empty login slot (never signed in, no email) is not an account yet.
+        .filter(
+          (account) =>
+            account.platform &&
+            account.authType === 'oauth' &&
+            (account.connected || account.email || account.alias)
+        )
+        .map((account) => ({ runtimeId: engine.runtimeId, engine: engine.label, account }))
+    )
 }
 
 export function apiRows(engines: readonly RuntimeAccounts[], runtimeId: string): ApiRow[] {

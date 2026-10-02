@@ -19,6 +19,7 @@ import type {
   SubscriptionPlatform
 } from '../../../shared/contracts'
 import type { AgentRuntimeManifest } from '../../../shared/agent-runtime'
+import type { CredentialGrant } from '../../../shared/engine-credentials'
 import { useRuntimeCatalog } from '../store/runtime-catalog'
 import { engineSummary } from '../store/engine-presentation'
 import { apiRows, subscriptionRows, useRuntimeAccounts } from '../store/runtime-accounts'
@@ -205,14 +206,19 @@ function SubscriptionItem({
   row,
   engine,
   busy,
+  sharedWith = [],
   onLogin,
-  onRemove
+  onRemove,
+  onRevoke
 }: {
   row: { runtimeId: string; engine: string; account: AccountSummary }
   engine: RuntimeAccounts
   busy: boolean
+  /** Other engines the user allowed to use this login. */
+  sharedWith?: { runtimeId: string; label: string; account: string }[]
   onLogin: (method: LoginMethod) => void
   onRemove: () => void
+  onRevoke?: (grant: { runtimeId: string; account: string }) => void
 }): React.JSX.Element {
   const { account } = row
   const [quota, setQuota] = useState(false)
@@ -228,7 +234,8 @@ function SubscriptionItem({
           <strong title={name}>{name}</strong>
           <small>
             {PLATFORM_LABEL[account.platform!]}
-            {account.plan ? ` ${account.plan}` : ''} · 用于 {row.engine}
+            {account.plan ? ` ${account.plan}` : ''} · 用于{' '}
+            {[row.engine, ...sharedWith.map((grant) => grant.label)].join('、')}
           </small>
         </div>
         {account.connected ? (
@@ -262,6 +269,16 @@ function SubscriptionItem({
                   {quota ? '收起额度' : '查看额度'}
                 </Dropdown.Item>
               ) : null}
+              {sharedWith.map((grant) => (
+                <Dropdown.Item
+                  key={grant.runtimeId}
+                  className="ea-menu-item"
+                  onSelect={() => onRevoke?.(grant)}
+                >
+                  不再允许 {grant.label} 使用
+                  <small>下次使用时会重新询问</small>
+                </Dropdown.Item>
+              ))}
               <Dropdown.Separator className="ea-menu-separator" />
               <Dropdown.Item
                 className="ea-menu-item is-danger"
@@ -360,6 +377,13 @@ export default function EngineAccounts({
   const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
   const [addingApi, setAddingApi] = useState(false)
   const [endpointsKey, setEndpointsKey] = useState(0)
+  const [grants, setGrants] = useState<CredentialGrant[]>([])
+  useEffect(() => {
+    void window.pi
+      .credentialGrants()
+      .then(setGrants)
+      .catch(() => undefined)
+  }, [engines])
   useEffect(() => {
     let live = true
     void window.pi.defaultRuntime().then((id) => live && setDefaultEngine(id))
@@ -493,6 +517,22 @@ export default function EngineAccounts({
                 }
                 onRemove={() =>
                   void run(row.runtimeId, { type: 'account:remove', providerId: row.account.id })
+                }
+                sharedWith={grants
+                  .filter(
+                    (grant) =>
+                      grant.account === (row.account.email?.toLowerCase() ?? row.account.id)
+                  )
+                  .map((grant) => ({
+                    ...grant,
+                    label:
+                      runtimes.find((runtime) => runtime.id === grant.runtimeId)?.label ??
+                      grant.runtimeId
+                  }))}
+                onRevoke={(grant) =>
+                  void window.pi
+                    .revokeCredentialGrant(grant.runtimeId, grant.account)
+                    .then(setGrants)
                 }
               />
             ))}

@@ -130,6 +130,11 @@ const api: PiDesktopAPI = {
   selectRuntime: async (runtimeId, origin) => agentSnapshotSchema.parse(await ipcRenderer.invoke('pi:runtime-select', runtimeId, origin)),
   runtimeAccounts: () => ipcRenderer.invoke('pi:runtime-accounts'),
   engineBinary: (runtimeId, action) => ipcRenderer.invoke('pi:engine-binary', runtimeId, action),
+  respondCredentialGrant: (id, decision) =>
+    ipcRenderer.invoke('pi:credential-grant:respond', id, decision),
+  credentialGrants: () => ipcRenderer.invoke('pi:credential-grants'),
+  revokeCredentialGrant: (runtimeId, account) =>
+    ipcRenderer.invoke('pi:credential-grant:revoke', runtimeId, account),
   runtimeConfig: (runtimeId, command) =>
     ipcRenderer.invoke('pi:runtime-config', runtimeId, command),
   defaultRuntime: () => ipcRenderer.invoke('pi:default-runtime'),

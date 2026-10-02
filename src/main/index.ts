@@ -7,6 +7,12 @@ import { SessionWorkerSupervisor } from './session-worker-supervisor'
 import { importPiHistory, legacyPiHistory } from './pi-history-import'
 import { RuntimeDirectory } from './runtime-directory'
 import { createClaudeRuntimePlugin } from './runtime-plugins/claude'
+import { createCodexRuntimePlugin } from './runtime-plugins/codex'
+import { EngineCredentialBroker } from './engine-credentials'
+import type {
+  CredentialGrantDecision,
+  CredentialGrantPrompt
+} from '../shared/engine-credentials'
 import { runtimeStoragePaths } from './runtime-storage'
 import { createPiRuntimePlugin } from './runtime-plugins/pi'
 import { AgentRuntimeProviderRegistry } from './agent-runtime'
@@ -421,6 +427,60 @@ runtimeProviders.registerPlugin(
       handleWorkerCapability(worker.workerId, worker.cwd, message, reply)
   })
 )
+const credentialPrompts = new Map<string, (decision: CredentialGrantDecision) => void>()
+/** Asks in the app window whether an engine may use one of Pi's ChatGPT accounts. */
+function askCredentialGrant(prompt: CredentialGrantPrompt): Promise<CredentialGrantDecision> {
+  return new Promise((resolve) => {
+    const finish = (decision: CredentialGrantDecision): void => {
+      if (!credentialPrompts.delete(prompt.id)) return
+      clearTimeout(timer)
+      broadcast({ type: 'event', event: 'credential-grant-closed', data: { id: prompt.id } })
+      resolve(decision)
+    }
+    const timer = setTimeout(() => finish('deny'), 120_000)
+    credentialPrompts.set(prompt.id, finish)
+    const window = BrowserWindow.getAllWindows().find((item) => !item.isDestroyed())
+    if (window?.isMinimized()) window.restore()
+    window?.focus()
+    broadcast({ type: 'event', event: 'credential-grant', data: prompt })
+  })
+}
+function broadcast(event: DesktopEvent): void {
+  for (const window of BrowserWindow.getAllWindows())
+    if (!window.isDestroyed()) window.webContents.send('pi:event', event)
+}
+const credentialBroker = new EngineCredentialBroker({
+  accounts: async () => {
+    const result = await runtimeDirectory.request('pi', { type: 'state:get' })
+    return result.kind === 'snapshot' ? result.snapshot.accounts : []
+  },
+  token: async (providerId) => {
+    const result = await runtimeDirectory.request('pi', { type: 'account:token', providerId })
+    if (result.kind !== 'account-token') throw new Error('Pi 没有返回访问令牌')
+    return result.token
+  },
+  grants: {
+    read: () => preferenceStore().get('engineGrants') ?? [],
+    write: (grants) => preferenceStore().set('engineGrants', grants)
+  },
+  ask: askCredentialGrant,
+  label: (runtimeId) =>
+    runtimeProviders.manifests().find((runtime) => runtime.id === runtimeId)?.label ?? runtimeId
+})
+
+runtimeProviders.registerPlugin(
+  createCodexRuntimePlugin({
+    script: join(__dirname, 'codex-host.js'),
+    executable: () => engineBinaries.executable('codex'),
+    // Tests point Codex at a local model server.
+    ...(E2E_MODE && process.env.PI_DESKTOP_E2E_CODEX_CONFIG
+      ? { env: { PI_DESKTOP_CODEX_CONFIG: process.env.PI_DESKTOP_E2E_CODEX_CONFIG } }
+      : {}),
+    onMessage: (worker, message, reply) =>
+      credentialBroker.handle('codex', message, reply) ||
+      handleWorkerCapability(worker.workerId, worker.cwd, message, reply)
+  })
+)
 const runtimeDirectory = new RuntimeDirectory({
   registry: runtimeProviders,
   cwd: app.getPath('home'),
@@ -629,6 +689,8 @@ type Preferences = {
   workbenchPanelState?: Record<string, unknown>
   mobileDevices?: PairedDeviceRecord[]
   mobileRemoteViews?: RemoteViewAccess
+  /** Engines the user allowed to use a ChatGPT account Pi holds. */
+  engineGrants?: import('../shared/engine-credentials').CredentialGrant[]
 }
 
 function errorMessage(error: unknown): string {
@@ -1084,7 +1146,8 @@ async function runtimeAccounts(): Promise<RuntimeAccounts[]> {
         const base = {
           runtimeId: runtime.id,
           label: runtime.label,
-          ...(binary ? { binary } : {})
+          ...(binary ? { binary } : {}),
+          ...(runtime.authentication.includes('external') ? { borrowsAccounts: true } : {})
         }
         // An engine that is not downloaded yet has nothing to ask.
         if (binary && binary.state !== 'ready')
@@ -1790,6 +1853,23 @@ function registerIpc(): void {
       throw new Error('无效的配置操作')
     return runtimeConfig(runtimeId, parsed.data as RuntimeConfigCommand)
   })
+  ipcMain.handle('pi:credential-grant:respond', (event, id: unknown, decision: unknown) => {
+    assertTrustedRenderer(event)
+    if (typeof id !== 'string' || !['once', 'always', 'deny'].includes(decision as string))
+      throw new Error('无效的授权回应')
+    credentialPrompts.get(id)?.(decision as CredentialGrantDecision)
+  })
+  ipcMain.handle('pi:credential-grants', (event) => {
+    assertTrustedRenderer(event)
+    return credentialBroker.grantList()
+  })
+  ipcMain.handle('pi:credential-grant:revoke', (event, runtimeId: unknown, account: unknown) => {
+    assertTrustedRenderer(event)
+    if (typeof runtimeId !== 'string' || typeof account !== 'string')
+      throw new Error('无效的授权')
+    credentialBroker.revoke(runtimeId, account)
+    return credentialBroker.grantList()
+  })
   ipcMain.handle('pi:engine-binary', async (event, runtimeId: unknown, action: unknown) => {
     assertTrustedRenderer(event)
     if (typeof runtimeId !== 'string' || !isDownloadableEngine(runtimeId))
@@ -1913,7 +1993,8 @@ function registerIpc(): void {
       ? sessionWorkers.captureNavigation(origin)
       : sessionWorkers.capture(origin)
     if (
-      ['mcp:shutdown', 'runtime:shutdown', 'runtime:refresh', 'bootstrap'].includes(
+      // `account:token` hands out credentials and is only for Main's own engine broker.
+      ['mcp:shutdown', 'runtime:shutdown', 'runtime:refresh', 'bootstrap', 'account:token'].includes(
         parsed.data.type
       )
     )

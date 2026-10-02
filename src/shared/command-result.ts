@@ -20,6 +20,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
       return 'mcp'
     case 'account:quota':
       return 'account-quota'
+    case 'account:token':
+      return 'account-token'
     case 'project:catalog':
       return 'project-catalog'
     case 'session:edit:prepare':

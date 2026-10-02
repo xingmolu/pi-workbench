@@ -9,6 +9,7 @@ import type { DesktopCommandOrigin } from '../../shared/session-runtime'
 import { useNavigationLibrary } from './store/navigation-library'
 import NavigationFeedback from './components/navigation/NavigationFeedback'
 import PluginApprovalDialog, { type PluginApproval } from './components/PluginApprovalDialog'
+import CredentialGrantDialog from './components/CredentialGrantDialog'
 import './assets/navigation.css'
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
@@ -822,6 +823,7 @@ export default function App(): React.JSX.Element {
         />
       )}
       <NavigationFeedback />
+      <CredentialGrantDialog />
       {pluginApprovals[0] ? (
         <PluginApprovalDialog
           key={pluginApprovals[0].id}

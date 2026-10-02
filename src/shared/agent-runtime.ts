@@ -118,6 +118,7 @@ const COMMAND_FEATURE: Record<HostCommand['type'], RuntimeFeature | null> = {
   'account:add': 'auth-login',
   'account:remove': 'auth-login',
   'account:quota': 'account-quota',
+  'account:token': 'account-aliases',
   'endpoint:list': 'custom-endpoints',
   'endpoint:save': 'custom-endpoints',
   'endpoint:discover': 'custom-endpoints',
