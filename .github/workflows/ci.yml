@@ -352,7 +352,17 @@ jobs:
         run: npm run build:native:mac
 
       - name: Package installer
-        run: ${{ matrix.command }}
+        shell: bash
+        run: |
+          # hdiutil on hosted macOS runners sometimes cannot eject the image it just built
+          # ("Resource busy"); that failure, and only that one, is retried.
+          for attempt in 1 2 3; do
+            if ${{ matrix.command }} 2>&1 | tee package.log; then exit 0; fi
+            grep -q "couldn't eject" package.log || exit 1
+            echo "::warning::hdiutil could not eject the disk image (attempt $attempt)"
+            sleep 20
+          done
+          exit 1
 
       - name: Attach installers to the release
         shell: bash
