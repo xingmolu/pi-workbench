@@ -1,12 +1,20 @@
 name: Windows
 
-# Runs the app on Windows: the Codex host against the real CLI and the core end-to-end specs.
-# Manual while it is being brought up; it joins the main CI once green.
+# Runs the app on Windows: the unit tests, the Codex host against the real CLI and the core
+# end-to-end specs, including a real PowerShell terminal.
 on:
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows-app:
