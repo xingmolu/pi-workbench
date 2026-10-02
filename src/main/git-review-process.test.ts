@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitReviewProcess } from './git-review-process'
+import { systemGit } from './system-git'
+
+const GIT = systemGit()
 
 const nullGitConfig = process.platform === 'win32' ? 'NUL' : '/dev/null'
 
@@ -51,9 +54,9 @@ describe('bounded host Git process', () => {
         '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n'
       )
       const runner = new GitReviewProcess({
-        gitPath: '/usr/bin/git',
+        gitPath: GIT.path,
         hooksPath,
-        trustedEnv: { HOME: root, PATH: '/usr/bin:/bin', TMPDIR: root, LC_ALL: 'C' }
+        trustedEnv: { ...GIT.env, HOME: root, TMPDIR: root, LC_ALL: 'C' }
       })
       const result = await runner.run({ cwd: root, args: ['--version'], budget: 'status' })
       expect(result.ok && result.stdout.toString()).toMatch(/^git version /)

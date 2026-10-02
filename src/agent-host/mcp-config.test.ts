@@ -27,7 +27,8 @@ it('saves canonical user config privately, redacts secrets, requires exact conse
     server: { command: 'node', args: ['server.js'], env: { API_KEY: 'fixture-sensitive' } },
     enabled: true
   })
-  expect((await stat(store.path)).mode & 0o777).toBe(0o600)
+  // Windows has no POSIX mode bits; its files inherit the profile directory's ACL.
+  if (process.platform !== 'win32') expect((await stat(store.path)).mode & 0o777).toBe(0o600)
   const view = await store.read()
   expect(view.servers[0]).toMatchObject({ enabled: true, envKeys: ['API_KEY'] })
   expect(JSON.stringify(view)).not.toContain('fixture-sensitive')

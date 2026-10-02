@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { CheckpointStore, MAX_CHECKPOINT_FILE, resolveToolPath } from './checkpoints'
 
 let root: string
@@ -107,9 +107,9 @@ describe('checkpoint store', () => {
   })
 
   it('resolves tool paths the way Pi does', () => {
-    expect(resolveToolPath('src/a.ts', '/p')).toBe('/p/src/a.ts')
-    expect(resolveToolPath('@src/a.ts', '/p')).toBe('/p/src/a.ts')
-    expect(resolveToolPath('/abs/a.ts', '/p')).toBe('/abs/a.ts')
-    expect(resolveToolPath('~/a.ts', '/p')).toMatch(/\/a\.ts$/)
+    expect(resolveToolPath('src/a.ts', '/p')).toBe(resolve('/p/src/a.ts'))
+    expect(resolveToolPath('@src/a.ts', '/p')).toBe(resolve('/p/src/a.ts'))
+    expect(resolveToolPath('/abs/a.ts', '/p')).toBe(resolve('/abs/a.ts'))
+    expect(resolveToolPath('~/a.ts', '/p')).toMatch(/[\\/]a\.ts$/)
   })
 })

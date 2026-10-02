@@ -109,7 +109,8 @@ it('keeps tokens owner-only and scoped to one server name at one URL', async () 
     tokens: { access_token: 'a', token_type: 'Bearer' },
     updatedAt: ''
   }))
-  expect((await stat(tokens.path)).mode & 0o777).toBe(0o600)
+  // Windows has no POSIX mode bits; its files inherit the profile directory's ACL.
+  if (process.platform !== 'win32') expect((await stat(tokens.path)).mode & 0o777).toBe(0o600)
   expect((await tokens.get(key))?.tokens?.access_token).toBe('a')
   await tokens.update(key, () => undefined)
   expect(await tokens.get(key)).toBeUndefined()

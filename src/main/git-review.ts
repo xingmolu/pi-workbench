@@ -174,7 +174,7 @@ export class GitReview {
       const capability = await this.capability
       check()
       if (!capability.ok) this.processFailure(capability)
-      const version = line(capability.stdout).match(/^git version (\d+)\.(\d+)\.(\d+)(?:\s|$)/)
+      const version = line(capability.stdout).match(/^git version (\d+)\.(\d+)\.(\d+)(?:[\s.]|$)/)
       if (
         !version ||
         Number(version[1]) < 2 ||

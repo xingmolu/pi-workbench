@@ -68,7 +68,7 @@ describe('resolveAgentDirectory', () => {
         override: '/tmp/ignored-agent',
         homeDirectory: '/production-home'
       })
-    ).toBe('/production-home/.pi/agent')
+    ).toBe(join('/production-home', '.pi', 'agent'))
   })
 
   it('resolves the actual production location to ~/.pi/agent', () => {

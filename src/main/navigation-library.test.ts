@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { resolve } from 'node:path'
 import { NavigationLibrary, type NavigationLibraryOptions } from './navigation-library'
 import { emptyNavigationLibrary, type NavigationLibraryState } from '../shared/navigation-library'
 
@@ -58,7 +59,7 @@ describe('native-owned reversible navigation', () => {
       }
     })
     await f.library.dispatch({ type: 'project:hide', cwd: '/missing' })
-    expect(f.library.read().projects['/missing'].hiddenAt).toBe(100)
+    expect(f.library.read().projects[resolve('/missing')].hiddenAt).toBe(100)
     expect(f.options.reveal).not.toHaveBeenCalled()
   })
   it.each(['运行中', '等待确认', '待发送消息', '正在准备会话', '有尚未确认的操作结果'])(

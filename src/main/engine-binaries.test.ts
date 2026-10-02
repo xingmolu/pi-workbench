@@ -101,7 +101,7 @@ it('downloads, verifies and unpacks only the pinned build for this platform', as
   await Promise.all([binaries.install('codex'), binaries.install('codex')])
   const executable = binaries.executable('codex')!
   expect(executable).toBe(join(root, 'codex', '9.9.9', 'bin', 'codex'))
-  expect(statSync(executable).mode & 0o111).not.toBe(0)
+  if (process.platform !== 'win32') expect(statSync(executable).mode & 0o111).not.toBe(0)
   expect(await readFile(join(root, 'codex', '9.9.9', deep), 'utf8')).toBe('long name')
   expect(existsSync(join(root, 'codex', '9.9.9', 'voice'))).toBe(false)
   expect(existsSync(join(root, 'codex', '9.9.9', 'README.md'))).toBe(false)

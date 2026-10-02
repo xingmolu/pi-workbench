@@ -47,7 +47,7 @@ export class GitReviewProcess {
       throw new Error('Git host paths must be absolute')
     this.options = { ...options }
     this.execute = options.spawn ?? spawn
-    for (const key of ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL']) {
+    for (const key of ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'SystemRoot', 'TEMP', 'TMP']) {
       if (options.trustedEnv[key] !== undefined) this.env[key] = options.trustedEnv[key]
     }
     // Review behavior must depend on repository state, not whichever machine-level

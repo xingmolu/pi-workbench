@@ -10,6 +10,9 @@ import {
   PluginGitService,
   resolveInProject
 } from './plugin-services'
+import { NULL_DEVICE, systemGit } from './system-git'
+
+const GIT = systemGit()
 
 let root: string
 let project: string
@@ -22,12 +25,12 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 const git = (...args: string[]): string =>
-  execFileSync('/usr/bin/git', args, {
+  execFileSync(GIT.path, args, {
     cwd: project,
     env: {
-      PATH: '/usr/bin:/bin',
+      ...GIT.env,
       HOME: root,
-      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_GLOBAL: NULL_DEVICE,
       GIT_AUTHOR_NAME: 't',
       GIT_AUTHOR_EMAIL: 't@example.com',
       GIT_COMMITTER_NAME: 't',
@@ -38,19 +41,19 @@ const git = (...args: string[]): string =>
 function gitService(): PluginGitService {
   return new PluginGitService(
     new GitReviewProcess({
-      gitPath: '/usr/bin/git',
+      gitPath: GIT.path,
       hooksPath: join(root, 'hooks'),
-      trustedEnv: { HOME: root, PATH: '/usr/bin:/bin', LC_ALL: 'C' }
+      trustedEnv: { HOME: root, ...GIT.env, LC_ALL: 'C' }
     }),
     async () => ({ name: 'Plugin User', email: 'user@example.com' }),
     createUserGitPushRunner({
-      gitPath: '/usr/bin/git',
+      gitPath: GIT.path,
       hooksPath: join(root, 'hooks'),
       env: {
         HOME: root,
-        PATH: '/usr/bin:/bin',
+        ...GIT.env,
         GIT_DIR: '/elsewhere',
-        GIT_CONFIG_GLOBAL: '/dev/null'
+        GIT_CONFIG_GLOBAL: NULL_DEVICE
       }
     })
   )
@@ -60,9 +63,11 @@ describe('plugin file service', () => {
   it('keeps every path inside the real project, including through symlinks', async () => {
     mkdirSync(join(root, 'outside'))
     symlinkSync(join(root, 'outside'), join(project, 'link'))
-    await expect(resolveInProject(project, 'src/a.ts')).resolves.toMatch(/project\/src\/a\.ts$/)
+    await expect(resolveInProject(project, 'src/a.ts')).resolves.toMatch(
+      /project[\\/]src[\\/]a\.ts$/
+    )
     await expect(resolveInProject(project, 'new/deep/file.ts')).resolves.toMatch(
-      /new\/deep\/file\.ts$/
+      /new[\\/]deep[\\/]file\.ts$/
     )
     await expect(resolveInProject(project, '../x')).rejects.toMatchObject({
       code: 'PERMISSION_DENIED'
@@ -158,7 +163,7 @@ describe('plugin git service', () => {
   describe('push', () => {
     const remote = (): string => join(root, 'remote.git')
     const setupRepository = (): void => {
-      execFileSync('/usr/bin/git', ['init', '-q', '--bare', remote()])
+      execFileSync(GIT.path, ['init', '-q', '--bare', remote()])
       git('init', '-q', '-b', 'main')
       writeFileSync(join(project, 'a.txt'), 'a\n')
       git('add', '.')
@@ -166,7 +171,7 @@ describe('plugin git service', () => {
       git('remote', 'add', 'origin', remote())
     }
     const remoteHead = (branch: string): string =>
-      execFileSync('/usr/bin/git', ['--git-dir', remote(), 'rev-parse', branch]).toString().trim()
+      execFileSync(GIT.path, ['--git-dir', remote(), 'rev-parse', branch]).toString().trim()
 
     it('plans a first push to origin, pushes the approved commit and sets the upstream', async () => {
       setupRepository()

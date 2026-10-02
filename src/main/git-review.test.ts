@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitReview } from './git-review'
 import type { GitProcessOptions } from './git-review-process'
+import { systemGit } from './system-git'
+
+const GIT = systemGit()
 
 const temporary: string[] = []
 afterEach(async () => {
@@ -20,9 +23,9 @@ async function fixture(execute?: GitProcessOptions['spawn']) {
   const home = join(root, 'home')
   const hooks = join(root, 'hooks')
   await Promise.all([project, home, hooks].map((path) => fs.mkdir(path)))
-  const env = { HOME: home, PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1' }
+  const env = { ...GIT.env, HOME: home, LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1' }
   const git = (...args: string[]): string =>
-    execFileSync('/usr/bin/git', args, {
+    execFileSync(GIT.path, args, {
       cwd: project,
       env,
       encoding: 'utf8',
@@ -32,7 +35,7 @@ async function fixture(execute?: GitProcessOptions['spawn']) {
   git('config', 'user.name', 'Fixture')
   git('config', 'user.email', 'fixture@example.invalid')
   const service = new GitReview({
-    gitPath: '/usr/bin/git',
+    gitPath: GIT.path,
     hooksPath: hooks,
     trustedEnv: env,
     spawn: execute

@@ -141,6 +141,7 @@ import {
 } from '../shared/mobile-gateway'
 import { MobileGatewayService } from './mobile-gateway-service'
 import { liveToMobile, toMobileSnapshot, type MobileSessionBridge } from './mobile-session-bridge'
+import { systemGit } from './system-git'
 import icon from '../../resources/icon.png?asset'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
@@ -725,19 +726,22 @@ function rememberRuntimeSelection(
   else if (!path && preferences.get('lastSessionPath')) preferences.delete('lastSessionPath')
 }
 
-/** Only the user's global commit identity is read; plugin git otherwise ignores global config. */
 /** Bundled plugins are unpacked from the asar archive so they are real files on disk. */
 function bundledPluginDirectory(): string {
   return join(app.getAppPath().replace(/app\.asar$/, 'app.asar.unpacked'), 'resources', 'plugins')
 }
 
+/** The fixed system Git used by Git review and plugin git. */
+const hostGit = systemGit()
+
+/** Only the user's global commit identity is read; plugin git otherwise ignores global config. */
 async function gitCommitIdentity(): Promise<{ name: string; email: string } | null> {
   const read = (key: string): Promise<string> =>
     new Promise((resolve) => {
       execFile(
-        '/usr/bin/git',
+        hostGit.path,
         ['config', '--global', '--get', key],
-        { env: { HOME: homedir(), PATH: '/usr/bin:/bin' }, timeout: 3000 },
+        { env: { ...hostGit.env, HOME: homedir() }, timeout: 3000, windowsHide: true },
         (error, stdout) => resolve(error ? '' : String(stdout).trim())
       )
     })
@@ -2398,17 +2402,17 @@ function createWindow(): void {
         fs: new PluginFileService(),
         git: new PluginGitService(
           new GitReviewProcess({
-            gitPath: '/usr/bin/git',
+            gitPath: hostGit.path,
             hooksPath,
             trustedEnv: {
+              ...hostGit.env,
               HOME: homedir(),
-              PATH: '/usr/bin:/bin',
               TMPDIR: app.getPath('temp'),
               LC_ALL: 'C'
             }
           }),
           gitCommitIdentity,
-          createUserGitPushRunner({ gitPath: '/usr/bin/git', hooksPath })
+          createUserGitPushRunner({ gitPath: hostGit.path, hooksPath })
         )
       }
     })(),
@@ -2542,11 +2546,11 @@ app.whenReady().then(async () => {
     await mkdir(sessionData, { recursive: true })
     const hooksPath = await mkdtemp(join(sessionData, 'git-review-hooks-'))
     gitReview = new GitReview({
-      gitPath: '/usr/bin/git',
+      gitPath: hostGit.path,
       hooksPath,
       trustedEnv: {
+        ...hostGit.env,
         HOME: homedir(),
-        PATH: '/usr/bin:/bin',
         TMPDIR: app.getPath('temp'),
         LC_ALL: 'C'
       }

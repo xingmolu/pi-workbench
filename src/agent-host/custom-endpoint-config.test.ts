@@ -322,7 +322,8 @@ describe('custom endpoint config', () => {
     expect(results[0].status).toBe('fulfilled')
     expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'conflict' } })
     expect((await config.read()).endpoints.map((item) => item.id)).toEqual(['custom-first'])
-    expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX mode bits; its files inherit the profile directory's ACL.
+    if (process.platform !== 'win32') expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
   })
 
   it.each(['write', 'sync', 'rename', 'permission'] as const)(
@@ -420,7 +421,9 @@ describe('custom endpoint config', () => {
     const remaining = (await fs.readdir(dir)).filter((name) => name !== 'models.json')
     expect(remaining).toHaveLength(1)
     expect(remaining[0]).toMatch(/^\.pi-models-[a-f0-9-]+\.tmp$/)
-    expect((await fs.stat(join(dir, remaining[0]))).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX mode bits; its files inherit the profile directory's ACL.
+    if (process.platform !== 'win32')
+      expect((await fs.stat(join(dir, remaining[0]))).mode & 0o777).toBe(0o600)
   })
 
   it('checks the original again after temp write and preserves an external edit', async () => {

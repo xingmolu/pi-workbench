@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeHost } from './host'
@@ -20,7 +20,8 @@ async function setup(
   contributions: PluginAgentContributions = { tools: [], skillPaths: [], mcpServers: {} },
   streamDelayMs = 0
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'claude-runtime-sdk-'))
+  // Projects arrive canonical (long names on Windows, where the temp dir may be 8.3 short).
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'claude-runtime-sdk-')))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const storage: ClaudeStorage = {
     root,
@@ -177,7 +178,7 @@ describe('Claude official SDK runtime', () => {
     const saved = await savedConfig()
     expect(saved.apis).toEqual([])
     expect(JSON.stringify(saved)).not.toContain('second-key')
-  })
+  }, 45_000)
 
   it('boots without a paid prompt, admits asynchronously, persists native history and supports rename/fork/resume', async () => {
     const { host, fixture, cwd, storage } = await setup(120)

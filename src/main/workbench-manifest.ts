@@ -1,6 +1,6 @@
 import { constants as fileSystemConstants } from 'node:fs'
 import { lstat, open, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import semver from 'semver'
 import { z } from 'zod'
 import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workbench-contracts'
@@ -767,7 +767,14 @@ export async function discoverWorkbenchManifests({
         id,
         {
           ...server,
-          ...(server.command ? { command: expandRoot(server.command) } : {}),
+          ...(server.command
+            ? {
+                // A plugin-relative program gets this platform's separators.
+                command: server.command.startsWith('${pluginRoot}')
+                  ? normalize(expandRoot(server.command))
+                  : expandRoot(server.command)
+              }
+            : {}),
           ...(server.args ? { args: server.args.map(expandRoot) } : {}),
           ...(server.env
             ? {

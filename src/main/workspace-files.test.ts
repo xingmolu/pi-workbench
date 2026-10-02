@@ -85,8 +85,11 @@ describe('bounded workspace files', () => {
     })
   })
   it('never reads special files or Git internals', async () => {
-    execFileSync('mkfifo', [join(root, 'pipe')])
-    await expect(service.dispatch(read(root, 'pipe'))).rejects.toThrow('普通文件')
+    // Windows has no named pipes in the file system.
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [join(root, 'pipe')])
+      await expect(service.dispatch(read(root, 'pipe'))).rejects.toThrow('普通文件')
+    }
     await mkdir(join(root, '.git'))
     await writeFile(join(root, '.git', 'config'), 'secret')
     await expect(service.dispatch(read(root, '.git/config'))).rejects.toThrow('Git 内部')

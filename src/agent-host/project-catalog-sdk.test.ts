@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 it('discovers real SDK history by canonical cwd, including colliding buckets, same names and unavailable projects', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-catalog-sdk-')))
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'pi-catalog-sdk-')))
   mkdirSync(join(root, 'home'))
   try {
     const output = execFileSync(
