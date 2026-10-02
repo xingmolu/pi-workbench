@@ -9,12 +9,14 @@ import {
 
 it('uses the first executable shell of the user, then zsh, bash and sh', () => {
   const has = (paths: string[]) => (path: string) => paths.includes(path)
-  expect(resolveShell(['/usr/local/bin/fish'], has(['/usr/local/bin/fish', '/bin/zsh']))).toBe(
-    '/usr/local/bin/fish'
+  expect(
+    resolveShell(['/usr/local/bin/fish'], has(['/usr/local/bin/fish', '/bin/zsh']), 'darwin')
+  ).toBe('/usr/local/bin/fish')
+  expect(resolveShell(['/missing/zsh', null], has(['/bin/bash']), 'linux')).toBe('/bin/bash')
+  expect(resolveShell(['relative/zsh', 'bad\0'], has(['relative/zsh', '/bin/sh']), 'linux')).toBe(
+    '/bin/sh'
   )
-  expect(resolveShell(['/missing/zsh', null], has(['/bin/bash']))).toBe('/bin/bash')
-  expect(resolveShell(['relative/zsh', 'bad\0'], has(['relative/zsh', '/bin/sh']))).toBe('/bin/sh')
-  expect(resolveShell([], has([]))).toBe('/bin/sh')
+  expect(resolveShell([], has([]), 'linux')).toBe('/bin/sh')
 })
 
 it('starts a login shell, or skips startup files in the syntax of the isolated shell', () => {
@@ -38,7 +40,8 @@ it('keeps the user environment, drops app internals and declares terminal capabi
       npm_config_cache: '/tmp',
       UNSET: undefined
     },
-    { shell: '/bin/zsh', home: '/Users/me', version: '0.1.0' }
+    { shell: '/bin/zsh', home: '/Users/me', version: '0.1.0' },
+    'darwin'
   )
   expect(env).toEqual({
     PATH: '/opt/homebrew/bin:/usr/local/bin:/Users/me/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -52,7 +55,7 @@ it('keeps the user environment, drops app internals and declares terminal capabi
     TERM_PROGRAM: 'PiDesktop',
     TERM_PROGRAM_VERSION: '0.1.0'
   })
-  expect(terminalEnvironment({}, { shell: '/bin/sh' }).LANG).toBe('en_US.UTF-8')
+  expect(terminalEnvironment({}, { shell: '/bin/sh' }, 'linux').LANG).toBe('en_US.UTF-8')
 })
 
 it('on Windows prefers PowerShell 7, then Windows PowerShell, then cmd', () => {
