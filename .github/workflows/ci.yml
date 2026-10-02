@@ -365,6 +365,55 @@ jobs:
           done
           exit 1
 
+      # The installers are installed and launched as users would before they are released.
+      - name: Install the package
+        id: installed
+        shell: bash
+        run: |
+          case "${{ matrix.name }}" in
+            macos-*)
+              dmg="$(ls dist/*.dmg | head -1)"
+              hdiutil attach "$dmg" -mountpoint "$RUNNER_TEMP/pi-dmg" -nobrowse -quiet
+              cp -R "$RUNNER_TEMP/pi-dmg/Pi Desktop.app" "$RUNNER_TEMP/"
+              hdiutil detach "$RUNNER_TEMP/pi-dmg" -quiet || hdiutil detach "$RUNNER_TEMP/pi-dmg" -force -quiet
+              echo "executable=$RUNNER_TEMP/Pi Desktop.app/Contents/MacOS/Pi Desktop" >> "$GITHUB_OUTPUT"
+              ;;
+            windows-*)
+              installer="$(cygpath -w "$PWD/$(ls dist/*-setup.exe | head -1)")"
+              powershell -NoProfile -Command "Start-Process -FilePath '$installer' -ArgumentList '/S' -Wait"
+              # The installer may start the app when it finishes; the test starts its own.
+              taskkill //IM pi-desktop.exe //F 2>/dev/null || true
+              exe="$(find "$(cygpath "$LOCALAPPDATA")/Programs" -maxdepth 2 -name pi-desktop.exe | head -1)"
+              test -n "$exe"
+              echo "executable=$(cygpath -w "$exe")" >> "$GITHUB_OUTPUT"
+              ;;
+            linux-*)
+              sudo apt-get update -q
+              sudo apt-get install -y xvfb ./dist/*.deb
+              exe="$(dpkg -L pi-desktop | grep -E '/pi-desktop$' | grep -v '^/usr/bin' | head -1)"
+              test -x "$exe"
+              echo "executable=$exe" >> "$GITHUB_OUTPUT"
+              appimage="$(ls dist/*.AppImage | head -1)"
+              chmod +x "$appimage"
+              echo "appimage=$PWD/$appimage" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Installed app smoke
+        shell: bash
+        env:
+          PI_DESKTOP_PACKAGED_EXECUTABLE: ${{ steps.installed.outputs.executable }}
+          PI_DESKTOP_PACKAGED_VERSION: ${{ needs.release-prepare.outputs.version }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a npx playwright test tests/e2e/packaged-app.spec.ts --reporter=line
+            # The AppImage too, run without FUSE as many desktops lack it.
+            PI_DESKTOP_PACKAGED_EXECUTABLE="${{ steps.installed.outputs.appimage }}" APPIMAGE_EXTRACT_AND_RUN=1 \
+              xvfb-run -a npx playwright test tests/e2e/packaged-app.spec.ts --reporter=line
+          else
+            npx playwright test tests/e2e/packaged-app.spec.ts --reporter=line
+          fi
+
       - name: Attach installers to the release
         shell: bash
         env:
