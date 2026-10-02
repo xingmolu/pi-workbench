@@ -28,7 +28,7 @@ async function idle() {
 }
 async function selectEngine(label: string) {
   await page.getByRole('button', { name: '选择 Agent 引擎' }).click()
-  await page.getByRole('menuitem', { name: new RegExp(label) }).click()
+  await page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).click()
   await expect.poll(async () => (await state()).runtime?.label).toBe(label)
 }
 async function launch() {
@@ -87,10 +87,17 @@ test.beforeEach(async () => {
     false
   )
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await page.getByLabel('API Key', { exact: true }).fill('fixture-key')
-  await page.getByLabel('服务 URL 可选').fill(fixture.baseUrl)
-  await page.getByRole('button', { name: '保存连接' }).click()
-  await expect(page.getByText('连接已保存。')).toBeVisible()
+  await page
+    .getByRole('region', { name: 'API 连接' })
+    .getByRole('button', { name: '添加 API 连接', exact: true })
+    .click()
+  const panel = page.getByRole('group', { name: '添加 API 连接' })
+  await panel.getByRole('button', { name: /^Anthropic/ }).click()
+  await panel.getByRole('radio', { name: '用于 Claude Code' }).click()
+  await panel.getByLabel('服务地址').fill(fixture.baseUrl)
+  await panel.getByLabel('API Key').fill('fixture-key')
+  await panel.getByRole('button', { name: '保存连接' }).click()
+  await expect(panel).toHaveCount(0)
   expect(fixture.requests.filter((request) => request.path.includes('/messages'))).toHaveLength(0)
   await page.getByRole('button', { name: '关闭设置' }).click()
   await page.evaluate(
@@ -218,6 +225,20 @@ test('native subagents have a shared directory and inspectable transcript withou
   await page.evaluate(() => window.pi.send({ type: 'permission:set', mode: 'open' }))
   await send('spawn fixture')
   await idle()
+  // The background child's result can still bring a follow-up reply; wait until it settles.
+  let settled = ''
+  await expect
+    .poll(
+      async () => {
+        const nodes = JSON.stringify((await state()).nodes)
+        const same = nodes === settled
+        settled = nodes
+        return same
+      },
+      { intervals: [1500] }
+    )
+    .toBe(true)
+  await idle()
   const before = await state()
   const child = before.nodes.flatMap((node) =>
     node.type === 'tool' ? (node.subagent?.children ?? []) : []
@@ -259,7 +280,11 @@ test('native subagents have a shared directory and inspectable transcript withou
   ).toBe(false)
   await page.getByRole('button', { name: '关闭子 Agent 详情' }).click()
   await expect(page.getByRole('complementary', { name: '子 Agent 列表' })).toBeVisible()
-  await expect(page.getByRole('complementary', { name: '子 Agent 列表' }).getByRole('button', { name: `查看子 Agent：${child.title}` })).toBeFocused()
+  await expect(
+    page
+      .getByRole('complementary', { name: '子 Agent 列表' })
+      .getByRole('button', { name: `查看子 Agent：${child.title}` })
+  ).toBeFocused()
   await page.getByRole('button', { name: '关闭子 Agent 列表' }).click()
   await expect(page.getByRole('complementary', { name: '子 Agent 列表' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '子 Agent 列表', exact: true })).toBeFocused()
@@ -278,7 +303,10 @@ test('native subagents have a shared directory and inspectable transcript withou
   ).toContainText('Private child fixture reply.')
   await page.keyboard.press('ControlOrMeta+j')
   await expect(page.getByRole('complementary', { name: '子 Agent 详情' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: '终端', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: '终端', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
   await page.getByRole('button', { name: '子 Agent 列表', exact: true }).click()
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('option', { name: /搜索文件/ }).click()
@@ -336,7 +364,9 @@ test('switching to Pi keeps Claude running in the background and preserves both 
   await idle()
   await expect(page.locator('.assistant-node')).toContainText('Claude streaming fixture')
   expect((await state()).status).toBe('idle')
-  expect(fixture.requests.filter((request) => request.path.split('?')[0].endsWith('/messages'))).toHaveLength(1)
+  expect(
+    fixture.requests.filter((request) => request.path.split('?')[0].endsWith('/messages'))
+  ).toHaveLength(1)
   await page.evaluate(async (workerId) => {
     const current = await window.pi.getState()
     await window.pi.selectSession(workerId, {
