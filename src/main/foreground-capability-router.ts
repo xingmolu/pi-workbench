@@ -12,6 +12,7 @@ import {
   type ForegroundCapabilityToken,
   type SessionCapabilityIdentity
 } from './capability-broker'
+import { t } from '../shared/i18n'
 
 const requests = z.union([browserCapabilityRequestSchema, computerUseCapabilityRequestSchema])
 const cancellations = z.union([browserCapabilityCancelSchema, computerUseCapabilityCancelSchema])
@@ -97,12 +98,16 @@ export class ForegroundCapabilityRouter {
         false,
         undefined,
         busyHolder
-          ? '另一个会话正在控制桌面，操作已取消。请等它的任务结束或让用户停止它后再试，不要反复重试。'
+          ? t(
+              '另一个会话正在控制桌面，操作已取消。请等它的任务结束或让用户停止它后再试，不要反复重试。'
+            )
           : !token
             ? request.capability === 'browser'
-              ? '当前会话未选中，操作已取消：浏览器只能由 Pi Desktop 窗口里正在显示的会话使用。请让用户在 Pi Desktop 中切回这个会话后再试，不要反复重试。'
-              : '当前会话已切换或已结束，桌面控制已取消。'
-            : '当前会话未选中或请求已过期，操作已取消'
+              ? t(
+                  '当前会话未选中，操作已取消：浏览器只能由 Pi Desktop 窗口里正在显示的会话使用。请让用户在 Pi Desktop 中切回这个会话后再试，不要反复重试。'
+                )
+              : t('当前会话已切换或已结束，桌面控制已取消。')
+            : t('当前会话未选中或请求已过期，操作已取消')
       )
       return true
     }
@@ -122,7 +127,7 @@ export class ForegroundCapabilityRouter {
       cancel: () => {
         if (settled) return
         // Settle before invoking services: abort callbacks may reenter the router.
-        finish(false, undefined, '会话操作已停止或前台已切换')
+        finish(false, undefined, t('会话操作已停止或前台已切换'))
         controller.abort()
         if (request.capability === 'browser') this.deps.abortBrowser(executionId)
       }

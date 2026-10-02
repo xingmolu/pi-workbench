@@ -1,4 +1,10 @@
-import { comparePinned, projectDisplayName, projectIsHidden, sessionIsArchived, type NavigationLibraryState } from '../shared/navigation-library'
+import {
+  comparePinned,
+  projectDisplayName,
+  projectIsHidden,
+  sessionIsArchived,
+  type NavigationLibraryState
+} from '../shared/navigation-library'
 import { basename, isAbsolute, resolve } from 'node:path'
 import { canonicalProjectDirectory, discoverProjectSessions } from './project-catalog'
 import {
@@ -9,6 +15,7 @@ import {
   type ProjectSearchResult,
   type SessionSearchResult
 } from '../shared/session-search'
+import { t } from '../shared/i18n'
 
 type SearchOptions = Parameters<typeof discoverProjectSessions>[0] & {
   query: string
@@ -57,11 +64,15 @@ export async function searchProjects(
     })
   }
   const term = query.trim().toLocaleLowerCase()
-  const matching = [...projects.values()].sort((a, b) => comparePinned(options.navigation?.projects[a.cwd], options.navigation?.projects[b.cwd])).filter(
-    (project) =>
-      project.cwd.toLocaleLowerCase().includes(term) ||
-      project.projectName.toLocaleLowerCase().includes(term)
-  )
+  const matching = [...projects.values()]
+    .sort((a, b) =>
+      comparePinned(options.navigation?.projects[a.cwd], options.navigation?.projects[b.cwd])
+    )
+    .filter(
+      (project) =>
+        project.cwd.toLocaleLowerCase().includes(term) ||
+        project.projectName.toLocaleLowerCase().includes(term)
+    )
   // Trusted recent order comes first; discovered directories remain reachable by query.
   return projectSearchResultSchema.parse({
     items: matching.slice(0, limit),
@@ -107,14 +118,17 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
     const sourceTitle =
       session.name?.trim() ||
       session.firstMessage?.trim().replace(/\s+/g, ' ').slice(0, 80) ||
-      '新会话'
+      t('新会话')
     const title = sourceTitle.slice(0, 200)
     const item = sessionSearchItemSchema.safeParse({
       id: session.id,
       title,
       sessionPath: session.path,
       cwd,
-      projectName: projectDisplayName(options.navigation, canonicalCwd, basename(cwd) || cwd).slice(0, 200),
+      projectName: projectDisplayName(options.navigation, canonicalCwd, basename(cwd) || cwd).slice(
+        0,
+        200
+      ),
       modified: session.modified.toISOString()
     })
     if (!item.success) {
@@ -126,7 +140,10 @@ export async function searchSessions(options: SearchOptions): Promise<SessionSea
   }
   const sorted = [...items.values()].sort(
     (a, b) =>
-      comparePinned(options.navigation?.sessions[a.sessionPath], options.navigation?.sessions[b.sessionPath]) ||
+      comparePinned(
+        options.navigation?.sessions[a.sessionPath],
+        options.navigation?.sessions[b.sessionPath]
+      ) ||
       Date.parse(b.modified) - Date.parse(a.modified) ||
       compareIdentity(a.cwd, b.cwd) ||
       compareIdentity(a.sessionPath, b.sessionPath) ||

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { t } from '../../../shared/i18n'
 import '../assets/settings-primitives.css'
 
 /** A settings page: title, optional one-line description, then groups. */
@@ -168,15 +169,15 @@ export function SettingsStatus({
   if (status === 'error')
     return (
       <div className="sp-status is-error" role="alert">
-        <span>设置读取或保存失败：{error}</span>
+        <span>{t('设置读取或保存失败：{error}', { error })}</span>
         <button type="button" onClick={onRetry}>
-          重新读取
+          {t('重新读取')}
         </button>
       </div>
     )
   return (
     <span className="sp-status" role="status">
-      {status === 'saving' ? '正在保存…' : status === 'loading' ? '正在读取…' : ''}
+      {status === 'saving' ? t('正在保存…') : status === 'loading' ? t('正在读取…') : ''}
     </span>
   )
 }

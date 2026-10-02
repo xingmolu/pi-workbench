@@ -1,4 +1,5 @@
 import type { ApprovalRequest } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 /** Never infer command safety or discard unknown parameters from an approval. */
 export function approvalPreview(request: ApprovalRequest): {
@@ -18,7 +19,7 @@ export function approvalPreview(request: ApprovalRequest): {
 
   if (request.intent === 'terminal' && input && typeof input.command === 'string') {
     return {
-      label: '将执行的命令',
+      label: t('将执行的命令'),
       text: input.command,
       // Additional cwd/env/timeout/unknown fields must remain visible by default.
       parameters: Object.keys(input).some((key) => key !== 'command') ? raw : null
@@ -27,12 +28,12 @@ export function approvalPreview(request: ApprovalRequest): {
   return {
     label:
       request.intent === 'diff'
-        ? '将修改的文件与内容'
+        ? t('将修改的文件与内容')
         : request.intent === 'web'
-          ? '网页操作详情'
+          ? t('网页操作详情')
           : request.intent === 'desktop'
-            ? '桌面操作详情'
-            : '操作详情',
+            ? t('桌面操作详情')
+            : t('操作详情'),
     text: raw,
     parameters: null
   }

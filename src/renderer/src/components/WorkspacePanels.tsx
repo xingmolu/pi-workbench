@@ -11,6 +11,7 @@ import {
 } from 'react'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './Resizable'
+import { t } from '../../../shared/i18n'
 import '../assets/workspace-panels.css'
 
 const ResizeContext = createContext(false)
@@ -31,8 +32,15 @@ export default function WorkspacePanels({
   const storedWidth = useNavigationLibrary((state) => state.library.layout.workbenchWidth ?? 440)
   const expandedWidth = useRef(storedWidth)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => { expandedWidth.current = storedWidth }, [storedWidth])
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
+  useEffect(() => {
+    expandedWidth.current = storedWidth
+  }, [storedWidth])
+  useEffect(
+    () => () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    },
+    []
+  )
   const [resizing, setResizing] = useState(false)
   useLayoutEffect(() => {
     // Panel constraints are registered by the library during this layout commit.
@@ -65,11 +73,15 @@ export default function WorkspacePanels({
           // The callback can precede React's DOM commit, so getSize() can still
           // report the previous pixels. Convert the supplied, committed layout.
           if (!collapsed && isUserInteraction && group.current && separator.current) {
-            expandedWidth.current = (layout.workbench / 100) * (group.current.clientWidth - separator.current.offsetWidth)
+            expandedWidth.current =
+              (layout.workbench / 100) * (group.current.clientWidth - separator.current.offsetWidth)
             if (saveTimer.current) clearTimeout(saveTimer.current)
             saveTimer.current = setTimeout(() => {
               const width = Math.round(Math.min(1200, Math.max(252, expandedWidth.current)))
-              void performNavigationAction({ type: 'layout:save', layout: { workbenchWidth: width } })
+              void performNavigationAction({
+                type: 'layout:save',
+                layout: { workbenchWidth: width }
+              })
             }, 350)
           }
         }}
@@ -80,7 +92,7 @@ export default function WorkspacePanels({
         <ResizableHandle
           className="workspace-resize-handle"
           elementRef={separator}
-          aria-label="调整工作台宽度"
+          aria-label={t('调整工作台宽度')}
           disabled={collapsed}
           onPointerDownCapture={() => {
             if (!collapsed) setResizing(true)

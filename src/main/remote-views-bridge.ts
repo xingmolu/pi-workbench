@@ -8,6 +8,7 @@ import type { MobileViewsBridge } from './mobile-gateway'
 import type { MobilePluginViews } from './mobile-plugin-views'
 import type { RemoteBrowser } from './remote-browser'
 import type { RemoteTerminals } from './remote-terminals'
+import { t } from '../shared/i18n'
 
 const TERMINAL = 'terminal:'
 
@@ -22,7 +23,7 @@ export function createRemoteViewsBridge(options: {
   plugins?: MobilePluginViews
 }): MobileViewsBridge {
   const invalid = (): never => {
-    throw new Error('请求参数无效')
+    throw new Error(t('请求参数无效'))
   }
   return {
     access: options.access,
@@ -30,7 +31,12 @@ export function createRemoteViewsBridge(options: {
     list: () => {
       const views: RemoteViewSummary[] = []
       if (options.browserEnabled() && options.browser())
-        views.push({ id: 'browser', kind: 'browser', title: '浏览器', ...options.browserSummary() })
+        views.push({
+          id: 'browser',
+          kind: 'browser',
+          title: t('浏览器'),
+          ...options.browserSummary()
+        })
       if (options.terminalEnabled()) views.push(...options.terminals.list())
       return views
     },
@@ -48,7 +54,7 @@ export function createRemoteViewsBridge(options: {
     input: async (id, value) => {
       if (id === 'browser') {
         const browser = options.browserEnabled() ? options.browser() : null
-        if (!browser) throw new Error('浏览器插件已关闭')
+        if (!browser) throw new Error(t('浏览器插件已关闭'))
         const parsed = remoteBrowserInputSchema.safeParse(value)
         return parsed.success ? browser.input(parsed.data) : invalid()
       }
@@ -58,7 +64,7 @@ export function createRemoteViewsBridge(options: {
           ? options.terminals.input(id.slice(TERMINAL.length), parsed.data)
           : invalid()
       }
-      throw new Error('这个视图不存在或已关闭')
+      throw new Error(t('这个视图不存在或已关闭'))
     }
   }
 }

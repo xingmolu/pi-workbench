@@ -12,6 +12,7 @@ import {
 } from '../../../shared/custom-endpoints'
 import { endpointContext } from '../store/pi-store'
 import { confirmDiscardSettingsDraft, useSettingsDraft } from './SettingsDraftContext'
+import { t } from '../../../shared/i18n'
 
 const protocols: Record<CustomEndpointApi, string> = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -103,7 +104,9 @@ export default function CustomEndpoints({
       if (mounted.current && operation === epoch.current) {
         setCatalog(null)
         setError(
-          '无法读取端点配置。请检查 Pi models.json 的格式或权限后刷新列表；此处不会覆盖无效配置。'
+          t(
+            '无法读取端点配置。请检查 Pi models.json 的格式或权限后刷新列表；此处不会覆盖无效配置。'
+          )
         )
       }
     } finally {
@@ -186,7 +189,7 @@ export default function CustomEndpoints({
       api: form.api
     })
     if (!parsed.success) {
-      setError('请填写有效的服务 URL 和 API Key；编辑已有端点时，拉取模型也需要重新输入密钥。')
+      setError(t('请填写有效的服务 URL 和 API Key；编辑已有端点时，拉取模型也需要重新输入密钥。'))
       return
     }
     const operation = ++epoch.current
@@ -198,11 +201,14 @@ export default function CustomEndpoints({
       if (!mounted.current || operation !== epoch.current) return
       update({ modelIds: response.result.modelIds.join('\n'), baseUrl: response.result.baseUrl })
       setDiscoveryNote(
-        `已获取 ${response.result.modelIds.length} 个模型${response.result.truncated ? '（列表未完整返回，可在高级设置中补充）' : ''}，保存后即可选择。`
+        t('已获取 {count} 个模型{partial}，保存后即可选择。', {
+          count: response.result.modelIds.length,
+          partial: response.result.truncated ? t('（列表未完整返回，可在高级设置中补充）') : ''
+        })
       )
     } catch (error) {
       if (mounted.current && operation === epoch.current)
-        setError(error instanceof Error ? error.message : '拉取失败，请重试或手动填写模型。')
+        setError(error instanceof Error ? error.message : t('拉取失败，请重试或手动填写模型。'))
     } finally {
       if (mounted.current && operation === epoch.current) setDiscovering(false)
     }
@@ -224,19 +230,21 @@ export default function CustomEndpoints({
       setErrorField(String(field))
       setError(
         field === 'baseUrl'
-          ? 'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。'
+          ? t(
+              'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。'
+            )
           : field === 'modelIds'
-            ? '模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。'
+            ? t('模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。')
             : field === 'imageModelIds'
-              ? '支持图片输入的模型必须出现在模型 ID 列表中。'
+              ? t('支持图片输入的模型必须出现在模型 ID 列表中。')
               : field === 'key'
-                ? '新端点必须填写 API Key；本地服务也需明确填写占位值。'
-                : '显示名称需为 1–80 个字符，不能包含控制字符。'
+                ? t('新端点必须填写 API Key；本地服务也需明确填写占位值。')
+                : t('显示名称需为 1–80 个字符，不能包含控制字符。')
       )
       return
     }
     if (removed.length && !confirmedRemoval) {
-      setError('请确认下面将移除的模型，再保存端点。')
+      setError(t('请确认下面将移除的模型，再保存端点。'))
       return
     }
     const operation = ++epoch.current
@@ -277,7 +285,9 @@ export default function CustomEndpoints({
       ) {
         baseline.current = null
         setForm(null)
-        setError('保存结果未知，端点可能已写入。请刷新列表核对后再编辑；密钥已清空，不会自动重试。')
+        setError(
+          t('保存结果未知，端点可能已写入。请刷新列表核对后再编辑；密钥已清空，不会自动重试。')
+        )
       }
     } finally {
       submitting.current = false
@@ -286,13 +296,14 @@ export default function CustomEndpoints({
   }
 
   return (
-    <section className="sp-group acct-endpoints" aria-label="自定义端点">
+    <section className="sp-group acct-endpoints" aria-label={t('自定义端点')}>
       <div className="sp-group-header acct-group-header">
         <div>
-          <h3>Pi 自定义端点</h3>
+          <h3>{t('Pi 自定义端点')}</h3>
           <p>
-            OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi
-            CLI；新端点不会自动成为当前模型。
+            {t(
+              'OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。'
+            )}
           </p>
         </div>
         <button
@@ -306,14 +317,15 @@ export default function CustomEndpoints({
           }}
         >
           <RefreshCw size={13} className={loading ? 'spin' : undefined} />
-          刷新列表
+
+          {t('刷新列表')}
         </button>
       </div>
       {!detached && (snapshot.busy || loginActive) ? (
         <p className="acct-notice is-warning" role="note">
           {loginActive
-            ? '登录正在进行，完成后才能保存端点。'
-            : '会话正在运行，结束后才能保存端点。'}
+            ? t('登录正在进行，完成后才能保存端点。')
+            : t('会话正在运行，结束后才能保存端点。')}
         </p>
       ) : null}
       {error ? (
@@ -328,17 +340,21 @@ export default function CustomEndpoints({
         >
           <p>{outcome.message}</p>
           <small>
-            配置：{outcome.metadata === 'saved' ? '已保存' : '未更改'} · 凭据：
+            {t('配置：')}
+            {outcome.metadata === 'saved' ? t('已保存') : t('未更改')} {t('· 凭据：')}
             {outcome.credential === 'saved'
-              ? '已保存'
+              ? t('已保存')
               : outcome.credential === 'unknown'
-                ? '结果不确定'
-                : '未更改'}{' '}
-            · 运行时：{outcome.runtime === 'synchronized' ? '已同步' : '未同步'}
+                ? t('结果不确定')
+                : t('未更改')}{' '}
+            {t('· 运行时：')}
+            {outcome.runtime === 'synchronized' ? t('已同步') : t('未同步')}
           </small>
           {outcome.runtime === 'failed' && outcome.metadata === 'saved' ? (
             <p>
-              刷新列表只读取配置，不修复运行时。请检查配置与权限后重新编辑保存，或重启引擎并检查模型；凭据结果不确定时先核对登录状态。
+              {t(
+                '刷新列表只读取配置，不修复运行时。请检查配置与权限后重新编辑保存，或重启引擎并检查模型；凭据结果不确定时先核对登录状态。'
+              )}
             </p>
           ) : null}
         </div>
@@ -354,16 +370,20 @@ export default function CustomEndpoints({
                 <div className="acct-endpoint-meta">
                   <strong>{endpoint.label}</strong>
                   <small>
-                    {endpoint.api ? protocols[endpoint.api] : '高级配置'} ·{' '}
-                    {endpoint.modelIds.length} 个模型 · {endpoint.imageModelIds?.length ?? 0}{' '}
-                    个支持图片输入
+                    {endpoint.api ? protocols[endpoint.api] : t('高级配置')}{' '}
+                    {t('·{value} {length} 个模型 · {value2}{value3} 个支持图片输入', {
+                      value: ' ',
+                      length: endpoint.modelIds.length,
+                      value2: endpoint.imageModelIds?.length ?? 0,
+                      value3: ' '
+                    })}
                   </small>
                   {!endpoint.editable ? (
                     <details className="acct-endpoint-details">
-                      <summary>查看配置说明</summary>
+                      <summary>{t('查看配置说明')}</summary>
                       <p>{endpoint.unsupportedReason}</p>
                       <code>{endpoint.id}</code>
-                      <p>{endpoint.baseUrl ?? '地址不可展示'}</p>
+                      <p>{endpoint.baseUrl ?? t('地址不可展示')}</p>
                       <p>{endpoint.modelIds.join('、')}</p>
                     </details>
                   ) : null}
@@ -372,14 +392,14 @@ export default function CustomEndpoints({
                   <button
                     type="button"
                     className="acct-button"
-                    aria-label={`编辑 ${endpoint.label}`}
+                    aria-label={t('编辑 {label}', { label: endpoint.label })}
                     disabled={disabled}
                     onClick={() => edit(endpoint)}
                   >
-                    编辑
+                    {t('编辑')}
                   </button>
                 ) : (
-                  <span className="acct-status">只读</span>
+                  <span className="acct-status">{t('只读')}</span>
                 )}
               </div>
             ))}
@@ -391,7 +411,8 @@ export default function CustomEndpoints({
                 onClick={() => edit()}
               >
                 <Plus size={14} />
-                添加端点
+
+                {t('添加端点')}
               </button>
             </div>
           </div>
@@ -399,10 +420,10 @@ export default function CustomEndpoints({
           <div className="acct-empty is-action">
             <p>
               {catalog
-                ? '尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。'
+                ? t('尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。')
                 : loading
-                  ? '正在读取端点…'
-                  : '端点列表暂不可用。'}
+                  ? t('正在读取端点…')
+                  : t('端点列表暂不可用。')}
             </p>
             <button
               type="button"
@@ -411,7 +432,8 @@ export default function CustomEndpoints({
               onClick={() => edit()}
             >
               <Plus size={14} />
-              添加端点
+
+              {t('添加端点')}
             </button>
           </div>
         )
@@ -425,8 +447,8 @@ export default function CustomEndpoints({
           }}
         >
           <div className="acct-form-head">
-            <h3>{form.id ? '编辑端点' : '新增端点'}</h3>
-            <p>填写服务地址和密钥，拉取模型后即可保存。</p>
+            <h3>{form.id ? t('编辑端点') : t('新增端点')}</h3>
+            <p>{t('填写服务地址和密钥，拉取模型后即可保存。')}</p>
           </div>
           <label htmlFor="endpoint-url">Base URL</label>
           <input
@@ -441,7 +463,7 @@ export default function CustomEndpoints({
             onChange={(event) => update({ baseUrl: event.target.value })}
           />
           <small id="endpoint-url-help">
-            例如 https://api.example.com/v1，也支持本机服务地址。
+            {t('例如 https://api.example.com/v1，也支持本机服务地址。')}
           </small>
           <label htmlFor="endpoint-key">API Key</label>
           <input
@@ -462,9 +484,10 @@ export default function CustomEndpoints({
           />
           <small id="endpoint-key-help">
             {form.id
-              ? '留空保留现有凭据；不会回显旧密钥。'
-              : '仅用于此服务的认证；本地免认证服务可填任意占位值。'}
-            提交或关闭时清空。
+              ? t('留空保留现有凭据；不会回显旧密钥。')
+              : t('仅用于此服务的认证；本地免认证服务可填任意占位值。')}
+
+            {t('提交或关闭时清空。')}
           </small>
           <button
             type="button"
@@ -476,19 +499,29 @@ export default function CustomEndpoints({
               size={14}
               className={discovering ? 'endpoint-discovery-spinner' : undefined}
             />
-            {discovering ? '正在拉取模型…' : '拉取模型'}
+            {discovering ? t('正在拉取模型…') : t('拉取模型')}
           </button>
           {discoveryNote ? (
             <p role="status" className="acct-notice">
               {discoveryNote}
             </p>
           ) : null}
-          <details className="endpoint-advanced" open={form.id || ['label', 'modelIds', 'imageModelIds', 'api'].includes(errorField ?? '') ? true : undefined}>
-            <summary>高级设置与模型列表{ids.length ? `（${ids.length} 个）` : ''}</summary>
-            <label htmlFor="endpoint-label">显示名称</label>
+          <details
+            className="endpoint-advanced"
+            open={
+              form.id || ['label', 'modelIds', 'imageModelIds', 'api'].includes(errorField ?? '')
+                ? true
+                : undefined
+            }
+          >
+            <summary>
+              {t('高级设置与模型列表')}
+              {ids.length ? t('（{length} 个）', { length: ids.length }) : ''}
+            </summary>
+            <label htmlFor="endpoint-label">{t('显示名称')}</label>
             <input
               id="endpoint-label"
-              placeholder="可选，默认使用服务域名"
+              placeholder={t('可选，默认使用服务域名')}
               value={form.label}
               disabled={disabled}
               autoComplete="off"
@@ -496,7 +529,7 @@ export default function CustomEndpoints({
               aria-describedby={errorField === 'label' ? 'endpoint-error' : undefined}
               onChange={(event) => update({ label: event.target.value })}
             />
-            <label htmlFor="endpoint-api">协议</label>
+            <label htmlFor="endpoint-api">{t('协议')}</label>
             <select
               id="endpoint-api"
               value={form.api}
@@ -509,7 +542,7 @@ export default function CustomEndpoints({
                 </option>
               ))}
             </select>
-            <label htmlFor="endpoint-models">模型 ID</label>
+            <label htmlFor="endpoint-models">{t('模型 ID')}</label>
             <textarea
               id="endpoint-models"
               rows={3}
@@ -520,10 +553,16 @@ export default function CustomEndpoints({
               aria-describedby={`endpoint-model-help${errorField === 'modelIds' ? ' endpoint-error' : ''}`}
               onChange={(event) => update({ modelIds: event.target.value })}
             />
-            <small id="endpoint-model-help">每行一个，不重复。使用服务实际支持的模型 ID。</small>
+            <small id="endpoint-model-help">
+              {t('每行一个，不重复。使用服务实际支持的模型 ID。')}
+            </small>
             {ids.length ? (
-              <div className="endpoint-image-models" role="group" aria-label="模型图片输入能力">
-                <small>只勾选服务确实支持图片输入的模型；此设置不会自动检测服务能力。</small>
+              <div
+                className="endpoint-image-models"
+                role="group"
+                aria-label={t('模型图片输入能力')}
+              >
+                <small>{t('只勾选服务确实支持图片输入的模型；此设置不会自动检测服务能力。')}</small>
                 {[...new Set(ids)].map((id) => (
                   <label key={id} className="endpoint-confirm">
                     <input
@@ -538,7 +577,8 @@ export default function CustomEndpoints({
                         })
                       }
                     />
-                    支持图片输入：{id}
+
+                    {t('支持图片输入：{id}', { id })}
                   </label>
                 ))}
               </div>
@@ -547,7 +587,9 @@ export default function CustomEndpoints({
           {removed.length ? (
             <div className="acct-notice is-warning">
               <p>
-                将移除：{removed.join('、')}。引用这些模型的会话会保留历史，但需要重新选择模型。
+                {t('将移除：{value}。引用这些模型的会话会保留历史，但需要重新选择模型。', {
+                  value: removed.join('、')
+                })}
               </p>
               <label className="endpoint-confirm">
                 <input
@@ -556,25 +598,26 @@ export default function CustomEndpoints({
                   disabled={disabled}
                   onChange={(event) => setConfirmedRemoval(event.target.checked)}
                 />
-                确认移除上述模型
+
+                {t('确认移除上述模型')}
               </label>
             </div>
           ) : null}
           <div className="acct-form-actions">
             <button type="button" className="acct-button" onClick={cancel}>
-              取消编辑
+              {t('取消编辑')}
             </button>
             <button type="submit" className="acct-button is-primary" disabled={disabled}>
-              {pending ? '正在保存…' : '保存端点'}
+              {pending ? t('正在保存…') : t('保存端点')}
             </button>
           </div>
         </form>
       )}
       {path ? (
         <details className="acct-storage">
-          <summary>Pi 配置位置</summary>
+          <summary>{t('Pi 配置位置')}</summary>
           <code>{path}</code>
-          <p>高级配置在此文件中管理。此处仅展示路径，不打开任意文件。</p>
+          <p>{t('高级配置在此文件中管理。此处仅展示路径，不打开任意文件。')}</p>
         </details>
       ) : null}
     </section>

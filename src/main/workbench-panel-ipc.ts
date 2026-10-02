@@ -9,6 +9,7 @@ import {
   pluginPanelContextSchema
 } from '../shared/workbench-schemas'
 import type { WorkbenchHost, WorkbenchPanelStateAdapter } from './workbench-host'
+import { t } from '../shared/i18n'
 
 export type WorkbenchPanelIpcSender = {
   readonly mainFrame: object
@@ -94,13 +95,18 @@ export function createWorkbenchPanelIpcRouter(dependencies: {
         const value = await binding.host.pluginCall(binding.viewId, command.method, command.params)
         // Host services return plain data; the round trip also strips anything non-JSON.
         const json = value === undefined ? undefined : JSON.parse(JSON.stringify(value))
-        return { type: 'api:result', context, ok: true, ...(json === undefined ? {} : { value: json }) }
+        return {
+          type: 'api:result',
+          context,
+          ok: true,
+          ...(json === undefined ? {} : { value: json })
+        }
       } catch (error) {
         const code =
           error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
             ? error.code
             : 'INTERNAL'
-        const message = error instanceof Error ? error.message.slice(0, 2000) : '宿主处理失败'
+        const message = error instanceof Error ? error.message.slice(0, 2000) : t('宿主处理失败')
         return { type: 'api:result', context, ok: false, code, message }
       }
     }

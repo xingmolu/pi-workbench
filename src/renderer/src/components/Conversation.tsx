@@ -87,6 +87,7 @@ import {
   runtimeMetricsDisplay,
   toolMetaDisplay
 } from '../store/conversation-presentation'
+import { t } from '../../../shared/i18n'
 
 type ConversationProps = {
   snapshot: AgentSnapshot
@@ -133,11 +134,15 @@ function projectRelative(title: string, projectPath?: string): string {
 const STARTERS = [
   {
     icon: Compass,
-    label: '梳理项目结构',
-    prompt: '梳理这个项目的结构、关键模块和它们之间的关系。'
+    label: t('梳理项目结构'),
+    prompt: t('梳理这个项目的结构、关键模块和它们之间的关系。')
   },
-  { icon: Bug, label: '排查一个问题', prompt: '帮我排查这个问题：' },
-  { icon: FlaskConical, label: '补充测试', prompt: '为最近修改的代码补充测试，并运行确认通过。' }
+  { icon: Bug, label: t('排查一个问题'), prompt: t('帮我排查这个问题：') },
+  {
+    icon: FlaskConical,
+    label: t('补充测试'),
+    prompt: t('为最近修改的代码补充测试，并运行确认通过。')
+  }
 ] as const
 
 export type ConnectChoice = 'chatgpt' | 'claude' | 'api'
@@ -148,21 +153,21 @@ const CONNECT_CHOICES: Record<
 > = {
   chatgpt: {
     icon: MessageSquare,
-    title: 'ChatGPT 账号',
-    detail: () => '用 Plus / Pro 订阅在浏览器里登录，Pi 和 Codex 都能用'
+    title: t('ChatGPT 账号'),
+    detail: () => t('用 Plus / Pro 订阅在浏览器里登录，Pi 和 Codex 都能用')
   },
   claude: {
     icon: Sparkles,
-    title: 'Claude 账号',
+    title: t('Claude 账号'),
     detail: (runtimeId) =>
       runtimeId === 'claude'
-        ? '用 Pro / Max 订阅在浏览器里登录'
-        : 'Pro / Max 订阅在 Claude Code 引擎里使用，首次需要下载引擎'
+        ? t('用 Pro / Max 订阅在浏览器里登录')
+        : t('Pro / Max 订阅在 Claude Code 引擎里使用，首次需要下载引擎')
   },
   api: {
     icon: KeyRound,
     title: 'API Key',
-    detail: () => 'OpenRouter、DeepSeek、Kimi、Anthropic 等服务，或公司网关'
+    detail: () => t('OpenRouter、DeepSeek、Kimi、Anthropic 等服务，或公司网关')
   }
 }
 
@@ -181,8 +186,8 @@ function ConnectChoices({
         ? ['chatgpt']
         : ['chatgpt', 'api', 'claude']
   return (
-    <section className="home-connect" aria-label="连接模型">
-      <p className="home-connect-title">先连接一个模型账号，就可以开始了</p>
+    <section className="home-connect" aria-label={t('连接模型')}>
+      <p className="home-connect-title">{t('先连接一个模型账号，就可以开始了')}</p>
       <div className="home-connect-options">
         {choices.map((choice) => {
           const { icon: Icon, title, detail } = CONNECT_CHOICES[choice]
@@ -205,14 +210,14 @@ function ConnectChoices({
 }
 
 const STATUS_LABEL = {
-  queued: '排队中',
-  'awaiting-approval': '等待确认',
-  'waiting-resource': '等待项目资源',
-  incomplete: '未完成',
-  running: '运行中',
-  success: '完成',
-  error: '失败',
-  blocked: '已拒绝'
+  queued: t('排队中'),
+  'awaiting-approval': t('等待确认'),
+  'waiting-resource': t('等待项目资源'),
+  incomplete: t('未完成'),
+  running: t('运行中'),
+  success: t('完成'),
+  error: t('失败'),
+  blocked: t('已拒绝')
 } as const
 
 const ThinkNode = memo(function ThinkNode({
@@ -226,7 +231,7 @@ const ThinkNode = memo(function ThinkNode({
       <Collapsible.Trigger className="think-trigger">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Brain size={14} />
-        <span>{node.streaming ? '正在思考…' : '思考了一会儿'}</span>
+        <span>{node.streaming ? t('正在思考…') : t('思考了一会儿')}</span>
       </Collapsible.Trigger>
       <Collapsible.Content className="think-content">
         <Markdown>{node.text}</Markdown>
@@ -264,7 +269,7 @@ const ToolNode = memo(function ToolNode({
           <Icon size={15} />
           {change ? (
             <span className="tool-title is-change">
-              <span className="tool-verb">{node.name === 'write' ? '写入' : '编辑'}</span>
+              <span className="tool-verb">{node.name === 'write' ? t('写入') : t('编辑')}</span>
               <ChangePath path={change.path} projectPath={projectPath} />
               <DiffStat additions={change.additions} deletions={change.deletions} />
             </span>
@@ -299,13 +304,13 @@ const ToolNode = memo(function ToolNode({
             <ToolChangeView change={change} projectPath={projectPath} header={false} />
             {node.output ? (
               <div className="tool-output">
-                <span>输出</span>
+                <span>{t('输出')}</span>
                 <pre>{node.output}</pre>
               </div>
             ) : null}
             {node.detail ? (
               <details className="tool-raw">
-                <summary>原始参数</summary>
+                <summary>{t('原始参数')}</summary>
                 <pre>{node.detail}</pre>
               </details>
             ) : null}
@@ -315,7 +320,7 @@ const ToolNode = memo(function ToolNode({
             {node.detail ? <pre>{node.detail}</pre> : null}
             {node.output ? (
               <div className="tool-output">
-                <span>输出</span>
+                <span>{t('输出')}</span>
                 <pre>{node.output}</pre>
               </div>
             ) : null}
@@ -440,7 +445,7 @@ function NodeFlow({
       state: state.state,
       sessionId: snapshot.sessionId,
       generation: snapshot.generation,
-      blockedReason: snapshot.busy || approvals.length ? '请等待当前任务结束后再撤销' : null
+      blockedReason: snapshot.busy || approvals.length ? t('请等待当前任务结束后再撤销') : null
     }
   }
 
@@ -485,7 +490,9 @@ function NodeFlow({
           <div className="user-node">
             <TextContextMessage text={node.text} />
             {node.imageCount ? (
-              <span className="user-image-note">{node.imageCount} 张图片</span>
+              <span className="user-image-note">
+                {node.imageCount} {t('张图片')}
+              </span>
             ) : null}
           </div>
           <MessageActions node={node} snapshot={snapshot} />
@@ -522,7 +529,10 @@ function NodeFlow({
         <div className="history-note is-model-switch" key={key} role="note">
           <ArrowRightLeft size={13} aria-hidden="true" />
           <span>
-            模型切换 · {node.provider} / {node.modelId}
+            {t('模型切换 · {provider} / {modelId}', {
+              provider: node.provider,
+              modelId: node.modelId
+            })}
           </span>
         </div>
       )
@@ -531,7 +541,7 @@ function NodeFlow({
       return (
         <div className="history-note is-compaction" key={key} role="note">
           <Archive size={13} aria-hidden="true" />
-          <span>上下文已压缩，历史消息仍保留</span>
+          <span>{t('上下文已压缩，历史消息仍保留')}</span>
         </div>
       )
     }
@@ -599,9 +609,12 @@ function TextContextMessage({ text }: { text: string }): React.JSX.Element {
       {context.files.map((file, index) => (
         <details className="text-context-file" key={index}>
           <summary>
-            {file.name} · 文本 · {file.size.toLocaleString()} 字节 · 已发送快照
+            {t('{name} · 文本 · {toLocaleString} 字节 · 已发送快照', {
+              name: file.name,
+              toLocaleString: file.size.toLocaleString()
+            })}
           </summary>
-          <pre>{file.text || '（空文件）'}</pre>
+          <pre>{file.text || t('（空文件）')}</pre>
         </details>
       ))}
     </>
@@ -623,7 +636,7 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
               : ({ '--context-angle': `${display.percent * 3.6}deg` } as CSSProperties)
           }
           type="button"
-          title="查看上下文与用量"
+          title={t('查看上下文与用量')}
           aria-label={display.ariaLabel}
         >
           <span
@@ -638,48 +651,52 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
           className="metric-popover"
           sideOffset={9}
           align="end"
-          aria-label="上下文与用量详情"
+          aria-label={t('上下文与用量详情')}
         >
           <div className="popover-heading">
-            <strong>上下文</strong>
-            <span>{display.percent === null ? '用量未知' : `${display.percent.toFixed(1)}%`}</span>
+            <strong>{t('上下文')}</strong>
+            <span>
+              {display.percent === null ? t('用量未知') : `${display.percent.toFixed(1)}%`}
+            </span>
           </div>
           <dl className="metric-list">
             <div>
-              <dt>已用 token</dt>
+              <dt>{t('已用 token')}</dt>
               <dd>{display.tokens}</dd>
             </div>
             <div>
-              <dt>上下文窗口</dt>
+              <dt>{t('上下文窗口')}</dt>
               <dd>{display.window}</dd>
             </div>
           </dl>
 
           <div className="metric-group">
-            <span>会话累计</span>
+            <span>{t('会话累计')}</span>
             <dl className="metric-list">
               <div>
-                <dt>输入</dt>
+                <dt>{t('输入')}</dt>
                 <dd>{formatTokens(metrics.input)} token</dd>
               </div>
               <div>
-                <dt>输出</dt>
+                <dt>{t('输出')}</dt>
                 <dd>{formatTokens(metrics.output)} token</dd>
               </div>
               <div>
-                <dt>缓存读取</dt>
+                <dt>{t('缓存读取')}</dt>
                 <dd>{formatTokens(metrics.cacheRead)} token</dd>
               </div>
               <div>
-                <dt>缓存写入</dt>
+                <dt>{t('缓存写入')}</dt>
                 <dd>{formatTokens(metrics.cacheWrite)} token</dd>
               </div>
             </dl>
-            {metrics.usageIncomplete ? <small>中断用量未知 · 累计仅含已报告用量</small> : null}
+            {metrics.usageIncomplete ? (
+              <small>{t('中断用量未知 · 累计仅含已报告用量')}</small>
+            ) : null}
           </div>
 
           <div className="metric-group">
-            <span>本次运行期实测</span>
+            <span>{t('本次运行期实测')}</span>
             <dl className="metric-list">
               {runtimeRows.map(([label, value]) => (
                 <div key={label}>
@@ -688,7 +705,7 @@ function ContextMeter({ metrics }: { metrics: UsageMetrics }): React.JSX.Element
                 </div>
               ))}
             </dl>
-            <small>数据缺失或应用重启后显示未知。</small>
+            <small>{t('数据缺失或应用重启后显示未知。')}</small>
           </div>
         </Popover.Content>
       </Popover.Portal>
@@ -711,8 +728,8 @@ function QueuePopover({
         <button
           className="queue-button"
           type="button"
-          title={`查看待发送队列（${followUp.length} 条）`}
-          aria-label={`查看待发送队列，共 ${followUp.length} 条`}
+          title={t('查看待发送队列（{length} 条）', { length: followUp.length })}
+          aria-label={t('查看待发送队列，共 {length} 条', { length: followUp.length })}
         >
           <ListPlus size={13} />
           <span>{followUp.length}</span>
@@ -723,13 +740,15 @@ function QueuePopover({
           className="queue-popover"
           sideOffset={9}
           align="end"
-          aria-label="待发送队列"
+          aria-label={t('待发送队列')}
         >
           <div className="popover-heading">
-            <strong>待发送队列</strong>
-            <span>{followUp.length} 条</span>
+            <strong>{t('待发送队列')}</strong>
+            <span>
+              {followUp.length} {t('条')}
+            </span>
           </div>
-          <p>当前 agent run 完全结束后发送。</p>
+          <p>{t('当前 agent run 完全结束后发送。')}</p>
           <ol className="queue-list">
             {followUp.map((text, index) => (
               <li key={`${index}-${text}`}>
@@ -739,7 +758,7 @@ function QueuePopover({
             ))}
           </ol>
           <button className="queue-clear" type="button" onClick={onClear}>
-            清空全部
+            {t('清空全部')}
           </button>
         </Popover.Content>
       </Popover.Portal>
@@ -943,20 +962,20 @@ function Composer({
   }
 
   const lockLabel = !snapshot.ready
-    ? 'Pi 引擎未连接'
+    ? t('Pi 引擎未连接')
     : snapshot.composeBlockReason === 'endpoint-runtime-unsynchronized'
-      ? '端点运行时未同步 · 检查配置并重新保存'
+      ? t('端点运行时未同步 · 检查配置并重新保存')
       : snapshot.composeBlockReason === 'endpoint-selection-invalidated'
-        ? '模型选择已失效 · 重新选择模型'
+        ? t('模型选择已失效 · 重新选择模型')
         : snapshot.composeBlockReason === 'project-required'
-          ? '先选择一个工作区'
+          ? t('先选择一个工作区')
           : snapshot.composeBlockReason === 'login-required'
-            ? '先连接一个模型账号'
+            ? t('先连接一个模型账号')
             : snapshot.composeBlockReason === 'pinned-model-unavailable'
-              ? '此会话模型不可用 · 选择其他模型继续'
+              ? t('此会话模型不可用 · 选择其他模型继续')
               : snapshot.composeBlockReason === 'model-unavailable'
-                ? '所选模型不可用 · 选择其他模型继续'
-                : '选择模型后才能发送'
+                ? t('所选模型不可用 · 选择其他模型继续')
+                : t('选择模型后才能发送')
   const lockAction =
     snapshot.composeBlockReason === 'login-required'
       ? onOpenSettings
@@ -984,11 +1003,13 @@ function Composer({
         )}
         {skillAttachmentConflict && (
           <p role="alert" className="inline-hint">
-            技能命令暂不能与文本附件一起发送，请先移除附件。
+            {t('技能命令暂不能与文本附件一起发送，请先移除附件。')}
           </p>
         )}
         {!skillAttachmentConflict && /^\/skill:/.test(draft.trimStart()) && (
-          <p className="inline-hint">技能命令暂不能搭配文本附件；移除技能命令后可添加附件。</p>
+          <p className="inline-hint">
+            {t('技能命令暂不能搭配文本附件；移除技能命令后可添加附件。')}
+          </p>
         )}
         {!snapshot.ready ? (
           <div className="composer-lock is-static">
@@ -1007,17 +1028,21 @@ function Composer({
           </div>
         ) : null}
         {attachments.files.length ? (
-          <ul className="attachment-chips" aria-label="已选择的文本文件">
+          <ul className="attachment-chips" aria-label={t('已选择的文本文件')}>
             {attachments.files.map((file) => (
               <li key={file.id}>
                 <FileText size={14} aria-hidden="true" />
                 <span title={file.name}>
                   {file.name}
-                  <small>文本 · {file.size.toLocaleString()} 字节 · 内容快照</small>
+                  <small>
+                    {t('文本 · {toLocaleString} 字节 · 内容快照', {
+                      toLocaleString: file.size.toLocaleString()
+                    })}
+                  </small>
                 </span>
                 <button
                   type="button"
-                  aria-label={`移除 ${file.name}`}
+                  aria-label={t('移除 {name}', { name: file.name })}
                   disabled={
                     attachments.staging || attachments.sending || Boolean(attachments.submission)
                   }
@@ -1034,9 +1059,9 @@ function Composer({
         (attachments.files.length > 0 && snapshot.busy) ? (
           <div className="attachment-status" role="status">
             {attachments.staging
-              ? '正在读取文本文件…'
+              ? t('正在读取文本文件…')
               : attachments.files.length > 0 && snapshot.busy
-                ? '文本附件仅支持空闲时发送，请等待当前任务结束；内容已保留。'
+                ? t('文本附件仅支持空闲时发送，请等待当前任务结束；内容已保留。')
                 : attachments.message}
             {attachments.submission && !attachments.sending ? (
               <button
@@ -1044,7 +1069,7 @@ function Composer({
                 className="tool-chip"
                 onClick={() => void submitAttachments(true)}
               >
-                查询原发送结果
+                {t('查询原发送结果')}
               </button>
             ) : null}
           </div>
@@ -1078,17 +1103,19 @@ function Composer({
           }}
           placeholder={
             !preferencesLoaded
-              ? '发送偏好尚未读取，请使用发送按钮…'
+              ? t('发送偏好尚未读取，请使用发送按钮…')
               : snapshot.busy
                 ? snapshot.runtime?.features.includes('queue')
-                  ? '补充指令，加入当前任务之后…'
-                  : '任务运行中，可先写下下一条指令…'
+                  ? t('补充指令，加入当前任务之后…')
+                  : t('任务运行中，可先写下下一条指令…')
                 : snapshot.runtime?.id === 'claude'
-                  ? '描述你想完成的任务…'
-                  : '给 Pi 一个任务，或输入 / 选择技能…'
+                  ? t('描述你想完成的任务…')
+                  : t('给 Pi 一个任务，或输入 / 选择技能…')
           }
-          title={`${desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'} 发送，Shift + Enter 换行`}
-          aria-label="任务输入"
+          title={t('{value} 发送，Shift + Enter 换行', {
+            value: desktopSettings.sendShortcut === 'enter' ? 'Enter' : '⌘ / Ctrl + Enter'
+          })}
+          aria-label={t('任务输入')}
           aria-controls={skillMenuState.listId}
           aria-activedescendant={skillMenuState.activeId}
           aria-autocomplete="list"
@@ -1099,8 +1126,8 @@ function Composer({
             <button
               className="tool-chip icon-only"
               type="button"
-              title="添加 UTF-8 文本文件（最多 4 个，单个 1 MiB，合计 2 MiB）"
-              aria-label="添加文本文件"
+              title={t('添加 UTF-8 文本文件（最多 4 个，单个 1 MiB，合计 2 MiB）')}
+              aria-label={t('添加文本文件')}
               disabled={
                 /^\/skill:/.test(draft.trimStart()) ||
                 editOpen ||
@@ -1130,7 +1157,7 @@ function Composer({
           <ContextMeter metrics={snapshot.metrics} />
           <QueuePopover followUp={snapshot.followUp} onClear={onClearQueue} />
           {runElapsed !== null ? (
-            <span className="composer-elapsed" title="本次运行已用时间">
+            <span className="composer-elapsed" title={t('本次运行已用时间')}>
               {formatElapsed(runElapsed)}
             </span>
           ) : null}
@@ -1138,13 +1165,13 @@ function Composer({
             <button
               className="composer-stop"
               type="button"
-              title="停止当前运行"
-              aria-label="停止当前运行"
+              title={t('停止当前运行')}
+              aria-label={t('停止当前运行')}
               disabled={!snapshot.ready}
               onClick={onAbort}
             >
               <Square size={12} fill="currentColor" />
-              <span>停止</span>
+              <span>{t('停止')}</span>
             </button>
           )}
           <button
@@ -1153,11 +1180,11 @@ function Composer({
             title={
               snapshot.busy
                 ? snapshot.runtime?.features.includes('queue')
-                  ? '加入发送队列'
-                  : '等待当前任务结束后发送'
-                : '发送任务'
+                  ? t('加入发送队列')
+                  : t('等待当前任务结束后发送')
+                : t('发送任务')
             }
-            aria-label={snapshot.busy ? '加入发送队列' : '发送任务'}
+            aria-label={snapshot.busy ? t('加入发送队列') : t('发送任务')}
             onClick={submit}
             disabled={
               submitting ||
@@ -1290,8 +1317,8 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
             {snapshot.sessions.find((session) => session.active)?.parentSessionPath ? (
               <button
                 className="session-action session-parent-action"
-                aria-label="来源会话"
-                title="来源会话"
+                aria-label={t('来源会话')}
+                title={t('来源会话')}
                 onClick={() =>
                   props.onOpenSession(
                     snapshot.sessions.find((session) => session.active)!.parentSessionPath!
@@ -1299,10 +1326,10 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                 }
               >
                 <ArrowLeft size={13} />
-                <span>来源会话</span>
+                <span>{t('来源会话')}</span>
               </button>
             ) : snapshot.sessions.find((session) => session.active)?.parentUnavailable ? (
-              <span className="session-parent-unavailable">来源会话当前不可用</span>
+              <span className="session-parent-unavailable">{t('来源会话当前不可用')}</span>
             ) : null}
             <SessionFork
               key={JSON.stringify([
@@ -1376,28 +1403,28 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               onClick={() => props.onOpenSession(parentSession.sessionPath!)}
             >
               <ArrowLeft size={14} aria-hidden="true" />
-              返回父会话 · {parentSession.title || '主 Agent'}
+              {t('返回父会话 ·')} {parentSession.title || t('主 Agent')}
             </button>
           ) : null}
           {!hasNodes ? (
             <div className="hero-copy">
               <h1>
                 {snapshot.project
-                  ? '今天，我们完成什么？'
+                  ? t('今天，我们完成什么？')
                   : recentProject
-                    ? '继续上次的工作。'
-                    : '从一个项目开始。'}
+                    ? t('继续上次的工作。')
+                    : t('从一个项目开始。')}
               </h1>
               <p>
                 {loading
-                  ? '正在连接 Agent 引擎…'
+                  ? t('正在连接 Agent 引擎…')
                   : snapshot.project
-                    ? '描述你的目标，一起探索、实现与验证。'
+                    ? t('描述你的目标，一起探索、实现与验证。')
                     : recentProject
                       ? recentProject.sessionTitle
                         ? `${recentProject.name} · ${recentProject.sessionTitle}`
-                        : `返回 ${recentProject.name}，开始新的会话。`
-                      : '选择一个项目文件夹，开始工作。'}
+                        : t('返回 {name}，开始新的会话。', { name: recentProject.name })
+                      : t('选择一个项目文件夹，开始工作。')}
               </p>
               {!snapshot.project ? (
                 <div className="hero-project-actions">
@@ -1412,10 +1439,10 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                     >
                       <FolderOpen size={16} />
                       {props.projectNavigationPending
-                        ? '正在打开…'
+                        ? t('正在打开…')
                         : recentProject.sessionPath
-                          ? '继续最近会话'
-                          : '打开最近项目'}
+                          ? t('继续最近会话')
+                          : t('打开最近项目')}
                     </button>
                   ) : null}
                   <button
@@ -1425,7 +1452,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
                     onClick={onChooseProject}
                   >
                     {!recentProject ? <FolderOpen size={16} /> : null}
-                    {recentProject ? '选择其他文件夹' : '选择工作区'}
+                    {recentProject ? t('选择其他文件夹') : t('选择工作区')}
                   </button>
                 </div>
               ) : null}
@@ -1461,7 +1488,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           <button
             type="button"
             className="approval-jump"
-            aria-label={`查看待确认操作，共 ${approvals.length} 项`}
+            aria-label={t('查看待确认操作，共 {length} 项', { length: approvals.length })}
             onClick={() => {
               const card = Array.from(
                 scrollContainer.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []
@@ -1489,23 +1516,26 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
           >
             <CircleAlert size={14} aria-hidden="true" />
             <span>
-              有 {approvals.length} 项操作需要确认 · {approvalSummary(offscreenApproval)}
+              {t('有 {length} 项操作需要确认 · {value}', {
+                length: approvals.length,
+                value: approvalSummary(offscreenApproval)
+              })}
             </span>
             <span className="approval-jump-action">
-              查看 <ChevronRight size={13} aria-hidden="true" />
+              {t('查看')} <ChevronRight size={13} aria-hidden="true" />
             </span>
           </button>
         ) : null}
         {!snapshot.ready && !loading ? (
           <button className="tool-chip" disabled={props.reconnecting} onClick={props.onReconnect}>
-            {props.reconnecting ? '正在重新连接…' : '重新连接引擎'}
+            {props.reconnecting ? t('正在重新连接…') : t('重新连接引擎')}
           </button>
         ) : null}
         {awayFromBottom ? (
           <button
             className="conversation-jump-bottom"
-            aria-label="回到底部"
-            title="回到底部"
+            aria-label={t('回到底部')}
+            title={t('回到底部')}
             onClick={() => {
               following.current = true
               navigationScroll.current = false
@@ -1523,7 +1553,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
             {snapshot.ready && snapshot.composeBlockReason === 'login-required' ? (
               <ConnectChoices runtimeId={snapshot.runtime?.id} onConnect={props.onConnect} />
             ) : (
-              <div className="hero-starters" aria-label="快速开始">
+              <div className="hero-starters" aria-label={t('快速开始')}>
                 {STARTERS.map(({ icon: Icon, label, prompt }) => (
                   <button
                     key={label}
@@ -1538,8 +1568,8 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
               </div>
             )}
             {recentSessions.length > 0 ? (
-              <nav className="home-recent" aria-label="最近会话">
-                <span className="home-recent-label">最近会话</span>
+              <nav className="home-recent" aria-label={t('最近会话')}>
+                <span className="home-recent-label">{t('最近会话')}</span>
                 {recentSessions.map((session) => (
                   <button
                     key={session.path}

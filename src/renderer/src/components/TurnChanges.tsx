@@ -4,6 +4,7 @@ import { ChevronRight, FileDiff, LoaderCircle, RotateCcw } from 'lucide-react'
 import type { TurnFileChange } from '../store/turn-changes'
 import type { CheckpointPlan, CheckpointTurnState } from '../../../shared/checkpoints'
 import { ChangePath, DiffStat, ToolChangeView } from './ToolChangeView'
+import { t } from '../../../shared/i18n'
 
 export type TurnCheckpoint = {
   entryId: string
@@ -51,7 +52,7 @@ export default function TurnChanges({
       setUndo(
         result.plan
           ? { phase: 'confirm', plan: result.plan }
-          : { phase: 'error', message: '这一轮没有可撤销的文件改动。' }
+          : { phase: 'error', message: t('这一轮没有可撤销的文件改动。') }
       )
     } catch (error) {
       setUndo({ phase: 'error', message: messageOf(error) })
@@ -70,7 +71,7 @@ export default function TurnChanges({
         force
       })
       if (!outcome || outcome.status === 'unavailable')
-        setUndo({ phase: 'error', message: '改动记录已不可用。' })
+        setUndo({ phase: 'error', message: t('改动记录已不可用。') })
       else if (outcome.status === 'conflict') setUndo({ phase: 'confirm', plan: outcome.plan })
       else if (!outcome.skipped.length && !outcome.failed.length)
         // The header switches to "已撤销" from the snapshot; no second confirmation line.
@@ -79,9 +80,13 @@ export default function TurnChanges({
         setUndo({
           phase: 'done',
           message: [
-            `已撤销 ${outcome.restored} 个文件`,
-            outcome.skipped.length ? `${outcome.skipped.length} 个无法还原` : '',
-            outcome.failed.length ? `${outcome.failed.length} 个写入失败，可重试` : ''
+            t('已撤销 {restored} 个文件', { restored: outcome.restored }),
+            outcome.skipped.length
+              ? t('{length} 个无法还原', { length: outcome.skipped.length })
+              : '',
+            outcome.failed.length
+              ? t('{length} 个写入失败，可重试', { length: outcome.failed.length })
+              : ''
           ]
             .filter(Boolean)
             .join('，')
@@ -92,11 +97,14 @@ export default function TurnChanges({
   }
 
   return (
-    <section className={`turn-changes${restored ? ' is-restored' : ''}`} aria-label="本轮文件改动">
+    <section
+      className={`turn-changes${restored ? ' is-restored' : ''}`}
+      aria-label={t('本轮文件改动')}
+    >
       <header className="turn-changes-head">
         <FileDiff size={14} aria-hidden="true" />
         <span>
-          {restored ? '已撤销' : '已修改'} {files.length} 个文件
+          {restored ? t('已撤销') : t('已修改')} {t('{length} 个文件', { length: files.length })}
         </span>
         <DiffStat additions={additions} deletions={deletions} />
         {checkpoint && !restored && undo.phase !== 'confirm' && undo.phase !== 'restoring' ? (
@@ -104,7 +112,7 @@ export default function TurnChanges({
             type="button"
             className="turn-undo"
             disabled={Boolean(checkpoint.blockedReason) || undo.phase === 'planning'}
-            title={checkpoint.blockedReason ?? '把这些文件还原到这一轮开始之前'}
+            title={checkpoint.blockedReason ?? t('把这些文件还原到这一轮开始之前')}
             onClick={() => void plan()}
           >
             {undo.phase === 'planning' ? (
@@ -112,7 +120,8 @@ export default function TurnChanges({
             ) : (
               <RotateCcw size={13} aria-hidden="true" />
             )}
-            撤销
+
+            {t('撤销')}
           </button>
         ) : null}
       </header>
@@ -200,11 +209,14 @@ function UndoConfirm({
     panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [])
   return (
-    <div className="turn-undo-confirm" role="group" aria-label="确认撤销" ref={panel}>
+    <div className="turn-undo-confirm" role="group" aria-label={t('确认撤销')} ref={panel}>
       <p>
-        把下列文件还原到这一轮开始之前。
-        {plan.laterTurns ? `之后 ${plan.laterTurns} 轮对这些文件的改动也会一并撤销。` : ''}
-        命令行产生的改动不会还原，对话记录保持不变。
+        {t('把下列文件还原到这一轮开始之前。')}
+        {plan.laterTurns
+          ? t('之后 {laterTurns} 轮对这些文件的改动也会一并撤销。', { laterTurns: plan.laterTurns })
+          : ''}
+
+        {t('命令行产生的改动不会还原，对话记录保持不变。')}
       </p>
       <ul>
         {plan.files.map((file) => (
@@ -212,19 +224,19 @@ function UndoConfirm({
             <ChangePath path={file.path} projectPath={projectPath} />
             <span>
               {file.status === 'uncaptured'
-                ? '无法还原'
+                ? t('无法还原')
                 : file.status === 'conflict'
-                  ? '之后被改动过'
+                  ? t('之后被改动过')
                   : file.action === 'delete'
-                    ? '删除'
-                    : '还原'}
+                    ? t('删除')
+                    : t('还原')}
             </span>
           </li>
         ))}
       </ul>
       <div className="turn-undo-actions">
         <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>
-          取消
+          {t('取消')}
         </button>
         <button
           type="button"
@@ -233,7 +245,7 @@ function UndoConfirm({
           onClick={() => onConfirm(conflicts > 0)}
         >
           {busy ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : null}
-          {conflicts ? `覆盖 ${conflicts} 个文件并撤销` : '撤销改动'}
+          {conflicts ? t('覆盖 {conflicts} 个文件并撤销', { conflicts }) : t('撤销改动')}
         </button>
       </div>
     </div>
@@ -245,6 +257,6 @@ function messageOf(error: unknown): string {
   // Electron prefixes errors thrown across invoke(); show only the Host's own reason.
   return (
     message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') ||
-    '撤销失败，请重试。'
+    t('撤销失败，请重试。')
   )
 }

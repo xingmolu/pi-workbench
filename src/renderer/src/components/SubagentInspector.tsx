@@ -18,6 +18,7 @@ import { conversationSubagents, SUBAGENT_STATE_LABEL } from '../store/subagent-p
 import { formatTokens } from '../store/conversation-presentation'
 import { Markdown } from './Markdown'
 import { ToolChangeView } from './ToolChangeView'
+import { t } from '../../../shared/i18n'
 import '../assets/subagent.css'
 
 function TranscriptNode({
@@ -38,7 +39,7 @@ function TranscriptNode({
   if (node.type === 'user')
     return (
       <div className="subagent-task-prompt">
-        <span>任务</span>
+        <span>{t('任务')}</span>
         <p>{node.text}</p>
       </div>
     )
@@ -46,7 +47,7 @@ function TranscriptNode({
     return (
       <details className="subagent-thinking">
         <summary>
-          <span>{node.streaming ? '思考中' : '思考过程'}</span>
+          <span>{node.streaming ? t('思考中') : t('思考过程')}</span>
           <ChevronDown size={12} />
         </summary>
         <Markdown streaming={node.streaming}>{node.text}</Markdown>
@@ -73,7 +74,7 @@ function TranscriptNode({
         ) : node.detail ? (
           <pre>{node.detail}</pre>
         ) : (
-          <p>等待输出…</p>
+          <p>{t('等待输出…')}</p>
         )}
       </details>
     )
@@ -140,7 +141,7 @@ export default function SubagentInspector({
             setMessage(null)
           })
           .catch(() => {
-            if (version.current === request) setMessage('无法连接子会话，显示已保存的结果。')
+            if (version.current === request) setMessage(t('无法连接子会话，显示已保存的结果。'))
           })
       },
       snapshot ? 180 : 0
@@ -173,12 +174,17 @@ export default function SubagentInspector({
   }, [onClose])
   const active = ['queued', 'running', 'awaiting-approval'].includes(current.state)
   return (
-    <aside className="subagent-inspector" aria-label="子 Agent 详情">
+    <aside className="subagent-inspector" aria-label={t('子 Agent 详情')}>
       <header className="subagent-pane-header">
         <Bot size={16} />
-        <span>子 Agent</span>
-        <span className="subagent-pane-readonly">只读</span>
-        <button type="button" aria-label="关闭子 Agent 详情" title="关闭（Esc）" onClick={onClose}>
+        <span>{t('子 Agent')}</span>
+        <span className="subagent-pane-readonly">{t('只读')}</span>
+        <button
+          type="button"
+          aria-label={t('关闭子 Agent 详情')}
+          title={t('关闭（Esc）')}
+          onClick={onClose}
+        >
           <X size={16} />
         </button>
       </header>
@@ -196,8 +202,8 @@ export default function SubagentInspector({
             {resident?.sessionPath ? (
               <button
                 type="button"
-                aria-label="打开完整子会话"
-                title="打开完整子会话"
+                aria-label={t('打开完整子会话')}
+                title={t('打开完整子会话')}
                 onClick={() => onOpen(resident.sessionPath!)}
               >
                 <ExternalLink size={14} />
@@ -206,8 +212,8 @@ export default function SubagentInspector({
             {(resident || native) && active ? (
               <button
                 type="button"
-                aria-label="停止此子 Agent"
-                title="停止此子 Agent"
+                aria-label={t('停止此子 Agent')}
+                title={t('停止此子 Agent')}
                 disabled={pending}
                 onClick={() => {
                   if (!owner.sessionId) return
@@ -241,9 +247,9 @@ export default function SubagentInspector({
           onClick={() => onOpen(resident.sessionPath!)}
         >
           <CircleAlert size={14} />
-          <span>需要确认操作</span>
+          <span>{t('需要确认操作')}</span>
           <span>
-            前往子会话 <ExternalLink size={12} />
+            {t('前往子会话')} <ExternalLink size={12} />
           </span>
         </button>
       ) : null}
@@ -274,7 +280,7 @@ export default function SubagentInspector({
         ) : (
           <>
             <div className="subagent-task-prompt">
-              <span>任务</span>
+              <span>{t('任务')}</span>
               <p>{current.prompt ?? current.title}</p>
             </div>
             {current.output ? (
@@ -283,15 +289,15 @@ export default function SubagentInspector({
               </article>
             ) : (
               <p className="subagent-pane-message">
-                {resident ? '正在连接子会话…' : '没有可展示的输出。'}
+                {resident ? t('正在连接子会话…') : t('没有可展示的输出。')}
               </p>
             )}
           </>
         )}
       </div>
       <footer className="subagent-pane-footer">
-        <span>独立上下文</span>
-        <span>查看详情不会中断父 Agent</span>
+        <span>{t('独立上下文')}</span>
+        <span>{t('查看详情不会中断父 Agent')}</span>
       </footer>
     </aside>
   )

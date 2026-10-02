@@ -1,5 +1,6 @@
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
+import { t } from '../shared/i18n'
 
 export type ActiveHostIdentity = {
   sessionId: string | null
@@ -34,10 +35,10 @@ function replaceRoots(
   if (!host) return
   try {
     void Promise.resolve(host.setPackageRoots(roots)).catch(() => {
-      warn('无法更新 Workbench package roots')
+      warn(t('无法更新 Workbench package roots'))
     })
   } catch {
-    warn('无法更新 Workbench package roots')
+    warn(t('无法更新 Workbench package roots'))
   }
 }
 
@@ -122,12 +123,12 @@ export function routePiPackageRootsMessage(
   const parsed = piPackageRootsMessageSchema.safeParse(message)
   if (!parsed.success) {
     if (!isPackageRootsCandidate(message)) return false
-    dependencies.warn('忽略无效的 Pi package roots 消息')
+    dependencies.warn(t('忽略无效的 Pi package roots 消息'))
     return true
   }
 
   if (dependencies.accepting === false) {
-    dependencies.warn('忽略过期的 Pi package roots 消息')
+    dependencies.warn(t('忽略过期的 Pi package roots 消息'))
     return true
   }
 
@@ -136,16 +137,16 @@ export function routePiPackageRootsMessage(
     parsed.data.sessionId !== activeIdentity.sessionId ||
     parsed.data.generation !== activeIdentity.generation
   ) {
-    dependencies.warn('忽略过期的 Pi package roots 消息')
+    dependencies.warn(t('忽略过期的 Pi package roots 消息'))
     return true
   }
 
   try {
     void Promise.resolve(dependencies.setPackageRoots(parsed.data.roots)).catch(() => {
-      dependencies.warn('无法更新 Workbench package roots')
+      dependencies.warn(t('无法更新 Workbench package roots'))
     })
   } catch {
-    dependencies.warn('无法更新 Workbench package roots')
+    dependencies.warn(t('无法更新 Workbench package roots'))
   }
   return true
 }

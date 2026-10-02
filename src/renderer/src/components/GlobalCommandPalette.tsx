@@ -19,6 +19,7 @@ import { projectNavigationReason } from '../../../shared/project-catalog'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
 import { PaletteRequestEpoch } from '../store/overlay-state'
 import { usePiStore } from '../store/pi-store'
+import { t } from '../../../shared/i18n'
 import '../assets/command-palette.css'
 
 type Props = {
@@ -95,8 +96,20 @@ export default function GlobalCommandPalette({
       () => {
         const command =
           mode === 'sessions'
-            ? ({ type: 'session:search', query, limit: 50, includeHidden: includeRemoved, includeArchived: includeRemoved } as const)
-            : ({ type: 'project:search', query, limit: 50, includeHidden: includeRemoved, includeArchived: includeRemoved } as const)
+            ? ({
+                type: 'session:search',
+                query,
+                limit: 50,
+                includeHidden: includeRemoved,
+                includeArchived: includeRemoved
+              } as const)
+            : ({
+                type: 'project:search',
+                query,
+                limit: 50,
+                includeHidden: includeRemoved,
+                includeArchived: includeRemoved
+              } as const)
         void window.pi
           .send(command)
           .then((response) => {
@@ -124,7 +137,7 @@ export default function GlobalCommandPalette({
           })
           .catch(() => {
             if (epoch.current.current(request, source.current))
-              setError('目录暂时不可读取，请重试。')
+              setError(t('目录暂时不可读取，请重试。'))
           })
       },
       query ? 120 : 0
@@ -184,24 +197,24 @@ export default function GlobalCommandPalette({
   const actions = [
     {
       id: 'new',
-      label: '新建会话',
-      detail: '选择已有项目',
+      label: t('新建会话'),
+      detail: t('选择已有项目'),
       icon: MessageSquarePlus,
       reason: navigationReason
     },
     {
       id: 'folder',
-      label: '打开文件夹',
-      detail: '选择项目目录',
+      label: t('打开文件夹'),
+      detail: t('选择项目目录'),
       icon: FolderOpen,
       reason: navigationReason
     },
     {
       id: 'files',
-      label: '搜索文件',
-      detail: '在当前项目中按文件名搜索',
+      label: t('搜索文件'),
+      detail: t('在当前项目中按文件名搜索'),
       icon: FileSearch,
-      reason: filesAvailable ? null : '请先选择可用工作区'
+      reason: filesAvailable ? null : t('请先选择可用工作区')
     }
   ] as const
   const matchingActions = actions.filter(
@@ -219,7 +232,9 @@ export default function GlobalCommandPalette({
   enabledActions.current = new Set(
     mode === 'sessions'
       ? [
-          ...matchingActions.filter((action) => !action.reason).map((action) => `action:${action.id}`),
+          ...matchingActions
+            .filter((action) => !action.reason)
+            .map((action) => `action:${action.id}`),
           ...matchingPluginCommands.map(pluginValue)
         ]
       : []
@@ -260,9 +275,9 @@ export default function GlobalCommandPalette({
               event.preventDefault()
           }}
         >
-          <Dialog.Title className="command-sr-only">搜索与快捷操作</Dialog.Title>
+          <Dialog.Title className="command-sr-only">{t('搜索与快捷操作')}</Dialog.Title>
           <Dialog.Description id="command-description" className="command-sr-only">
-            搜索所有项目中的会话标题。上下键选择，回车打开，Escape 关闭。
+            {t('搜索所有项目中的会话标题。上下键选择，回车打开，Escape 关闭。')}
           </Dialog.Description>
           <Command
             shouldFilter={false}
@@ -290,7 +305,7 @@ export default function GlobalCommandPalette({
                 <button
                   type="button"
                   className="icon-btn"
-                  aria-label="返回会话搜索"
+                  aria-label={t('返回会话搜索')}
                   onClick={() => {
                     changeQuery('')
                     setMode('sessions')
@@ -306,9 +321,11 @@ export default function GlobalCommandPalette({
                 value={query}
                 onValueChange={changeQuery}
                 maxLength={200}
-                aria-label={mode === 'sessions' ? '搜索所有会话标题' : '搜索已有项目'}
+                aria-label={mode === 'sessions' ? t('搜索所有会话标题') : t('搜索已有项目')}
                 placeholder={
-                  mode === 'sessions' ? '搜索所有会话，或选择快捷操作…' : '选择新会话所在的项目…'
+                  mode === 'sessions'
+                    ? t('搜索所有会话，或选择快捷操作…')
+                    : t('选择新会话所在的项目…')
                 }
                 onCompositionStart={() => {
                   composing.current = true
@@ -317,18 +334,18 @@ export default function GlobalCommandPalette({
                   composing.current = false
                 }}
               />
-              <Dialog.Close className="icon-btn" aria-label="关闭搜索">
+              <Dialog.Close className="icon-btn" aria-label={t('关闭搜索')}>
                 <X size={16} />
               </Dialog.Close>
             </div>
-            <Command.List aria-label={mode === 'sessions' ? '会话与操作' : '已有项目'}>
+            <Command.List aria-label={mode === 'sessions' ? t('会话与操作') : t('已有项目')}>
               {navigationReason && (
                 <p className="command-notice" role="status">
-                  {navigationReason}；仍可搜索与查看结果。
+                  {t('{navigationReason}；仍可搜索与查看结果。', { navigationReason })}
                 </p>
               )}
               {mode === 'sessions' && (
-                <Command.Group heading={query ? '匹配的会话' : '最近会话'}>
+                <Command.Group heading={query ? t('匹配的会话') : t('最近会话')}>
                   {current?.sessions?.items.map((item) => {
                     const active =
                       item.cwd === snapshot.project?.path &&
@@ -347,7 +364,13 @@ export default function GlobalCommandPalette({
                         <span className="command-item-copy">
                           <span>{item.title}</span>
                           <small>
-                            {item.projectName}{item.runtimeId === 'claude' ? ' · Claude Code' : item.runtimeId === 'pi' ? ' · Pi' : ''} · {item.cwd}
+                            {item.projectName}
+                            {item.runtimeId === 'claude'
+                              ? ' · Claude Code'
+                              : item.runtimeId === 'pi'
+                                ? ' · Pi'
+                                : ''}{' '}
+                            · {item.cwd}
                           </small>
                         </span>
                         {status && <span className="command-item-status">{status}</span>}
@@ -357,7 +380,7 @@ export default function GlobalCommandPalette({
                 </Command.Group>
               )}
               {mode === 'projects' && (
-                <Command.Group heading="在项目中新建会话">
+                <Command.Group heading={t('在项目中新建会话')}>
                   {current?.projects?.items.map((item) => (
                     <Command.Item
                       key={item.cwd}
@@ -371,7 +394,9 @@ export default function GlobalCommandPalette({
                         <span>{item.projectName}</span>
                         <small>{item.cwd}</small>
                       </span>
-                      {!item.available && <span className="command-item-status">目录不可用</span>}
+                      {!item.available && (
+                        <span className="command-item-status">{t('目录不可用')}</span>
+                      )}
                     </Command.Item>
                   ))}
                 </Command.Group>
@@ -381,31 +406,42 @@ export default function GlobalCommandPalette({
                   <span className="command-error">
                     {error}{' '}
                     <button type="button" onClick={() => setRetry((value) => value + 1)}>
-                      重试
+                      {t('重试')}
                     </button>
                   </span>
                 ) : !current ? (
-                  '正在搜索…'
+                  t('正在搜索…')
                 ) : summary?.total === 0 ? (
                   mode === 'sessions' ? (
-                    '没有匹配的会话标题'
+                    t('没有匹配的会话标题')
                   ) : (
-                    '没有匹配的已有项目'
+                    t('没有匹配的已有项目')
                   )
                 ) : summary?.truncated ? (
-                  `显示 ${summary.items.length} / ${summary.totalIsLowerBound ? '至少 ' : ''}${summary.total} 个结果，请继续输入缩小范围。`
+                  t('显示 {shown} / {atLeast}{total} 个结果，请继续输入缩小范围。', {
+                    shown: summary.items.length,
+                    atLeast: summary.totalIsLowerBound ? t('至少 ') : '',
+                    total: summary.total
+                  })
+                ) : mode === 'sessions' ? (
+                  t('{total} 个会话', { total: summary?.total })
                 ) : (
-                  `${summary?.total} 个${mode === 'sessions' ? '会话' : '项目'}`
+                  t('{total} 个项目', { total: summary?.total })
                 )}
                 {summary && (summary.skippedDirectories > 0 || summary.skippedEntries > 0) && (
                   <span>
-                    已跳过 {summary.skippedDirectories} 个不可读取或含文件链接的目录、
-                    {summary.skippedEntries} 个无效条目。
+                    {t(
+                      '已跳过 {skippedDirectories} 个不可读取或含文件链接的目录、 {skippedEntries} 个无效条目。',
+                      {
+                        skippedDirectories: summary.skippedDirectories,
+                        skippedEntries: summary.skippedEntries
+                      }
+                    )}
                   </span>
                 )}
               </div>
               {mode === 'sessions' && matchingActions.length > 0 && (
-                <Command.Group heading="快捷操作">
+                <Command.Group heading={t('快捷操作')}>
                   {matchingActions.map((action) => (
                     <Command.Item
                       key={action.id}
@@ -424,7 +460,7 @@ export default function GlobalCommandPalette({
                 </Command.Group>
               )}
               {mode === 'sessions' && onRunPluginCommand && matchingPluginCommands.length > 0 && (
-                <Command.Group heading="插件命令">
+                <Command.Group heading={t('插件命令')}>
                   {matchingPluginCommands.map((command) => (
                     <Command.Item
                       key={pluginValue(command)}
@@ -447,14 +483,23 @@ export default function GlobalCommandPalette({
               )}
             </Command.List>
             <footer className="command-footer">
-              <span>↑ ↓ 选择</span>
-              <span>↵ 打开</span>
-              <span>Esc 关闭</span>
+              <span>{t('↑ ↓ 选择')}</span>
+              <span>{t('↵ 打开')}</span>
+              <span>{t('Esc 关闭')}</span>
               <span className="command-scope">
-                {mode === 'sessions' ? '所有项目 · 仅搜索标题' : '已有项目与最近目录'}
+                {mode === 'sessions' ? t('所有项目 · 仅搜索标题') : t('已有项目与最近目录')}
               </span>
-              <label className="command-include-removed"><input type="checkbox" checked={includeRemoved}
-                onChange={(event) => { epoch.current.invalidate(); setIncludeRemoved(event.target.checked) }} />包含已移除项目与归档会话</label>
+              <label className="command-include-removed">
+                <input
+                  type="checkbox"
+                  checked={includeRemoved}
+                  onChange={(event) => {
+                    epoch.current.invalidate()
+                    setIncludeRemoved(event.target.checked)
+                  }}
+                />
+                {t('包含已移除项目与归档会话')}
+              </label>
             </footer>
           </Command>
         </Dialog.Content>

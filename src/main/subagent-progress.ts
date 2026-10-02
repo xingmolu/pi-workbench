@@ -1,5 +1,6 @@
 import type { AgentSnapshot } from '../shared/contracts'
 import type { SubagentSummary } from '../shared/subagent'
+import { t } from '../shared/i18n'
 
 /** A bounded preview, not a second transcript subscription. */
 export function subagentProgress(
@@ -29,17 +30,17 @@ export function subagentProgress(
       : snapshot.status
   const latest = turn.at(-1)
   const activity = snapshot.approvals.length
-    ? '等待操作确认'
+    ? t('等待操作确认')
     : state === 'success'
       ? undefined
       : latestTool?.status === 'waiting-resource'
-        ? `等待项目资源 · ${latestTool.title}`
+        ? t('等待项目资源 · {title}', { title: latestTool.title })
         : latest?.type === 'tool'
           ? latest.title
           : snapshot.busy
             ? latest?.type === 'assistant'
-              ? '正在生成回复…'
-              : '正在思考…'
+              ? t('正在生成回复…')
+              : t('正在思考…')
             : undefined
   return {
     id,
@@ -48,7 +49,7 @@ export function subagentProgress(
       snapshot.nodes
         .find((node) => node.type === 'user')
         ?.text.split('\n')[0]
-        .slice(0, 200) ?? '子 Agent',
+        .slice(0, 200) ?? t('子 Agent'),
     state,
     sessionId: snapshot.sessionId ?? undefined,
     generation: snapshot.generation,

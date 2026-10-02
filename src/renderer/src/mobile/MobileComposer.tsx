@@ -8,6 +8,7 @@ import { safeSkillName, type SkillSummary } from '../../../shared/skills'
 import { ModelSheet, PermissionSheet, SkillSheet } from './ComposerSheets'
 import { permissionTitle } from './permissions'
 import { MAX_IMAGES, prepareImage, type DraftImage } from './images'
+import { t } from '../../../shared/i18n'
 
 type Draft = { text: string; images: DraftImage[] }
 /** Unsent drafts survive switching sessions and snapshot updates, per session. */
@@ -68,7 +69,7 @@ export function MobileComposer({
   const submit = (): void => {
     if (!canSend) return
     if (draft.images.length && !imagesAllowed) {
-      notify('当前模型不支持图片，请换一个支持图片的模型')
+      notify(t('当前模型不支持图片，请换一个支持图片的模型'))
       return
     }
     const sent = draft
@@ -84,13 +85,13 @@ export function MobileComposer({
   const addImages = async (files: FileList | null): Promise<void> => {
     if (!files?.length) return
     const room = MAX_IMAGES - draft.images.length
-    if (files.length > room) notify(`一次最多 ${MAX_IMAGES} 张图片`)
+    if (files.length > room) notify(t('一次最多 {MAX_IMAGES} 张图片', { MAX_IMAGES }))
     const added: DraftImage[] = []
     for (const file of [...files].slice(0, Math.max(0, room))) {
       try {
         added.push(await prepareImage(file))
       } catch (reason) {
-        notify(reason instanceof Error ? reason.message : '无法读取这张图片')
+        notify(reason instanceof Error ? reason.message : t('无法读取这张图片'))
       }
     }
     const current = drafts.get(key) ?? draft
@@ -121,28 +122,28 @@ export function MobileComposer({
     >
       {busy || queued || blocked ? (
         <div className="m-composer-status" role="status">
-          {busy ? <span className="m-chip is-run">运行中</span> : null}
-          {queued ? <span className="m-chip is-run">队列 {queued}</span> : null}
+          {busy ? <span className="m-chip is-run">{t('运行中')}</span> : null}
+          {queued ? <span className="m-chip is-run">{t('队列 {queued}', { queued })}</span> : null}
           {queued ? (
             <button type="button" className="m-chip-button" onClick={() => void clearQueue()}>
-              清空队列
+              {t('清空队列')}
             </button>
           ) : null}
           {blocked ? <span className="m-chip is-warn">{blocked}</span> : null}
         </div>
       ) : null}
       <p id="m-composer-keys" className="sr-only">
-        Enter 发送，Shift+Enter 换行。运行中发送会加入队列。
+        {t('Enter 发送，Shift+Enter 换行。运行中发送会加入队列。')}
       </p>
       <div className="m-composer-box">
         {draft.images.length ? (
           <div className="m-attachments">
             {draft.images.map((image) => (
               <figure key={image.id} className="m-thumb">
-                <img src={image.preview} alt={image.name || '图片'} />
+                <img src={image.preview} alt={image.name || t('图片')} />
                 <button
                   type="button"
-                  aria-label={`移除 ${image.name || '图片'}`}
+                  aria-label={t('移除 {name}', { name: image.name || t('图片') })}
                   onClick={() =>
                     setDraft({
                       ...draft,
@@ -162,8 +163,8 @@ export function MobileComposer({
           value={draft.text}
           enterKeyHint="send"
           autoComplete="off"
-          placeholder={busy ? '补充要求，完成后接着做' : '提出后续要求'}
-          aria-label="提出后续要求"
+          placeholder={busy ? t('补充要求，完成后接着做') : t('提出后续要求')}
+          aria-label={t('提出后续要求')}
           aria-describedby="m-composer-keys"
           onChange={(event) => setDraft({ ...draft, text: event.target.value })}
           onKeyDown={(event) => {
@@ -177,7 +178,7 @@ export function MobileComposer({
           <button
             type="button"
             className="m-tool-button"
-            aria-label="添加图片"
+            aria-label={t('添加图片')}
             disabled={draft.images.length >= MAX_IMAGES}
             onClick={() => picker.current?.click()}
           >
@@ -197,7 +198,7 @@ export function MobileComposer({
           <button
             type="button"
             className="m-tool-button"
-            aria-label="使用技能"
+            aria-label={t('使用技能')}
             onClick={() => setSheet('skills')}
           >
             <Sparkles size={18} />
@@ -206,7 +207,9 @@ export function MobileComposer({
             <button
               type="button"
               className={`m-chip-button${snapshot.permissionMode === 'open' ? ' is-risky' : ''}`}
-              aria-label={`工具权限：${permissionTitle(snapshot.permissionMode)}`}
+              aria-label={t('工具权限：{value}', {
+                value: permissionTitle(snapshot.permissionMode)
+              })}
               onClick={() => setSheet('permission')}
             >
               {permissionTitle(snapshot.permissionMode)}
@@ -215,10 +218,12 @@ export function MobileComposer({
             <button
               type="button"
               className="m-chip-button is-model"
-              aria-label={`模型：${active?.name ?? snapshot.model ?? '未选择'}`}
+              aria-label={t('模型：{name}', {
+                name: active?.name ?? snapshot.model ?? t('未选择')
+              })}
               onClick={() => setSheet('model')}
             >
-              <span>{active?.name ?? snapshot.model ?? '选择模型'}</span>
+              <span>{active?.name ?? snapshot.model ?? t('选择模型')}</span>
               {snapshot.thinking && snapshot.thinking.level !== 'off' ? (
                 <em className="m-chip-effort">{THINKING_LABEL[snapshot.thinking.level]}</em>
               ) : null}
@@ -226,17 +231,22 @@ export function MobileComposer({
             </button>
           </div>
           {busy ? (
-            <button type="button" className="m-stop" aria-label="停止" onClick={() => void abort()}>
+            <button
+              type="button"
+              className="m-stop"
+              aria-label={t('停止')}
+              onClick={() => void abort()}
+            >
               <Square size={12} fill="currentColor" aria-hidden="true" />
             </button>
           ) : null}
           <button
             type="submit"
             className={`m-send${busy ? ' is-queue' : ''}`}
-            aria-label={busy ? '加入队列' : '发送'}
+            aria-label={busy ? t('加入队列') : t('发送')}
             disabled={!canSend}
           >
-            {busy ? '队列' : <ArrowUp size={18} aria-hidden="true" />}
+            {busy ? t('队列') : <ArrowUp size={18} aria-hidden="true" />}
           </button>
         </div>
       </div>

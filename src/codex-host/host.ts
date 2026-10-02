@@ -35,6 +35,7 @@ import { AppServerClient, type AppServerNotification, type AppServerRequest } fr
 import { CodexMcp } from './mcp'
 import { CodexProjection, displayCommand, type CodexItem } from './projection'
 import { CodexSessionStore, type CodexSessionReference, type CodexStorage } from './storage'
+import { t } from '../shared/i18n'
 
 export type CodexHostOptions = {
   storage: CodexStorage
@@ -154,7 +155,7 @@ export class CodexHost {
       // The user may be deciding in a dialog; give them time.
       const timer = setTimeout(() => {
         this.credentialRequests.delete(requestId)
-        reject(new Error('桌面端没有回应账号请求'))
+        reject(new Error(t('桌面端没有回应账号请求')))
       }, 150_000)
       this.credentialRequests.set(requestId, {
         resolve: (value) => {
@@ -274,7 +275,7 @@ export class CodexHost {
       }
       case 'skills:detail': {
         const skill = (await this.skills()).find((item) => item.summary.id === command.id)
-        if (!skill) throw new Error('这个技能已不存在')
+        if (!skill) throw new Error(t('这个技能已不存在'))
         const preview = await readFile(skill.path, 'utf8').catch(() => '')
         return {
           kind: 'skills-detail',
@@ -351,10 +352,10 @@ export class CodexHost {
       case 'account:login':
       case 'account:add':
         throw new Error(
-          'Codex 使用 Pi 里的 ChatGPT 账号：请在「设置 › 引擎与账号」添加 ChatGPT 账号'
+          t('Codex 使用 Pi 里的 ChatGPT 账号：请在「设置 › 引擎与账号」添加 ChatGPT 账号')
         )
       case 'account:remove':
-        throw new Error('ChatGPT 账号由 Pi 管理，请在「设置 › 引擎与账号」中移除')
+        throw new Error(t('ChatGPT 账号由 Pi 管理，请在「设置 › 引擎与账号」中移除'))
       case 'mcp:list':
       case 'mcp:shutdown':
       case 'mcp:reload':
@@ -368,7 +369,7 @@ export class CodexHost {
       case 'project:catalog':
         return { kind: 'project-catalog', catalog: await this.catalog(command) }
       default:
-        throw new Error(`Codex 暂不支持此操作：${command.type}`)
+        throw new Error(t('Codex 暂不支持此操作：{type}', { type: command.type }))
     }
   }
 
@@ -379,7 +380,7 @@ export class CodexHost {
     if (this.starting) return this.starting
     this.starting = (async () => {
       if (!this.options.executable)
-        throw new Error('Codex 尚未下载：在「设置 › 引擎与账号」里下载后即可使用')
+        throw new Error(t('Codex 尚未下载：在「设置 › 引擎与账号」里下载后即可使用'))
       await mkdir(this.options.storage.config, { recursive: true })
       this.prefs = await this.readPrefs()
       const server = new AppServerClient({
@@ -397,7 +398,7 @@ export class CodexHost {
           this.snapshot.status = 'idle'
           this.approvals.clear(this.snapshot.generation, 'abort')
           this.snapshot.ready = false
-          this.snapshot.error = error?.message ?? 'Codex 已退出'
+          this.snapshot.error = error?.message ?? t('Codex 已退出')
           this.projection.settle()
           if (this.snapshot.project)
             this.projection.error(`codex-exit-${Date.now()}`, this.snapshot.error)
@@ -433,7 +434,9 @@ export class CodexHost {
     const now = Date.now()
     this.crashes = [...this.crashes.filter((time) => now - time < 60_000), now]
     if (this.crashes.length > 3) {
-      this.snapshot.error = `Codex 反复退出，已停止自动重启：${this.snapshot.error ?? ''}`
+      this.snapshot.error = t('Codex 反复退出，已停止自动重启：{value}', {
+        value: this.snapshot.error ?? ''
+      })
       this.publish()
       return
     }
@@ -452,12 +455,12 @@ export class CodexHost {
         cwd: this.snapshot.project.path,
         ...POLICY[this.snapshot.permissionMode]
       })
-    this.projection.notice('Codex 意外退出，已自动重启并接上当前对话')
+    this.projection.notice(t('Codex 意外退出，已自动重启并接上当前对话'))
     this.publish()
   }
 
   private server_(): AppServerClient {
-    if (!this.server) throw new Error(this.snapshot.error ?? 'Codex 未在运行')
+    if (!this.server) throw new Error(this.snapshot.error ?? t('Codex 未在运行'))
     return this.server
   }
 
@@ -499,7 +502,7 @@ export class CodexHost {
     if (this.configured)
       accounts.unshift({
         id: CONFIGURED_CONNECTION,
-        name: 'Codex 配置的模型服务',
+        name: t('Codex 配置的模型服务'),
         authType: 'api_key',
         connected: true,
         subscription: false,
@@ -603,8 +606,10 @@ export class CodexHost {
       )
       this.projection.notice(
         now
-          ? `这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，接下来会改用 ${now.email ?? now.name}`
-          : '这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，请在「设置 › 引擎与账号」添加账号'
+          ? t('这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，接下来会改用 {value}', {
+              value: now.email ?? now.name
+            })
+          : t('这段对话原来使用的 ChatGPT 账号已从 Pi 中移除，请在「设置 › 引擎与账号」添加账号')
       )
       this.missingAccount = undefined
     }
@@ -895,7 +900,7 @@ export class CodexHost {
         this.snapshot.metrics = { ...this.snapshot.metrics, turns: this.snapshot.metrics.turns + 1 }
         if (turn.status === 'failed') {
           this.snapshot.status = 'error'
-          this.projection.error(randomUUID(), explain(turn.error?.message ?? 'Codex 回合失败'))
+          this.projection.error(randomUUID(), explain(turn.error?.message ?? t('Codex 回合失败')))
         } else if (turn.status === 'interrupted') this.snapshot.status = 'stopped'
         else this.snapshot.status = 'idle'
         void this.refreshSessions().then(() => this.publish())
@@ -904,7 +909,7 @@ export class CodexHost {
       case 'error': {
         if (params.willRetry) break
         const error = params.error as { message?: string } | undefined
-        this.projection.error(randomUUID(), explain(error?.message ?? 'Codex 出错'))
+        this.projection.error(randomUUID(), explain(error?.message ?? t('Codex 出错')))
         break
       }
       case 'thread/name/updated':
@@ -927,7 +932,7 @@ export class CodexHost {
           toolCallId: itemId,
           toolName: 'exec_command',
           intent: 'terminal',
-          title: command || '运行命令',
+          title: command || t('运行命令'),
           detail: [params.reason, params.cwd].filter(Boolean).join('\n')
         })
         return { decision: allow ? 'accept' : 'decline' }
@@ -941,7 +946,7 @@ export class CodexHost {
           toolCallId: itemId,
           toolName: 'apply_patch',
           intent: 'diff',
-          title: node?.type === 'tool' ? `修改 ${node.title}` : '修改文件',
+          title: node?.type === 'tool' ? t('修改 {title}', { title: node.title }) : t('修改文件'),
           detail: [params.reason, node?.type === 'tool' ? node.detail : '']
             .filter(Boolean)
             .join('\n')
@@ -967,7 +972,7 @@ export class CodexHost {
         // Legacy shapes; the v2 requests above carry the same decisions.
         return { decision: 'denied' }
       default:
-        throw new Error(`Pi Desktop 不支持 ${method}`)
+        throw new Error(t('Pi Desktop 不支持 {method}', { method }))
     }
   }
 
@@ -1008,7 +1013,7 @@ export class CodexHost {
         : null
     this.snapshot.fork = {
       entryId,
-      reason: this.running ? '请先停止当前回合' : !entryId ? '还没有可以分叉的对话' : null
+      reason: this.running ? t('请先停止当前回合') : !entryId ? t('还没有可以分叉的对话') : null
     }
     this.snapshot.revision++
     this.snapshot.composeBlockReason = !this.snapshot.project
@@ -1069,12 +1074,14 @@ export function explain(error: unknown): string {
   if (
     /\b401\b|unauthori[sz]ed|invalid[_ ]token|token (?:is )?expired|refresh[_ ]token/i.test(message)
   )
-    return `ChatGPT 登录已失效，请在「设置 › 引擎与账号」重新登录这个账号后再发送（${message}）`
+    return t('ChatGPT 登录已失效，请在「设置 › 引擎与账号」重新登录这个账号后再发送（{message}）', {
+      message
+    })
   if (
     /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|error sending request|stream disconnected|network/i.test(
       message
     )
   )
-    return `连不上模型服务，请检查网络或代理后重试（${message}）`
+    return t('连不上模型服务，请检查网络或代理后重试（{message}）', { message })
   return message
 }

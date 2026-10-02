@@ -1,7 +1,8 @@
 import type { ProjectInfo, SessionStatus, SessionSummary } from './contracts'
 import { textContextSummary } from './text-attachments'
+import { t } from './i18n'
 
-const NEW_SESSION_TITLE = '新会话'
+const NEW_SESSION_TITLE = t('新会话')
 const EMPTY_SESSION_FIRST_MESSAGE = '(no messages)'
 
 export function canCreateSession(project: ProjectInfo | null): boolean {
@@ -26,11 +27,11 @@ export function activeSessionTitle(
 }
 
 const STATUS_DISPLAY: Record<SessionStatus, { tone: SessionStatus; label: string }> = {
-  idle: { tone: 'idle', label: '空闲' },
-  running: { tone: 'running', label: '运行中' },
-  'awaiting-approval': { tone: 'awaiting-approval', label: '等待确认' },
-  error: { tone: 'error', label: '出错' },
-  stopped: { tone: 'stopped', label: '已停止' }
+  idle: { tone: 'idle', label: t('空闲') },
+  running: { tone: 'running', label: t('运行中') },
+  'awaiting-approval': { tone: 'awaiting-approval', label: t('等待确认') },
+  error: { tone: 'error', label: t('出错') },
+  stopped: { tone: 'stopped', label: t('已停止') }
 }
 
 export function sessionStatusDisplay(status: SessionStatus): {

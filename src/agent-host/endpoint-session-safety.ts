@@ -1,5 +1,6 @@
 import type { CustomEndpointContext } from '../shared/custom-endpoints'
 import type { ComposeBlockReason } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 /** Separate latches: a successful refresh cannot silently accept an invalidated selection. */
 export class EndpointSessionSafety {
@@ -46,5 +47,5 @@ export function assertEndpointContext(
     expected.sessionId !== current.sessionId ||
     expected.generation !== current.generation
   )
-    throw new Error('工作区或会话已切换，请重新打开端点编辑器')
+    throw new Error(t('工作区或会话已切换，请重新打开端点编辑器'))
 }

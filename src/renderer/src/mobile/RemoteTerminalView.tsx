@@ -4,6 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { RemoteTerminalInput, RemoteTerminalKey } from '../../../shared/remote-views'
 import { mobileApi } from './api'
 import type { ResolvedTheme } from '../store/theme'
+import { t } from '../../../shared/i18n'
 
 type Event =
   | { type: 'replay'; data: string; cols: number; rows: number; state: string }
@@ -19,16 +20,16 @@ const KEYS: [RemoteTerminalKey, string][] = [
   ['ArrowDown', '↓'],
   ['ArrowLeft', '←'],
   ['ArrowRight', '→'],
-  ['Ctrl-L', '清屏']
+  ['Ctrl-L', t('清屏')]
 ]
 
 const STATE_LABEL: Record<string, string> = {
-  starting: '启动中',
-  running: '运行中',
-  degraded: '连接中断',
-  closing: '正在关闭',
-  exited: '已结束',
-  failed: '已失败'
+  starting: t('启动中'),
+  running: t('运行中'),
+  degraded: t('连接中断'),
+  closing: t('正在关闭'),
+  exited: t('已结束'),
+  failed: t('已失败')
 }
 
 const THEMES = {
@@ -134,9 +135,9 @@ export function RemoteTerminalView({
     <div className="m-rt">
       <div className="m-rb-tools">
         <span className={`m-chip${state === 'running' ? ' is-run' : ''}`}>
-          {STATE_LABEL[state] ?? '连接中…'}
+          {STATE_LABEL[state] ?? t('连接中…')}
         </span>
-        {!control ? <span className="m-chip">只读</span> : null}
+        {!control ? <span className="m-chip">{t('只读')}</span> : null}
       </div>
       <div className="m-rt-screen" ref={host} onClick={() => terminal.current?.focus()} />
       {control ? (
@@ -157,8 +158,8 @@ export function RemoteTerminalView({
           </div>
           <div className="m-rb-type">
             <input
-              aria-label="输入命令"
-              placeholder="输入命令，回车执行"
+              aria-label={t('输入命令')}
+              placeholder={t('输入命令，回车执行')}
               value={line}
               autoCapitalize="off"
               autoCorrect="off"
@@ -167,7 +168,7 @@ export function RemoteTerminalView({
               onChange={(event) => setLine(event.target.value)}
             />
             <button type="submit" className="m-button is-primary">
-              执行
+              {t('执行')}
             </button>
           </div>
         </form>

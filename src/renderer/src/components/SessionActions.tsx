@@ -3,6 +3,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { Pencil } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import { normalizeSessionName } from '../../../shared/session-name'
+import { t } from '../../../shared/i18n'
 
 export default function SessionActions({
   snapshot,
@@ -77,11 +78,11 @@ export default function SessionActions({
       <Popover.Trigger
         className="session-action"
         disabled={!enabled}
-        aria-label="重命名会话"
-        title="重命名会话"
+        aria-label={t('重命名会话')}
+        title={t('重命名会话')}
       >
         <Pencil size={13} />
-        <span>重命名会话</span>
+        <span>{t('重命名会话')}</span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
@@ -89,7 +90,7 @@ export default function SessionActions({
           align="end"
           sideOffset={8}
           collisionPadding={12}
-          aria-label="重命名会话"
+          aria-label={t('重命名会话')}
         >
           <form
             onSubmit={(event) => {
@@ -97,7 +98,7 @@ export default function SessionActions({
               void save()
             }}
           >
-            <label htmlFor={inputId}>会话名称</label>
+            <label htmlFor={inputId}>{t('会话名称')}</label>
             <input
               id={inputId}
               value={name}
@@ -107,7 +108,7 @@ export default function SessionActions({
               aria-invalid={Boolean(error)}
             />
             <p id={`${inputId}-hint`} className="session-name-hint">
-              最多 80 个字符
+              {t('最多 80 个字符')}
             </p>
             {error ? (
               <p id={`${inputId}-error`} className="session-rename-error" role="alert">
@@ -116,10 +117,10 @@ export default function SessionActions({
             ) : null}
             <div className="session-form-actions">
               <Popover.Close className="secondary-button" disabled={pending}>
-                取消
+                {t('取消')}
               </Popover.Close>
               <button className="primary-button" type="submit" disabled={pending || !enabled}>
-                {pending ? '正在保存…' : '保存名称'}
+                {pending ? t('正在保存…') : t('保存名称')}
               </button>
             </div>
           </form>

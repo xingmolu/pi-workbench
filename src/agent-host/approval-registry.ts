@@ -1,4 +1,5 @@
 import type { ApprovalRequest } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 export const APPROVAL_TIMEOUT_MS = 5 * 60_000
 
@@ -27,7 +28,7 @@ export class ApprovalRegistry {
 
   request(request: ApprovalRequest, signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return Promise.resolve(false)
-    if (this.pending.has(request.id)) throw new Error(`重复的审批请求：${request.id}`)
+    if (this.pending.has(request.id)) throw new Error(t('重复的审批请求：{id}', { id: request.id }))
 
     return new Promise((resolve) => {
       const onAbort = (): void => {

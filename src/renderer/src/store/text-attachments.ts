@@ -7,6 +7,7 @@ import type {
   TextAttachment
 } from '../../../shared/text-attachments'
 import { usePiStore } from './pi-store'
+import { t } from '../../../shared/i18n'
 
 type State = {
   scope: AttachmentScope | null
@@ -47,7 +48,7 @@ usePiStore.subscribe(({ snapshot }) => {
     submission: null,
     message:
       previous.files.length || previous.submission
-        ? '会话已切换，未发送的文件已清除；发送状态请在原会话历史中核对。'
+        ? t('会话已切换，未发送的文件已清除；发送状态请在原会话历史中核对。')
         : null
   })
 })
@@ -66,7 +67,7 @@ export async function stageTextFile(path?: string): Promise<void> {
     else if (result.type === 'error') useTextAttachments.setState({ message: result.message })
   } catch {
     if (key(useTextAttachments.getState().scope) === key(current.scope))
-      useTextAttachments.setState({ message: '无法添加文件，请重试。' })
+      useTextAttachments.setState({ message: t('无法添加文件，请重试。') })
   } finally {
     if (key(useTextAttachments.getState().scope) === key(current.scope))
       useTextAttachments.setState({ staging: false })
@@ -84,7 +85,7 @@ export async function removeTextFile(id: string): Promise<void> {
     else if (result.type === 'error') useTextAttachments.setState({ message: result.message })
   } catch {
     if (key(useTextAttachments.getState().scope) === key(current.scope))
-      useTextAttachments.setState({ message: '无法移除文件，请重试。' })
+      useTextAttachments.setState({ message: t('无法移除文件，请重试。') })
   } finally {
     if (key(useTextAttachments.getState().scope) === key(current.scope))
       useTextAttachments.setState({ staging: false })
@@ -98,7 +99,7 @@ export async function sendTextFiles(
   if (!current.scope || current.sending || current.staging || (!query && current.submission))
     return null
   const submission = current.submission ?? { id: crypto.randomUUID(), scope: current.scope }
-  useTextAttachments.setState({ sending: true, submission, message: '正在等待 Pi 接收确认…' })
+  useTextAttachments.setState({ sending: true, submission, message: t('正在等待 Pi 接收确认…') })
   let receipt: AttachmentReceipt = {
     submissionId: submission.id,
     status: 'uncertain',
@@ -142,10 +143,10 @@ export async function sendTextFiles(
     submission: receipt.status === 'uncertain' ? submission : null,
     message:
       receipt.status === 'accepted'
-        ? 'Pi 已接收文本上下文；接收确认不代表已保存或回答成功。'
+        ? t('Pi 已接收文本上下文；接收确认不代表已保存或回答成功。')
         : receipt.status === 'rejected'
-          ? 'Pi 未接收本次发送，文字和文件已保留，可修改后重试。'
-          : '发送结果未知，文字和文件已保留。请查询原发送结果，勿重复发送。'
+          ? t('Pi 未接收本次发送，文字和文件已保留，可修改后重试。')
+          : t('发送结果未知，文字和文件已保留。请查询原发送结果，勿重复发送。')
   })
   return receipt
 }

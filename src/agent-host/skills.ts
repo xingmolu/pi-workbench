@@ -11,6 +11,7 @@ import {
   type SkillsCatalogSnapshot,
   type SkillDetail
 } from '../shared/skills'
+import { t } from '../shared/i18n'
 
 // The SDK's loaded resource list is the sole authority. Paths never cross IPC.
 type LoadedSkill = {
@@ -24,7 +25,7 @@ type Context = SkillIdentity & { skills: readonly LoadedSkill[] }
 type Entry = { loaded: LoadedSkill; summary: SkillSummary; fingerprint: string | null }
 const fingerprint = (s: Stats): string => `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`
 const changed = (): Error =>
-  new Error('技能文件已更改或不可预览，请刷新列表；重新加载技能需要重新打开项目。')
+  new Error(t('技能文件已更改或不可预览，请刷新列表；重新加载技能需要重新打开项目。'))
 
 export class SkillsCatalog {
   private entries = new Map<string, Entry>()
@@ -39,7 +40,7 @@ export class SkillsCatalog {
       current.sessionId !== identity.sessionId ||
       current.generation !== identity.generation
     )
-      throw new Error('会话已变化，请刷新技能列表。')
+      throw new Error(t('会话已变化，请刷新技能列表。'))
     return current
   }
 
@@ -73,7 +74,7 @@ export class SkillsCatalog {
       })
     )
     this.context(identity)
-    if (revision !== this.revision) throw new Error('技能列表已更新，请重试。')
+    if (revision !== this.revision) throw new Error(t('技能列表已更新，请重试。'))
     this.identity = { ...identity }
     this.entries = new Map(entries.map((entry) => [entry.summary.id, entry]))
     return {
@@ -94,7 +95,7 @@ export class SkillsCatalog {
       this.identity.generation !== request.generation ||
       !current.skills.includes(entry.loaded)
     )
-      throw new Error('技能不在当前已加载列表中，请刷新列表。')
+      throw new Error(t('技能不在当前已加载列表中，请刷新列表。'))
     if (!entry.fingerprint) throw changed()
     const revision = this.revision
     let preview: string
@@ -128,7 +129,7 @@ export class SkillsCatalog {
     }
     const after = this.context(request)
     if (revision !== this.revision || !after.skills.includes(entry.loaded))
-      throw new Error('技能列表已更新，请重试。')
+      throw new Error(t('技能列表已更新，请重试。'))
     return {
       sessionId: request.sessionId,
       generation: request.generation,

@@ -1,4 +1,5 @@
 import type { ConversationNode } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 export type WorkNode = Extract<ConversationNode, { type: 'think' | 'tool' }>
 export type ConversationWorkGroup =
@@ -34,38 +35,48 @@ export function workPresentation(
   const waiting = nodes.findLast(
     (node) => node.type === 'tool' && node.status === 'waiting-resource'
   )
-  const awaitingApproval = nodes.some((node) => node.type === 'tool' && node.status === 'awaiting-approval')
+  const awaitingApproval = nodes.some(
+    (node) => node.type === 'tool' && node.status === 'awaiting-approval'
+  )
   // Tool durations can overlap; run totals and transcript timestamps are not segment clocks.
   return {
     label: awaitingApproval
-      ? '已暂停 · 等待确认'
+      ? t('已暂停 · 等待确认')
       : running
-      ? !active && waiting?.type === 'tool'
-        ? `等待项目资源… · ${waiting.title}`
-        : `正在工作…${active?.type === 'tool' ? ` · ${active.title}` : ''}`
-      : `工作过程 · ${nodes.length} 项`,
+        ? !active && waiting?.type === 'tool'
+          ? t('等待项目资源… · {title}', { title: waiting.title })
+          : t('正在工作…{value}', { value: active?.type === 'tool' ? ` · ${active.title}` : '' })
+        : t('工作过程 · {length} 项', { length: nodes.length }),
     requiresAttention
   }
 }
 
-const DIGEST_ORDER = ['读取', '搜索', '编辑', '命令', '网页', '桌面', '工具'] as const
+const DIGEST_ORDER = [
+  t('读取'),
+  t('搜索'),
+  t('编辑'),
+  t('命令'),
+  t('网页'),
+  t('桌面'),
+  t('工具')
+] as const
 type DigestKind = (typeof DIGEST_ORDER)[number]
 
 function digestKind(node: Extract<WorkNode, { type: 'tool' }>): DigestKind {
-  if (node.change || node.intent === 'diff') return '编辑'
+  if (node.change || node.intent === 'diff') return t('编辑')
   switch (node.intent) {
     case 'read':
-      return '读取'
+      return t('读取')
     case 'search':
-      return '搜索'
+      return t('搜索')
     case 'terminal':
-      return '命令'
+      return t('命令')
     case 'web':
-      return '网页'
+      return t('网页')
     case 'desktop':
-      return '桌面'
+      return t('桌面')
     default:
-      return '工具'
+      return t('工具')
   }
 }
 

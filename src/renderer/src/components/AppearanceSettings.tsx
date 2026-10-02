@@ -13,6 +13,7 @@ import {
   SettingsRow,
   Switch
 } from './SettingsPrimitives'
+import { t } from '../../../shared/i18n'
 
 const appearanceDefaults: Partial<DesktopSettings> = {
   theme: DEFAULT_DESKTOP_SETTINGS.theme,
@@ -55,11 +56,11 @@ const BASE_PALETTES: Record<'light' | 'dark', Omit<Palette, 'accent'>> = {
 }
 
 const ACCENTS: Record<AccentColor, { label: string; light: string; dark: string }> = {
-  blue: { label: '蓝色', light: '#3d5fd1', dark: '#5b7be0' },
-  violet: { label: '紫色', light: '#6b4fd4', dark: '#8a72e8' },
-  green: { label: '绿色', light: '#1e7a4c', dark: '#3f9a6b' },
-  orange: { label: '橙色', light: '#c0561b', dark: '#cf773b' },
-  pink: { label: '粉色', light: '#c0396f', dark: '#cf5f8d' }
+  blue: { label: t('蓝色'), light: '#3d5fd1', dark: '#5b7be0' },
+  violet: { label: t('紫色'), light: '#6b4fd4', dark: '#8a72e8' },
+  green: { label: t('绿色'), light: '#1e7a4c', dark: '#3f9a6b' },
+  orange: { label: t('橙色'), light: '#c0561b', dark: '#cf773b' },
+  pink: { label: t('粉色'), light: '#c0396f', dark: '#cf5f8d' }
 }
 
 function palette(base: 'light' | 'dark', accent: AccentColor): Palette {
@@ -153,16 +154,16 @@ export default function AppearanceSettings(): React.JSX.Element {
   const choose = (theme: DesktopSettings['theme']): void => void save({ theme, pluginTheme: null })
 
   return (
-    <SettingsPage title="外观" description="只影响 Pi Desktop，修改后立即生效。">
-      <SettingsGroup title="主题">
+    <SettingsPage title={t('外观')} description={t('只影响 Pi Desktop，修改后立即生效。')}>
+      <SettingsGroup title={t('主题')}>
         <SettingsRow
-          label="界面主题"
-          description="跟随系统时会随系统的浅色、深色外观实时切换。"
+          label={t('界面主题')}
+          description={t('跟随系统时会随系统的浅色、深色外观实时切换。')}
           stacked
         >
-          <div className="sp-theme-grid" role="radiogroup" aria-label="主题">
+          <div className="sp-theme-grid" role="radiogroup" aria-label={t('主题')}>
             <ThemeCard
-              label="跟随系统"
+              label={t('跟随系统')}
               checked={!activePluginTheme && settings.theme === 'system'}
               disabled={disabled}
               onSelect={() => choose('system')}
@@ -176,14 +177,14 @@ export default function AppearanceSettings(): React.JSX.Element {
               }
             />
             <ThemeCard
-              label="浅色"
+              label={t('浅色')}
               checked={!activePluginTheme && settings.theme === 'light'}
               disabled={disabled}
               onSelect={() => choose('light')}
               preview={<MiniWindow colors={palette('light', settings.accent)} />}
             />
             <ThemeCard
-              label="深色"
+              label={t('深色')}
               checked={!activePluginTheme && settings.theme === 'dark'}
               disabled={disabled}
               onSelect={() => choose('dark')}
@@ -193,7 +194,7 @@ export default function AppearanceSettings(): React.JSX.Element {
               <ThemeCard
                 key={theme.id}
                 label={theme.label}
-                hint={`来自 ${theme.pluginName}`}
+                hint={t('来自 {pluginName}', { pluginName: theme.pluginName })}
                 checked={activePluginTheme?.id === theme.id}
                 disabled={disabled}
                 onSelect={() => void save({ theme: theme.base, pluginTheme: theme.id })}
@@ -203,14 +204,14 @@ export default function AppearanceSettings(): React.JSX.Element {
           </div>
         </SettingsRow>
         <SettingsRow
-          label="强调色"
+          label={t('强调色')}
           description={
             activePluginTheme
-              ? `由主题「${activePluginTheme.label}」决定；切回内置主题后可选。`
-              : '按钮、选中项和链接使用的颜色。'
+              ? t('由主题「{label}」决定；切回内置主题后可选。', { label: activePluginTheme.label })
+              : t('按钮、选中项和链接使用的颜色。')
           }
         >
-          <div className="sp-swatches" role="radiogroup" aria-label="强调色">
+          <div className="sp-swatches" role="radiogroup" aria-label={t('强调色')}>
             {(Object.keys(ACCENTS) as AccentColor[]).map((accent) => (
               <button
                 key={accent}
@@ -229,10 +230,10 @@ export default function AppearanceSettings(): React.JSX.Element {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title="文字">
-        <SettingsRow label="消息字号" description="对话正文的大小，不影响侧栏和面板。">
+      <SettingsGroup title={t('文字')}>
+        <SettingsRow label={t('消息字号')} description={t('对话正文的大小，不影响侧栏和面板。')}>
           <SelectControl
-            label="消息字号"
+            label={t('消息字号')}
             value={settings.messageFontSize}
             disabled={disabled}
             onChange={(value) => void save({ messageFontSize: Number(value) })}
@@ -244,9 +245,9 @@ export default function AppearanceSettings(): React.JSX.Element {
             ))}
           </SelectControl>
         </SettingsRow>
-        <SettingsRow label="代码字号" description="对话中代码块和行内代码的大小。">
+        <SettingsRow label={t('代码字号')} description={t('对话中代码块和行内代码的大小。')}>
           <SelectControl
-            label="代码字号"
+            label={t('代码字号')}
             value={settings.codeFontSize}
             disabled={disabled}
             onChange={(value) => void save({ codeFontSize: Number(value) })}
@@ -258,17 +259,20 @@ export default function AppearanceSettings(): React.JSX.Element {
             ))}
           </SelectControl>
         </SettingsRow>
-        <SettingsRow label="代码默认换行" description="长代码行自动换行；每个代码块仍可单独切换。">
+        <SettingsRow
+          label={t('代码默认换行')}
+          description={t('长代码行自动换行；每个代码块仍可单独切换。')}
+        >
           <Switch
-            label="代码默认换行"
+            label={t('代码默认换行')}
             checked={settings.codeWrap}
             disabled={disabled}
             onChange={(codeWrap) => void save({ codeWrap })}
           />
         </SettingsRow>
-        <div className="sp-preview" aria-label="阅读预览">
+        <div className="sp-preview" aria-label={t('阅读预览')}>
           <p style={{ fontSize: settings.messageFontSize }}>
-            清晰呈现每一步思考与结果，长段落也读得舒服。
+            {t('清晰呈现每一步思考与结果，长段落也读得舒服。')}
           </p>
           <pre
             style={{
@@ -277,20 +281,20 @@ export default function AppearanceSettings(): React.JSX.Element {
             }}
           >
             <HighlightedCode
-              text="const greeting = await pi.ask('今天，我们完成什么？')"
+              text={t("const greeting = await pi.ask('今天，我们完成什么？')")}
               language="typescript"
             />
           </pre>
         </div>
       </SettingsGroup>
 
-      <SettingsGroup title="动效">
+      <SettingsGroup title={t('动效')}>
         <SettingsRow
-          label="减少动态效果"
-          description="减少界面动画与过渡；系统开启时也会自动遵守。"
+          label={t('减少动态效果')}
+          description={t('减少界面动画与过渡；系统开启时也会自动遵守。')}
         >
           <Switch
-            label="减少动态效果"
+            label={t('减少动态效果')}
             checked={settings.reducedMotion}
             disabled={disabled}
             onChange={(reducedMotion) => void save({ reducedMotion })}

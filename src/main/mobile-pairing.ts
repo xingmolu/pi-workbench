@@ -10,6 +10,7 @@ import {
   type PairedDevicePublic,
   type PairedDeviceRecord
 } from '../shared/mobile-gateway'
+import { t } from '../shared/i18n'
 
 export type PairingOffer = {
   token: string
@@ -100,9 +101,10 @@ export class MobilePairingStore {
 
   pair(token: string, deviceName: string): PairingGrant {
     const offer = this.currentOffer()
-    if (!offer || !equalToken(token, offer.token)) throw new Error('配对码无效或已过期')
+    if (!offer || !equalToken(token, offer.token)) throw new Error(t('配对码无效或已过期'))
     const devices = this.options.load()
-    if (devices.length >= MAX_PAIRED_DEVICES) throw new Error('已达到配对设备上限，请先在桌面撤销一台设备')
+    if (devices.length >= MAX_PAIRED_DEVICES)
+      throw new Error(t('已达到配对设备上限，请先在桌面撤销一台设备'))
     const secret = toHex(this.bytes(32))
     const deviceId = randomUUID()
     const record: PairedDeviceRecord = {

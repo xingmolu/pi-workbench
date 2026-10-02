@@ -6,6 +6,7 @@ import {
   navigationLibrarySchema,
   type NavigationLibraryState
 } from '../shared/navigation-library'
+import { t } from '../shared/i18n'
 
 export type NavigationLibraryOptions = {
   store: {
@@ -33,7 +34,8 @@ export class NavigationLibrary {
     const saved = this.options.store.get('navigationLibrary')
     if (saved === undefined) return emptyNavigationLibrary()
     const parsed = navigationLibrarySchema.safeParse(saved)
-    if (!parsed.success) throw new Error('项目管理设置不可读取；原数据未修改，请检查偏好文件后重试')
+    if (!parsed.success)
+      throw new Error(t('项目管理设置不可读取；原数据未修改，请检查偏好文件后重试'))
     return parsed.data
   }
 
@@ -69,7 +71,7 @@ export class NavigationLibrary {
         return this.persist(state)
       }
       const canonical = async (value: string): Promise<string> => {
-        if (!isAbsolute(value)) throw new Error('需要绝对路径')
+        if (!isAbsolute(value)) throw new Error(t('需要绝对路径'))
         // A missing project can still be removed/restored. Never resolve a relative path.
         return (this.options.normalize ?? realpath)(value).catch(() => resolve(value))
       }

@@ -7,6 +7,7 @@ import {
 } from '@pierre/diffs'
 import { highlightLanguage } from '../lib/code-highlight'
 import { useResolvedTheme } from '../store/theme'
+import { t } from '../../../shared/i18n'
 
 const plainLanguages = new Set<string>()
 export function preparePatchLanguage(file: FileDiffMetadata): void {
@@ -34,7 +35,7 @@ class PatchBoundary extends Component<
   render(): ReactNode {
     return this.state.failed ? (
       <>
-        <p role="alert">差异显示失败，以下保留完整原始差异。</p>
+        <p role="alert">{t('差异显示失败，以下保留完整原始差异。')}</p>
         <pre>{this.props.source}</pre>
       </>
     ) : (

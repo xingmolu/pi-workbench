@@ -10,6 +10,7 @@ import type { CheckpointTurnState } from './checkpoints'
 import type { LiveSessionSummary } from './session-runtime'
 import { stripIsoTimestamp } from './mobile-list'
 import { remoteViewAccessSchema, type RemoteViewAccess } from './remote-views'
+import { t } from './i18n'
 
 export const MOBILE_GATEWAY_CHANNEL = 'pi:mobile-gateway'
 export const MOBILE_GATEWAY_PORT = 43124
@@ -20,9 +21,9 @@ export const DEVICE_NAME_MAX = 64
 export const PAIRING_TOKEN_LENGTH = 8
 export const PAIRING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
-export const MOBILE_SECURITY_COPY = '手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。'
+export const MOBILE_SECURITY_COPY = t('手机能用这台电脑上的工具改文件、跑命令。只扫你自己的码。')
 
-export const MOBILE_KEEP_AWAKE_COPY = '远程使用时请保持这台 Mac 唤醒；睡眠或断电后手机无法连接。'
+export const MOBILE_KEEP_AWAKE_COPY = t('远程使用时请保持这台 Mac 唤醒；睡眠或断电后手机无法连接。')
 
 export type PairedDeviceRecord = {
   deviceId: string
@@ -237,7 +238,7 @@ export function isPreviewDevice(name: string): boolean {
   return name.startsWith(MOBILE_PREVIEW_AGENT)
 }
 
-export function sanitizeDeviceName(value: string, fallback = '手机'): string {
+export function sanitizeDeviceName(value: string, fallback = t('手机')): string {
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, '').trim()
   return cleaned.slice(0, DEVICE_NAME_MAX) || fallback
 }
@@ -251,6 +252,6 @@ export function liveSessionToMobile(session: LiveSessionSummary): MobileSessionL
     generation: session.generation,
     status: session.status,
     selected: session.selected,
-    title: stripIsoTimestamp(session.title ?? '新会话')
+    title: stripIsoTimestamp(session.title ?? t('新会话'))
   }
 }

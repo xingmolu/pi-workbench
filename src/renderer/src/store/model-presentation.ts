@@ -1,14 +1,15 @@
 import type { ThinkingLevel } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 /** Short, human names for reasoning effort, in the order Pi defines them. */
 export const THINKING_LABEL: Record<ThinkingLevel, string> = {
-  off: '关闭',
-  minimal: '极低',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '很高',
-  max: '最高'
+  off: t('关闭'),
+  minimal: t('极低'),
+  low: t('低'),
+  medium: t('中'),
+  high: t('高'),
+  xhigh: t('很高'),
+  max: t('最高')
 }
 
 /** 200000 → "200K", 1000000 → "1M": how much a model can read at once. */

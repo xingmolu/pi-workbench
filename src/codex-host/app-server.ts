@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { t } from '../shared/i18n'
 
 export type AppServerNotification = { method: string; params: Record<string, unknown> }
 export type AppServerRequest = {
@@ -59,7 +60,10 @@ export class AppServerClient {
         this.closed
           ? undefined
           : new Error(
-              `Codex 已退出（${signal ?? code}）${this.stderr ? `：${lastLine(this.stderr)}` : ''}`
+              t('Codex 已退出（{value}）{value2}', {
+                value: signal ?? code,
+                value2: this.stderr ? `：${lastLine(this.stderr)}` : ''
+              })
             )
       )
     )
@@ -76,7 +80,7 @@ export class AppServerClient {
   }
 
   request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('Codex 未在运行'))
+    if (this.closed) return Promise.reject(new Error(t('Codex 未在运行')))
     const id = ++this.sequence
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, method })
@@ -93,7 +97,7 @@ export class AppServerClient {
     this.closed = true
     this.child.stdin.end()
     this.child.kill()
-    this.rejectAll(new Error('Codex 已停止'))
+    this.rejectAll(new Error(t('Codex 已停止')))
   }
 
   /** Resolves once the process has gone, so its home directory can be removed. */
@@ -152,7 +156,8 @@ export class AppServerClient {
     if (!pending) return
     this.pending.delete(id)
     const error = message.error as { message?: string } | undefined
-    if (error) pending.reject(new Error(error.message ?? `${pending.method} 失败`))
+    if (error)
+      pending.reject(new Error(error.message ?? t('{method} 失败', { method: pending.method })))
     else pending.resolve(message.result)
   }
 
@@ -164,7 +169,7 @@ export class AppServerClient {
   private close(error?: Error): void {
     const unexpected = !this.closed
     this.closed = true
-    this.rejectAll(error ?? new Error('Codex 已停止'))
+    this.rejectAll(error ?? new Error(t('Codex 已停止')))
     if (unexpected) this.options.onExit(error)
   }
 }

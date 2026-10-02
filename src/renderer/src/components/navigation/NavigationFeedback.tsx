@@ -1,6 +1,7 @@
 import { CircleAlert, CircleCheck, X } from 'lucide-react'
 import { performNavigationAction, useNavigationFeedback } from '../../store/navigation-feedback'
 import { useNavigationLibrary } from '../../store/navigation-library'
+import { t } from '../../../../shared/i18n'
 
 export default function NavigationFeedback(): React.JSX.Element | null {
   const { notice, dismiss } = useNavigationFeedback()
@@ -17,13 +18,13 @@ export default function NavigationFeedback(): React.JSX.Element | null {
         <button
           disabled={pending}
           onClick={() => {
-            void performNavigationAction(notice.undo!, '已撤销操作')
+            void performNavigationAction(notice.undo!, t('已撤销操作'))
           }}
         >
-          撤销
+          {t('撤销')}
         </button>
       )}
-      <button className="icon-btn" onClick={dismiss} aria-label="关闭提示">
+      <button className="icon-btn" onClick={dismiss} aria-label={t('关闭提示')}>
         <X size={15} />
       </button>
     </div>

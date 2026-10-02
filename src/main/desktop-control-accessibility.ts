@@ -11,6 +11,7 @@ import {
   type DesktopWindowTarget
 } from '../shared/desktop-control'
 import { MacComputerUseBridge } from './desktop-control-native'
+import { t } from '../shared/i18n'
 
 export type DesktopAccessibilityDeps = {
   platform: string
@@ -26,7 +27,10 @@ export type ActivatedApp = { app: string; bundleId: string }
 const BUNDLE_ID = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
 
 export function accessibilityGrantMessage(appBundlePath: string): string {
-  return `当前运行的 Pi Desktop 尚未通过辅助功能权限检查。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加并开启这份应用：${appBundlePath}。若同名旧条目已开启，请移除旧条目后添加此路径，再完全退出并打开 Pi Desktop。`
+  return t(
+    '当前运行的 Pi Desktop 尚未通过辅助功能权限检查。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加并开启这份应用：{appBundlePath}。若同名旧条目已开启，请移除旧条目后添加此路径，再完全退出并打开 Pi Desktop。',
+    { appBundlePath }
+  )
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -70,13 +74,13 @@ export class DesktopAccessibility {
 
   async probePermission(prompt = false, signal?: AbortSignal): Promise<DesktopControlPermission> {
     if (this.deps.platform !== 'darwin') return this.readPermission()
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
     try {
       const raw = asRecord(
         await this.deps.bridge.call({ action: 'accessibility-permission', prompt }, signal)
       )
       if (raw?.ok !== true || typeof raw.trusted !== 'boolean') {
-        throw new Error('Computer Use 原生助手返回了无效的权限状态。')
+        throw new Error(t('Computer Use 原生助手返回了无效的权限状态。'))
       }
       this.helperTrusted = raw.trusted
     } catch (error) {
@@ -89,21 +93,21 @@ export class DesktopAccessibility {
 
   async sessionUnlocked(signal?: AbortSignal): Promise<boolean> {
     if (this.deps.platform !== 'darwin') return false
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
     const raw = asRecord(await this.deps.bridge.call({ action: 'session-lock' }, signal))
     if (raw?.ok !== true || typeof raw.locked !== 'boolean') {
-      throw new Error('Computer Use 原生助手返回了无效的锁屏状态。')
+      throw new Error(t('Computer Use 原生助手返回了无效的锁屏状态。'))
     }
     return !raw.locked
   }
 
   async foregroundWindow(signal?: AbortSignal): Promise<DesktopWindowTarget> {
-    if (this.deps.platform !== 'darwin') throw new Error('目标窗口识别仅支持 macOS')
+    if (this.deps.platform !== 'darwin') throw new Error(t('目标窗口识别仅支持 macOS'))
     signal?.throwIfAborted()
     const raw = asRecord(await this.deps.bridge.call({ action: 'foreground-window' }, signal))
     const parsed = desktopWindowTargetSchema.safeParse(raw?.target)
     if (raw?.ok !== true || !parsed.success) {
-      throw new Error('无法唯一识别当前目标窗口，请将目标窗口置于前台后重试')
+      throw new Error(t('无法唯一识别当前目标窗口，请将目标窗口置于前台后重试'))
     }
     return parsed.data
   }
@@ -119,22 +123,25 @@ export class DesktopAccessibility {
 
   /** Brings a running app forward, starting it first when it is not running. */
   async activateApp(query: string, signal?: AbortSignal): Promise<ActivatedApp> {
-    if (this.deps.platform !== 'darwin') throw new Error('切换应用仅支持 macOS')
+    if (this.deps.platform !== 'darwin') throw new Error(t('切换应用仅支持 macOS'))
     const app = query.trim()
     if (!app || app.length > 80 || app.startsWith('-') || /[\0/\n]/.test(app))
-      throw new Error('应用名称无效')
+      throw new Error(t('应用名称无效'))
     const attempt = async (): Promise<Record<string, unknown> | null> =>
       asRecord(await this.deps.bridge.call({ action: 'activate-app', app }, signal))
     let raw = await attempt()
     if (raw?.error === 'app-not-running') {
-      if (!this.deps.launchApp) throw new Error(`没有找到正在运行的「${app}」`)
+      if (!this.deps.launchApp) throw new Error(t('没有找到正在运行的「{app}」', { app }))
       try {
         await this.deps.launchApp([BUNDLE_ID.test(app) ? '-b' : '-a', app], signal)
       } catch (error) {
         signal?.throwIfAborted()
-        throw new Error(`无法打开「${app}」：请确认应用名称（与「应用程序」文件夹中的名称一致）`, {
-          cause: error
-        })
+        throw new Error(
+          t('无法打开「{app}」：请确认应用名称（与「应用程序」文件夹中的名称一致）', { app }),
+          {
+            cause: error
+          }
+        )
       }
       // A launched app registers with the window server shortly after `open` returns.
       for (let tries = 0; tries < 10 && raw?.error === 'app-not-running'; tries++) {
@@ -146,10 +153,13 @@ export class DesktopAccessibility {
     if (raw?.error === 'app-ambiguous') {
       const candidates = Array.isArray(raw.candidates) ? raw.candidates.join('、') : ''
       throw new Error(
-        `「${app}」匹配到多个应用${candidates ? `：${candidates}` : ''}，请使用完整名称`
+        t('「{app}」匹配到多个应用{value}，请使用完整名称', {
+          app,
+          value: candidates ? `：${candidates}` : ''
+        })
       )
     }
-    if (raw?.ok !== true) throw new Error(`没有找到正在运行的「${app}」`)
+    if (raw?.ok !== true) throw new Error(t('没有找到正在运行的「{app}」', { app }))
     return {
       app: typeof raw.app === 'string' ? raw.app : app,
       bundleId: typeof raw.bundleId === 'string' ? raw.bundleId : ''
@@ -169,7 +179,7 @@ export class DesktopAccessibility {
         dump: null,
         probed: false,
         sessionUnlocked,
-        message: '辅助功能探测仅在 macOS 上可用。'
+        message: t('辅助功能探测仅在 macOS 上可用。')
       })
     }
 
@@ -199,8 +209,10 @@ export class DesktopAccessibility {
           sessionUnlocked,
           message:
             raw?.error === 'accessibility-not-trusted'
-              ? '当前 Computer Use helper 未获得辅助功能权限。请重新授权当前安装的 Pi Desktop 后完全退出并打开。'
-              : '无法读取前台应用的辅助功能树。'
+              ? t(
+                  '当前 Computer Use helper 未获得辅助功能权限。请重新授权当前安装的 Pi Desktop 后完全退出并打开。'
+                )
+              : t('无法读取前台应用的辅助功能树。')
         })
       }
       const parsed = axDumpSchema.safeParse({
@@ -218,7 +230,7 @@ export class DesktopAccessibility {
           dump: null,
           probed: true,
           sessionUnlocked,
-          message: '辅助功能树超出边界或格式无效。'
+          message: t('辅助功能树超出边界或格式无效。')
         })
       }
       this.helperTrusted = true
@@ -229,20 +241,20 @@ export class DesktopAccessibility {
         probed: true,
         sessionUnlocked,
         message: parsed.data.truncated
-          ? '仅显示有界辅助功能树；更深节点已省略。'
+          ? t('仅显示有界辅助功能树；更深节点已省略。')
           : parsed.data.nodeCount === 0
-            ? '未发现可读取的窗口结构。'
+            ? t('未发现可读取的窗口结构。')
             : undefined
       })
     } catch {
-      if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+      if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
       return desktopControlAccessibilityDumpResultSchema.parse({
         type: 'accessibility-dump',
         permission: this.readPermission(),
         dump: null,
         probed: true,
         sessionUnlocked,
-        message: 'Native Computer Use helper 无法读取窗口结构。请完全退出 Pi Desktop 后重试。'
+        message: t('Native Computer Use helper 无法读取窗口结构。请完全退出 Pi Desktop 后重试。')
       })
     }
   }
@@ -254,7 +266,7 @@ export class DesktopAccessibility {
         type: 'open-settings',
         permission,
         opened: false,
-        message: '系统设置中的辅助功能页仅在 macOS 上可用。'
+        message: t('系统设置中的辅助功能页仅在 macOS 上可用。')
       })
     }
     for (const url of ACCESSIBILITY_SETTINGS_URLS) {
@@ -274,7 +286,7 @@ export class DesktopAccessibility {
       type: 'open-settings',
       permission,
       opened: false,
-      message: '无法打开系统设置。请到「隐私与安全性 → 辅助功能」手动授权。'
+      message: t('无法打开系统设置。请到「隐私与安全性 → 辅助功能」手动授权。')
     })
   }
 }

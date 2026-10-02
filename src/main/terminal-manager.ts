@@ -8,6 +8,7 @@ import {
   type TerminalMetadata,
   type TerminalResult
 } from '../shared/terminal'
+import { t } from '../shared/i18n'
 
 export type TerminalTransport = { postMessage(command: TerminalHostCommand): void; kill(): void }
 type Options = {
@@ -32,7 +33,7 @@ type Entry = {
 }
 const unavailable = (): TerminalResult => ({
   type: 'unavailable',
-  message: '终端请求无效、连接已失效或资源上限已达到'
+  message: t('终端请求无效、连接已失效或资源上限已达到')
 })
 
 export class TerminalManager {

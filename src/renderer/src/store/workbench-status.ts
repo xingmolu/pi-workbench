@@ -1,4 +1,5 @@
 import type { WorkbenchSnapshot } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 export type WorkbenchStatus = {
   snapshot: WorkbenchSnapshot
@@ -26,5 +27,5 @@ export function workbenchStatusReducer(
 ): WorkbenchStatus {
   if (action.type === 'snapshot') return { snapshot: action.snapshot, error: null }
   if (action.type === 'clear') return state.error === null ? state : { ...state, error: null }
-  return { ...state, error: `工作台：${action.message}` }
+  return { ...state, error: t('工作台：{message}', { message: action.message }) }
 }

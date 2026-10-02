@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 export class SessionRuntimeUnsafeError extends Error {}
 
 export class SessionMutationGuard {
@@ -33,7 +34,7 @@ function snapshot(session: ModelMutationSession) {
 }
 
 function unsafeModelMutation(cause: unknown): SessionRuntimeUnsafeError {
-  return new SessionRuntimeUnsafeError('模型更新未完成，运行时已停止；请重新连接', { cause })
+  return new SessionRuntimeUnsafeError(t('模型更新未完成，运行时已停止；请重新连接'), { cause })
 }
 
 /** Only a rejected mutation with provably unchanged public state is recoverable. */

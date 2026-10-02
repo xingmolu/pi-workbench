@@ -9,9 +9,10 @@ import {
   type DesktopControlPermission
 } from '../../../shared/desktop-control'
 import { usePiStore } from '../store/pi-store'
+import { t } from '../../../shared/i18n'
 import '../assets/desktop-control.css'
 
-const SOURCE_TYPE_LABEL = { screen: '屏幕', window: '窗口' } as const
+const SOURCE_TYPE_LABEL = { screen: t('屏幕'), window: t('窗口') } as const
 
 type PendingKind =
   'permission' | 'sources' | 'settings' | 'accessibility' | 'dump' | 'preview' | 'click' | null
@@ -59,9 +60,9 @@ function PermissionChip({
         <span className="sp-row-label">{label}</span>
         <span className="sp-row-description">
           {loading
-            ? '正在读取本机授权状态…'
+            ? t('正在读取本机授权状态…')
             : permission === null
-              ? '尚无本机检测结果；可点击“重新检测权限”。'
+              ? t('尚无本机检测结果；可点击“重新检测权限”。')
               : permission.platformSupported
                 ? supportedHint
                 : unsupportedHint}
@@ -73,12 +74,12 @@ function PermissionChip({
         data-access={access}
       >
         {loading
-          ? '检测中'
+          ? t('检测中')
           : probeFailed
-            ? '检测失败'
+            ? t('检测失败')
             : permission
               ? screenRecordingChipLabel(access)
-              : '待检测'}
+              : t('待检测')}
       </span>
     </div>
   )
@@ -141,55 +142,58 @@ export function DesktopControlPanel({
   const loadingAccessibility =
     accessibility === null && (pending === 'accessibility' || pending === 'sources')
   return (
-    <section className="desktop-control-settings" aria-label="桌面控制">
+    <section className="desktop-control-settings" aria-label={t('桌面控制')}>
       <header className="sp-page-header">
-        <h2>桌面控制</h2>
+        <h2>{t('桌面控制')}</h2>
         <p>
-          <span className="dc-lead">Computer Use：屏幕捕获、辅助功能与确认后输入</span>
-          截图只包含当前前台窗口，切换窗口后需重新观察；点击和输入仍需逐次确认。
+          <span className="dc-lead">{t('Computer Use：屏幕捕获、辅助功能与确认后输入')}</span>
+
+          {t('截图只包含当前前台窗口，切换窗口后需重新观察；点击和输入仍需逐次确认。')}
         </p>
       </header>
 
       <div className="sp-group">
         <div className="sp-group-header">
-          <h3>系统授权</h3>
-          <p>授权新安装包后，请完全退出（Cmd+Q）并重新打开 Pi Desktop，再点击“重新检测权限”。</p>
+          <h3>{t('系统授权')}</h3>
+          <p>
+            {t('授权新安装包后，请完全退出（Cmd+Q）并重新打开 Pi Desktop，再点击“重新检测权限”。')}
+          </p>
         </div>
         <div className="sp-card desktop-control-card">
           <PermissionChip
-            label="屏幕录制"
+            label={t('屏幕录制')}
             permission={permission}
             testId="screen-recording-status"
             loading={loadingStatus}
             probeFailed={screenProbeFailed}
-            supportedHint="由截取探测与 macOS TCC 共同确认；授权后可试截取屏幕与窗口缩略图。"
-            unsupportedHint="当前仅在 macOS 上探测屏幕录制授权。"
+            supportedHint={t('由截取探测与 macOS TCC 共同确认；授权后可试截取屏幕与窗口缩略图。')}
+            unsupportedHint={t('当前仅在 macOS 上探测屏幕录制授权。')}
           />
           <PermissionChip
-            label="辅助功能"
+            label={t('辅助功能')}
             permission={accessibility}
             testId="accessibility-status"
             loading={loadingAccessibility}
             probeFailed={accessibilityProbeFailed}
-            supportedHint="由辅助功能树探测与 macOS TCC 共同确认；授权后可读取前台窗口结构。"
-            unsupportedHint="当前仅在 macOS 上探测辅助功能授权。"
+            supportedHint={t('由辅助功能树探测与 macOS TCC 共同确认；授权后可读取前台窗口结构。')}
+            unsupportedHint={t('当前仅在 macOS 上探测辅助功能授权。')}
           />
           {activeModel ? (
             <div className="sp-row">
               <div className="sp-row-text">
-                <span className="sp-row-label">当前模型</span>
+                <span className="sp-row-label">{t('当前模型')}</span>
                 <span className="sp-row-description" data-testid="computer-use-model-capability">
-                  当前模型 {activeModel.name}：
+                  {t('当前模型 {name}：', { name: activeModel.name })}
                   {activeModel.acceptsImages
-                    ? '已配置图像输入；截图仍需屏幕录制授权。'
-                    : '未声明图像输入能力；Computer Use 只能使用辅助功能读取界面，不能看截图。'}
+                    ? t('已配置图像输入；截图仍需屏幕录制授权。')
+                    : t('未声明图像输入能力；Computer Use 只能使用辅助功能读取界面，不能看截图。')}
                 </span>
               </div>
             </div>
           ) : null}
           {sessionUnlocked === false ? (
             <p className="desktop-control-error" role="status">
-              当前会话已锁定，拒绝桌面输入。
+              {t('当前会话已锁定，拒绝桌面输入。')}
             </p>
           ) : null}
           <div className="desktop-control-actions">
@@ -200,7 +204,8 @@ export function DesktopControlPanel({
               onClick={onOpenSettings}
             >
               <Settings size={14} />
-              打开系统设置（屏幕录制）
+
+              {t('打开系统设置（屏幕录制）')}
             </button>
             <button
               className="dc-button"
@@ -209,7 +214,8 @@ export function DesktopControlPanel({
               onClick={onOpenAccessibilitySettings}
             >
               <Settings size={14} />
-              打开系统设置（辅助功能）
+
+              {t('打开系统设置（辅助功能）')}
             </button>
             <span className="dc-spacer" />
             <button
@@ -219,7 +225,7 @@ export function DesktopControlPanel({
               onClick={onRefresh}
             >
               <RefreshCw size={14} className={pending === 'sources' ? 'spin' : undefined} />
-              {pending === 'sources' ? '正在检测…' : '重新检测权限'}
+              {pending === 'sources' ? t('正在检测…') : t('重新检测权限')}
             </button>
           </div>
           {error ? (
@@ -232,16 +238,16 @@ export function DesktopControlPanel({
 
       <div className="sp-group">
         <div className="sp-group-header">
-          <h3>可截取的屏幕和窗口</h3>
+          <h3>{t('可截取的屏幕和窗口')}</h3>
         </div>
         {probed && sources.length > 0 ? (
-          <ul className="desktop-control-gallery" aria-label="可截取的屏幕和窗口">
+          <ul className="desktop-control-gallery" aria-label={t('可截取的屏幕和窗口')}>
             {sources.map((item) => (
               <li className="desktop-control-source" key={item.id}>
                 {item.thumbnailDataUrl ? (
                   <img alt="" src={item.thumbnailDataUrl} />
                 ) : (
-                  <span className="desktop-control-thumb-empty">无缩略图</span>
+                  <span className="desktop-control-thumb-empty">{t('无缩略图')}</span>
                 )}
                 <strong title={item.name}>{item.name}</strong>
                 <small>{SOURCE_TYPE_LABEL[item.type]}</small>
@@ -251,8 +257,8 @@ export function DesktopControlPanel({
         ) : (
           <p className="desktop-control-empty" role={probed ? 'status' : undefined}>
             {probed
-              ? (message ?? '没有可显示的屏幕或窗口。')
-              : '检测完成后在这里显示屏幕与窗口缩略图。'}
+              ? (message ?? t('没有可显示的屏幕或窗口。'))
+              : t('检测完成后在这里显示屏幕与窗口缩略图。')}
           </p>
         )}
         {truncated ? <p className="desktop-control-footnote">{message}</p> : null}
@@ -261,8 +267,8 @@ export function DesktopControlPanel({
       <div className="sp-group">
         <div className="sp-group-header dc-group-header">
           <div>
-            <h3>窗口结构</h3>
-            <p>读取前台窗口的辅助功能树（有界），用来确认 Agent 能看到哪些控件。</p>
+            <h3>{t('窗口结构')}</h3>
+            <p>{t('读取前台窗口的辅助功能树（有界），用来确认 Agent 能看到哪些控件。')}</p>
           </div>
           <button
             className="dc-button"
@@ -271,7 +277,7 @@ export function DesktopControlPanel({
             onClick={onDump}
           >
             <ListTree size={14} />
-            {pending === 'dump' ? '正在读取结构…' : '读取窗口结构'}
+            {pending === 'dump' ? t('正在读取结构…') : t('读取窗口结构')}
           </button>
         </div>
         {dumpProbed ? (
@@ -279,15 +285,19 @@ export function DesktopControlPanel({
             className="sp-card desktop-control-card desktop-control-dump"
             data-testid="ax-dump"
           >
-            <h3>辅助功能树（有界）</h3>
+            <h3>{t('辅助功能树（有界）')}</h3>
             {dump ? (
               <>
                 <p>
-                  {dump.app || '前台应用'}
-                  {dump.bundleId ? ` · ${dump.bundleId}` : ''} · {dump.nodeCount} 个节点
-                  {dump.truncated ? ' · 已截断' : ''}
+                  {dump.app || t('前台应用')}
+
+                  {t('{value} · {nodeCount} 个节点', {
+                    value: dump.bundleId ? ` · ${dump.bundleId}` : '',
+                    nodeCount: dump.nodeCount
+                  })}
+                  {dump.truncated ? t(' · 已截断') : ''}
                 </p>
-                <ul className="desktop-control-ax-tree" aria-label="辅助功能树">
+                <ul className="desktop-control-ax-tree" aria-label={t('辅助功能树')}>
                   {dump.windows.map((windowNode, index) => (
                     <AxTree key={`${windowNode.role}-${index}`} node={windowNode} />
                   ))}
@@ -295,7 +305,7 @@ export function DesktopControlPanel({
               </>
             ) : (
               <p className="desktop-control-empty" role="status">
-                {dumpMessage ?? '没有可显示的窗口结构。'}
+                {dumpMessage ?? t('没有可显示的窗口结构。')}
               </p>
             )}
           </article>
@@ -306,11 +316,13 @@ export function DesktopControlPanel({
         <div className="sp-group-header">
           <h3>
             <MousePointerClick size={14} />
-            坐标点击（需确认）
+
+            {t('坐标点击（需确认）')}
           </h3>
           <p>
-            仅用于本机干跑：先预览命中节点，再确认发送一次点击。Agent
-            发起的点击仍会走审批，不经过这里。
+            {t(
+              '仅用于本机干跑：先预览命中节点，再确认发送一次点击。Agent 发起的点击仍会走审批，不经过这里。'
+            )}
           </p>
         </div>
         <div className="sp-card desktop-control-card">
@@ -318,7 +330,7 @@ export function DesktopControlPanel({
             <label>
               <span>X</span>
               <input
-                aria-label="点击坐标 X"
+                aria-label={t('点击坐标 X')}
                 inputMode="numeric"
                 value={x}
                 onChange={(event) => setX(event.target.value)}
@@ -327,7 +339,7 @@ export function DesktopControlPanel({
             <label>
               <span>Y</span>
               <input
-                aria-label="点击坐标 Y"
+                aria-label={t('点击坐标 Y')}
                 inputMode="numeric"
                 value={y}
                 onChange={(event) => setY(event.target.value)}
@@ -340,7 +352,7 @@ export function DesktopControlPanel({
               disabled={pending === 'preview'}
               onClick={() => onPreview(Number.parseInt(x, 10) || 0, Number.parseInt(y, 10) || 0)}
             >
-              {pending === 'preview' ? '正在预览…' : '预览命中'}
+              {pending === 'preview' ? t('正在预览…') : t('预览命中')}
             </button>
             <button
               className="dc-button is-primary"
@@ -350,13 +362,15 @@ export function DesktopControlPanel({
                 onConfirmClick(Number.parseInt(x, 10) || 0, Number.parseInt(y, 10) || 0)
               }
             >
-              {pending === 'click' ? '正在点击…' : '确认点击'}
+              {pending === 'click' ? t('正在点击…') : t('确认点击')}
             </button>
           </div>
           {previewTarget ? (
             <p className="desktop-control-hit" data-testid="ax-hit-target">
-              命中 {previewTarget.role}
-              {previewTarget.title ? ` · ${previewTarget.title}` : ''}
+              {t('命中 {role} {value}', {
+                role: previewTarget.role,
+                value: previewTarget.title ? ` · ${previewTarget.title}` : ''
+              })}
             </p>
           ) : previewMessage ? (
             <p className="desktop-control-empty" role="status">
@@ -442,14 +456,18 @@ export default function DesktopControlSettings(): React.JSX.Element {
       } else setAccessibilityProbeFailed(true)
       if (!screenReady || !accessibilityReady) {
         const failures = [
-          !screenReady ? '屏幕录制' : null,
-          !accessibilityReady ? '辅助功能' : null
+          !screenReady ? t('屏幕录制') : null,
+          !accessibilityReady ? t('辅助功能') : null
         ].filter(Boolean)
-        setError(`${failures.join('和')}检测失败。请重新检测；仍失败时检查当前安装包与系统授权。`)
+        setError(
+          t('{failures}检测失败。请重新检测；仍失败时检查当前安装包与系统授权。', {
+            failures: failures.join(t('和'))
+          })
+        )
       }
     } catch (caught) {
       if (attempt !== epoch.current) return
-      setError(caught instanceof Error ? caught.message : '桌面控制请求失败，请重试。')
+      setError(caught instanceof Error ? caught.message : t('桌面控制请求失败，请重试。'))
     } finally {
       if (attempt === epoch.current) setPending(null)
     }
@@ -480,7 +498,7 @@ export default function DesktopControlSettings(): React.JSX.Element {
       if (result.type === 'open-settings') {
         if (command.type === 'open-accessibility-settings') setAccessibility(result.permission)
         else applyScreen(result.permission)
-        if (!result.opened) setError(result.message ?? '无法打开系统设置。')
+        if (!result.opened) setError(result.message ?? t('无法打开系统设置。'))
       } else if (result.type === 'accessibility-dump') {
         setAccessibility(result.permission)
         setDump(result.dump)
@@ -493,19 +511,21 @@ export default function DesktopControlSettings(): React.JSX.Element {
         setSessionUnlocked(result.sessionUnlocked)
         setPreviewTarget(result.target)
         setPreviewAllowed(result.allowed)
-        setPreviewMessage(result.message ?? (result.target ? null : '该坐标没有命中可识别节点。'))
+        setPreviewMessage(
+          result.message ?? (result.target ? null : t('该坐标没有命中可识别节点。'))
+        )
       } else if (result.type === 'input-click') {
         applyScreen(result.screen)
         setAccessibility(result.accessibility)
         setSessionUnlocked(result.sessionUnlocked)
         setPreviewTarget(result.target)
         setPreviewAllowed(false)
-        if (!result.executed) setError(result.message ?? '未能发送点击。')
-        else setPreviewMessage(result.message ?? '已发送点击。')
+        if (!result.executed) setError(result.message ?? t('未能发送点击。'))
+        else setPreviewMessage(result.message ?? t('已发送点击。'))
       }
     } catch (caught) {
       if (attempt !== epoch.current) return
-      setError(caught instanceof Error ? caught.message : '桌面控制请求失败，请重试。')
+      setError(caught instanceof Error ? caught.message : t('桌面控制请求失败，请重试。'))
     } finally {
       if (attempt === epoch.current) setPending(null)
     }
@@ -549,7 +569,11 @@ export default function DesktopControlSettings(): React.JSX.Element {
       onDump={() => void run({ type: 'accessibility-dump' })}
       onPreview={(nextX, nextY) => void run({ type: 'input-preview', x: nextX, y: nextY })}
       onConfirmClick={(nextX, nextY) => {
-        if (!window.confirm(`将在屏幕坐标 (${nextX}, ${nextY}) 发送一次点击。确认继续？`)) {
+        if (
+          !window.confirm(
+            t('将在屏幕坐标 ({nextX}, {nextY}) 发送一次点击。确认继续？', { nextX, nextY })
+          )
+        ) {
           return
         }
         void run({ type: 'input-click', x: nextX, y: nextY, confirmed: true })

@@ -5,6 +5,7 @@ import type {
   CredentialGrantPrompt
 } from '../../../shared/engine-credentials'
 import { useOverlayState } from '../store/overlay-state'
+import { t } from '../../../shared/i18n'
 
 /**
  * "May Codex use robin@example.com?" — asked the first time an engine wants one of the
@@ -44,7 +45,7 @@ export default function CredentialGrantDialog(): React.JSX.Element | null {
       .then(() => setPrompts((list) => list.filter((item) => item.id !== prompt.id)))
       .catch(() => setPending(null))
   }
-  const who = prompt.email ?? 'ChatGPT 账号'
+  const who = prompt.email ?? t('ChatGPT 账号')
   return (
     <div className="plugin-approval-scrim">
       <section
@@ -55,14 +56,18 @@ export default function CredentialGrantDialog(): React.JSX.Element | null {
       >
         <header>
           <KeyRound size={15} aria-hidden="true" />
-          <span>{prompt.runtimeLabel} 请求使用账号</span>
+          <span>
+            {prompt.runtimeLabel} {t('请求使用账号')}
+          </span>
         </header>
         <h3 id={`credential-grant-${prompt.id}`}>
-          允许 {prompt.runtimeLabel} 使用 {who}？
+          {t('允许 {runtimeLabel} 使用 {who}？', { runtimeLabel: prompt.runtimeLabel, who })}
         </h3>
         <p>
-          这个 ChatGPT 账号是在 Pi 里登录的。允许后，{prompt.runtimeLabel}{' '}
-          只拿到短期访问令牌，刷新令牌仍只由 Pi 保存。可以在「设置 › 引擎与账号」随时撤销。
+          {t(
+            '这个 ChatGPT 账号是在 Pi 里登录的。允许后，{runtimeLabel}{value} 只拿到短期访问令牌，刷新令牌仍只由 Pi 保存。可以在「设置 › 引擎与账号」随时撤销。',
+            { runtimeLabel: prompt.runtimeLabel, value: ' ' }
+          )}
         </p>
         <footer>
           <button
@@ -72,7 +77,8 @@ export default function CredentialGrantDialog(): React.JSX.Element | null {
             onClick={() => respond('deny')}
           >
             {pending === 'deny' ? <LoaderCircle className="spin" size={13} /> : null}
-            不允许
+
+            {t('不允许')}
           </button>
           <button
             type="button"
@@ -81,7 +87,8 @@ export default function CredentialGrantDialog(): React.JSX.Element | null {
             onClick={() => respond('once')}
           >
             {pending === 'once' ? <LoaderCircle className="spin" size={13} /> : null}
-            仅这次
+
+            {t('仅这次')}
           </button>
           <button
             type="button"
@@ -91,7 +98,8 @@ export default function CredentialGrantDialog(): React.JSX.Element | null {
             autoFocus
           >
             {pending === 'always' ? <LoaderCircle className="spin" size={13} /> : null}
-            始终允许
+
+            {t('始终允许')}
           </button>
         </footer>
       </section>

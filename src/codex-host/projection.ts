@@ -1,4 +1,5 @@
 import type { ConversationNode, ToolFileChange, ToolStatus } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 /** The parts of Codex `ThreadItem` the desktop shows; other kinds are skipped. */
 export type CodexItem = { type: string; id: string } & Record<string, unknown>
@@ -163,7 +164,10 @@ export class CodexProjection {
           toolCallId: item.id,
           name: 'apply_patch',
           intent: 'diff',
-          title: changes.length === 1 && first ? first.path : `修改 ${changes.length} 个文件`,
+          title:
+            changes.length === 1 && first
+              ? first.path
+              : t('修改 {length} 个文件', { length: changes.length }),
           detail: changes.map((change) => change.path).join('\n'),
           ...(changes.length === 1 && first ? { change: first } : {}),
           ...(changes.length > 1
@@ -202,7 +206,7 @@ export class CodexProjection {
           toolCallId: item.id,
           name: 'web_search',
           intent: 'web',
-          title: text(item.query) || '网页搜索',
+          title: text(item.query) || t('网页搜索'),
           status: done ? 'success' : 'running'
         })
         return
@@ -246,7 +250,7 @@ export class CodexProjection {
   }
 
   stopped(id: string): void {
-    this.upsert({ id, type: 'stopped', message: '已停止' })
+    this.upsert({ id, type: 'stopped', message: t('已停止') })
   }
 
   /** A quiet line in the conversation, e.g. after the engine was restarted. */

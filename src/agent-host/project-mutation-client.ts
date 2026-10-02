@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { MutationCapability, MutationResponse } from '../shared/runtime-capabilities'
 import { acceptSessionTaskCapabilityResponse } from './session-task-runtime-client'
+import { t } from '../shared/i18n'
 
 export class ProjectMutationClient {
   private readonly calls = new Map<
@@ -13,7 +14,7 @@ export class ProjectMutationClient {
     identity: { sessionId: string; generation: number },
     signal?: AbortSignal
   ): Promise<void> {
-    if (signal?.aborted) throw new Error('项目操作已取消')
+    if (signal?.aborted) throw new Error(t('项目操作已取消'))
     const requestId = randomUUID()
     let resolve!: (value: boolean) => void
     const response = new Promise<boolean>((done) => {
@@ -32,7 +33,7 @@ export class ProjectMutationClient {
     try {
       if (!(await response)) {
         this.calls.delete(callId)
-        throw new Error('项目操作已取消')
+        throw new Error(t('项目操作已取消'))
       }
       entry.granted = true
     } finally {

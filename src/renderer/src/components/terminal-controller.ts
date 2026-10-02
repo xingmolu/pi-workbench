@@ -4,6 +4,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { TERMINAL_THEMES } from './terminal-theme'
 import type { TerminalIdentity, TerminalMetadata, TerminalEvent } from '../../../shared/terminal'
+import { t } from '../../../shared/i18n'
 
 export const terminalIdentity = (t: TerminalIdentity): TerminalIdentity => ({
   projectPath: t.projectPath,
@@ -32,12 +33,17 @@ export function pasteSafety(
 }
 
 /** Splits input into pieces the input channel accepts, never inside a character. */
-export function inputChunks(data: string, encoding: 'utf8' | 'binary', limit = 16 * 1024): string[] {
+export function inputChunks(
+  data: string,
+  encoding: 'utf8' | 'binary',
+  limit = 16 * 1024
+): string[] {
   const chunks: string[] = []
   let current = ''
   let bytes = 0
   for (const character of data) {
-    const size = encoding === 'binary' ? character.length : new TextEncoder().encode(character).length
+    const size =
+      encoding === 'binary' ? character.length : new TextEncoder().encode(character).length
     if (bytes + size > limit && current) {
       chunks.push(current)
       current = ''
@@ -133,7 +139,8 @@ export class TerminalController {
   private theme: 'dark' | 'light' = 'dark'
   setTheme(theme: 'dark' | 'light'): void {
     this.theme = theme
-    for (const instance of this.instances.values()) instance.terminal.options.theme = TERMINAL_THEMES[theme]
+    for (const instance of this.instances.values())
+      instance.terminal.options.theme = TERMINAL_THEMES[theme]
   }
   entries: TerminalEntry[] = []
   prompt: TerminalPrompt | null = null
@@ -259,7 +266,7 @@ export class TerminalController {
       this.syncVisibility()
       this.notify()
     } catch {
-      this.error = '终端连接失败，请重试。'
+      this.error = t('终端连接失败，请重试。')
       this.notify()
     }
   }
@@ -301,7 +308,9 @@ export class TerminalController {
     if (!project || !this.visible || this.busy) return
     // Retain exited screens too. At the bound, the user explicitly closes one before creating another.
     if (this.retainedCount >= 8) {
-      this.error = '最多保留 8 个终端屏幕，请先关闭一个；后台已退出的终端需返回所属项目完成关闭。'
+      this.error = t(
+        '最多保留 8 个终端屏幕，请先关闭一个；后台已退出的终端需返回所属项目完成关闭。'
+      )
       this.notify()
       return
     }
@@ -318,7 +327,7 @@ export class TerminalController {
       })
       if (this.disposed) return
       if (result.type !== 'terminal') {
-        this.error = result.type === 'unavailable' ? result.message : '无法创建终端。'
+        this.error = result.type === 'unavailable' ? result.message : t('无法创建终端。')
         return
       }
       const key = terminalKey(result.terminal)
@@ -331,7 +340,7 @@ export class TerminalController {
       this.syncVisibility()
       this.focus()
     } catch {
-      this.error = '创建终端失败，请重试。'
+      this.error = t('创建终端失败，请重试。')
     } finally {
       this.busy = false
       this.notify()
@@ -492,7 +501,7 @@ export class TerminalController {
         if (event.type === 'keydown' && terminal.hasSelection()) {
           event.preventDefault()
           void navigator.clipboard.writeText(terminal.getSelection()).catch(() => {
-            this.error = '复制失败。'
+            this.error = t('复制失败。')
             this.notify()
           })
         }
@@ -594,7 +603,7 @@ export class TerminalController {
           })
           .catch(() => {
             outbox.queue.length = 0
-            this.error = '终端输入未能送达。'
+            this.error = t('终端输入未能送达。')
             this.notify()
           })
       }
@@ -680,7 +689,7 @@ export class TerminalController {
           void window.pi
             .terminal({ type: 'resize', ...terminalIdentity(entry.metadata), cols, rows })
             .catch(() => {
-              this.error = '终端尺寸同步失败，请调整面板后重试。'
+              this.error = t('终端尺寸同步失败，请调整面板后重试。')
               this.notify()
             })
       }
@@ -730,7 +739,7 @@ export class TerminalController {
       return
     const instance = this.instances.get(terminalKey(entry.metadata))
     const safety = pasteSafety(text, instance?.terminal.modes.bracketedPasteMode ?? false)
-    if (safety === 'oversized') this.error = '粘贴内容超过 1 MiB，未发送任何内容。请缩短后重试。'
+    if (safety === 'oversized') this.error = t('粘贴内容超过 1 MiB，未发送任何内容。请缩短后重试。')
     if (safety === 'safe') instance?.terminal.paste(text)
     if (safety === 'confirm') {
       this.cancelComposition()
@@ -775,7 +784,7 @@ export class TerminalController {
       return
     }
     if (!this.currentHasScreen && !entry.pendingDismiss && this.retainedCount >= 8) {
-      this.error = '已有 8 个保留终端，请先返回所属项目完成待同步关闭。'
+      this.error = t('已有 8 个保留终端，请先返回所属项目完成待同步关闭。')
       this.syncVisibility()
       this.notify()
       return
@@ -801,7 +810,7 @@ export class TerminalController {
         }
       }
       if (!entry.metadata.exitConfirmed) {
-        this.closeError(entry, '尚未确认 shell 退出，未新建终端。请稍后重试结束。')
+        this.closeError(entry, t('尚未确认 shell 退出，未新建终端。请稍后重试结束。'))
         return
       }
       if (!alreadyDismissed && this.project === prompt.identity.projectPath) {
@@ -809,7 +818,7 @@ export class TerminalController {
         entry.pendingDismiss = dismissed.type !== 'ok'
       } else if (!alreadyDismissed) entry.pendingDismiss = true
       if (entry.pendingDismiss) {
-        this.closeError(entry, 'Shell 已退出，屏幕仍保留。请返回所属项目完成关闭。')
+        this.closeError(entry, t('Shell 已退出，屏幕仍保留。请返回所属项目完成关闭。'))
         return
       }
       this.removeEntry(entry)
@@ -823,7 +832,7 @@ export class TerminalController {
         await this.create()
       }
     } catch {
-      this.closeError(entry, '结束终端失败，未新建终端。')
+      this.closeError(entry, t('结束终端失败，未新建终端。'))
     } finally {
       this.busy = false
       this.syncVisibility()

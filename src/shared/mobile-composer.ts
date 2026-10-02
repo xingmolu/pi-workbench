@@ -1,3 +1,4 @@
+import { t } from './i18n'
 /** Remote PWA composer: Enter sends, Shift+Enter inserts a newline. IME composition must not send. */
 export function composerShouldSend(event: {
   key: string
@@ -19,7 +20,7 @@ export function composeBlockChip(reason: string | null | undefined): string {
     reason === 'model-unavailable' ||
     reason === 'pinned-model-unavailable'
   ) {
-    return '模型不可用'
+    return t('模型不可用')
   }
-  return '暂时无法发送'
+  return t('暂时无法发送')
 }

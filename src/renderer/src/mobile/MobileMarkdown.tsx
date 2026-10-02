@@ -7,6 +7,7 @@ import { Check, Copy } from 'lucide-react'
 import { HighlightedCode } from '../components/HighlightedCode'
 import { codeBlockText } from '../components/markdown-code'
 import { copyText } from './copy'
+import { t } from '../../../shared/i18n'
 
 type PreProps = ComponentProps<Exclude<Components['pre'], string | undefined>>
 
@@ -21,10 +22,10 @@ function CodeBlock({ node, streaming }: PreProps & { streaming: boolean }): Reac
   return (
     <div className="m-code">
       <div className="m-code-bar">
-        <span>{language || '代码'}</span>
+        <span>{language || t('代码')}</span>
         <button
           type="button"
-          aria-label="复制代码"
+          aria-label={t('复制代码')}
           onClick={() =>
             void copyText(value).then((ok) => {
               setCopied(ok)
@@ -74,13 +75,20 @@ const MobileMarkdownBody = memo(function MobileMarkdownBody({
   )
 })
 
-
-export const MobileMarkdown = memo(function MobileMarkdown({ text, streaming = false }: {
-  text: string; streaming?: boolean
+export const MobileMarkdown = memo(function MobileMarkdown({
+  text,
+  streaming = false
+}: {
+  text: string
+  streaming?: boolean
 }): React.JSX.Element {
   const displayed = useStreamingText(text, 'mobile-message', streaming)
   if (!streaming) return <MobileMarkdownBody text={displayed} />
-  return <>{streamingMarkdownBlocks(displayed).map((block, index) =>
-    <MobileMarkdownBody key={index} text={block} streaming />
-  )}</>
+  return (
+    <>
+      {streamingMarkdownBlocks(displayed).map((block, index) => (
+        <MobileMarkdownBody key={index} text={block} streaming />
+      ))}
+    </>
+  )
 })

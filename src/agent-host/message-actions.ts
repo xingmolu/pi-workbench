@@ -5,6 +5,7 @@ import {
   type MessageFeedbackCommand
 } from '../shared/message-actions'
 import { SessionRuntimeUnsafeError } from './session-mutation-safety'
+import { t } from '../shared/i18n'
 
 export function isCompletedAssistant(entry: SessionEntry | undefined): boolean {
   return (
@@ -20,11 +21,11 @@ export function recordMessageFeedback(
   state: { manager: SessionManager; sessionId: string; generation: number; reason: string | null }
 ): void {
   if (target.sessionId !== state.sessionId || target.generation !== state.generation)
-    throw new Error('会话已变化，未记录反馈')
+    throw new Error(t('会话已变化，未记录反馈'))
   if (state.reason) throw new Error(state.reason)
   const branch = state.manager.getBranch()
   if (!isCompletedAssistant(branch.find((entry) => entry.id === target.entryId)))
-    throw new Error('仅能为当前分支中已完成的助手回复记录反馈')
+    throw new Error(t('仅能为当前分支中已完成的助手回复记录反馈'))
   let current: MessageFeedbackCommand['value'] = null
   for (const entry of branch) {
     if (entry.type !== 'custom' || entry.customType !== MESSAGE_FEEDBACK_TYPE) continue
@@ -39,7 +40,7 @@ export function recordMessageFeedback(
     })
   } catch (cause) {
     throw new SessionRuntimeUnsafeError(
-      '反馈保存结果无法确认，运行时已停止；请重新连接后读取记录，不要直接重试。',
+      t('反馈保存结果无法确认，运行时已停止；请重新连接后读取记录，不要直接重试。'),
       { cause }
     )
   }

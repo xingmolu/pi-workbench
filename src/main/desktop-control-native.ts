@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { DesktopWindowTarget } from '../shared/desktop-control'
+import { t } from '../shared/i18n'
 
 const execFileAsync = promisify(execFile)
 
@@ -57,7 +58,7 @@ export class MacComputerUseBridge {
   ) {}
 
   async call(command: NativeComputerUseCommand, signal?: AbortSignal): Promise<unknown> {
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
     let stdout: string | Buffer
     try {
       const result = await this.exec(this.helperPath, [JSON.stringify(command)], {
@@ -72,13 +73,13 @@ export class MacComputerUseBridge {
       try {
         const native = JSON.parse(stdoutText(failure.stdout ?? '').trim()) as { error?: string }
         if (native.error === 'target-changed') {
-          throw new Error('目标窗口已变化，请重新 observe')
+          throw new Error(t('目标窗口已变化，请重新 observe'))
         }
         if (native.error === 'target-occluded') {
-          throw new Error('目标窗口被其他窗口遮挡，请重新 observe')
+          throw new Error(t('目标窗口被其他窗口遮挡，请重新 observe'))
         }
         if (native.error === 'visual-state-expired') {
-          throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+          throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
         }
       } catch (parsed) {
         if (
@@ -89,20 +90,22 @@ export class MacComputerUseBridge {
       }
       const message =
         failure?.code === 'ENOENT'
-          ? 'Computer Use 原生助手缺失。源码运行请执行 npm run build:native:mac；安装版请重新安装完整应用。'
+          ? t(
+              'Computer Use 原生助手缺失。源码运行请执行 npm run build:native:mac；安装版请重新安装完整应用。'
+            )
           : failure?.code === 'EACCES'
-            ? 'Computer Use 原生助手不可执行，请重新构建或安装完整应用。'
+            ? t('Computer Use 原生助手不可执行，请重新构建或安装完整应用。')
             : failure?.killed
-              ? 'Computer Use 原生助手调用超时，请重试。'
-              : 'Computer Use 原生助手执行失败，请检查应用安装与系统权限。'
+              ? t('Computer Use 原生助手调用超时，请重试。')
+              : t('Computer Use 原生助手执行失败，请检查应用安装与系统权限。')
       throw new Error(message, { cause: error })
     }
     const text = stdoutText(stdout).trim()
-    if (!text) throw new Error('Native Computer Use helper 未返回结果')
+    if (!text) throw new Error(t('Native Computer Use helper 未返回结果'))
     try {
       return JSON.parse(text) as unknown
     } catch (error) {
-      throw new Error('Computer Use 原生助手返回格式无效，请重新构建或安装完整应用。', {
+      throw new Error(t('Computer Use 原生助手返回格式无效，请重新构建或安装完整应用。'), {
         cause: error
       })
     }

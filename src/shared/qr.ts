@@ -1,3 +1,4 @@
+import { t } from './i18n'
 /** Byte-mode QR (ECC L, versions 1–10) for pairing URLs. */
 
 const ECC_CODEWORDS = [0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18]
@@ -74,7 +75,7 @@ function versionFor(payload: Uint8Array): number {
     const bits = 4 + countBits + payload.length * 8 + 4
     if (Math.ceil(bits / 8) <= dataCapacity) return version
   }
-  throw new Error('配对内容过长，无法生成二维码')
+  throw new Error(t('配对内容过长，无法生成二维码'))
 }
 
 function encodeData(payload: Uint8Array, version: number): number[] {
@@ -147,8 +148,7 @@ function reserved(version: number): boolean[][] {
     if (row >= 0 && col >= 0 && row < size && col < size) mark[row]![col] = true
   }
   const finder = (row: number, col: number): void => {
-    for (let r = -1; r <= 7; r++)
-      for (let c = -1; c <= 7; c++) set(row + r, col + c)
+    for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) set(row + r, col + c)
   }
   finder(0, 0)
   finder(0, size - 7)
@@ -159,7 +159,11 @@ function reserved(version: number): boolean[][] {
   }
   for (const row of ALIGNMENT[version] ?? []) {
     for (const col of ALIGNMENT[version] ?? []) {
-      if ((row === 6 && col === 6) || (row === 6 && col === size - 7) || (row === size - 7 && col === 6))
+      if (
+        (row === 6 && col === 6) ||
+        (row === 6 && col === size - 7) ||
+        (row === size - 7 && col === 6)
+      )
         continue
       for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) set(row + r, col + c)
     }
@@ -200,7 +204,7 @@ function placeFinders(grid: number[][]): void {
 
 function placeTiming(grid: number[][]): void {
   const size = grid.length
-    for (let i = 8; i < size - 8; i++) {
+  for (let i = 8; i < size - 8; i++) {
     const bit = i % 2 === 0 ? 1 : 0
     grid[6]![i] = bit
     grid[i]![6] = bit
@@ -212,7 +216,11 @@ function placeAlignments(grid: number[][], version: number): void {
   const pattern = [1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1]
   for (const row of ALIGNMENT[version] ?? []) {
     for (const col of ALIGNMENT[version] ?? []) {
-      if ((row === 6 && col === 6) || (row === 6 && col === size - 7) || (row === size - 7 && col === 6))
+      if (
+        (row === 6 && col === 6) ||
+        (row === 6 && col === size - 7) ||
+        (row === size - 7 && col === 6)
+      )
         continue
       let i = 0
       for (let r = -2; r <= 2; r++)
@@ -270,7 +278,12 @@ function maskFn(mask: number, row: number, col: number): boolean {
   }
 }
 
-function placeData(grid: number[][], reservedMap: boolean[][], bytes: number[], mask: number): void {
+function placeData(
+  grid: number[][],
+  reservedMap: boolean[][],
+  bytes: number[],
+  mask: number
+): void {
   const size = grid.length
   const bits: number[] = []
   for (const byte of bytes) for (let i = 7; i >= 0; i--) bits.push((byte >> i) & 1)

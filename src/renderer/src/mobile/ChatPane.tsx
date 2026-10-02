@@ -8,6 +8,7 @@ import { ThemeButton } from './ThemeButton'
 import type { MobileThemeChoice } from './theme'
 import { nearBottom } from './flow'
 import { mobileApi } from './api'
+import { t } from '../../../shared/i18n'
 
 export function ChatPane({
   snapshot,
@@ -103,7 +104,7 @@ export function ChatPane({
       return {
         state: state.state,
         blockedReason:
-          snapshot.busy || snapshot.approvals.length ? '请等待当前任务结束后再撤销' : null,
+          snapshot.busy || snapshot.approvals.length ? t('请等待当前任务结束后再撤销') : null,
         plan: () => mobileApi.checkpointPlan(snapshot, entryId).then((result) => result.plan),
         restore: (force) =>
           mobileApi.checkpointRestore(snapshot, entryId, force).then((result) => result.outcome)
@@ -122,14 +123,15 @@ export function ChatPane({
       {offline ? (
         <p className="m-notice" role="status">
           <span className="m-reconnect-dot" aria-hidden="true" />
-          连接中断，正在重连…
+
+          {t('连接中断，正在重连…')}
         </p>
       ) : null}
       {paused ? (
         <p className="m-notice" role="status">
-          内容较大，实时更新已暂停。
+          {t('内容较大，实时更新已暂停。')}
           <button id="refresh-snapshot" type="button" className="m-link" onClick={onRefresh}>
-            刷新完整内容
+            {t('刷新完整内容')}
           </button>
         </p>
       ) : null}
@@ -141,16 +143,16 @@ export function ChatPane({
       <>
         <header className="m-top">
           {routed ? (
-            <button type="button" className="m-icon m-back" aria-label="返回" onClick={onBack}>
+            <button type="button" className="m-icon m-back" aria-label={t('返回')} onClick={onBack}>
               <ChevronLeft size={20} />
             </button>
           ) : null}
-          <h1>{routed ? '会话' : '对话'}</h1>
+          <h1>{routed ? t('会话') : t('对话')}</h1>
           {!routed ? <span className="m-host">{host}</span> : null}
         </header>
         {notices}
         <p className="m-empty">
-          {routed ? '正在读取…' : '从左侧选择一个会话，继续同一条桌面对话。'}
+          {routed ? t('正在读取…') : t('从左侧选择一个会话，继续同一条桌面对话。')}
         </p>
       </>
     )
@@ -159,7 +161,7 @@ export function ChatPane({
   return (
     <>
       <header className="m-top">
-        <button type="button" className="m-icon m-back" aria-label="返回" onClick={onBack}>
+        <button type="button" className="m-icon m-back" aria-label={t('返回')} onClick={onBack}>
           <ChevronLeft size={20} />
         </button>
         <h1 title={snapshot.title}>{snapshot.title}</h1>
@@ -167,8 +169,8 @@ export function ChatPane({
         <button
           type="button"
           className="m-icon"
-          aria-label="新会话"
-          title="在这个项目里开始新会话"
+          aria-label={t('新会话')}
+          title={t('在这个项目里开始新会话')}
           onClick={() =>
             onNewSession(
               snapshot.cwd,
@@ -180,7 +182,7 @@ export function ChatPane({
         >
           <SquarePen size={18} />
         </button>
-        <button type="button" className="m-icon" aria-label="打开标签页" onClick={onWorkbench}>
+        <button type="button" className="m-icon" aria-label={t('打开标签页')} onClick={onWorkbench}>
           <MonitorSmartphone size={18} />
         </button>
         <ThemeButton choice={theme} onChoice={onTheme} />
@@ -210,7 +212,8 @@ export function ChatPane({
           }}
         >
           <ArrowDown size={14} aria-hidden="true" />
-          最新内容
+
+          {t('最新内容')}
         </button>
       ) : null}
       <MobileComposer

@@ -7,6 +7,7 @@ import type {
   BackgroundSessionWaitOptions,
   BackgroundSessionWaitResult
 } from './background-session-service'
+import { t } from '../shared/i18n'
 
 export type SessionTaskParent = BackgroundSessionParent
 
@@ -37,12 +38,7 @@ export type SessionTaskRecord = {
 
 export type SessionTaskRelationship = Pick<
   SessionTaskRecord,
-  | 'taskId'
-  | 'parentWorkerId'
-  | 'parentSessionId'
-  | 'parentGeneration'
-  | 'workerId'
-  | 'createdAt'
+  'taskId' | 'parentWorkerId' | 'parentSessionId' | 'parentGeneration' | 'workerId' | 'createdAt'
 >
 
 export type SessionTaskView = SessionTaskRecord & {
@@ -74,11 +70,7 @@ export type SessionTaskSuperviseOptions = {
   signal?: AbortSignal
 }
 export type SessionTaskSuperviseOutcome =
-  | 'snapshot'
-  | 'settled'
-  | 'all-settled'
-  | 'timeout'
-  | 'empty'
+  'snapshot' | 'settled' | 'all-settled' | 'timeout' | 'empty'
 export type SessionTaskSuperviseResult = {
   mode: SessionTaskSuperviseMode
   outcome: SessionTaskSuperviseOutcome
@@ -117,7 +109,7 @@ const MAX_DELEGATE_BATCH = 4
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return (message || '后台任务创建失败').slice(0, 4096)
+  return (message || t('后台任务创建失败')).slice(0, 4096)
 }
 
 /**
@@ -170,15 +162,15 @@ export class SessionTaskOrchestrator {
       this.sameParent(task, parent)
     ).length
     if (parentCount >= this.maxWorkersPerParent) {
-      throw new Error('当前父会话的后台任务已达上限')
+      throw new Error(t('当前父会话的后台任务已达上限'))
     }
     if (this.tasks.size >= this.maxWorkersTotal) {
-      throw new Error('后台任务总数已达上限')
+      throw new Error(t('后台任务总数已达上限'))
     }
 
     const handle = await this.runtime.spawnFromParent(parent, prompt)
     if ([...this.tasks.values()].some((task) => task.workerId === handle.workerId)) {
-      throw new Error('后台 worker 已被其他任务占用')
+      throw new Error(t('后台 worker 已被其他任务占用'))
     }
 
     const timestamp = this.now()
@@ -226,11 +218,7 @@ export class SessionTaskOrchestrator {
     }
   }
 
-  async send(
-    parent: SessionTaskParent,
-    taskId: string,
-    prompt: string
-  ): Promise<SessionTaskView> {
+  async send(parent: SessionTaskParent, taskId: string, prompt: string): Promise<SessionTaskView> {
     const task = this.requireOwned(parent, taskId)
     await this.runtime.send(this.handle(task), prompt)
     task.updatedAt = this.now()
@@ -250,7 +238,7 @@ export class SessionTaskOrchestrator {
     options: SessionTaskWaitOptions = {}
   ): Promise<SessionTaskWaitResult> {
     const task = this.requireOwned(parent, taskId)
-    if (!this.runtime.wait) throw new Error('后台任务运行时不支持事件等待')
+    if (!this.runtime.wait) throw new Error(t('后台任务运行时不支持事件等待'))
     const requested = options.timeoutMs ?? this.defaultWaitMs
     if (!Number.isFinite(requested) || requested < 0) {
       throw new Error('timeoutMs must be a non-negative finite number')
@@ -288,7 +276,7 @@ export class SessionTaskOrchestrator {
     if (!Number.isFinite(requested) || requested < 0) {
       throw new Error('timeoutMs must be a non-negative finite number')
     }
-    if (options.signal?.aborted) throw new Error('等待后台任务已取消')
+    if (options.signal?.aborted) throw new Error(t('等待后台任务已取消'))
     const timeoutMs = Math.min(requested, this.maxWaitMs)
     const pending = initial.filter((task) => !this.isSettled(task))
 
@@ -316,7 +304,7 @@ export class SessionTaskOrchestrator {
         await Promise.allSettled(waits)
         options.signal?.removeEventListener('abort', forwardAbort)
       }
-      if (options.signal?.aborted) throw new Error('等待后台任务已取消')
+      if (options.signal?.aborted) throw new Error(t('等待后台任务已取消'))
     }
 
     const latest = this.list(parent)
@@ -334,7 +322,7 @@ export class SessionTaskOrchestrator {
 
   result(parent: SessionTaskParent, taskId: string): SessionTaskResult {
     const task = this.requireOwned(parent, taskId)
-    if (!this.runtime.result) throw new Error('后台任务运行时不支持 canonical 结果读取')
+    if (!this.runtime.result) throw new Error(t('后台任务运行时不支持 canonical 结果读取'))
     return {
       task: this.view(task),
       result: this.runtime.result(this.handle(task))
@@ -368,14 +356,16 @@ export class SessionTaskOrchestrator {
   relationships(): SessionTaskRelationship[] {
     return [...this.tasks.values()]
       .sort((left, right) => left.createdAt - right.createdAt)
-      .map(({ taskId, parentWorkerId, parentSessionId, parentGeneration, workerId, createdAt }) => ({
-        taskId,
-        parentWorkerId,
-        parentSessionId,
-        parentGeneration,
-        workerId,
-        createdAt
-      }))
+      .map(
+        ({ taskId, parentWorkerId, parentSessionId, parentGeneration, workerId, createdAt }) => ({
+          taskId,
+          parentWorkerId,
+          parentSessionId,
+          parentGeneration,
+          workerId,
+          createdAt
+        })
+      )
   }
 
   /**
@@ -411,7 +401,7 @@ export class SessionTaskOrchestrator {
         state.status === 'running' ||
         state.status === 'awaiting-approval')
     ) {
-      throw new Error('后台任务仍在运行或等待处理，不能释放关系')
+      throw new Error(t('后台任务仍在运行或等待处理，不能释放关系'))
     }
     this.tasks.delete(task.taskId)
     this.onTasksChanged()
@@ -441,10 +431,10 @@ export class SessionTaskOrchestrator {
 
   private assertParentCanSpawn(parent: SessionTaskParent): void {
     if (!parent.workerId || !parent.sessionId || parent.generation < 0) {
-      throw new Error('父会话不可用')
+      throw new Error(t('父会话不可用'))
     }
     if ([...this.tasks.values()].some((task) => task.workerId === parent.workerId)) {
-      throw new Error('后台 worker 不能继续创建子 worker')
+      throw new Error(t('后台 worker 不能继续创建子 worker'))
     }
   }
 
@@ -462,7 +452,7 @@ export class SessionTaskOrchestrator {
   private requireOwned(parent: SessionTaskParent, taskId: string): SessionTaskRecord {
     const task = this.tasks.get(taskId)
     if (!task || !this.sameParent(task, parent)) {
-      throw new Error('后台任务不存在或不属于当前父会话')
+      throw new Error(t('后台任务不存在或不属于当前父会话'))
     }
     return task
   }

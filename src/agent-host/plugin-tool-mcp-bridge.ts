@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import type { PluginAgentTool } from '../shared/plugin-agent'
 import type { ToolGate } from './tool-gate'
+import { t } from '../shared/i18n'
 
 export type PluginToolMcpBridgeOptions = {
   tools: readonly PluginAgentTool[]
@@ -41,7 +42,7 @@ export function createPluginToolMcpServer(options: PluginToolMcpBridgeOptions): 
     CallToolRequestSchema,
     async (request, extra): Promise<CallToolResult> => {
       const tool = byName.get(request.params.name)
-      if (!tool) return errorResult('插件工具不存在')
+      if (!tool) return errorResult(t('插件工具不存在'))
       const { sessionId, cwd } = options.context()
       const toolCallId = randomUUID()
       const input = request.params.arguments ?? {}
@@ -61,7 +62,7 @@ export function createPluginToolMcpServer(options: PluginToolMcpBridgeOptions): 
         ok = true
         return { content: [{ type: 'text', text }] }
       } catch (error) {
-        return errorResult(error instanceof Error ? error.message : '插件工具失败')
+        return errorResult(error instanceof Error ? error.message : t('插件工具失败'))
       } finally {
         options.gate.after({ sessionId, toolCallId, category: 'plugin', ok })
       }

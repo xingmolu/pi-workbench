@@ -17,6 +17,7 @@ import type {
   BrowserState,
   WorkbenchCommand
 } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 const EMPTY_BROWSER_STATE: BrowserState = {
   available: false,
@@ -156,7 +157,7 @@ export default function BrowserPane({
 
   return (
     <div className="browser-pane">
-      <div className="browser-tabs" role="tablist" aria-label="浏览器标签页">
+      <div className="browser-tabs" role="tablist" aria-label={t('浏览器标签页')}>
         {state.pages.map((tab) => (
           <div className={`browser-tab${tab.active ? ' is-active' : ''}`} key={tab.id}>
             <button
@@ -171,13 +172,13 @@ export default function BrowserPane({
               ) : (
                 <span className="tab-dot" />
               )}
-              <span>{tab.title || '新标签页'}</span>
+              <span>{tab.title || t('新标签页')}</span>
             </button>
             <button
               className="browser-tab-close"
               type="button"
-              title="关闭标签页"
-              aria-label={`关闭 ${tab.title || '标签页'}`}
+              title={t('关闭标签页')}
+              aria-label={t('关闭 {title}', { title: tab.title || t('标签页') })}
               onClick={() => operate({ action: 'close_tab', pageId: tab.id })}
             >
               <X size={11} />
@@ -187,8 +188,8 @@ export default function BrowserPane({
         <button
           className="browser-new-tab"
           type="button"
-          title="新建标签页"
-          aria-label="新建浏览器标签页"
+          title={t('新建标签页')}
+          aria-label={t('新建浏览器标签页')}
           disabled={!projectReady}
           onClick={() => operate({ action: 'new_tab' })}
         >
@@ -206,8 +207,8 @@ export default function BrowserPane({
         <div className="browser-nav-group">
           <button
             type="button"
-            title="后退"
-            aria-label="浏览器后退"
+            title={t('后退')}
+            aria-label={t('浏览器后退')}
             disabled={!page?.canGoBack}
             onClick={() => operate({ action: 'back' })}
           >
@@ -215,8 +216,8 @@ export default function BrowserPane({
           </button>
           <button
             type="button"
-            title="前进"
-            aria-label="浏览器前进"
+            title={t('前进')}
+            aria-label={t('浏览器前进')}
             disabled={!page?.canGoForward}
             onClick={() => operate({ action: 'forward' })}
           >
@@ -224,8 +225,8 @@ export default function BrowserPane({
           </button>
           <button
             type="button"
-            title="重新加载"
-            aria-label="重新加载页面"
+            title={t('重新加载')}
+            aria-label={t('重新加载页面')}
             disabled={!page}
             onClick={() => operate({ action: 'reload' })}
           >
@@ -233,13 +234,13 @@ export default function BrowserPane({
           </button>
         </div>
         <label className="browser-address">
-          <span className="sr-only">网址</span>
+          <span className="sr-only">{t('网址')}</span>
           {page?.url.startsWith('https://') ? <LockKeyhole size={11} /> : <Globe2 size={11} />}
           <input
             value={address}
             disabled={!projectReady}
             spellCheck={false}
-            placeholder={projectReady ? '输入网址' : '选择工作区后可浏览'}
+            placeholder={projectReady ? t('输入网址') : t('选择工作区后可浏览')}
             onFocus={() => {
               addressFocused.current = true
             }}
@@ -256,12 +257,14 @@ export default function BrowserPane({
         <span className="browser-control-dot" />
         <span>
           {state.controller === 'agent'
-            ? `Agent 正在控制${state.lastAction ? ` · ${state.lastAction}` : ''}`
-            : state.error || clientError || '独立浏览器资料 · 网页内容不受信任'}
+            ? t('Agent 正在控制{value}', {
+                value: state.lastAction ? ` · ${state.lastAction}` : ''
+              })
+            : state.error || clientError || t('独立浏览器资料 · 网页内容不受信任')}
         </span>
         {state.controller === 'agent' ? (
           <button type="button" onClick={() => void command({ type: 'agent:stop' })}>
-            <CircleStop size={12} /> 停止
+            <CircleStop size={12} /> {t('停止')}
           </button>
         ) : null}
       </div>
@@ -269,8 +272,8 @@ export default function BrowserPane({
       <div className="browser-viewport" ref={viewportRef}>
         {!projectReady ? (
           <div className="browser-empty">
-            <strong>先选择工作区</strong>
-            <span>浏览器 profile 会按项目隔离，agent 与你共享当前标签页。</span>
+            <strong>{t('先选择工作区')}</strong>
+            <span>{t('浏览器 profile 会按项目隔离，agent 与你共享当前标签页。')}</span>
           </div>
         ) : null}
       </div>

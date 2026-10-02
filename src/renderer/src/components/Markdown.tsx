@@ -11,6 +11,7 @@ import { Check, Copy, WrapText } from 'lucide-react'
 import { ActionIcon } from './MessageActions'
 import { HighlightedCode } from './HighlightedCode'
 import { codeBlockText } from './markdown-code'
+import { t } from '../../../shared/i18n'
 
 type PreProps = ComponentProps<Exclude<Components['pre'], string | undefined>>
 const CodeWrapContext = createContext<{
@@ -42,11 +43,11 @@ function CodeBlock({ node }: PreProps): React.JSX.Element {
   return (
     <div className={`code-block${wrap ? ' is-wrapped' : ''}`}>
       <div className="code-block-toolbar">
-        <span className="code-block-language" title={language || '代码'}>
-          {language || '代码'}
+        <span className="code-block-language" title={language || t('代码')}>
+          {language || t('代码')}
         </span>
         <ActionIcon
-          label="自动换行"
+          label={t('自动换行')}
           aria-pressed={wrap}
           onClick={() => {
             wrapContext?.overrides.set(sourceOffset, !wrap)
@@ -56,22 +57,28 @@ function CodeBlock({ node }: PreProps): React.JSX.Element {
           <WrapText size={16} />
         </ActionIcon>
         <ActionIcon
-          label="复制代码"
-          hint={status === 'success' ? '已复制' : status === 'pending' ? '正在复制…' : '复制代码'}
+          label={t('复制代码')}
+          hint={
+            status === 'success'
+              ? t('已复制')
+              : status === 'pending'
+                ? t('正在复制…')
+                : t('复制代码')
+          }
           onClick={() => void copy(value)}
           disabled={status === 'pending'}
         >
           {status === 'success' ? <Check size={16} /> : <Copy size={16} />}
         </ActionIcon>
       </div>
-      <pre tabIndex={0} aria-label={wrap ? '代码，自动换行' : '代码，可横向滚动'}>
+      <pre tabIndex={0} aria-label={wrap ? t('代码，自动换行') : t('代码，可横向滚动')}>
         <HighlightedCode text={value} language={language} streaming={context.streaming} />
       </pre>
       <span className="code-block-feedback" role="status">
         {status === 'error'
-          ? '复制失败，请重试或选中代码手动复制。'
+          ? t('复制失败，请重试或选中代码手动复制。')
           : status === 'success'
-            ? '代码已复制'
+            ? t('代码已复制')
             : ''}
       </span>
     </div>
@@ -115,7 +122,7 @@ const MarkdownBody = memo(function MarkdownBody({
   if (children.length > 200 * 1024 || new TextEncoder().encode(children).byteLength > 200 * 1024)
     return (
       <div>
-        <p>内容较长，以下以完整纯文本显示。</p>
+        <p>{t('内容较长，以下以完整纯文本显示。')}</p>
         <pre className="markdown-plain-fallback">{children}</pre>
       </div>
     )

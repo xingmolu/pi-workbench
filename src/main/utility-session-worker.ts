@@ -6,6 +6,7 @@ import type {
   AgentRuntimeSessionOptions
 } from './agent-runtime'
 import { HostResponseBroker } from './host-response-broker'
+import { LOCALE_ENV, locale, t } from '../shared/i18n'
 
 export type UtilityProcessAgentRuntimeOptions = {
   script: string
@@ -42,7 +43,10 @@ export class UtilityProcessAgentRuntime implements AgentRuntime {
     return createUtilitySessionWorker({
       ...options,
       script: this.options.script,
-      serviceName: options.role === 'configuration' ? `${this.provider.label} Agent Host` : `${this.provider.label} Session Host ${options.workerId}`,
+      serviceName:
+        options.role === 'configuration'
+          ? `${this.provider.label} Agent Host`
+          : `${this.provider.label} Session Host ${options.workerId}`,
       ...(this.options.env ? { env: this.options.env } : {}),
       onMessage: (message, reply) => this.options.onMessage(options, message, reply)
     })
@@ -64,6 +68,7 @@ export async function createUtilitySessionWorker(
     stdio: 'pipe',
     env: {
       ...(options.env ?? process.env),
+      [LOCALE_ENV]: locale(),
       PI_DESKTOP_SESSION_WORKER: '1',
       PI_DESKTOP_RUNTIME_ROLE: options.role ?? 'session'
     }
@@ -77,7 +82,7 @@ export async function createUtilitySessionWorker(
   const ready = new Promise<void>((resolve, reject) => {
     child.once('spawn', resolve)
     child.once('error', reject)
-    child.once('exit', () => reject(new Error('会话进程启动失败')))
+    child.once('exit', () => reject(new Error(t('会话进程启动失败'))))
   })
   child.stdout?.resume()
   child.stderr?.resume()
@@ -95,14 +100,14 @@ export async function createUtilitySessionWorker(
   })
   child.once('exit', (code) => {
     exited = true
-    const error = new Error(`会话进程已退出（code ${code}）`)
+    const error = new Error(t('会话进程已退出（code {code}）', { code }))
     broker.rejectAll(error)
     resolveExit()
     options.onExit(disposing ? undefined : error)
   })
   const request: AgentRuntimeSession['request'] = async (command, expectedIdentity) => {
     await ready
-    if (exited) throw new Error('会话进程已退出')
+    if (exited) throw new Error(t('会话进程已退出'))
     return broker.request(command, (request) => child.postMessage(request), expectedIdentity)
   }
   const dispose = async () => {
@@ -124,7 +129,7 @@ export async function createUtilitySessionWorker(
       initial.snapshot.sessionId !== null ||
       initial.snapshot.generation !== 0
     )
-      throw new Error('会话进程启动状态无效')
+      throw new Error(t('会话进程启动状态无效'))
     return {
       request,
       dispose,

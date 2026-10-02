@@ -1,5 +1,6 @@
 import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { MOBILE_GATEWAY_LOOPBACK } from '../shared/mobile-gateway'
+import { t } from '../shared/i18n'
 
 const SKIP_IFACE = /^(lo|docker|br-|veth|tun|utun|awdl|llw|bridge|vmnet|vboxnet|dummy|cni|flannel)/i
 
@@ -29,10 +30,10 @@ export function isForbiddenWildcardBind(address: string): boolean {
 /** Gateway may bind loopback, or one RFC1918 LAN address — never all interfaces. */
 export function assertGatewayBindAddress(address: string): void {
   if (isForbiddenWildcardBind(address)) {
-    throw new Error('手机网关禁止绑定 0.0.0.0 / 全部网卡')
+    throw new Error(t('手机网关禁止绑定 0.0.0.0 / 全部网卡'))
   }
   if (isLoopbackAddress(address) || isRfc1918Ipv4(address)) return
-  throw new Error('手机网关只能绑定 127.0.0.1 或当前局域网私网地址')
+  throw new Error(t('手机网关只能绑定 127.0.0.1 或当前局域网私网地址'))
 }
 
 export function listLanIpv4(
@@ -55,9 +56,7 @@ export function listLanIpv4(
   return [...new Set(found.map((item) => item.address))]
 }
 
-export function primaryLanIpv4(
-  ifaces?: NodeJS.Dict<NetworkInterfaceInfo[]>
-): string | null {
+export function primaryLanIpv4(ifaces?: NodeJS.Dict<NetworkInterfaceInfo[]>): string | null {
   return listLanIpv4(ifaces)[0] ?? null
 }
 

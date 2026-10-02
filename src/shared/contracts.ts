@@ -676,6 +676,10 @@ export type DesktopEvent =
     }
 
 export type PiDesktopAPI = {
+  /** The interface language Main chose at start. */
+  locale: import('./i18n').Locale
+  /** Restarts the app, e.g. to apply a new interface language. */
+  relaunch: () => Promise<void>
   navigationLibrary: (command: import('./navigation-library').NavigationLibraryCommand) => Promise<import('./navigation-library').NavigationLibraryState>
   nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>

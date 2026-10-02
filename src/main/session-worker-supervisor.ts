@@ -14,6 +14,7 @@ import {
   type SessionWorkerPoolOptions
 } from './session-worker-pool'
 import { SessionTaskMainBridge } from './session-task-main-bridge'
+import { t } from '../shared/i18n'
 
 export type SessionWorkerSafety = {
   receipts: 'unknown' | 'pending' | 'settled'
@@ -73,7 +74,9 @@ export class SessionWorkerSupervisor {
       capacity: options.capacity,
       canonicalize: options.canonicalize,
       runtime: {
-        ...(runtime.resolveProviderId ? { resolveProviderId: (id?: string) => runtime.resolveProviderId!(id) } : {}),
+        ...(runtime.resolveProviderId
+          ? { resolveProviderId: (id?: string) => runtime.resolveProviderId!(id) }
+          : {}),
         createSession: (sessionOptions) =>
           runtime.createSession({
             ...sessionOptions,
@@ -139,13 +142,21 @@ export class SessionWorkerSupervisor {
 
   inspectSessionTask(taskId: string, origin: DesktopCommandOrigin): AgentSnapshot {
     const scope = this.capture(origin)
-    if (!scope || !origin.sessionId || !this.sessionTaskBridge) throw new Error('子会话已不可用')
-    return this.sessionTaskBridge.inspect(scope.workerId, { sessionId: origin.sessionId, generation: origin.generation }, taskId)
+    if (!scope || !origin.sessionId || !this.sessionTaskBridge) throw new Error(t('子会话已不可用'))
+    return this.sessionTaskBridge.inspect(
+      scope.workerId,
+      { sessionId: origin.sessionId, generation: origin.generation },
+      taskId
+    )
   }
 
-  async cancelSessionTask(taskId: string, identity: { sessionId: string; generation: number }, origin?: DesktopCommandOrigin): Promise<void> {
+  async cancelSessionTask(
+    taskId: string,
+    identity: { sessionId: string; generation: number },
+    origin?: DesktopCommandOrigin
+  ): Promise<void> {
     const scope = this.capture(origin)
-    if (!scope || !this.sessionTaskBridge) throw new Error('子 Agent 已不可用')
+    if (!scope || !this.sessionTaskBridge) throw new Error(t('子 Agent 已不可用'))
     await this.sessionTaskBridge.cancel(scope.workerId, identity, taskId)
     this.summaries()
   }
@@ -181,7 +192,9 @@ export class SessionWorkerSupervisor {
     return this.pool.quiescent
   }
 
-  quiescentFor(runtimeId: string): boolean { return this.pool.quiescentFor(runtimeId) }
+  quiescentFor(runtimeId: string): boolean {
+    return this.pool.quiescentFor(runtimeId)
+  }
 
   isSelected(workerId: string): boolean {
     return this.pool.selectedScope?.workerId === workerId
@@ -308,7 +321,7 @@ export class SessionWorkerSupervisor {
         snapshot.sessionId !== origin.sessionId ||
         snapshot.generation !== origin.generation
       )
-        throw new Error('会话已改变，请刷新后重试')
+        throw new Error(t('会话已改变，请刷新后重试'))
     }
     return scope
   }
@@ -330,7 +343,7 @@ export class SessionWorkerSupervisor {
 
   async request(command: HostCommand, origin?: DesktopCommandOrigin): Promise<HostResult> {
     const scope = this.capture(origin)
-    if (!scope) throw new Error('请先打开会话')
+    if (!scope) throw new Error(t('请先打开会话'))
     const snapshot = this.pool.getSnapshot(scope.workerId)
     const expectedIdentity =
       origin ??
@@ -358,7 +371,7 @@ export class SessionWorkerSupervisor {
     const result = await this.pool.open(target, expected, async (worker) => {
       if (!target.path && model) await worker.request({ type: 'model:set', ...model })
       const state = await worker.request({ type: 'state:get', refreshSessions: true })
-      if (state.kind !== 'snapshot') throw new Error('会话状态不可用')
+      if (state.kind !== 'snapshot') throw new Error(t('会话状态不可用'))
       this.captureNavigation(origin)
       return state.snapshot
     })
@@ -377,7 +390,7 @@ export class SessionWorkerSupervisor {
     const result = await this.pool.openBackground(target, async (worker) => {
       if (!target.path && model) await worker.request({ type: 'model:set', ...model })
       const state = await worker.request({ type: 'state:get' })
-      if (state.kind !== 'snapshot') throw new Error('会话状态不可用')
+      if (state.kind !== 'snapshot') throw new Error(t('会话状态不可用'))
       return state.snapshot
     })
     this.summaries()
@@ -389,7 +402,7 @@ export class SessionWorkerSupervisor {
   select(workerId: string, origin?: DesktopCommandOrigin): AgentSnapshot {
     const expected = this.captureNavigation(origin)
     const snapshot = this.pool.getSnapshot(workerId)
-    if (!snapshot) throw new Error('会话尚未就绪')
+    if (!snapshot) throw new Error(t('会话尚未就绪'))
     const scope = this.pool.select(workerId, expected)
     const recovery = this.recoveries.get(workerId)
     if (recovery) {

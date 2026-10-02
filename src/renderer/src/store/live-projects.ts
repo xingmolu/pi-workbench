@@ -2,6 +2,7 @@ import type { AgentSnapshot, SessionSummary } from '../../../shared/contracts'
 import type { CatalogProject, ProjectCatalog } from '../../../shared/project-catalog'
 import { withLiveProject } from '../../../shared/project-catalog'
 import type { LiveSessionSummary } from '../../../shared/session-runtime'
+import { t } from '../../../shared/i18n'
 
 export type LiveSessionRow = Omit<SessionSummary, 'path'> & {
   path: string | null
@@ -22,8 +23,8 @@ export function sessionTaskTreeRows(sessions: LiveSessionRow[]): LiveSessionRow[
     children.set(relation.parentWorkerId, group)
   }
   for (const group of children.values()) {
-    group.sort((left, right) =>
-      (left.sessionTask?.createdAt ?? 0) - (right.sessionTask?.createdAt ?? 0)
+    group.sort(
+      (left, right) => (left.sessionTask?.createdAt ?? 0) - (right.sessionTask?.createdAt ?? 0)
     )
   }
 
@@ -46,8 +47,8 @@ export function sessionTaskTreeRows(sessions: LiveSessionRow[]): LiveSessionRow[
 }
 
 function liveTitle(resident: LiveSessionSummary, fallback?: string): string {
-  const title = resident.title || fallback || '新会话'
-  return resident.sessionTask ? `↳ 后台 Agent · ${title}` : title
+  const title = resident.title || fallback || t('新会话')
+  return resident.sessionTask ? t('↳ 后台 Agent · {title}', { title }) : title
 }
 
 /** Catalog history and runtime status have different lifetimes. Never invent a file for a draft. */

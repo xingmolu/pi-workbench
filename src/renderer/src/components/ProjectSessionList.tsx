@@ -12,6 +12,7 @@ import { usePiStore } from '../store/pi-store'
 import { sessionStatusDisplay } from '../../../shared/session-presentation'
 import { sidebarPathHint, sidebarSessions } from '../store/sidebar-presentation'
 import { relativeTime } from './relative-time'
+import { t } from '../../../shared/i18n'
 
 const COLLAPSED_KEY = 'pi.project-groups.collapsed.v1'
 function readCollapsed(): string[] {
@@ -70,7 +71,7 @@ export default function ProjectSessionList({
       .catch(() => {
         if (request !== epoch.current) return
         onCatalog?.(null)
-        setError('项目目录暂时不可读取')
+        setError(t('项目目录暂时不可读取'))
         setLoading(false)
       })
     return () => {
@@ -91,7 +92,7 @@ export default function ProjectSessionList({
       })
       if (request !== epoch.current) return
       const next = result.catalog.projects[0]
-      if (!next) throw new Error('项目目录已变化')
+      if (!next) throw new Error(t('项目目录已变化'))
       setCatalog((previous) =>
         previous
           ? {
@@ -118,7 +119,7 @@ export default function ProjectSessionList({
       )
     } catch {
       if (request === epoch.current)
-        setGroupErrors((errors) => ({ ...errors, [project.path]: '读取失败，请重试' }))
+        setGroupErrors((errors) => ({ ...errors, [project.path]: t('读取失败，请重试') }))
     } finally {
       if (request === epoch.current)
         setLoadingGroups((groups) => groups.filter((path) => path !== project.path))
@@ -139,27 +140,34 @@ export default function ProjectSessionList({
   }
   // Keep native interaction guards; only transient pending gets stable visual styling.
   const blockReason = disabledReason ?? projectNavigationReason(snapshot)
-  const navigationReason = blockReason ?? (pending ? '正在切换会话，请稍候' : null)
+  const navigationReason = blockReason ?? (pending ? t('正在切换会话，请稍候') : null)
   const projects = presentNavigationProjects(liveProjects(catalog, snapshot, residents), library)
   const loaded = projects.reduce((total, project) => total + project.sessions.length, 0)
   return (
     <section
       className="project-session-list"
-      aria-label="项目会话目录"
+      aria-label={t('项目会话目录')}
       aria-busy={pending || undefined}
     >
       <div className="catalog-scope">
         <span
           className="catalog-count"
-          title={`已加载 ${projects.length} 个项目 · ${loaded} 个会话`}
+          title={t('已加载 {length} 个项目 · {loaded} 个会话', { length: projects.length, loaded })}
         >
-          项目 <span className="sidebar-count">{projects.length}</span>
+          {t('项目')} <span className="sidebar-count">{projects.length}</span>
         </span>
         <span className="catalog-status" role="status">
-          {pending ? '正在切换会话' : loading && catalog ? '更新中' : ''}
+          {pending ? t('正在切换会话') : loading && catalog ? t('更新中') : ''}
         </span>
       </div>
-      {libraryError && <p className="catalog-error" role="alert">项目偏好读取失败：{libraryError}<button onClick={() => void useNavigationLibrary.getState().hydrate()}>重试</button></p>}
+      {libraryError && (
+        <p className="catalog-error" role="alert">
+          {t('项目偏好读取失败：{libraryError}', { libraryError })}
+          <button onClick={() => void useNavigationLibrary.getState().hydrate()}>
+            {t('重试')}
+          </button>
+        </p>
+      )}
       {blockReason && (
         <p className="catalog-disabled-reason" role="status">
           {blockReason}
@@ -167,23 +175,25 @@ export default function ProjectSessionList({
       )}
       {loading && !catalog && (
         <p className="sidebar-empty" role="status">
-          正在读取项目目录…
+          {t('正在读取项目目录…')}
         </p>
       )}
       {error && (
         <p className="catalog-error" role="alert">
           {error}{' '}
           <button type="button" onClick={() => setRetry((value) => value + 1)}>
-            重试
+            {t('重试')}
           </button>
         </p>
       )}
       <div className="project-groups">
         {catalog?.skippedDirectories ? (
           <p className="catalog-error">
-            {catalog.skippedDirectories} 个会话目录不可读取或含文件链接，已跳过。
+            {t('{skippedDirectories} 个会话目录不可读取或含文件链接，已跳过。', {
+              skippedDirectories: catalog.skippedDirectories
+            })}
             <button type="button" onClick={() => setRetry((value) => value + 1)}>
-              重试
+              {t('重试')}
             </button>
           </p>
         ) : null}
@@ -196,7 +206,7 @@ export default function ProjectSessionList({
           )
           const expanded = !collapsed.includes(project.path)
           const groupLoading = loadingGroups.includes(project.path)
-          const blocked = project.error ? '项目目录不可用，请重试' : navigationReason
+          const blocked = project.error ? t('项目目录不可用，请重试') : navigationReason
           const pendingOnly = pending && !blockReason && !project.error
           return (
             <section
@@ -204,10 +214,29 @@ export default function ProjectSessionList({
               key={project.path}
               data-project-path={project.path}
             >
-              <ProjectHeader project={project} snapshot={snapshot} expanded={expanded}
-                hint={duplicateName ? sidebarPathHint(project.path, projects.filter((other) => other.name === project.name).map((other) => other.path)).split('/').slice(0, -1).join('/') : undefined}
-                blocked={blocked} operationReason={disabledReason ?? null} pending={pending}
-                onToggle={() => toggle(project.path)} onNew={() => onNavigate(project.path)} />
+              <ProjectHeader
+                project={project}
+                snapshot={snapshot}
+                expanded={expanded}
+                hint={
+                  duplicateName
+                    ? sidebarPathHint(
+                        project.path,
+                        projects
+                          .filter((other) => other.name === project.name)
+                          .map((other) => other.path)
+                      )
+                        .split('/')
+                        .slice(0, -1)
+                        .join('/')
+                    : undefined
+                }
+                blocked={blocked}
+                operationReason={disabledReason ?? null}
+                pending={pending}
+                onToggle={() => toggle(project.path)}
+                onNew={() => onNavigate(project.path)}
+              />
               {navigationFailures[project.path] && (
                 <p className="catalog-error" role="alert">
                   {navigationFailures[project.path].message}{' '}
@@ -220,7 +249,7 @@ export default function ProjectSessionList({
                       onNavigate(project.path, navigationFailures[project.path].sessionPath)
                     }
                   >
-                    重试打开会话
+                    {t('重试打开会话')}
                   </button>
                 </p>
               )}
@@ -228,13 +257,13 @@ export default function ProjectSessionList({
                 <div className="project-group-sessions">
                   {project.error && (
                     <p className="catalog-error">
-                      项目目录不可用{' '}
+                      {t('项目目录不可用{value}', { value: ' ' })}
                       <button
                         type="button"
                         disabled={groupLoading}
                         onClick={() => void loadGroup(project, false)}
                       >
-                        重试
+                        {t('重试')}
                       </button>
                     </p>
                   )}
@@ -242,7 +271,7 @@ export default function ProjectSessionList({
                     const rowBlocked = session.workerId
                       ? (disabledReason ??
                         (pending
-                          ? '正在切换会话，请稍候'
+                          ? t('正在切换会话，请稍候')
                           : projectNavigationReason(snapshot, true)))
                       : blocked
                     const status = sessionStatusDisplay(session.status)
@@ -250,41 +279,60 @@ export default function ProjectSessionList({
                       session.status
                     )
                     return (
-                      <SessionNavigationRow key={session.workerId ?? session.path ?? session.id}
-                        session={session} cwd={project.path} blocked={rowBlocked}>
-                      <button
-                        type="button"
+                      <SessionNavigationRow
                         key={session.workerId ?? session.path ?? session.id}
-                        className={`session-row project-session-row${session.active ? ' is-active' : ''}`}
-                        aria-current={session.active ? 'page' : undefined}
-                        title={rowBlocked ?? session.title}
-                        disabled={Boolean(rowBlocked)}
-                        data-navigation-pending={pendingOnly || undefined}
-                        onClick={() =>
-                          onNavigate(project.path, session.path ?? undefined, session.workerId, session.runtimeId)
-                        }
+                        session={session}
+                        cwd={project.path}
+                        blocked={rowBlocked}
                       >
-                        <span className="session-title">{session.title}</span>
-                        {session.runtimeId && session.runtimeId !== snapshot.runtime?.id ? <small className="session-runtime-label">{session.runtimeId === 'claude' ? 'Claude' : session.runtimeId}</small> : null}
-                        {(session.parentSessionPath || session.parentUnavailable) && (
-                          <GitFork size={11} className="session-fork-label" aria-label="分叉会话" />
-                        )}
-                        {emphasize && (
-                          <span
-                            className={`session-status-label is-${status.tone}`}
-                            title={status.label}
-                          >
-                            {status.label}
-                          </span>
-                        )}
-                        {session.modified && !emphasize && (
-                          <time dateTime={session.modified}>{relativeTime(session.modified)}</time>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          key={session.workerId ?? session.path ?? session.id}
+                          className={`session-row project-session-row${session.active ? ' is-active' : ''}`}
+                          aria-current={session.active ? 'page' : undefined}
+                          title={rowBlocked ?? session.title}
+                          disabled={Boolean(rowBlocked)}
+                          data-navigation-pending={pendingOnly || undefined}
+                          onClick={() =>
+                            onNavigate(
+                              project.path,
+                              session.path ?? undefined,
+                              session.workerId,
+                              session.runtimeId
+                            )
+                          }
+                        >
+                          <span className="session-title">{session.title}</span>
+                          {session.runtimeId && session.runtimeId !== snapshot.runtime?.id ? (
+                            <small className="session-runtime-label">
+                              {session.runtimeId === 'claude' ? 'Claude' : session.runtimeId}
+                            </small>
+                          ) : null}
+                          {(session.parentSessionPath || session.parentUnavailable) && (
+                            <GitFork
+                              size={11}
+                              className="session-fork-label"
+                              aria-label={t('分叉会话')}
+                            />
+                          )}
+                          {emphasize && (
+                            <span
+                              className={`session-status-label is-${status.tone}`}
+                              title={status.label}
+                            >
+                              {status.label}
+                            </span>
+                          )}
+                          {session.modified && !emphasize && (
+                            <time dateTime={session.modified}>
+                              {relativeTime(session.modified)}
+                            </time>
+                          )}
+                        </button>
                       </SessionNavigationRow>
                     )
                   })}
-                  {!matching.length && <p className="project-group-empty">暂无会话</p>}
+                  {!matching.length && <p className="project-group-empty">{t('暂无会话')}</p>}
                   {(hasHiddenHistory || showHistory) && (
                     <button
                       type="button"
@@ -298,7 +346,7 @@ export default function ProjectSessionList({
                         )
                       }
                     >
-                      {showHistory ? '收起历史' : '显示更多历史'}
+                      {showHistory ? t('收起历史') : t('显示更多历史')}
                     </button>
                   )}
                   {project.nextOffset !== null && !hasHiddenHistory && (
@@ -309,8 +357,11 @@ export default function ProjectSessionList({
                       onClick={() => void loadGroup(project, true)}
                     >
                       {groupLoading
-                        ? '正在加载…'
-                        : `显示更多 · 已加载 ${project.sessions.length} / ${project.totalSessions}`}
+                        ? t('正在加载…')
+                        : t('显示更多 · 已加载 {length} / {totalSessions}', {
+                            length: project.sessions.length,
+                            totalSessions: project.totalSessions
+                          })}
                     </button>
                   )}
                   {groupErrors[project.path] && (
@@ -320,7 +371,7 @@ export default function ProjectSessionList({
                         type="button"
                         onClick={() => void loadGroup(project, project.nextOffset !== null)}
                       >
-                        重试
+                        {t('重试')}
                       </button>
                     </p>
                   )}
@@ -330,11 +381,14 @@ export default function ProjectSessionList({
           )
         })}
         {!loading && catalog && !projects.length && (
-          <p className="sidebar-empty">添加项目，开始第一段会话。</p>
+          <p className="sidebar-empty">{t('添加项目，开始第一段会话。')}</p>
         )}
         {catalog?.truncated && (
           <p className="catalog-scope">
-            显示 {catalog.projects.length} / 至少 {catalog.totalProjects} 个项目。使用“搜索所有会话”查找其余会话。
+            {t('显示 {length} / 至少 {totalProjects} 个项目。使用“搜索所有会话”查找其余会话。', {
+              length: catalog.projects.length,
+              totalProjects: catalog.totalProjects
+            })}
           </p>
         )}
       </div>

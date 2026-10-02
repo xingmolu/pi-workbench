@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 export const mcpIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/)
 const secretMap = z
@@ -40,7 +41,7 @@ export const mcpServerSchema = z
         } catch {
           return false
         }
-      }, '仅支持 HTTPS 或本机 HTTP，凭证请使用请求头')
+      }, t('仅支持 HTTPS 或本机 HTTP，凭证请使用请求头'))
       .optional(),
     headers: secretMap
       .refine((value) => Object.values(value).every((item) => !/[\r\n\0]/.test(item)))
@@ -59,12 +60,15 @@ export const mcpServerSchema = z
       .optional()
   })
   .strict()
-  .refine((value) => Boolean(value.command) !== Boolean(value.url), '选择命令或 URL')
+  .refine((value) => Boolean(value.command) !== Boolean(value.url), t('选择命令或 URL'))
   .refine(
     (value) => (value.command ? !value.headers && !value.oauth : !value.args && !value.env),
-    '传输配置不匹配'
+    t('传输配置不匹配')
   )
-  .refine((value) => !value.oauth?.clientSecret || value.oauth.clientId, '客户端密钥需要客户端 ID')
+  .refine(
+    (value) => !value.oauth?.clientSecret || value.oauth.clientId,
+    t('客户端密钥需要客户端 ID')
+  )
 export type McpServer = z.infer<typeof mcpServerSchema>
 export const mcpSummarySchema = z
   .object({

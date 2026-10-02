@@ -1,12 +1,13 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
+import { t } from '../shared/i18n'
 
 export type MergeWorkbenchPackageRootsOptions = {
   canonicalize?: (path: string) => Promise<string>
 }
 
-const SAFE_SOURCE_ORDER = ['本机插件', 'Pi 用户包', 'Pi 项目包', '来源已隐藏'] as const
+const SAFE_SOURCE_ORDER = [t('本机插件'), t('Pi 用户包'), t('Pi 项目包'), t('来源已隐藏')] as const
 type SafeRootSource = (typeof SAFE_SOURCE_ORDER)[number]
 
 type AggregatedRoot = {
@@ -17,9 +18,9 @@ type AggregatedRoot = {
 }
 
 function rendererSafeSource(source: string): SafeRootSource {
-  return source === '本机插件' || source === 'Pi 用户包' || source === 'Pi 项目包'
+  return source === t('本机插件') || source === t('Pi 用户包') || source === t('Pi 项目包')
     ? source
-    : '来源已隐藏'
+    : t('来源已隐藏')
 }
 
 function aggregateSource(sources: ReadonlySet<SafeRootSource>): string {

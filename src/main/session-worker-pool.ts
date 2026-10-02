@@ -15,6 +15,7 @@ import type {
   PrepareAgentRuntimeSession
 } from './agent-runtime'
 import { HostRejectedError } from './host-response-broker'
+import { t } from '../shared/i18n'
 
 // Compatibility aliases while tests and a few call sites migrate terminology.
 export type SessionWorker = AgentRuntimeSession
@@ -131,7 +132,9 @@ export class SessionWorkerPool {
     return this.selection && { ...this.selection }
   }
 
-  get selectionEpoch(): number { return this.epoch }
+  get selectionEpoch(): number {
+    return this.epoch
+  }
 
   clearSelection(expected: SelectedSessionScope | null): number {
     this.validateSelected(expected)
@@ -141,15 +144,26 @@ export class SessionWorkerPool {
 
   /** Hiding navigation must never conceal in-flight work, approval or uncertain receipts. */
   navigationMutationReason(cwd: string, path?: string): string | null {
-    if (this.admissions) return '正在打开会话，请稍后重试'
+    if (this.admissions) return t('正在打开会话，请稍后重试')
     for (const owner of this.residents.values()) {
       if (owner.cwd !== cwd || (path && owner.path !== path)) continue
       const s = owner.snapshot
-      if (!s || owner.disposing || owner.pending || !s.ready) return '会话正在处理操作，请稍后重试'
-      if (s.busy || hasActiveNativeSubagents(s) || s.status === 'running' || s.queuedCount || s.followUp.length) return '项目仍有运行或排队中的任务，请先停止或等待完成'
-      if (s.approvals.length || s.status === 'awaiting-approval') return '项目仍有待确认操作，请先处理'
-      if (s.edit?.pending || s.loginPrompt || !['idle', 'success', 'error'].includes(s.login.phase)) return '请先完成编辑或登录'
-      if (owner.safety.receipts !== 'settled' || owner.unreconciledRequest) return '操作结果尚未确认，请先完成恢复'
+      if (!s || owner.disposing || owner.pending || !s.ready)
+        return t('会话正在处理操作，请稍后重试')
+      if (
+        s.busy ||
+        hasActiveNativeSubagents(s) ||
+        s.status === 'running' ||
+        s.queuedCount ||
+        s.followUp.length
+      )
+        return t('项目仍有运行或排队中的任务，请先停止或等待完成')
+      if (s.approvals.length || s.status === 'awaiting-approval')
+        return t('项目仍有待确认操作，请先处理')
+      if (s.edit?.pending || s.loginPrompt || !['idle', 'success', 'error'].includes(s.login.phase))
+        return t('请先完成编辑或登录')
+      if (owner.safety.receipts !== 'settled' || owner.unreconciledRequest)
+        return t('操作结果尚未确认，请先完成恢复')
     }
     return null
   }
@@ -219,8 +233,15 @@ export class SessionWorkerPool {
   ): Promise<Result> {
     if (this.closed) throw new Error('Session worker pool is shut down')
     if (expected !== undefined) this.validateSelected(expected)
-    const runtimeId = this.runtime.resolveProviderId?.(target.runtimeId) ?? target.runtimeId ?? this.runtime.provider?.id
-    if (target.runtimeId && !this.runtime.resolveProviderId && this.runtime.provider?.id !== target.runtimeId)
+    const runtimeId =
+      this.runtime.resolveProviderId?.(target.runtimeId) ??
+      target.runtimeId ??
+      this.runtime.provider?.id
+    if (
+      target.runtimeId &&
+      !this.runtime.resolveProviderId &&
+      this.runtime.provider?.id !== target.runtimeId
+    )
       throw new HostRejectedError('This runtime cannot select another provider')
     const canonicalize = this.options.canonicalize ?? realpath
     const cwd = await canonicalize(target.cwd)
@@ -232,7 +253,8 @@ export class SessionWorkerPool {
       ? [...this.residents.values()].find((owner) => owner.path === path)
       : undefined
     if (existing && existing.cwd !== cwd) throw new Error('Session file belongs to another project')
-    if (existing && existing.runtimeId !== runtimeId) throw new HostRejectedError('Session file belongs to another runtime')
+    if (existing && existing.runtimeId !== runtimeId)
+      throw new HostRejectedError('Session file belongs to another runtime')
     if (existing?.snapshot) {
       if (prepare) {
         const prepared = await prepare(
@@ -249,7 +271,9 @@ export class SessionWorkerPool {
     if (this.residents.size >= this.capacity) {
       const victim = [...this.residents.values()].find((owner) => this.canEvict(owner))
       if (!victim)
-        throw new Error('常驻会话已达上限，请先结束执行并保存会话后重试；结果未确认的会话需要先结束进程')
+        throw new Error(
+          t('常驻会话已达上限，请先结束执行并保存会话后重试；结果未确认的会话需要先结束进程')
+        )
       await this.disposeResident(victim)
     }
     const workerId = randomUUID()
@@ -375,7 +399,9 @@ export class SessionWorkerPool {
     command: HostCommand,
     expectedIdentity?: { sessionId: string | null; generation: number }
   ): Promise<HostResult> {
-    if (['session:new', 'session:open', 'project:open', 'project:navigate'].includes(command.type)) {
+    if (
+      ['session:new', 'session:open', 'project:open', 'project:navigate'].includes(command.type)
+    ) {
       throw new Error('Session navigation must use pool.open')
     }
     return this.requestOwner(this.resolveOwner(scope.workerId), command, expectedIdentity)
@@ -388,7 +414,10 @@ export class SessionWorkerPool {
   ): Promise<HostResult> {
     owner.pending++
     try {
-      const result = await Promise.race([owner.worker.request(command, expectedIdentity), owner.ended])
+      const result = await Promise.race([
+        owner.worker.request(command, expectedIdentity),
+        owner.ended
+      ])
       if (result.kind === 'snapshot' || result.kind === 'session-fork')
         this.acceptSnapshot(owner, result.snapshot)
       return result
@@ -412,17 +441,19 @@ export class SessionWorkerPool {
         path: owner.path,
         version: owner.pathVersion
       }))
-      const paths = await Promise.all(captured.map(async ({ path }) => {
-        if (!path) return null
-        try {
-          return await canonicalize(path)
-        } catch (error) {
-          // A deleted background transcript must not block unrelated navigation.
-          // Retain its ownership path; opening that missing file still fails above.
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return path
-          throw error
-        }
-      }))
+      const paths = await Promise.all(
+        captured.map(async ({ path }) => {
+          if (!path) return null
+          try {
+            return await canonicalize(path)
+          } catch (error) {
+            // A deleted background transcript must not block unrelated navigation.
+            // Retain its ownership path; opening that missing file still fails above.
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return path
+            throw error
+          }
+        })
+      )
       if (
         captured.some(
           ({ owner, version }) =>
@@ -522,37 +553,38 @@ export class SessionWorkerPool {
       title: (
         owner.snapshot?.sessions.find((session) => session.path === owner.path)?.title ||
         owner.snapshot?.nodes.find((node) => node.type === 'user')?.text ||
-        '新会话'
+        t('新会话')
       ).slice(0, 200)
     }))
-    return [
-      ...live,
-      ...[...this.failures.values()].reverse().slice(0, this.capacity - live.length)
-    ]
+    return [...live, ...[...this.failures.values()].reverse().slice(0, this.capacity - live.length)]
   }
 
-  get quiescent(): boolean { return this.quiescentFor() }
+  get quiescent(): boolean {
+    return this.quiescentFor()
+  }
 
   quiescentFor(runtimeId?: string): boolean {
     return (
       this.admissions === 0 &&
-      [...this.residents.values()].filter(owner => !runtimeId || owner.runtimeId === runtimeId).every((owner) => {
-        const s = owner.snapshot
-        return (
-          owner.pending === 0 &&
-          owner.safety.receipts === 'settled' &&
-          !owner.disposing &&
-          !!s?.ready &&
-          !s.busy &&
-      !hasActiveNativeSubagents(s) &&
-          !s.queuedCount &&
-          !s.followUp.length &&
-          !s.approvals.length &&
-          !s.edit?.pending &&
-          !s.loginPrompt &&
-          ['idle', 'success', 'error'].includes(s.login.phase)
-        )
-      })
+      [...this.residents.values()]
+        .filter((owner) => !runtimeId || owner.runtimeId === runtimeId)
+        .every((owner) => {
+          const s = owner.snapshot
+          return (
+            owner.pending === 0 &&
+            owner.safety.receipts === 'settled' &&
+            !owner.disposing &&
+            !!s?.ready &&
+            !s.busy &&
+            !hasActiveNativeSubagents(s) &&
+            !s.queuedCount &&
+            !s.followUp.length &&
+            !s.approvals.length &&
+            !s.edit?.pending &&
+            !s.loginPrompt &&
+            ['idle', 'success', 'error'].includes(s.login.phase)
+          )
+        })
     )
   }
 }

@@ -23,29 +23,30 @@ import {
   parseGitRaw,
   validateGitInventoryPath
 } from './git-review-parser'
+import { t } from '../shared/i18n'
 
 const messages: Record<GitReviewUnavailableReason, string> = {
-  'invalid-request': '无效的 Git Review 请求',
-  'no-project': '尚未打开项目',
-  'project-changed': '项目已切换，请刷新',
-  'project-unavailable': '项目目录不可用，请重新打开项目',
-  'stale-review': '差异清单已过期，请刷新',
-  'git-unavailable': '可信 Git 程序不可用',
-  'git-version': '需要 Git 2.50.1 或更新版本以禁止缺失对象自动下载',
-  'not-repository': '当前项目不在 Git 工作区中',
-  'bare-repository': '裸仓库没有可查看的工作区',
-  'filters-unsupported': '仓库配置了 clean/process 过滤器，暂不支持安全的只读差异扫描',
-  'select-base': '请选择本地基准分支',
-  'invalid-base': '所选基准分支不可用，请刷新分支列表',
-  unborn: '当前分支尚无提交',
-  'no-common-ancestor': '基准与当前提交没有共同祖先',
-  'multiple-merge-bases': '存在多个共同基准，暂不支持此分支比较',
-  'unsupported-inventory': 'Git 文件清单包含不支持的名称或格式',
-  timeout: 'Git 请求超时，请重试',
-  aborted: 'Git 请求已取消',
-  'output-limit': 'Git 输出超过大小限制，无法提供完整结果',
-  busy: 'Git 请求过多，请稍后重试',
-  'git-failed': '无法读取 Git 数据，所需对象可能不可用'
+  'invalid-request': t('无效的 Git Review 请求'),
+  'no-project': t('尚未打开项目'),
+  'project-changed': t('项目已切换，请刷新'),
+  'project-unavailable': t('项目目录不可用，请重新打开项目'),
+  'stale-review': t('差异清单已过期，请刷新'),
+  'git-unavailable': t('可信 Git 程序不可用'),
+  'git-version': t('需要 Git 2.50.1 或更新版本以禁止缺失对象自动下载'),
+  'not-repository': t('当前项目不在 Git 工作区中'),
+  'bare-repository': t('裸仓库没有可查看的工作区'),
+  'filters-unsupported': t('仓库配置了 clean/process 过滤器，暂不支持安全的只读差异扫描'),
+  'select-base': t('请选择本地基准分支'),
+  'invalid-base': t('所选基准分支不可用，请刷新分支列表'),
+  unborn: t('当前分支尚无提交'),
+  'no-common-ancestor': t('基准与当前提交没有共同祖先'),
+  'multiple-merge-bases': t('存在多个共同基准，暂不支持此分支比较'),
+  'unsupported-inventory': t('Git 文件清单包含不支持的名称或格式'),
+  timeout: t('Git 请求超时，请重试'),
+  aborted: t('Git 请求已取消'),
+  'output-limit': t('Git 输出超过大小限制，无法提供完整结果'),
+  busy: t('Git 请求过多，请稍后重试'),
+  'git-failed': t('无法读取 Git 数据，所需对象可能不可用')
 }
 class ReviewFailure extends Error {
   constructor(readonly reason: GitReviewUnavailableReason) {
@@ -363,9 +364,9 @@ export class GitReview {
             }
             if (item.kind === 'untracked') {
               if (item.directory)
-                dto.previewUnavailable = '嵌套仓库目录暂不支持文件预览，请单独打开'
+                dto.previewUnavailable = t('嵌套仓库目录暂不支持文件预览，请单独打开')
               else if (await this.canPreview(project, path, check)) dto.previewPath = path
-              else dto.previewUnavailable = '此文件名或类型暂不支持 Files 预览'
+              else dto.previewUnavailable = t('此文件名或类型暂不支持 Files 预览')
             }
             review.entries.set(dto.entryId, { path: item.path, dto })
           }
@@ -431,20 +432,20 @@ export class GitReview {
           result = {
             ...common,
             kind: 'conflict',
-            message: '此文件存在合并冲突，暂不提供普通双向差异'
+            message: t('此文件存在合并冲突，暂不提供普通双向差异')
           }
         else if (entry.dto.kind === 'submodule')
           result = {
             ...common,
             kind: 'submodule',
-            message: '子模块提交发生变化，请单独打开子模块查看'
+            message: t('子模块提交发生变化，请单独打开子模块查看')
           }
         else if (entry.dto.kind === 'untracked')
           result = {
             ...common,
             kind: 'untracked',
             message:
-              entry.dto.previewUnavailable ?? '未跟踪文件不属于 Git 差异，可使用只读文件预览',
+              entry.dto.previewUnavailable ?? t('未跟踪文件不属于 Git 差异，可使用只读文件预览'),
             ...(entry.dto.previewPath ? { previewPath: entry.dto.previewPath } : {})
           }
         else {
@@ -535,13 +536,13 @@ export class GitReview {
             ...(rawOnly ? { rawOnly: true } : {}),
             message:
               kind === 'binary'
-                ? '二进制文件内容发生变化'
+                ? t('二进制文件内容发生变化')
                 : kind === 'empty'
-                  ? '当前没有文本差异'
+                  ? t('当前没有文本差异')
                   : kind === 'type-only'
-                    ? '文件类型或权限变化，无文本差异'
+                    ? t('文件类型或权限变化，无文本差异')
                     : rawOnly
-                      ? '非 UTF-8 文本，以字节转义显示原始差异'
+                      ? t('非 UTF-8 文本，以字节转义显示原始差异')
                       : ''
           }
         }

@@ -5,6 +5,7 @@ import type {
   ModelAvailability,
   ModelSummary
 } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 export type ExactModelSelection = {
   providerId: string
@@ -82,13 +83,13 @@ export function validateExactModelSelection(
   modelId: string
 ): ExactModelSelection {
   const account = accounts.find((item) => item.id === providerId)
-  if (!account?.connected) throw new Error(`账号 ${providerId} 未登录`)
+  if (!account?.connected) throw new Error(t('账号 {providerId} 未登录', { providerId }))
   if (
     !models.some(
       (model) => model.provider === providerId && model.id === modelId && !model.unavailableReason
     )
   ) {
-    throw new Error(`模型 ${providerId}/${modelId} 当前不可用`)
+    throw new Error(t('模型 {providerId}/{modelId} 当前不可用', { providerId, modelId }))
   }
   return { providerId, modelId }
 }
@@ -100,7 +101,7 @@ export function validateNewSessionModelSelection(
   modelId?: string
 ): ExactModelSelection | null {
   if ((providerId && !modelId) || (!providerId && modelId)) {
-    throw new Error('新会话必须同时指定账号和模型')
+    throw new Error(t('新会话必须同时指定账号和模型'))
   }
   return providerId && modelId
     ? validateExactModelSelection(accounts, models, providerId, modelId)
@@ -118,7 +119,12 @@ export function prepareNewSessionModelSelection<RuntimeModel>(
   if (!identity) return null
   const runtimeModel = findAvailableModel(identity)
   if (!runtimeModel) {
-    throw new Error(`模型 ${identity.providerId}/${identity.modelId} 当前不可用`)
+    throw new Error(
+      t('模型 {providerId}/{modelId} 当前不可用', {
+        providerId: identity.providerId,
+        modelId: identity.modelId
+      })
+    )
   }
   return { identity, runtimeModel }
 }
@@ -138,7 +144,7 @@ export function prepareSessionRecoveryModelSelection<
     return { identity: explicitModel, runtimeModel }
   }
   if (!hasTranscript) {
-    throw new Error('当前空会话的显式模型无法安全恢复，请重新选择工作区')
+    throw new Error(t('当前空会话的显式模型无法安全恢复，请重新选择工作区'))
   }
   return null
 }
@@ -160,12 +166,12 @@ function requireSameMutableTarget(
     target.sessionId !== expected.sessionId ||
     target.generation !== expected.generation
   ) {
-    throw new Error('会话已切换，请重新选择模型')
+    throw new Error(t('会话已切换，请重新选择模型'))
   }
   if (target.hasTranscript !== expected.hasTranscript) {
-    throw new Error('会话内容已变化，请重新选择模型')
+    throw new Error(t('会话内容已变化，请重新选择模型'))
   }
-  if (target.busy || target.promptPending) throw new Error('当前会话正在运行，不能切换模型')
+  if (target.busy || target.promptPending) throw new Error(t('当前会话正在运行，不能切换模型'))
   return target
 }
 
@@ -186,7 +192,7 @@ export async function applyExactModelSelection<RuntimeModel>(
   }
 ): Promise<ExactModelSelection> {
   const beforeRefresh = operations.readTarget()
-  if (!beforeRefresh) throw new Error('请先选择工作区')
+  if (!beforeRefresh) throw new Error(t('请先选择工作区'))
 
   await operations.refreshAuthProjection()
 
@@ -199,7 +205,7 @@ export async function applyExactModelSelection<RuntimeModel>(
     modelId
   )
   const model = operations.findAvailableModel(selection)
-  if (!model) throw new Error(`模型 ${providerId}/${modelId} 当前不可用`)
+  if (!model) throw new Error(t('模型 {providerId}/{modelId} 当前不可用', { providerId, modelId }))
 
   const finalTarget = requireSameMutableTarget(operations.readTarget(), beforeRefresh)
   await operations.applyModel(finalTarget, model, selection)

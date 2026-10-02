@@ -9,6 +9,7 @@ import {
   type McpServer,
   type McpSnapshot
 } from '../shared/mcp'
+import { t } from '../shared/i18n'
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -73,7 +74,7 @@ export class McpConfigStore {
               editable: false,
               status: 'unsupported',
               toolCount: 0,
-              message: '高级配置保留但不执行，请在配置文件中管理。'
+              message: t('高级配置保留但不执行，请在配置文件中管理。')
             }
           const server = parsed.data
           const enabled = server.disabled !== true && data.trusted[id] === hash(JSON.stringify(raw))
@@ -109,7 +110,7 @@ export class McpConfigStore {
         revision: '',
         writable: false,
         servers: [],
-        message: 'MCP 配置损坏、过大或不可读取；未覆盖现有文件。'
+        message: t('MCP 配置损坏、过大或不可读取；未覆盖现有文件。')
       }
     }
   }
@@ -125,14 +126,14 @@ export class McpConfigStore {
   }
   async save(command: Extract<McpCommand, { type: 'mcp:save' | 'mcp:toggle' }>): Promise<void> {
     const data = await this.load()
-    if (hash(data.text) !== command.revision) throw new Error('MCP 配置已变化，请刷新后重试。')
+    if (hash(data.text) !== command.revision) throw new Error(t('MCP 配置已变化，请刷新后重试。'))
     const exists = Object.hasOwn(data.servers, command.id)
     if (command.type === 'mcp:save' && command.create === exists)
-      throw new Error('服务器名称重复或目标已移除，请刷新。')
+      throw new Error(t('服务器名称重复或目标已移除，请刷新。'))
     if (exists && !mcpServerSchema.safeParse(data.servers[command.id]).success)
-      throw new Error('高级配置只读。')
+      throw new Error(t('高级配置只读。'))
     if (!exists && (command.type === 'mcp:toggle' || Object.keys(data.servers).length >= 16))
-      throw new Error('服务器不可用或已达到 16 个上限。')
+      throw new Error(t('服务器不可用或已达到 16 个上限。'))
     const previous = exists ? mcpServerSchema.parse(data.servers[command.id]) : undefined
     const updated =
       command.type === 'mcp:toggle'
@@ -167,7 +168,7 @@ export class McpConfigStore {
           options
         )
       )
-    if (Buffer.byteLength(text) > 524288) throw new Error('配置超过大小上限。')
+    if (Buffer.byteLength(text) > 524288) throw new Error(t('配置超过大小上限。'))
     await mkdir(dirname(this.path), { recursive: true })
     const temp = `${this.path}.${randomUUID()}.tmp`
     try {
@@ -179,7 +180,7 @@ export class McpConfigStore {
         await file.close()
       }
       if (hash((await this.load()).text) !== command.revision)
-        throw new Error('配置被其他程序修改，请刷新。')
+        throw new Error(t('配置被其他程序修改，请刷新。'))
       await rename(temp, this.path)
     } finally {
       await unlink(temp).catch(() => {})

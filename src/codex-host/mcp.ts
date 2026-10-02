@@ -8,6 +8,7 @@ import {
   type McpSummary
 } from '../shared/mcp'
 import type { AppServerClient } from './app-server'
+import { t } from '../shared/i18n'
 
 /** One `[mcp_servers.<id>]` table of Codex's config.toml. */
 type CodexMcpEntry = {
@@ -52,7 +53,7 @@ export class CodexMcp {
   /** `mcpServer/oauthLogin/completed` from app-server. */
   loginCompleted(params: { name: string; success: boolean; error?: string | null }): void {
     if (params.success) this.loginErrors.delete(params.name)
-    else this.loginErrors.set(params.name, params.error ?? '登录失败')
+    else this.loginErrors.set(params.name, params.error ?? t('登录失败'))
   }
 
   async handle(command: McpCommand): Promise<McpSnapshot> {
@@ -65,9 +66,9 @@ export class CodexMcp {
         return this.snapshot()
       case 'mcp:save': {
         const { servers, revision } = await this.read()
-        if (command.revision !== revision) throw new Error('MCP 配置已变化，请刷新后再保存')
-        if (command.create && servers[command.id]) throw new Error('已有同名的 MCP 服务')
-        if (!command.create && !servers[command.id]) throw new Error('这个 MCP 服务已不存在')
+        if (command.revision !== revision) throw new Error(t('MCP 配置已变化，请刷新后再保存'))
+        if (command.create && servers[command.id]) throw new Error(t('已有同名的 MCP 服务'))
+        if (!command.create && !servers[command.id]) throw new Error(t('这个 MCP 服务已不存在'))
         await this.write(
           command.id,
           toCodex(mcpServerSchema.parse(command.server), command.enabled)
@@ -76,9 +77,9 @@ export class CodexMcp {
       }
       case 'mcp:toggle': {
         const { servers, revision } = await this.read()
-        if (command.revision !== revision) throw new Error('MCP 配置已变化，请刷新后再保存')
+        if (command.revision !== revision) throw new Error(t('MCP 配置已变化，请刷新后再保存'))
         const entry = servers[command.id]
-        if (!entry) throw new Error('这个 MCP 服务已不存在')
+        if (!entry) throw new Error(t('这个 MCP 服务已不存在'))
         await this.write(`${command.id}.enabled`, command.enabled)
         return this.snapshot()
       }
@@ -93,7 +94,7 @@ export class CodexMcp {
         return this.snapshot()
       }
       case 'mcp:logout':
-        throw new Error('Codex 暂不支持在这里退出 MCP 登录')
+        throw new Error(t('Codex 暂不支持在这里退出 MCP 登录'))
     }
   }
 
@@ -182,7 +183,7 @@ export class CodexMcp {
 }
 
 function toCodex(server: McpServer, enabled: boolean): CodexMcpEntry {
-  if (server.oauth) throw new Error('Codex 会自动发现 OAuth 设置，暂不支持自定义 OAuth 客户端')
+  if (server.oauth) throw new Error(t('Codex 会自动发现 OAuth 设置，暂不支持自定义 OAuth 客户端'))
   return {
     ...(server.command ? { command: server.command } : {}),
     ...(server.args?.length ? { args: server.args } : {}),

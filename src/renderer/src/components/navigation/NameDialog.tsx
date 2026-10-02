@@ -2,6 +2,7 @@ import { useNavigationDialog } from './useNavigationDialog'
 import { useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
+import { t } from '../../../../shared/i18n'
 
 export default function NameDialog({
   title,
@@ -55,7 +56,7 @@ export default function NameDialog({
         >
           <div className="navigation-dialog-heading">
             <Dialog.Title>{title}</Dialog.Title>
-            <Dialog.Close className="icon-btn" aria-label="关闭" disabled={saving}>
+            <Dialog.Close className="icon-btn" aria-label={t('关闭')} disabled={saving}>
               <X size={17} />
             </Dialog.Close>
           </div>
@@ -75,7 +76,7 @@ export default function NameDialog({
             }}
           >
             <label>
-              名称
+              {t('名称')}
               <input
                 ref={input}
                 value={value}
@@ -97,7 +98,7 @@ export default function NameDialog({
                 }}
               />
             </label>
-            {allowEmpty && <small>清空后恢复文件夹名称。</small>}
+            {allowEmpty && <small>{t('清空后恢复文件夹名称。')}</small>}
             {error && (
               <p className="navigation-error" role="alert">
                 {error}
@@ -110,14 +111,14 @@ export default function NameDialog({
                 disabled={saving}
                 onClick={onClose}
               >
-                取消
+                {t('取消')}
               </button>
               <button
                 type="submit"
                 className="primary-button"
                 disabled={saving || (!allowEmpty && !value.trim())}
               >
-                {saving ? '正在保存…' : '保存'}
+                {saving ? t('正在保存…') : t('保存')}
               </button>
             </div>
           </form>

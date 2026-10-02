@@ -1,4 +1,5 @@
 import type { ToolIntent } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -43,24 +44,24 @@ export function toolPresentation(
   const pattern = stringArg(args, 'pattern', 'query')
   const title =
     name === 'bash' || name === 'powershell'
-      ? command?.split('\n')[0] || '运行命令'
+      ? command?.split('\n')[0] || t('运行命令')
       : name === 'read'
-        ? `读取 ${path ?? '文件'}`
+        ? t('读取 {path}', { path: path ?? t('文件') })
         : name === 'ls'
-          ? `列出 ${path ?? '目录'}`
+          ? t('列出 {path}', { path: path ?? t('目录') })
           : name === 'write'
-            ? `写入 ${path ?? '文件'}`
+            ? t('写入 {path}', { path: path ?? t('文件') })
             : name === 'edit'
-              ? `编辑 ${path ?? '文件'}`
+              ? t('编辑 {path}', { path: path ?? t('文件') })
               : name === 'grep' || name === 'find'
-                ? `搜索 ${pattern ?? path ?? ''}`.trim()
+                ? t('搜索 {pattern}', { pattern: pattern ?? path ?? '' }).trim()
                 : name === 'browser'
-                  ? `浏览器 · ${stringArg(args, 'action') ?? '操作'}`
+                  ? t('浏览器 · {action}', { action: stringArg(args, 'action') ?? t('操作') })
                   : name === 'computer'
-                  ? `Computer Use · ${stringArg(args, 'action') ?? '操作'}`
-                  : name === 'desktop'
-                    ? `桌面 · ${stringArg(args, 'action') ?? '操作'}`
-                    : name
+                    ? `Computer Use · ${stringArg(args, 'action') ?? t('操作')}`
+                    : name === 'desktop'
+                      ? t('桌面 · {action}', { action: stringArg(args, 'action') ?? t('操作') })
+                      : name
 
   let detail = ''
   try {

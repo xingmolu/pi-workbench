@@ -1,16 +1,17 @@
 import type { ConversationNode } from '../../../shared/contracts'
 import type { LiveSessionSummary } from '../../../shared/session-runtime'
 import type { SubagentSummary } from '../../../shared/subagent'
+import { t } from '../../../shared/i18n'
 
 export const SUBAGENT_STATE_LABEL: Record<SubagentSummary['state'], string> = {
-  queued: '启动中',
-  running: '运行中',
-  'awaiting-approval': '等待确认',
-  idle: '已结束',
-  success: '已完成',
-  error: '失败',
-  stopped: '已停止',
-  unavailable: '不可用'
+  queued: t('启动中'),
+  running: t('运行中'),
+  'awaiting-approval': t('等待确认'),
+  idle: t('已结束'),
+  success: t('已完成'),
+  error: t('失败'),
+  stopped: t('已停止'),
+  unavailable: t('不可用')
 }
 
 /** Reconcile persisted task observations with current, identity-matched runtime activity. */
@@ -77,7 +78,11 @@ export function conversationSubagents(
           session.generation === child.generation
       )
       if (!resident)
-        result.set(id, { ...child, state: 'unavailable', activity: '运行连接已断开，保留最后记录' })
+        result.set(id, {
+          ...child,
+          state: 'unavailable',
+          activity: t('运行连接已断开，保留最后记录')
+        })
     }
   return result
 }

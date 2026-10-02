@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { basename, extname, join, parse, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AttachmentScope, TextAttachment, TextSnapshot } from '../shared/text-attachments'
+import { t } from '../shared/i18n'
 
 const MAX = 1048576
 const TTL = 30 * 60 * 1000
@@ -41,7 +42,7 @@ export class TextAttachments {
   }
   private check(scope: AttachmentScope, epoch = this.epoch): void {
     if (!this.context || identity(scope) !== this.context || epoch !== this.epoch)
-      failure('会话已切换，请重新选择文件')
+      failure(t('会话已切换，请重新选择文件'))
     for (const [id, entry] of this.entries) if (entry.expires <= Date.now()) this.entries.delete(id)
   }
   lease(scope: AttachmentScope): () => void {
@@ -58,16 +59,16 @@ export class TextAttachments {
   remove(owner: number, scope: AttachmentScope, id: string): void {
     this.check(scope)
     if (!this.entries.has(id)) return
-    if (this.entries.get(id)?.owner !== owner) failure('文件快照已失效')
+    if (this.entries.get(id)?.owner !== owner) failure(t('文件快照已失效'))
     this.entries.delete(id)
   }
   capture(owner: number, scope: AttachmentScope, ids: string[]): TextSnapshot[] {
     this.check(scope)
     if (new Set(ids).size !== ids.length || ids.length < 1 || ids.length > 4)
-      failure('文件数量无效')
+      failure(t('文件数量无效'))
     return ids.map((id) => {
       const entry = this.entries.get(id)
-      if (!entry || entry.owner !== owner) return failure('文件快照已移除或过期，请重新选择')
+      if (!entry || entry.owner !== owner) return failure(t('文件快照已移除或过期，请重新选择'))
       return { ...entry.snapshot }
     })
   }
@@ -78,8 +79,8 @@ export class TextAttachments {
     if (!paths.length) return this.list(owner, scope)
     // Single bounded read transaction prevents racing picker/Files calls from
     // each claiming the same count and byte budget.
-    if (this.pending) failure('正在读取文件，请稍候')
-    if (this.entries.size + paths.length > 4) failure('最多添加 4 个文本文件')
+    if (this.pending) failure(t('正在读取文件，请稍候'))
+    if (this.entries.size + paths.length > 4) failure(t('最多添加 4 个文本文件'))
     this.pending++
     try {
       const snapshots: TextSnapshot[] = []
@@ -88,7 +89,7 @@ export class TextAttachments {
         const snapshot = await this.read(path, check)
         check()
         total += snapshot.size
-        if (total > 2 * MAX) failure('文本文件合计不能超过 2 MiB')
+        if (total > 2 * MAX) failure(t('文本文件合计不能超过 2 MiB'))
         snapshots.push(snapshot)
       }
       check()
@@ -98,7 +99,7 @@ export class TextAttachments {
     } catch (error) {
       check()
       if (error instanceof Error && !('code' in error)) throw error
-      return failure('无法读取文件，请检查文件是否存在及读取权限')
+      return failure(t('无法读取文件，请检查文件是否存在及读取权限'))
     } finally {
       this.pending--
     }
@@ -106,26 +107,26 @@ export class TextAttachments {
   private async read(path: string, check: () => void): Promise<TextSnapshot> {
     const name = basename(path)
     if (unsupported.has(extname(name).toLowerCase()))
-      failure('仅支持 UTF-8 文本和源代码文件；不支持 PDF、Office、图片或压缩包')
+      failure(t('仅支持 UTF-8 文本和源代码文件；不支持 PDF、Office、图片或压缩包'))
     const validate = async (): Promise<Stats> => {
       let current = parse(path).root
       for (const segment of resolve(path).slice(current.length).split('/')) {
         current = join(current, segment)
         const info = await fs.lstat(current)
         check()
-        if (info.isSymbolicLink()) failure('不支持符号链接文件或目录')
+        if (info.isSymbolicLink()) failure(t('不支持符号链接文件或目录'))
       }
       const real = await fs.realpath(path)
       check()
-      if (real !== path) failure('文件路径已变化，请重新选择')
+      if (real !== path) failure(t('文件路径已变化，请重新选择'))
       const info = await fs.lstat(path)
       check()
-      if (!info.isFile()) failure('只能添加普通文本文件')
+      if (!info.isFile()) failure(t('只能添加普通文本文件'))
       return info
     }
     const before = await validate()
     check()
-    if (before.size > MAX) failure('单个文本文件不能超过 1 MiB')
+    if (before.size > MAX) failure(t('单个文本文件不能超过 1 MiB'))
     const handle = await fs.open(
       path,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
@@ -134,7 +135,7 @@ export class TextAttachments {
       check()
       const opened = await handle.stat()
       check()
-      if (!opened.isFile() || !same(before, opened)) failure('文件在读取期间发生变化，请重试')
+      if (!opened.isFile() || !same(before, opened)) failure(t('文件在读取期间发生变化，请重试'))
       const buffer = Buffer.alloc(MAX + 1)
       let size = 0
       while (size < buffer.length) {
@@ -148,20 +149,20 @@ export class TextAttachments {
       const pathAfter = await validate()
       check()
       if (!same(opened, after) || !same(after, pathAfter) || size !== after.size)
-        failure('文件在读取期间发生变化，请重试')
-      if (size > MAX) failure('单个文本文件不能超过 1 MiB')
+        failure(t('文件在读取期间发生变化，请重试'))
+      if (size > MAX) failure(t('单个文本文件不能超过 1 MiB'))
       const bytes = buffer.subarray(0, size)
       if (
         bytes.subarray(0, 5).toString('ascii') === '%PDF-' ||
         (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4)
       )
-        failure('不支持 PDF 或压缩格式文件')
-      if (bytes.includes(0)) failure('不支持二进制文件')
+        failure(t('不支持 PDF 或压缩格式文件'))
+      if (bytes.includes(0)) failure(t('不支持二进制文件'))
       let text: string
       try {
         text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
       } catch {
-        return failure('只支持有效 UTF-8 文本')
+        return failure(t('只支持有效 UTF-8 文本'))
       }
       return {
         id: randomUUID(),

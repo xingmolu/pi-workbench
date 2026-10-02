@@ -24,6 +24,7 @@ import {
   type ComputerUseFrameRect,
   type ComputerUseVisualFrame
 } from '../shared/computer-use'
+import { t } from '../shared/i18n'
 
 export type DesktopCapturerThumbnail = {
   isEmpty?: () => boolean
@@ -100,7 +101,7 @@ function boundThumbnail(thumbnail: DesktopCapturerThumbnail): string {
 
 function toSource(input: DesktopCapturerSourceInput): CaptureSource | null {
   const id = boundText(input.id, DESKTOP_CONTROL_LIMITS.maxSourceIdLength)
-  const name = boundText(input.name, DESKTOP_CONTROL_LIMITS.maxNameLength) || '未命名窗口'
+  const name = boundText(input.name, DESKTOP_CONTROL_LIMITS.maxNameLength) || t('未命名窗口')
   const parsed = captureSourceSchema.safeParse({
     id,
     name,
@@ -160,7 +161,7 @@ function pngBase64(image: DesktopCapturerThumbnail): string {
   if (image.toPNG) return image.toPNG().toString('base64')
   const dataUrl = image.toDataURL()
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl)
-  if (!match) throw new Error('桌面截图不是 PNG')
+  if (!match) throw new Error(t('桌面截图不是 PNG'))
   return match[1]
 }
 
@@ -209,8 +210,8 @@ export class DesktopCapture {
         truncated: false,
         probed: false,
         message: permission.platformSupported
-          ? '屏幕录制受系统策略限制，无法列出屏幕或窗口。'
-          : '桌面截取探测仅在 macOS 上可用。'
+          ? t('屏幕录制受系统策略限制，无法列出屏幕或窗口。')
+          : t('桌面截取探测仅在 macOS 上可用。')
       })
     }
     try {
@@ -241,10 +242,12 @@ export class DesktopCapture {
         message:
           sources.length === 0
             ? nextPermission.access === 'denied'
-              ? '尚未授权屏幕录制，无法列出屏幕或窗口。'
-              : '未发现可截取的屏幕或窗口。'
+              ? t('尚未授权屏幕录制，无法列出屏幕或窗口。')
+              : t('未发现可截取的屏幕或窗口。')
             : truncated
-              ? `仅显示前 ${DESKTOP_CONTROL_LIMITS.maxSources} 个来源。`
+              ? t('仅显示前 {maxSources} 个来源。', {
+                  maxSources: DESKTOP_CONTROL_LIMITS.maxSources
+                })
               : undefined
       })
     } catch {
@@ -254,7 +257,7 @@ export class DesktopCapture {
         sources: [],
         truncated: false,
         probed: true,
-        message: '无法读取屏幕或窗口，请确认已授权屏幕录制后重试。'
+        message: t('无法读取屏幕或窗口，请确认已授权屏幕录制后重试。')
       })
     }
   }
@@ -281,15 +284,15 @@ export class DesktopCapture {
     target: DesktopWindowTarget,
     signal?: AbortSignal
   ): Promise<ComputerUseVisualFrame> {
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
     const permission = this.readPermission()
-    if (!permission.platformSupported) throw new Error('视觉 Computer Use 当前仅支持 macOS')
-    if (!permission.canCapture) throw new Error('屏幕录制受系统策略限制，无法读取桌面图像')
+    if (!permission.platformSupported) throw new Error(t('视觉 Computer Use 当前仅支持 macOS'))
+    if (!permission.canCapture) throw new Error(t('屏幕录制受系统策略限制，无法读取桌面图像'))
 
     const display = chooseDisplay(this.readDisplays(), target.frame)
     if (!display || overlapArea(display.bounds, target.frame) <= 0) {
-      if (permission.access !== 'granted') throw new Error('屏幕录制不可用，请确认授权后重试')
-      throw new TargetCaptureError('目标窗口不在可用显示器内')
+      if (permission.access !== 'granted') throw new Error(t('屏幕录制不可用，请确认授权后重试'))
+      throw new TargetCaptureError(t('目标窗口不在可用显示器内'))
     }
     const requestedSize = targetImageSize(target.frame)
 
@@ -298,7 +301,7 @@ export class DesktopCapture {
       thumbnailSize: requestedSize,
       fetchWindowIcons: false
     })
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
 
     const matched = sources.filter((source) => {
       const match = /^window:(\d+):\d+$/.exec(source.id)
@@ -321,18 +324,18 @@ export class DesktopCapture {
       thumbnail = crop.thumbnail
     } else {
       if (sources.length === 0 && permission.access !== 'granted') {
-        throw new Error('屏幕录制尚未返回窗口图像，请确认授权后重试')
+        throw new Error(t('屏幕录制尚未返回窗口图像，请确认授权后重试'))
       }
-      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+      throw new TargetCaptureError(t('无法唯一匹配目标窗口截图，请重新 observe'))
     }
     if (thumbnail.isEmpty?.()) {
-      throw new Error('屏幕录制未返回目标窗口图像，请确认授权后重试')
+      throw new Error(t('屏幕录制未返回目标窗口图像，请确认授权后重试'))
     }
 
     let image = thumbnail
     const initial = image.getSize?.()
     if (!initial || initial.width <= 0 || initial.height <= 0) {
-      throw new Error('目标窗口截图尺寸无效')
+      throw new Error(t('目标窗口截图尺寸无效'))
     }
     if (
       Math.max(initial.width, initial.height) > COMPUTER_USE_LIMITS.maxImageDimension &&
@@ -348,11 +351,11 @@ export class DesktopCapture {
     const frameRatio = framePoints.width / framePoints.height
     const imageRatio = size.width / size.height
     if (Math.abs(frameRatio / imageRatio - 1) > 0.03) {
-      throw new TargetCaptureError('窗口截图与目标窗口尺寸不一致，请重新 observe')
+      throw new TargetCaptureError(t('窗口截图与目标窗口尺寸不一致，请重新 observe'))
     }
     const data = pngBase64(image)
     if (!data || data.length > COMPUTER_USE_LIMITS.maxImageDataLength) {
-      throw new Error('桌面截图超过 Computer Use 图像上限')
+      throw new Error(t('桌面截图超过 Computer Use 图像上限'))
     }
 
     return computerUseVisualFrameSchema.parse({
@@ -389,11 +392,11 @@ export class DesktopCapture {
       },
       fetchWindowIcons: false
     })
-    if (signal?.aborted) throw new Error('Computer Use 操作已停止')
+    if (signal?.aborted) throw new Error(t('Computer Use 操作已停止'))
     const screen = screens.filter((source) => source.display_id === display.id)
     const size = screen[0]?.thumbnail.getSize?.()
     if (!visible || screen.length !== 1 || !screen[0].thumbnail.crop || !size?.width) {
-      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+      throw new TargetCaptureError(t('无法唯一匹配目标窗口截图，请重新 observe'))
     }
     const scale = size.width / display.bounds.width
     const x = Math.max(0, Math.round((visible.x - display.bounds.x) * scale))
@@ -405,7 +408,7 @@ export class DesktopCapture {
       height: Math.min(size.height - y, Math.round(visible.height * scale))
     }
     if (rect.width <= 0 || rect.height <= 0) {
-      throw new TargetCaptureError('无法唯一匹配目标窗口截图，请重新 observe')
+      throw new TargetCaptureError(t('无法唯一匹配目标窗口截图，请重新 observe'))
     }
     return {
       sourceId: screen[0].id,
@@ -423,7 +426,7 @@ export class DesktopCapture {
         type: 'open-settings',
         permission,
         opened: false,
-        message: '系统设置中的屏幕录制页仅在 macOS 上可用。'
+        message: t('系统设置中的屏幕录制页仅在 macOS 上可用。')
       })
     }
     for (const url of SCREEN_RECORDING_SETTINGS_URLS) {
@@ -443,7 +446,7 @@ export class DesktopCapture {
       type: 'open-settings',
       permission,
       opened: false,
-      message: '无法打开系统设置。请到「隐私与安全性 → 屏幕与系统录音」手动授权。'
+      message: t('无法打开系统设置。请到「隐私与安全性 → 屏幕与系统录音」手动授权。')
     })
   }
 
@@ -461,6 +464,6 @@ export class DesktopCapture {
     if (request.type === 'sources') {
       return this.listSources()
     }
-    throw new Error('桌面截取不处理该命令')
+    throw new Error(t('桌面截取不处理该命令'))
   }
 }

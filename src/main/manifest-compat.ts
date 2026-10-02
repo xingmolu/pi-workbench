@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 /**
  * Plugins written in the common `manifest.json` format.
  *
@@ -36,14 +37,14 @@ const IGNORED_TOP_LEVEL = [
 
 /** `manifest.json` contribution points this host does not implement. */
 const UNSUPPORTED_CONTRIBUTIONS: Readonly<Record<string, string>> = {
-  scenicThemes: '场景主题',
-  windowAppearance: '窗口外观',
-  services: '常驻服务',
-  bus: '消息总线',
-  agentExtensions: 'Agent 扩展模块',
-  providers: '模型提供方',
-  sessionSources: '外部会话来源',
-  globalShortcuts: '全局快捷键'
+  scenicThemes: t('场景主题'),
+  windowAppearance: t('窗口外观'),
+  services: t('常驻服务'),
+  bus: t('消息总线'),
+  agentExtensions: t('Agent 扩展模块'),
+  providers: t('模型提供方'),
+  sessionSources: t('外部会话来源'),
+  globalShortcuts: t('全局快捷键')
 }
 
 /** Setting references in MCP env/headers become placeholders resolved from plugin settings. */
@@ -128,7 +129,7 @@ export function normalizeManifestJson(
   for (const [field, label] of Object.entries(UNSUPPORTED_CONTRIBUTIONS)) {
     if (contributes[field] === undefined) continue
     delete contributes[field]
-    warnings.push(`本版本不支持插件的${label}（contributes.${field}），已忽略。`)
+    warnings.push(t('本版本不支持插件的{label}（contributes.{field}），已忽略。', { label, field }))
   }
 
   // A `manifest.json` floating panel opens here as a view in the work panel.
@@ -146,7 +147,7 @@ export function normalizeManifestJson(
           activation: 'onApp'
         })
       contributes.views = views
-      warnings.push('插件面板在工作台中以视图显示，而不是独立窗口。')
+      warnings.push(t('插件面板在工作台中以视图显示，而不是独立窗口。'))
     }
   }
 

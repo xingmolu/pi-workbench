@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 /** Permission names follow the common plugin vocabulary where one exists. */
 export const PLUGIN_PERMISSIONS = {
@@ -296,8 +297,8 @@ export function pluginToolResultText(value: unknown): string {
       .join('\n')
   else text = value === undefined ? '' : (JSON.stringify(value) ?? '')
   if (text.length > PLUGIN_TOOL_MAX_RESULT_CHARS)
-    throw new PluginApiError('INVALID_ARGUMENT', '插件工具结果超过上限')
-  return text || '（插件工具没有返回内容）'
+    throw new PluginApiError('INVALID_ARGUMENT', t('插件工具结果超过上限'))
+  return text || t('（插件工具没有返回内容）')
 }
 
 /** Storage values are bounded like panel state. */

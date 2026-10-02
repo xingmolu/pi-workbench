@@ -12,6 +12,7 @@ import type {
   RemoteViewSummary
 } from '../../../shared/remote-views'
 import type { MobileHomeGroup } from '../../../shared/mobile-list'
+import { t } from '../../../shared/i18n'
 
 const TOKEN_KEY = 'pi-desktop-device-token'
 
@@ -67,10 +68,14 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...init, headers })
   if (response.status === 401) {
     persistToken('')
-    throw new ApiError('尚未配对或设备已被撤销', 401)
+    throw new ApiError(t('尚未配对或设备已被撤销'), 401)
   }
   const data = (await response.json().catch(() => ({}))) as { error?: string }
-  if (!response.ok) throw new ApiError(data.error || `请求失败 ${response.status}`, response.status)
+  if (!response.ok)
+    throw new ApiError(
+      data.error || t('请求失败 {status}', { status: response.status }),
+      response.status
+    )
   return data as T
 }
 
@@ -94,13 +99,13 @@ async function pair_(pair: string): Promise<void> {
   const response = await fetch('/api/pair', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token: pair, deviceName: navigator.userAgent.slice(0, 64) || '手机' })
+    body: JSON.stringify({ token: pair, deviceName: navigator.userAgent.slice(0, 64) || t('手机') })
   })
   const grant = (await response.json().catch(() => ({}))) as {
     deviceToken?: string
     error?: string
   }
-  if (!response.ok || !grant.deviceToken) throw new Error(grant.error || '配对失败')
+  if (!response.ok || !grant.deviceToken) throw new Error(grant.error || t('配对失败'))
   persistToken(grant.deviceToken)
 }
 

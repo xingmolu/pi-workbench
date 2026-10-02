@@ -11,9 +11,10 @@ import {
 import type { AgentSnapshot } from '../../../shared/contracts'
 import type { SkillDetail, SkillSummary, SkillsCatalogSnapshot } from '../../../shared/skills'
 import { skillDraftIdentity, type SkillInsertion } from '../store/skill-draft'
+import { t } from '../../../shared/i18n'
 import '../assets/skills.css'
 
-const scopeLabels = { user: '用户', project: '项目', temporary: '临时' }
+const scopeLabels = { user: t('用户'), project: t('项目'), temporary: t('临时') }
 export default function SkillsSettings({
   snapshot,
   onInsert,
@@ -61,7 +62,7 @@ export default function SkillsSettings({
         setLoadedIdentity(identityKey)
       })
       .catch(() => {
-        if (!cancelled) setError('无法读取当前技能列表，请重试。')
+        if (!cancelled) setError(t('无法读取当前技能列表，请重试。'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -92,7 +93,7 @@ export default function SkillsSettings({
       })
       .catch(() => {
         if (sequence === detailSequence.current && currentIdentity.current === identityKey)
-          setError('无法预览：文件可能已更改、超过 64 KiB 或不是 UTF-8 文本。请刷新列表后重试。')
+          setError(t('无法预览：文件可能已更改、超过 64 KiB 或不是 UTF-8 文本。请刷新列表后重试。'))
       })
       .finally(() => {
         if (sequence === detailSequence.current) setLoading(false)
@@ -115,30 +116,34 @@ export default function SkillsSettings({
     snapshot.composeBlockReason === null &&
     loadedIdentity === identityKey
   const sourceLabel = (skill: SkillSummary): string =>
-    skill.origin === 'package' ? 'Pi 包' : '技能目录'
+    skill.origin === 'package' ? t('Pi 包') : t('技能目录')
   return (
     <section
       className={`skills-settings${compact ? ' skills-compact' : ''}`}
-      aria-label={compact ? '选择技能' : '技能设置'}
+      aria-label={compact ? t('选择技能') : t('技能设置')}
     >
       <header className="skills-heading">
         <div>
           <h2>
             <Sparkles size={18} />
-            Skills 技能
+
+            {t('Skills 技能')}
           </h2>
-          <p>Agent 按需读取的 SKILL.md 说明。模型可以自行发现，也可以用 /skill: 手动调用。</p>
+          <p>
+            {t('Agent 按需读取的 SKILL.md 说明。模型可以自行发现，也可以用 /skill: 手动调用。')}
+          </p>
         </div>
         <button
           className="skills-refresh"
           type="button"
-          aria-label="刷新技能列表"
-          title="刷新技能列表"
+          aria-label={t('刷新技能列表')}
+          title={t('刷新技能列表')}
           disabled={loading || !identity || !snapshot.ready}
           onClick={() => setRefresh((value) => value + 1)}
         >
           <RefreshCw size={14} className={loading ? 'spin' : undefined} />
-          刷新
+
+          {t('刷新')}
         </button>
       </header>
       {selected ? (
@@ -155,7 +160,8 @@ export default function SkillsSettings({
             }}
           >
             <ArrowLeft size={14} />
-            返回列表
+
+            {t('返回列表')}
           </button>
           <div className="skill-detail-card">
             <div className="skill-detail-heading">
@@ -164,14 +170,14 @@ export default function SkillsSettings({
               </span>
               <div>
                 <h3>{selected.name}</h3>
-                <p>{selected.description || '未提供描述'}</p>
+                <p>{selected.description || t('未提供描述')}</p>
                 <div className="skill-badges">
                   <span className="skill-badge">{scopeLabels[selected.scope]}</span>
                   <span className="skill-badge">{sourceLabel(selected)}</span>
                   <span
                     className={`skill-badge${selected.mode === 'manual-only' ? ' is-manual' : ''}`}
                   >
-                    {selected.mode === 'manual-only' ? '仅手动调用' : '模型可发现'}
+                    {selected.mode === 'manual-only' ? t('仅手动调用') : t('模型可发现')}
                   </span>
                 </div>
               </div>
@@ -181,21 +187,21 @@ export default function SkillsSettings({
                 disabled={!canInsert || !selected.canInsert}
                 onClick={() => insert(selected)}
               >
-                插入到输入框
+                {t('插入到输入框')}
               </button>
             </div>
             <p className="skills-mode">
               {selected.mode === 'manual-only'
-                ? '仅手动调用：已加载，通过 /skill: 命令使用；模型不会自行选用。'
-                : '模型会在需要时自行选用，也可以通过 /skill: 命令手动调用。'}
+                ? t('仅手动调用：已加载，通过 /skill: 命令使用；模型不会自行选用。')
+                : t('模型会在需要时自行选用，也可以通过 /skill: 命令手动调用。')}
             </p>
             {!selected.canInsert && (
-              <p className="inline-hint">名称重复或不符合安全命令格式，无法直接插入。</p>
+              <p className="inline-hint">{t('名称重复或不符合安全命令格式，无法直接插入。')}</p>
             )}
           </div>
           {loading ? (
             <p role="status" className="skills-loading">
-              正在读取技能…
+              {t('正在读取技能…')}
             </p>
           ) : (
             detail && (
@@ -204,7 +210,7 @@ export default function SkillsSettings({
                   <FileText size={13} aria-hidden="true" />
                   SKILL.md
                 </div>
-                <pre className="skill-preview" aria-label="技能内容">
+                <pre className="skill-preview" aria-label={t('技能内容')}>
                   {detail.preview}
                 </pre>
               </div>
@@ -217,48 +223,51 @@ export default function SkillsSettings({
             <label>
               <Search size={14} />
               <input
-                aria-label="搜索技能"
-                placeholder="搜索名称或描述"
+                aria-label={t('搜索技能')}
+                placeholder={t('搜索名称或描述')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
             <span className="skills-scope">
               <select
-                aria-label="技能范围"
+                aria-label={t('技能范围')}
                 value={scope}
                 onChange={(event) => setScope(event.target.value)}
               >
-                <option value="all">全部范围</option>
-                <option value="user">用户</option>
-                <option value="project">项目</option>
-                <option value="temporary">临时</option>
+                <option value="all">{t('全部范围')}</option>
+                <option value="user">{t('用户')}</option>
+                <option value="project">{t('项目')}</option>
+                <option value="temporary">{t('临时')}</option>
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </span>
           </div>
           {catalog && (
             <p className="skills-count">
-              {filtered.length} 个匹配 · 已加载 {catalog.total} 个
-              {catalog.truncated ? '（仅显示前 256 个）' : ''}
+              {t('{length} 个匹配 · 已加载 {total} 个', {
+                length: filtered.length,
+                total: catalog.total
+              })}
+              {catalog.truncated ? t('（仅显示前 256 个）') : ''}
             </p>
           )}
           {loading ? (
             <p role="status" className="skills-loading">
-              正在读取技能列表…
+              {t('正在读取技能列表…')}
             </p>
           ) : !identity || !snapshot.ready ? (
             <div className="skills-empty">
               <Sparkles size={20} aria-hidden="true" />
-              <span>打开项目并连接 Pi 后查看已加载技能。</span>
+              <span>{t('打开项目并连接 Pi 后查看已加载技能。')}</span>
             </div>
           ) : catalog && !filtered.length ? (
             <div className="skills-empty">
               <Sparkles size={20} aria-hidden="true" />
               <span>
                 {catalog.total
-                  ? '没有匹配的技能。'
-                  : '当前运行时未加载技能。将 SKILL.md 放入下方的技能目录后，重新打开项目。'}
+                  ? t('没有匹配的技能。')
+                  : t('当前运行时未加载技能。将 SKILL.md 放入下方的技能目录后，重新打开项目。')}
               </span>
             </div>
           ) : (
@@ -275,14 +284,14 @@ export default function SkillsSettings({
                     </span>
                     <span className="skill-row-text">
                       <strong>{skill.name}</strong>
-                      <span>{skill.description || '未提供描述'}</span>
+                      <span>{skill.description || t('未提供描述')}</span>
                     </span>
                     <span className="skill-badges">
                       <span className="skill-badge">{scopeLabels[skill.scope]}</span>
                       <span
                         className={`skill-badge${skill.mode === 'manual-only' ? ' is-manual' : ''}`}
                       >
-                        {skill.mode === 'manual-only' ? '仅手动调用' : '模型可发现'}
+                        {skill.mode === 'manual-only' ? t('仅手动调用') : t('模型可发现')}
                       </span>
                     </span>
                     <ChevronRight size={15} className="skill-row-chevron" aria-hidden="true" />
@@ -291,11 +300,11 @@ export default function SkillsSettings({
                     <button
                       className="tool-chip"
                       type="button"
-                      aria-label={`插入技能 ${skill.name}`}
+                      aria-label={t('插入技能 {name}', { name: skill.name })}
                       disabled={!canInsert || !skill.canInsert}
                       onClick={() => insert(skill)}
                     >
-                      插入
+                      {t('插入')}
                     </button>
                   )}
                 </div>
@@ -312,25 +321,27 @@ export default function SkillsSettings({
             type="button"
             onClick={() => (selected ? showDetail(selected) : setRefresh((value) => value + 1))}
           >
-            重试
+            {t('重试')}
           </button>
         </div>
       )}
       {insertDisabled && (
         <p className="inline-hint">
-          当前无法插入技能；请先选择可用模型、完成编辑或发送，并移除附件。
+          {t('当前无法插入技能；请先选择可用模型、完成编辑或发送，并移除附件。')}
         </p>
       )}
       {!compact && (
         <div className="skills-guide">
           <p>
-            <strong>技能目录</strong> 用户：<code>~/.pi/agent/skills</code>、
-            <code>~/.agents/skills</code>；项目：<code>.pi/skills</code>、
-            <code>.agents/skills</code>。
+            <strong>{t('技能目录')}</strong> {t('用户：')}
+            <code>~/.pi/agent/skills</code>、<code>~/.agents/skills</code>
+            {t('；项目：')}
+            <code>.pi/skills</code>、<code>.agents/skills</code>。
           </p>
           <p>
-            这里只读取已加载列表，刷新不会重新扫描；新增或修改技能后，请重新打开项目或重建运行时。插入只会在草稿开头添加命令，不会发送，技能内容在发送时由
-            Pi 展开。
+            {t(
+              '这里只读取已加载列表，刷新不会重新扫描；新增或修改技能后，请重新打开项目或重建运行时。插入只会在草稿开头添加命令，不会发送，技能内容在发送时由 Pi 展开。'
+            )}
           </p>
         </div>
       )}

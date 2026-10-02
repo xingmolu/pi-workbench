@@ -1,4 +1,5 @@
 import type { AgentSession } from '@earendil-works/pi-coding-agent'
+import { t } from '../shared/i18n'
 
 /** Public SDK no-summary navigation with the user-leaf early-noop corrected.
  * Revalidation belongs to the host: hooks may change identity, config or history.
@@ -16,7 +17,7 @@ export async function navigateToEditedUserParent(
   const manager = session.sessionManager
   const user = manager.getEntry(userId)
   if (!user || user.type !== 'message' || user.message.role !== 'user')
-    throw new Error('原问题已变化，请重新打开编辑')
+    throw new Error(t('原问题已变化，请重新打开编辑'))
   const oldLeafId = manager.getLeafId()
   const { collectEntriesForBranchSummary } = await import('@earendil-works/pi-coding-agent')
   options.revalidate('before', oldLeafId)

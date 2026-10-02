@@ -1,4 +1,5 @@
 import type { PromptImage } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 export const MAX_IMAGES = 4
 const MAX_EDGE = 1600
@@ -25,7 +26,7 @@ export async function prepareImage(file: File): Promise<DraftImage> {
     !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type) &&
     !file.type.startsWith('image/')
   )
-    throw new Error('只能添加图片')
+    throw new Error(t('只能添加图片'))
   const bitmap = await createImageBitmap(file).catch(() => null)
   const keep =
     ['image/png', 'image/webp', 'image/gif', 'image/jpeg'].includes(type) &&
@@ -33,7 +34,7 @@ export async function prepareImage(file: File): Promise<DraftImage> {
     (!bitmap || Math.max(bitmap.width, bitmap.height) <= MAX_EDGE)
   if (keep || !bitmap) {
     if (!bitmap && !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type))
-      throw new Error('无法读取这张图片')
+      throw new Error(t('无法读取这张图片'))
     bitmap?.close()
     const data = base64(await file.arrayBuffer())
     return { id, name: file.name, mimeType: type, data, preview: `data:${type};base64,${data}` }

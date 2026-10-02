@@ -15,6 +15,7 @@ import {
   type RuntimeStoragePaths
 } from './runtime-storage'
 import { isAbsolute, relative } from 'node:path'
+import { t } from '../shared/i18n'
 export type { AgentRuntimeProviderId } from '../shared/agent-runtime'
 
 export type AgentRuntimeProviderDescriptor = {
@@ -278,7 +279,9 @@ export class AgentRuntimeProviderRegistry implements AgentRuntime {
       async request(command, expectedIdentity) {
         if (disposed) throw new HostRejectedError('Agent runtime session is disposed')
         if (!runtimeSupportsCommand(manifest, command))
-          throw new HostRejectedError(`${manifest.label} 不支持操作：${command.type}`)
+          throw new HostRejectedError(
+            t('{label} 不支持操作：{type}', { label: manifest.label, type: command.type })
+          )
         if ('runtimeId' in command && command.runtimeId && command.runtimeId !== id)
           throw new HostRejectedError('Runtime selection requires opening a new desktop worker')
         const resumePath =

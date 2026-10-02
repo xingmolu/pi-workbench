@@ -15,6 +15,7 @@ import { useMobileTheme } from './theme'
 import { notifyInBackground, useNotifications } from './notify'
 import { formatRoute, parseRoute, type MobileRoute } from './route'
 import { WorkbenchPane } from './WorkbenchPane'
+import { t } from '../../../shared/i18n'
 
 const message = (reason: unknown): string =>
   reason instanceof Error ? reason.message : String(reason)
@@ -86,8 +87,8 @@ export function MobileApp(): React.JSX.Element {
           const current = snapshotRef.current
           if (current)
             void notifyInBackground(
-              `${current.title} · 已完成`,
-              lastReply(current) || '任务已结束',
+              t('{title} · 已完成', { title: current.title }),
+              lastReply(current) || t('任务已结束'),
               current.workerId
             )
         },
@@ -139,7 +140,7 @@ export function MobileApp(): React.JSX.Element {
     const current = routeRef.current
     if (current.view !== 'session') return
     if (!current.path || !current.cwd || recovering.current === current.workerId) {
-      setChatError('这个会话已不在桌面上运行。请返回列表重新打开。')
+      setChatError(t('这个会话已不在桌面上运行。请返回列表重新打开。'))
       return
     }
     recovering.current = current.workerId
@@ -220,7 +221,7 @@ export function MobileApp(): React.JSX.Element {
       seenApprovals.current.add(approval.id)
       if (current)
         void notifyInBackground(
-          `${current.title} · 需要确认`,
+          t('{title} · 需要确认', { title: current.title }),
           approvalSummary(approval),
           approval.id
         )
@@ -230,11 +231,11 @@ export function MobileApp(): React.JSX.Element {
   const shown = snapshot && snapshot.workerId === routedWorker ? snapshot : null
   useEffect(() => {
     document.title = !shown
-      ? 'Pi 远程对话'
+      ? t('Pi 远程对话')
       : shown.approvals.length
-        ? `需要确认 · ${shown.title}`
+        ? t('需要确认 · {title}', { title: shown.title })
         : shown.busy
-          ? `运行中 · ${shown.title}`
+          ? t('运行中 · {title}', { title: shown.title })
           : shown.title
   }, [shown])
 

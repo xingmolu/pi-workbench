@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { DEFAULT_DESKTOP_SETTINGS, type DesktopSettings } from '../../../shared/desktop-settings'
 import { useDesktopSettings } from '../store/desktop-settings'
 import {
@@ -12,6 +13,7 @@ import {
 import '../assets/desktop-settings.css'
 import AppUpdateSettings from './AppUpdateSettings'
 import DiagnosticsSettings from './DiagnosticsSettings'
+import { t } from '../../../shared/i18n'
 
 /** Status line and "restore defaults" for a page of desktop preferences. */
 export function PreferencesFooter({
@@ -29,7 +31,7 @@ export function PreferencesFooter({
         disabled={status !== 'ready'}
         onClick={() => void save(resetPatch)}
       >
-        恢复默认
+        {t('恢复默认')}
       </button>
     </div>
   )
@@ -41,48 +43,86 @@ const generalDefaults: Partial<DesktopSettings> = {
   showUsage: DEFAULT_DESKTOP_SETTINGS.showUsage
 }
 
+/** The language picker; each language is named in itself so it can be found from either one. */
+function LanguageSettings(): React.JSX.Element {
+  const { settings, save, status } = useDesktopSettings()
+  const [changed, setChanged] = useState(false)
+  return (
+    <SettingsGroup title={t('语言')}>
+      <SettingsRow
+        label={t('界面语言')}
+        description={
+          changed
+            ? t('重启 Pi Desktop 后生效。')
+            : t('跟随系统时，中文系统显示中文，其他语言显示英文。')
+        }
+      >
+        <SelectControl
+          label={t('界面语言')}
+          value={settings.language}
+          disabled={status !== 'ready'}
+          onChange={(value) => {
+            setChanged(true)
+            void save({ language: value as DesktopSettings['language'] })
+          }}
+        >
+          <option value="system">{t('跟随系统')}</option>
+          <option value="zh-CN">中文</option>
+          <option value="en">English</option>
+        </SelectControl>
+        {changed ? (
+          <button type="button" className="acct-button" onClick={() => void window.pi.relaunch()}>
+            {t('立即重启')}
+          </button>
+        ) : null}
+      </SettingsRow>
+    </SettingsGroup>
+  )
+}
+
 export default function GeneralSettings(): React.JSX.Element {
   const { settings, save, status } = useDesktopSettings()
   const disabled = status !== 'ready'
   return (
-    <SettingsPage title="常规">
-      <SettingsGroup title="输入">
+    <SettingsPage title={t('常规')}>
+      <LanguageSettings />
+      <SettingsGroup title={t('输入')}>
         <SettingsRow
-          label="发送快捷键"
-          description="Shift + Enter 始终换行；输入法选词时不会发送。"
+          label={t('发送快捷键')}
+          description={t('Shift + Enter 始终换行；输入法选词时不会发送。')}
         >
           <SelectControl
-            label="发送快捷键"
+            label={t('发送快捷键')}
             value={settings.sendShortcut}
             disabled={disabled}
             onChange={(value) =>
               void save({ sendShortcut: value as DesktopSettings['sendShortcut'] })
             }
           >
-            <option value="enter">Enter 发送</option>
-            <option value="modifier-enter">⌘ / Ctrl + Enter 发送</option>
+            <option value="enter">{t('Enter 发送')}</option>
+            <option value="modifier-enter">{t('⌘ / Ctrl + Enter 发送')}</option>
           </SelectControl>
         </SettingsRow>
       </SettingsGroup>
-      <SettingsGroup title="对话">
+      <SettingsGroup title={t('对话')}>
         <SettingsRow
-          label="工作详情"
-          description="工作过程默认展开还是收起；单独展开过的保持你的选择。"
+          label={t('工作详情')}
+          description={t('工作过程默认展开还是收起；单独展开过的保持你的选择。')}
         >
           <Segmented
-            label="工作详情"
+            label={t('工作详情')}
             value={settings.workDetails}
             disabled={disabled}
             options={[
-              { value: 'compact', label: '紧凑' },
-              { value: 'expanded', label: '展开' }
+              { value: 'compact', label: t('紧凑') },
+              { value: 'expanded', label: t('展开') }
             ]}
             onChange={(workDetails) => void save({ workDetails })}
           />
         </SettingsRow>
-        <SettingsRow label="显示用量统计" description="在输入框下方显示本次会话的用量。">
+        <SettingsRow label={t('显示用量统计')} description={t('在输入框下方显示本次会话的用量。')}>
           <Switch
-            label="显示用量统计"
+            label={t('显示用量统计')}
             checked={settings.showUsage}
             disabled={disabled}
             onChange={(showUsage) => void save({ showUsage })}

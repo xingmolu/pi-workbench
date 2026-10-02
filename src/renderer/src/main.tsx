@@ -6,6 +6,9 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { useDesktopSettings } from './store/desktop-settings'
 import { applyDocumentTheme, resolveTheme, systemIsDark } from './store/theme'
+import { languageTag } from '../../shared/i18n'
+
+document.documentElement.lang = languageTag()
 
 void useDesktopSettings
   .getState()

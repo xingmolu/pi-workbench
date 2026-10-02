@@ -4,6 +4,7 @@ import {
   type RemoteTerminalInput,
   type RemoteViewSummary
 } from '../shared/remote-views'
+import { t } from '../shared/i18n'
 
 export type RemoteTerminalSource = {
   observe(listener: (event: TerminalEvent) => void): () => void
@@ -50,7 +51,7 @@ export class RemoteTerminals {
     return terminals.map((terminal, index) => ({
       id: `terminal:${terminal.terminalId}`,
       kind: 'terminal',
-      title: `终端 ${index + 1}`,
+      title: t('终端 {value}', { value: index + 1 }),
       detail: projectName(terminal.projectPath),
       live: terminal.state === 'running'
     }))
@@ -80,7 +81,7 @@ export class RemoteTerminals {
   input(terminalId: string, input: RemoteTerminalInput): void {
     const data = input.type === 'text' ? input.data : REMOTE_TERMINAL_KEYS[input.key]
     if (!this.source()?.remoteInput(terminalId, data))
-      throw new Error('终端当前不能输入：可能已结束、正在重连，或输入过快')
+      throw new Error(t('终端当前不能输入：可能已结束、正在重连，或输入过快'))
   }
 
   private record(event: TerminalEvent): void {

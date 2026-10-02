@@ -13,6 +13,7 @@ import GitReviewPane from './GitReviewPane'
 import SandboxedPluginPane from './SandboxedPluginPane'
 import TerminalPane from './TerminalPane'
 import { useWorkspaceResizing } from './WorkspacePanels'
+import { t } from '../../../shared/i18n'
 
 type WorkbenchProps = {
   collapsed: boolean
@@ -33,12 +34,12 @@ function EmptyWorkbench({ hasContributions }: { hasContributions: boolean }): Re
     <div className="workbench-body">
       <MonitorCog size={23} />
       <p className="workbench-empty-title">
-        {hasContributions ? '选择一个工作台面板' : '暂无可用面板'}
+        {hasContributions ? t('选择一个工作台面板') : t('暂无可用面板')}
       </p>
       <p className="workbench-empty-copy">
         {hasContributions
-          ? '从活动栏选择一个面板；一次只会打开一个工作台视图。'
-          : '选择工作区或在设置中重新加载插件，即可查看可用的右侧面板。'}
+          ? t('从活动栏选择一个面板；一次只会打开一个工作台视图。')
+          : t('选择工作区或在设置中重新加载插件，即可查看可用的右侧面板。')}
       </p>
     </div>
   )
@@ -118,8 +119,7 @@ export default function Workbench({
     const selector =
       '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"], [data-native-suspend="true"]'
     const touchesOverlay = (node: Node): boolean =>
-      node instanceof Element &&
-      (node.matches(selector) || Boolean(node.querySelector(selector)))
+      node instanceof Element && (node.matches(selector) || Boolean(node.querySelector(selector)))
     const update = (): void => {
       const next = Boolean(document.querySelector(selector))
       setDomOverlayOpen((current) => (current === next ? current : next))
@@ -127,7 +127,9 @@ export default function Workbench({
     const observer = new MutationObserver((records) => {
       const relevant = records.some((record) => {
         if (record.type === 'attributes') return true
-        return [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(touchesOverlay)
+        return [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(
+          touchesOverlay
+        )
       })
       if (relevant) update()
     })
@@ -153,7 +155,7 @@ export default function Workbench({
   return (
     <aside
       className={`workbench${collapsed ? ' is-collapsed' : ''}`}
-      aria-label={collapsed ? '折叠的工作台' : '工作台'}
+      aria-label={collapsed ? t('折叠的工作台') : t('工作台')}
     >
       <div className="workbench-stage" hidden={collapsed}>
         <WorkbenchTabs

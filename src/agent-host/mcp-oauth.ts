@@ -9,6 +9,7 @@ import type {
   OAuthTokens
 } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { McpServer } from '../shared/mcp'
+import { t } from '../shared/i18n'
 
 /** What is kept per server: tokens, the registered client and the in-flight PKCE verifier. */
 type Record_ = {
@@ -84,7 +85,7 @@ export type OAuthOptions = NonNullable<McpServer['oauth']>
 /** Thrown where a background connection would have to involve the user. */
 export class McpAuthRequired extends Error {
   constructor() {
-    super('MCP 服务器需要登录')
+    super(t('MCP 服务器需要登录'))
   }
 }
 
@@ -199,7 +200,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 const CALLBACK_PAGE = (ok: boolean): string =>
   `<!doctype html><meta charset="utf-8"><title>Pi Desktop</title>` +
   `<body style="font:15px -apple-system,system-ui,sans-serif;display:grid;place-items:center;height:90vh;color:#333">` +
-  `<p>${ok ? '登录完成，可以回到 Pi Desktop。' : '登录没有完成，请回到 Pi Desktop 重试。'}</p></body>`
+  `<p>${ok ? t('登录完成，可以回到 Pi Desktop。') : t('登录没有完成，请回到 Pi Desktop 重试。')}</p></body>`
 
 /**
  * A one-shot loopback receiver for the authorization redirect (RFC 8252). It listens on
@@ -237,8 +238,8 @@ export class LoopbackCallback {
         this.settle?.reject(
           new Error(
             url.searchParams.get('error') === 'access_denied'
-              ? '授权被拒绝。'
-              : '授权回调无效，请重新登录。'
+              ? t('授权被拒绝。')
+              : t('授权回调无效，请重新登录。')
           )
         )
       void this.close()
@@ -248,7 +249,7 @@ export class LoopbackCallback {
       this.server!.listen(this.port, '127.0.0.1', () => resolve())
     })
     const address = this.server.address()
-    if (!address || typeof address === 'string') throw new Error('无法监听本机回调端口')
+    if (!address || typeof address === 'string') throw new Error(t('无法监听本机回调端口'))
     this.url = `http://127.0.0.1:${address.port}/callback`
     return this.url
   }

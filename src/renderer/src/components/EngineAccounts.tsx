@@ -29,6 +29,7 @@ import AccountQuota from './AccountQuota'
 import AddApiConnection from './AddApiConnection'
 import CustomEndpoints from './CustomEndpoints'
 import { SettingsPage } from './SettingsPrimitives'
+import { t } from '../../../shared/i18n'
 import '../assets/accounts-settings.css'
 import '../assets/engine-accounts.css'
 
@@ -49,25 +50,28 @@ function EngineCards({
   onSelect: (id: string) => void
 }): React.JSX.Element {
   return (
-    <div className="ea-engines" role="radiogroup" aria-label="新会话默认引擎">
+    <div className="ea-engines" role="radiogroup" aria-label={t('新会话默认引擎')}>
       {runtimes.map((runtime) => {
         const engine = engines?.find((item) => item.runtimeId === runtime.id)
         const ready = engine?.accounts.filter((account) => account.connected).length ?? 0
         const binary = engine?.binary
         const status = !engine
-          ? { tone: '', text: '读取中…' }
+          ? { tone: '', text: t('读取中…') }
           : binary?.state === 'downloading'
-            ? { tone: 'is-warning', text: `下载中 ${percent(binary.received, binary.size)}` }
+            ? {
+                tone: 'is-warning',
+                text: t('下载中 {value}', { value: percent(binary.received, binary.size) })
+              }
             : binary && binary.state !== 'ready'
               ? {
                   tone: 'is-warning',
-                  text: binary.state === 'unsupported' ? '不支持此系统' : '未下载'
+                  text: binary.state === 'unsupported' ? t('不支持此系统') : t('未下载')
                 }
               : engine.error
-                ? { tone: 'is-error', text: '无法启动' }
+                ? { tone: 'is-error', text: t('无法启动') }
                 : ready
-                  ? { tone: 'is-ready', text: `已就绪 · ${ready} 个账号或连接` }
-                  : { tone: 'is-warning', text: '需要登录或添加 API' }
+                  ? { tone: 'is-ready', text: t('已就绪 · {ready} 个账号或连接', { ready }) }
+                  : { tone: 'is-warning', text: t('需要登录或添加 API') }
         const checked = selected === runtime.id
         return (
           <button
@@ -127,7 +131,7 @@ function EngineDownloads({
     }
   }
   return (
-    <div className="ea-downloads" role="group" aria-label="引擎下载">
+    <div className="ea-downloads" role="group" aria-label={t('引擎下载')}>
       {rows.map((engine) => {
         const binary = engine.binary!
         const downloading = binary.state === 'downloading'
@@ -138,21 +142,28 @@ function EngineDownloads({
               <small>
                 {binary.state === 'ready'
                   ? binary.outdated
-                    ? `已下载 ${binary.outdated}，有新版本 ${binary.version}（约 ${megabytes(binary.size)}）`
-                    : `已下载 ${binary.version}`
+                    ? t('已下载 {outdated}，有新版本 {version}（约 {value}）', {
+                        outdated: binary.outdated,
+                        version: binary.version,
+                        value: megabytes(binary.size)
+                      })
+                    : t('已下载 {version}', { version: binary.version })
                   : binary.state === 'unsupported'
-                    ? '没有适用于这台电脑的版本'
+                    ? t('没有适用于这台电脑的版本')
                     : downloading
-                      ? `正在下载 ${megabytes(binary.received ?? 0)} / ${megabytes(binary.size)}`
+                      ? t('正在下载 {value} / {value2}', {
+                          value: megabytes(binary.received ?? 0),
+                          value2: megabytes(binary.size)
+                        })
                       : binary.state === 'error'
-                        ? (binary.error ?? '下载失败')
-                        : `首次使用需要下载（约 ${megabytes(binary.size)}）`}
+                        ? (binary.error ?? t('下载失败'))
+                        : t('首次使用需要下载（约 {value}）', { value: megabytes(binary.size) })}
               </small>
               {downloading ? (
                 <span
                   className="ea-progress"
                   role="progressbar"
-                  aria-label={`${engine.label} 下载进度`}
+                  aria-label={t('{label} 下载进度', { label: engine.label })}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.floor(((binary.received ?? 0) / (binary.size || 1)) * 100)}
@@ -171,7 +182,8 @@ function EngineDownloads({
                 onClick={() => void act(engine.runtimeId, 'install')}
               >
                 {busy === engine.runtimeId ? <LoaderCircle size={14} className="spin" /> : null}
-                更新
+
+                {t('更新')}
               </button>
             ) : null}
             {binary.state === 'ready' ? (
@@ -180,11 +192,15 @@ function EngineDownloads({
                 className="acct-button is-quiet"
                 disabled={busy !== null}
                 onClick={() => {
-                  if (window.confirm(`删除已下载的 ${engine.label}？之后使用时需要重新下载。`))
+                  if (
+                    window.confirm(
+                      t('删除已下载的 {label}？之后使用时需要重新下载。', { label: engine.label })
+                    )
+                  )
                     void act(engine.runtimeId, 'remove')
                 }}
               >
-                删除
+                {t('删除')}
               </button>
             ) : binary.state !== 'unsupported' ? (
               <button
@@ -196,7 +212,7 @@ function EngineDownloads({
                 {downloading || busy === engine.runtimeId ? (
                   <LoaderCircle size={14} className="spin" />
                 ) : null}
-                {downloading ? '下载中' : binary.state === 'error' ? '重试' : '下载'}
+                {downloading ? t('下载中') : binary.state === 'error' ? t('重试') : t('下载')}
               </button>
             ) : null}
           </div>
@@ -213,7 +229,7 @@ function EngineDownloads({
 
 function identity(account: AccountSummary): string {
   if (account.email) return account.email
-  return account.platform === 'claude' ? 'Claude 账号' : account.name
+  return account.platform === 'claude' ? t('Claude 账号') : account.name
 }
 
 function SubscriptionItem({
@@ -247,13 +263,16 @@ function SubscriptionItem({
         <div className="ea-row-text">
           <strong title={name}>{name}</strong>
           <small>
-            {PLATFORM_LABEL[account.platform!]}
-            {account.plan ? ` ${account.plan}` : ''} · 用于{' '}
-            {[row.engine, ...sharedWith.map((grant) => grant.label)].join('、')}
+            {t('{value} {value2} · 用于{value3} {value4}', {
+              value: PLATFORM_LABEL[account.platform!],
+              value2: account.plan ? ` ${account.plan}` : '',
+              value3: ' ',
+              value4: [row.engine, ...sharedWith.map((grant) => grant.label)].join('、')
+            })}
           </small>
         </div>
         {account.connected ? (
-          <span className="ea-pill is-ready">已登录</span>
+          <span className="ea-pill is-ready">{t('已登录')}</span>
         ) : (
           <button
             type="button"
@@ -262,11 +281,15 @@ function SubscriptionItem({
             onClick={() => onLogin('browser')}
           >
             <LogIn size={14} />
-            登录
+
+            {t('登录')}
           </button>
         )}
         <Dropdown.Root>
-          <Dropdown.Trigger className="icon-btn ea-more" aria-label={`${name} 的更多操作`}>
+          <Dropdown.Trigger
+            className="icon-btn ea-more"
+            aria-label={t('{name} 的更多操作', { name })}
+          >
             <MoreHorizontal size={16} />
           </Dropdown.Trigger>
           <Dropdown.Portal>
@@ -276,11 +299,11 @@ function SubscriptionItem({
                 disabled={busy || loginActive}
                 onSelect={() => onLogin('browser')}
               >
-                重新登录
+                {t('重新登录')}
               </Dropdown.Item>
               {account.platform === 'chatgpt' && account.connected ? (
                 <Dropdown.Item className="ea-menu-item" onSelect={() => setQuota((open) => !open)}>
-                  {quota ? '收起额度' : '查看额度'}
+                  {quota ? t('收起额度') : t('查看额度')}
                 </Dropdown.Item>
               ) : null}
               {sharedWith.map((grant) => (
@@ -289,8 +312,8 @@ function SubscriptionItem({
                   className="ea-menu-item"
                   onSelect={() => onRevoke?.(grant)}
                 >
-                  不再允许 {grant.label} 使用
-                  <small>下次使用时会重新询问</small>
+                  {t('不再允许 {label} 使用', { label: grant.label })}
+                  <small>{t('下次使用时会重新询问')}</small>
                 </Dropdown.Item>
               ))}
               <Dropdown.Separator className="ea-menu-separator" />
@@ -298,10 +321,11 @@ function SubscriptionItem({
                 className="ea-menu-item is-danger"
                 disabled={busy}
                 onSelect={() => {
-                  if (window.confirm(`移除 ${name}？这会退出登录，已有会话不受影响。`)) onRemove()
+                  if (window.confirm(t('移除 {name}？这会退出登录，已有会话不受影响。', { name })))
+                    onRemove()
                 }}
               >
-                移除账号
+                {t('移除账号')}
               </Dropdown.Item>
             </Dropdown.Content>
           </Dropdown.Portal>
@@ -338,10 +362,12 @@ function LegacyPiHistory(): React.JSX.Element | null {
   return (
     <section className="sp-group">
       <div className="sp-group-header">
-        <h3>导入旧 Pi 历史</h3>
+        <h3>{t('导入旧 Pi 历史')}</h3>
         <p>
-          发现 {legacy.count}{' '}
-          个历史文件。导入后可在侧栏继续这些会话；原文件保留，登录和端点不随历史导入。
+          {t(
+            '发现 {count}{value} 个历史文件。导入后可在侧栏继续这些会话；原文件保留，登录和端点不随历史导入。',
+            { count: legacy.count, value: ' ' }
+          )}
         </p>
       </div>
       <div className="ea-inline">
@@ -355,7 +381,10 @@ function LegacyPiHistory(): React.JSX.Element | null {
               .importPiHistory()
               .then((value) =>
                 setState({
-                  result: `已导入 ${value.imported} 个，跳过 ${value.skipped} 个已有或无效文件。`
+                  result: t('已导入 {imported} 个，跳过 {skipped} 个已有或无效文件。', {
+                    imported: value.imported,
+                    skipped: value.skipped
+                  })
                 })
               )
               .catch((reason) =>
@@ -364,7 +393,8 @@ function LegacyPiHistory(): React.JSX.Element | null {
           }}
         >
           {state.pending ? <LoaderCircle size={14} className="spin" /> : <FolderOpen size={14} />}
-          导入历史
+
+          {t('导入历史')}
         </button>
         {state.result ? <span role="status">{state.result}</span> : null}
         {state.error ? (
@@ -418,8 +448,8 @@ export default function EngineAccounts({
 
   return (
     <SettingsPage
-      title="引擎与账号"
-      description="新会话默认用哪个引擎，以及可以使用的订阅账号和 API 连接。凭据只保存在本机。"
+      title={t('引擎与账号')}
+      description={t('新会话默认用哪个引擎，以及可以使用的订阅账号和 API 连接。凭据只保存在本机。')}
     >
       {error ? (
         <p className="acct-notice is-error" role="alert">
@@ -427,10 +457,10 @@ export default function EngineAccounts({
         </p>
       ) : null}
 
-      <section className="sp-group" aria-label="新会话默认引擎">
+      <section className="sp-group" aria-label={t('新会话默认引擎')}>
         <div className="sp-group-header">
-          <h3>新会话默认引擎</h3>
-          <p>已有会话保留各自的引擎；侧栏「新会话」旁的箭头可以临时换一个引擎。</p>
+          <h3>{t('新会话默认引擎')}</h3>
+          <p>{t('已有会话保留各自的引擎；侧栏「新会话」旁的箭头可以临时换一个引擎。')}</p>
         </div>
         <EngineCards
           runtimes={runtimes}
@@ -444,16 +474,17 @@ export default function EngineAccounts({
         {engines ? <EngineDownloads engines={engines} onChange={reload} /> : null}
       </section>
 
-      <section className="sp-group" aria-label="订阅账号">
+      <section className="sp-group" aria-label={t('订阅账号')}>
         <div className="sp-group-header ea-group-header">
           <div>
-            <h3>订阅账号</h3>
-            <p>按邮箱区分；同一个邮箱只需要登录一次。在输入框旁切换使用哪个账号。</p>
+            <h3>{t('订阅账号')}</h3>
+            <p>{t('按邮箱区分；同一个邮箱只需要登录一次。在输入框旁切换使用哪个账号。')}</p>
           </div>
           <Dropdown.Root>
             <Dropdown.Trigger className="acct-button" disabled={!engines || Boolean(pending)}>
               <Plus size={14} />
-              添加订阅账号
+
+              {t('添加订阅账号')}
               <ChevronDown size={12} />
             </Dropdown.Trigger>
             <Dropdown.Portal>
@@ -474,10 +505,13 @@ export default function EngineAccounts({
                       }
                     >
                       <span>
-                        {provider.label} 账号{method === 'device_code' ? '（设备码）' : ''}
+                        {t('{label} 账号', { label: provider.label })}
+                        {method === 'device_code' ? t('（设备码）') : ''}
                       </span>
                       <small>
-                        {engine?.error ? `${runtime.label} 无法启动` : `用于 ${runtime.label}`}
+                        {engine?.error
+                          ? t('{label} 无法启动', { label: runtime.label })
+                          : t('用于 {label}', { label: runtime.label })}
                       </small>
                     </Dropdown.Item>
                   )
@@ -514,7 +548,7 @@ export default function EngineAccounts({
           </div>
         ))}
         {!engines ? (
-          <p className="ea-empty">正在读取账号…</p>
+          <p className="ea-empty">{t('正在读取账号…')}</p>
         ) : subscriptions.length ? (
           <ul className="sp-card ea-list">
             {subscriptions.map((row) => (
@@ -554,17 +588,17 @@ export default function EngineAccounts({
           </ul>
         ) : (
           <p className="ea-empty">
-            还没有订阅账号。添加 ChatGPT 或 Claude 账号后会按邮箱显示在这里。
+            {t('还没有订阅账号。添加 ChatGPT 或 Claude 账号后会按邮箱显示在这里。')}
           </p>
         )}
       </section>
 
-      <section className="sp-group" aria-label="API 连接">
+      <section className="sp-group" aria-label={t('API 连接')}>
         <div className="sp-group-header">
           <div className="ea-group-header">
             <div>
-              <h3>API 连接</h3>
-              <p>用 API Key 接入官方或兼容服务，可以添加多个。</p>
+              <h3>{t('API 连接')}</h3>
+              <p>{t('用 API Key 接入官方或兼容服务，可以添加多个。')}</p>
             </div>
             {!addingApi ? (
               <button
@@ -574,7 +608,8 @@ export default function EngineAccounts({
                 onClick={() => setAddingApi(true)}
               >
                 <Plus size={14} />
-                添加 API 连接
+
+                {t('添加 API 连接')}
               </button>
             ) : null}
           </div>
@@ -597,12 +632,12 @@ export default function EngineAccounts({
             <div className="ea-subgroup-head">
               <span>
                 <strong>Claude Code API</strong>
-                <small>Anthropic 兼容接口，可以添加多个</small>
+                <small>{t('Anthropic 兼容接口，可以添加多个')}</small>
               </span>
             </div>
             {claude.error ? (
               <details className="acct-notice is-warning ea-error">
-                <summary>Claude Code 现在无法启动，暂时不能管理它的连接</summary>
+                <summary>{t('Claude Code 现在无法启动，暂时不能管理它的连接')}</summary>
                 <p>{claude.error}</p>
               </details>
             ) : null}
@@ -623,21 +658,25 @@ export default function EngineAccounts({
                         className="acct-button is-quiet"
                         disabled={Boolean(pending)}
                         onClick={() => {
-                          if (window.confirm(`移除 ${row.account.name} 这个 API 连接？`))
+                          if (
+                            window.confirm(
+                              t('移除 {name} 这个 API 连接？', { name: row.account.name })
+                            )
+                          )
                             void run('claude', {
                               type: 'account:remove',
                               providerId: row.account.id
                             })
                         }}
                       >
-                        移除
+                        {t('移除')}
                       </button>
                     </div>
                   </li>
                 ))}
               </ul>
             ) : !claude.error ? (
-              <p className="ea-empty">还没有 Claude Code 的 API 连接。</p>
+              <p className="ea-empty">{t('还没有 Claude Code 的 API 连接。')}</p>
             ) : null}
           </div>
         ) : null}
@@ -658,8 +697,8 @@ export default function EngineAccounts({
       <p className="acct-footnote">
         <KeyRound size={13} aria-hidden="true" />
         <span>
-          凭据只保存在本机：Pi 的在它的 <code>auth.json</code>，Claude Code
-          的每个账号各用一个独立配置目录。桌面端不复制 token。
+          {t('凭据只保存在本机：Pi 的在它的')} <code>auth.json</code>
+          {t('，Claude Code 的每个账号各用一个独立配置目录。桌面端不复制 token。')}
         </span>
       </p>
     </SettingsPage>

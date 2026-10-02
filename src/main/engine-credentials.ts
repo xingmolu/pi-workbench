@@ -8,6 +8,7 @@ import {
   type CredentialGrantPrompt,
   type SharedChatgptAccount
 } from '../shared/engine-credentials'
+import { t } from '../shared/i18n'
 
 export type EngineCredentialOptions = {
   /** ChatGPT logins Pi holds. */
@@ -88,7 +89,7 @@ export class EngineCredentialBroker {
     const account = (await this.options.accounts()).find(
       (item) => item.id === accountId && item.platform === 'chatgpt'
     )
-    if (!account) throw new Error('这个 ChatGPT 账号已不在 Pi 中')
+    if (!account) throw new Error(t('这个 ChatGPT 账号已不在 Pi 中'))
     if (!this.granted(runtimeId, account)) {
       const key = `${runtimeId}\n${this.key(account)}`
       let pending = this.asking.get(key)
@@ -106,7 +107,9 @@ export class EngineCredentialBroker {
       }
       const decision = await pending
       if (decision === 'deny')
-        throw new Error(`没有允许 ${this.options.label(runtimeId)} 使用这个账号`)
+        throw new Error(
+          t('没有允许 {value} 使用这个账号', { value: this.options.label(runtimeId) })
+        )
       if (decision === 'always') this.allow(runtimeId, this.key(account))
       else this.session.add(key)
     }

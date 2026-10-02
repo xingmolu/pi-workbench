@@ -1,4 +1,5 @@
 import type { MobileCatalogProject, MobileSessionListItem } from './mobile-gateway'
+import { t } from './i18n'
 
 const ISO_TAIL = /[\s/]*\d{4}-\d{2}-\d{2}T[0-9:.]+Z?\s*$/i
 
@@ -55,7 +56,9 @@ function shiftDay(
   parts: { year: string; month: string; day: string },
   delta: number
 ): { year: string; month: string; day: string } {
-  const shifted = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + delta))
+  const shifted = new Date(
+    Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + delta)
+  )
   return {
     year: String(shifted.getUTCFullYear()),
     month: pad(shifted.getUTCMonth() + 1),
@@ -74,13 +77,17 @@ export function formatMobileTime(value: string, now: Date = new Date(), timeZone
     return clock
   }
   const yesterday = shiftDay(today, -1)
-  if (target.year === yesterday.year && target.month === yesterday.month && target.day === yesterday.day) {
-    return `昨天 ${clock}`
+  if (
+    target.year === yesterday.year &&
+    target.month === yesterday.month &&
+    target.day === yesterday.day
+  ) {
+    return t('昨天 {clock}', { clock })
   }
   const start = Date.UTC(Number(target.year), Number(target.month) - 1, Number(target.day))
   const todayStart = Date.UTC(Number(today.year), Number(today.month) - 1, Number(today.day))
   const diffDays = Math.round((todayStart - start) / 86_400_000)
-  if (diffDays >= 2 && diffDays < 60) return `${diffDays}天`
+  if (diffDays >= 2 && diffDays < 60) return t('{diffDays}天', { diffDays })
   if (target.year === today.year) return `${target.month}-${target.day}`
   return `${target.year}-${target.month}-${target.day}`
 }
@@ -88,16 +95,16 @@ export function formatMobileTime(value: string, now: Date = new Date(), timeZone
 export type MobileStatusKind = 'ok' | 'run' | 'ask' | 'err' | 'idle'
 
 export function mobileStatusBadge(status: string): { label: string; kind: MobileStatusKind } {
-  if (status === 'running' || status === 'opening') return { label: '运行中', kind: 'run' }
-  if (status === 'awaiting-approval') return { label: '等待批准', kind: 'ask' }
-  if (status === 'error') return { label: '出错', kind: 'err' }
-  if (status === 'idle') return { label: '已完成', kind: 'ok' }
-  return { label: '空闲', kind: 'idle' }
+  if (status === 'running' || status === 'opening') return { label: t('运行中'), kind: 'run' }
+  if (status === 'awaiting-approval') return { label: t('等待批准'), kind: 'ask' }
+  if (status === 'error') return { label: t('出错'), kind: 'err' }
+  if (status === 'idle') return { label: t('已完成'), kind: 'ok' }
+  return { label: t('空闲'), kind: 'idle' }
 }
 
 export function projectBasename(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] || path || '项目'
+  return parts[parts.length - 1] || path || t('项目')
 }
 
 function liveRow(item: MobileSessionListItem): MobileHomeSession {
@@ -174,7 +181,10 @@ export function buildMobileHomeGroups(
   return [...extra, ...groups]
 }
 
-export function filterMobileHomeGroups(groups: MobileHomeGroup[], query: string): MobileHomeGroup[] {
+export function filterMobileHomeGroups(
+  groups: MobileHomeGroup[],
+  query: string
+): MobileHomeGroup[] {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return groups
   return groups

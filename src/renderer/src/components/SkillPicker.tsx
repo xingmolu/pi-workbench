@@ -10,6 +10,7 @@ import {
 import type { AgentSnapshot } from '../../../shared/contracts'
 import type { SkillSummary } from '../../../shared/skills'
 import { skillDraftIdentity, skillSlashQuery, type SkillInsertion } from '../store/skill-draft'
+import { t } from '../../../shared/i18n'
 import '../assets/skills.css'
 
 export type SkillPickerHandle = {
@@ -121,23 +122,23 @@ const SkillPicker = forwardRef<
   }))
   if (!open) return null
   return (
-    <div ref={menu} className="skill-slash-menu" aria-label="技能命令菜单">
+    <div ref={menu} className="skill-slash-menu" aria-label={t('技能命令菜单')}>
       <div className="skill-slash-heading">
-        技能 <span>↑ ↓ 选择 · Enter 插入 · Esc 关闭</span>
+        {t('技能')} <span>{t('↑ ↓ 选择 · Enter 插入 · Esc 关闭')}</span>
       </div>
       {loading ? (
-        <p role="status">正在读取技能…</p>
+        <p role="status">{t('正在读取技能…')}</p>
       ) : error ? (
         <div role="alert">
-          技能列表读取失败。
+          {t('技能列表读取失败。')}
           <button type="button" onClick={() => setRetry((value) => value + 1)}>
-            重试
+            {t('重试')}
           </button>
         </div>
       ) : !filtered.length ? (
-        <p>没有匹配的已加载技能。</p>
+        <p>{t('没有匹配的已加载技能。')}</p>
       ) : (
-        <div id={listId} role="listbox" aria-label="技能命令">
+        <div id={listId} role="listbox" aria-label={t('技能命令')}>
           {filtered.map((skill, index) => (
             <button
               type="button"
@@ -151,7 +152,7 @@ const SkillPicker = forwardRef<
             >
               <strong>/skill:{skill.name}</strong>
               <span>{skill.description}</span>
-              <small>{skill.mode === 'manual-only' ? '仅手动调用' : '模型可发现'}</small>
+              <small>{skill.mode === 'manual-only' ? t('仅手动调用') : t('模型可发现')}</small>
             </button>
           ))}
         </div>

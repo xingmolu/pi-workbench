@@ -1,3 +1,5 @@
+// Must stay first: it sets the interface language before other modules build their strings.
+import './locale-boot'
 import { ProcessCpuSampler } from './process-cpu-sampler'
 import { NAVIGATION_LIBRARY_CHANNEL, projectIsHidden } from '../shared/navigation-library'
 import { NavigationLibrary } from './navigation-library'
@@ -9,10 +11,7 @@ import { RuntimeDirectory } from './runtime-directory'
 import { createClaudeRuntimePlugin } from './runtime-plugins/claude'
 import { createCodexRuntimePlugin } from './runtime-plugins/codex'
 import { EngineCredentialBroker } from './engine-credentials'
-import type {
-  CredentialGrantDecision,
-  CredentialGrantPrompt
-} from '../shared/engine-credentials'
+import type { CredentialGrantDecision, CredentialGrantPrompt } from '../shared/engine-credentials'
 import { runtimeStoragePaths } from './runtime-storage'
 import { createPiRuntimePlugin } from './runtime-plugins/pi'
 import { AgentRuntimeProviderRegistry } from './agent-runtime'
@@ -143,6 +142,7 @@ import { MobileGatewayService } from './mobile-gateway-service'
 import { liveToMobile, toMobileSnapshot, type MobileSessionBridge } from './mobile-session-bridge'
 import { systemGit } from './system-git'
 import icon from '../../resources/icon.png?asset'
+import { locale, t } from '../shared/i18n'
 
 const E2E_MODE = process.env['PI_DESKTOP_E2E'] === '1'
 assertE2EModeAllowed(E2E_MODE, app.isPackaged)
@@ -215,10 +215,10 @@ const foregroundCapabilities = new ForegroundCapabilityRouter({
     switch (request.capability) {
       case 'browser': {
         const manager = browserManager
-        if (!manager) throw new Error('浏览器工作台尚未就绪')
+        if (!manager) throw new Error(t('浏览器工作台尚未就绪'))
         if (!browserPluginEnabled())
           throw new Error(
-            '浏览器插件已关闭。在「设置 › Desktop 插件」中打开「浏览器」后，Pi 才能使用浏览器。'
+            t('浏览器插件已关闭。在「设置 › Desktop 插件」中打开「浏览器」后，Pi 才能使用浏览器。')
           )
         browserOwner?.webContents.send(WORKBENCH_EVENT_CHANNEL, {
           type: 'reveal',
@@ -235,7 +235,7 @@ const foregroundCapabilities = new ForegroundCapabilityRouter({
         )
       }
       case 'computer-use':
-        if (!computerUse) throw new Error('Computer Use 尚未就绪')
+        if (!computerUse) throw new Error(t('Computer Use 尚未就绪'))
         return computerUse.execute(
           request.operation,
           { ownerId, sessionId: request.sessionId, generation: request.generation },
@@ -325,19 +325,19 @@ const terminalManager = new TerminalManager({
       child.stderr?.on('data', () => handlers.diagnostic())
       const timeout = setTimeout(() => {
         child.kill()
-        reject(new Error('终端服务启动超时'))
+        reject(new Error(t('终端服务启动超时')))
       }, 4000)
       child.on('message', handlers.message)
       child.on('exit', () => {
         clearTimeout(timeout)
         handlers.exit()
-        reject(new Error('终端服务已退出'))
+        reject(new Error(t('终端服务已退出')))
       })
       child.on('error', () => {
         clearTimeout(timeout)
         child.kill()
         handlers.exit()
-        reject(new Error('终端服务启动失败'))
+        reject(new Error(t('终端服务启动失败')))
       })
       child.once('spawn', () => {
         clearTimeout(timeout)
@@ -357,7 +357,7 @@ const mutationCapabilities = new WorkerMutationCapabilities()
 const pluginAgentBridge = new PluginAgentBridge({
   contributions: async () => (workbenchHost ? workbenchHost.agentContributions() : null),
   runTool: (pluginId, name, input, signal) => {
-    if (!workbenchHost) return Promise.reject(new Error('插件运行时不可用'))
+    if (!workbenchHost) return Promise.reject(new Error(t('插件运行时不可用')))
     return workbenchHost.runAgentTool(pluginId, name, input, signal)
   },
   foregroundProject: () => activeProjectPath
@@ -467,7 +467,7 @@ const credentialBroker = new EngineCredentialBroker({
   },
   token: async (providerId) => {
     const result = await runtimeDirectory.request('pi', { type: 'account:token', providerId })
-    if (result.kind !== 'account-token') throw new Error('Pi 没有返回访问令牌')
+    if (result.kind !== 'account-token') throw new Error(t('Pi 没有返回访问令牌'))
     return result.token
   },
   grants: {
@@ -588,7 +588,7 @@ const sessionWorkers = new SessionWorkerSupervisor({
       type: 'event',
       event: 'disconnected',
       data: {
-        message: error?.message ?? '当前会话已断开；其他会话仍可继续。重新连接不会自动重发任务。'
+        message: error?.message ?? t('当前会话已断开；其他会话仍可继续。重新连接不会自动重发任务。')
       }
     })
   }
@@ -788,7 +788,7 @@ function updateWorkbenchContext(): void {
       generation: workbenchContextGeneration
     })
   } catch (error) {
-    console.warn('忽略过期的 Workbench 上下文', errorMessage(error))
+    console.warn(t('忽略过期的 Workbench 上下文'), errorMessage(error))
   }
 }
 
@@ -929,7 +929,7 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
   if (result.kind === 'snapshot' && !sessionWorkers.hasSelection)
     result.snapshot = { ...result.snapshot, desktopEpoch: sessionWorkers.selectionEpoch }
   if (result.kind !== 'snapshot') {
-    throw new Error(`Agent Host 未返回状态快照：${command.type}`)
+    throw new Error(t('Agent Host 未返回状态快照：{type}', { type: command.type }))
   }
   const selected = sessionWorkers.selectedScope
   if (
@@ -955,7 +955,7 @@ async function callHostSnapshot(command: SnapshotHostCommand): Promise<AgentSnap
 }
 
 function preferenceStore(): ElectronStore<Preferences> {
-  if (!preferences) throw new Error('偏好存储尚未就绪')
+  if (!preferences) throw new Error(t('偏好存储尚未就绪'))
   return preferences
 }
 
@@ -964,20 +964,20 @@ function navigationLibrary(): NavigationLibrary {
   return (nativeNavigationLibrary ??= new NavigationLibrary({
     store: preferenceStore(),
     mutationReason: (cwd, path) => {
-      if (globalConfiguration.busy) return '配置正在更新，请稍后重试'
+      if (globalConfiguration.busy) return t('配置正在更新，请稍后重试')
       if (
         activeProjectPath === cwd &&
         (!path || activeSessionPath === path) &&
         !lobbySnapshot?.ready
       )
-        return '工作区首页尚未就绪，请稍后重试'
+        return t('工作区首页尚未就绪，请稍后重试')
       for (const worker of sessionWorkers.getLiveSummaries())
         if (worker.cwd === cwd && (!path || worker.sessionPath === path))
           refreshWorkerSafety(worker.workerId)
       return sessionWorkers.navigationMutationReason(cwd, path)
     },
     renamedSession: async (cwd, path, name) => {
-      if (globalConfiguration.busy) throw new Error('配置正在更新，请稍后重试')
+      if (globalConfiguration.busy) throw new Error(t('配置正在更新，请稍后重试'))
       const { workerId, snapshot } = await sessionWorkers.openBackground({
         cwd,
         path,
@@ -985,7 +985,7 @@ function navigationLibrary(): NavigationLibrary {
       })
       const reason = sessionWorkers.navigationMutationReason(cwd, path)
       if (reason) throw new Error(reason)
-      if (!snapshot.sessionId) throw new Error('会话尚未保存，不能重命名')
+      if (!snapshot.sessionId) throw new Error(t('会话尚未保存，不能重命名'))
       await sessionWorkers
         .requestWorker(
           workerId,
@@ -1011,9 +1011,9 @@ function navigationLibrary(): NavigationLibrary {
     archivedSession: (cwd, path) => closeWorkspaceForNavigation(cwd, path),
     reveal: async (cwd) => {
       const canonical = await resolveExistingProjectPath(cwd)
-      if (!canonical) throw new Error('项目目录不存在或不可访问；可以从侧栏移除后重新添加')
+      if (!canonical) throw new Error(t('项目目录不存在或不可访问；可以从侧栏移除后重新添加'))
       const error = await shell.openPath(canonical)
-      if (error) throw new Error('无法打开项目目录：' + error)
+      if (error) throw new Error(t('无法打开项目目录：') + error)
     },
     copyPath: (cwd) => clipboard.writeText(cwd),
     changed: (data) => forwardEvent({ type: 'event', event: 'navigation-library', data })
@@ -1027,7 +1027,7 @@ function closeWorkspaceForNavigation(cwd: string, path?: string): void {
   const selectedCwd = selected?.project?.path ?? (!scope ? recoveryTarget?.project : null)
   const selectedPath = selected?.activeSessionPath ?? (!scope ? recoveryTarget?.session : null)
   if (selectedCwd !== cwd || (path && selectedPath !== path)) return
-  if (!lobbySnapshot?.ready) throw new Error('工作区首页尚未就绪')
+  if (!lobbySnapshot?.ready) throw new Error(t('工作区首页尚未就绪'))
   const desktopEpoch = sessionWorkers.clearSelection(scope)
   selectedWorkerId = null
   lastSelectionEpoch = desktopEpoch
@@ -1069,7 +1069,7 @@ async function openCanonicalProject(
       )
     : null
   sessionWorkers.validateSelected(expected)
-  if (catalog && catalog.kind !== 'project-catalog') throw new Error('项目会话目录不可读取')
+  if (catalog && catalog.kind !== 'project-catalog') throw new Error(t('项目会话目录不可读取'))
   const path =
     catalog?.kind === 'project-catalog'
       ? catalog.catalog.projects.find((project) => project.path === canonicalPath)?.sessions[0]
@@ -1082,7 +1082,7 @@ async function openCanonicalProject(
     origin
   )
   const persistedPath = pathToPersistAfterOpen(canonicalPath, snapshot)
-  if (!persistedPath) throw new Error('Agent Host 未确认所选工作区')
+  if (!persistedPath) throw new Error(t('Agent Host 未确认所选工作区'))
   navigationLibrary().restoreAfterOpen(persistedPath, snapshot.activeSessionPath)
   preferenceStore().set('lastProjectPath', persistedPath)
   preferenceStore().set('lastRuntimeId', selectedRuntime)
@@ -1100,7 +1100,7 @@ async function openUserProject(
   runtimeId?: string
 ): Promise<AgentSnapshot> {
   const canonicalPath = await resolveExistingProjectPath(candidatePath)
-  if (!canonicalPath) throw new Error('所选工作区不存在或不是文件夹')
+  if (!canonicalPath) throw new Error(t('所选工作区不存在或不是文件夹'))
   return projectOpenCoordinator.runUserOpen(() =>
     openCanonicalProject(canonicalPath, expected, origin, runtimeId)
   )
@@ -1120,7 +1120,8 @@ async function openWorker(
       source?.runtime?.id ??
       lobbyRuntimeId
   )
-  if (configurationFor(runtimeId).gate.busy) throw new Error('此引擎配置正在更新，请稍后切换会话')
+  if (configurationFor(runtimeId).gate.busy)
+    throw new Error(t('此引擎配置正在更新，请稍后切换会话'))
   const model =
     explicitModel ??
     (source?.runtime?.id === runtimeId &&
@@ -1176,7 +1177,7 @@ async function runtimeAccounts(): Promise<RuntimeAccounts[]> {
           }
         try {
           const result = await callLobby({ type: 'state:get' }, runtime.id)
-          if (result.kind !== 'snapshot') throw new Error('引擎未返回状态')
+          if (result.kind !== 'snapshot') throw new Error(t('引擎未返回状态'))
           const { accounts, login, loginPrompt, authGeneration } = result.snapshot
           return { ...base, accounts, login, loginPrompt, authGeneration: authGeneration ?? 0 }
         } catch (error) {
@@ -1199,7 +1200,7 @@ async function runtimeAccounts(): Promise<RuntimeAccounts[]> {
  */
 async function runtimeConfig(runtimeId: string, input: RuntimeConfigCommand): Promise<HostResult> {
   if (!runtimeProviders.manifests().some((runtime) => runtime.id === runtimeId))
-    throw new Error('未知的 Agent 引擎')
+    throw new Error(t('未知的 Agent 引擎'))
   let command: HostCommand = input
   if (command.type === 'endpoint:save') {
     // The configuration host has no chat; its own identity is the safe save context.
@@ -1211,7 +1212,7 @@ async function runtimeConfig(runtimeId: string, input: RuntimeConfigCommand): Pr
   }
   if (!globalMutations.has(command.type)) return callLobby(command, runtimeId)
   const configuration = configurationFor(runtimeId)
-  if (configuration.gate.busy) throw new Error('此引擎配置正在更新，请稍后重试')
+  if (configuration.gate.busy) throw new Error(t('此引擎配置正在更新，请稍后重试'))
   return configuration.gate.run(async () => {
     configuration.dirty = true
     const result = await callLobby(command, runtimeId)
@@ -1278,13 +1279,13 @@ async function refreshWorkers(runtimeId = currentRuntimeId()): Promise<void> {
 }
 async function preparePromptConfiguration(runtimeId = currentRuntimeId()): Promise<void> {
   const configuration = configurationFor(runtimeId)
-  if (configuration.gate.busy) throw new Error('此引擎配置正在更新，请稍后重试')
+  if (configuration.gate.busy) throw new Error(t('此引擎配置正在更新，请稍后重试'))
   if (configuration.dirty) await configuration.gate.run(() => refreshWorkers(runtimeId))
 }
 function assertPromptConfigurationReady(runtimeId = currentRuntimeId()): void {
   const configuration = configurationFor(runtimeId)
   if (configuration.gate.busy || configuration.dirty)
-    throw new Error('引擎配置已改变，请稍后重试发送')
+    throw new Error(t('引擎配置已改变，请稍后重试发送'))
 }
 async function dispatchWorkerCommand(
   command: HostCommand,
@@ -1314,7 +1315,7 @@ async function dispatchWorkerCommand(
   }
   if (command.type === 'account:login:respond') return request()
   const configuration = configurationFor(runtimeId)
-  if (configuration.gate.busy) throw new Error('此引擎配置正在更新，请稍后重试')
+  if (configuration.gate.busy) throw new Error(t('此引擎配置正在更新，请稍后重试'))
   if (globalMutations.has(command.type)) {
     return configuration.gate.run(async () => {
       configuration.dirty = true
@@ -1341,7 +1342,7 @@ function createMobileSessionBridge(): MobileSessionBridge {
     identity?: { sessionId: string | null; generation: number }
   ): Promise<HostResult> => {
     const runtimeId = sessionWorkers.getSnapshot(workerId)?.runtime?.id ?? lobbyRuntimeId
-    if (configurationFor(runtimeId).gate.busy) throw new Error('此引擎配置正在更新，请稍后重试')
+    if (configurationFor(runtimeId).gate.busy) throw new Error(t('此引擎配置正在更新，请稍后重试'))
     if (command.type === 'prompt:send') {
       await preparePromptConfiguration(runtimeId)
       assertPromptConfigurationReady(runtimeId)
@@ -1393,7 +1394,7 @@ function createMobileSessionBridge(): MobileSessionBridge {
         model
       )
       const workerId = snapshot.desktopScope?.workerId
-      if (!workerId) throw new Error('会话未打开')
+      if (!workerId) throw new Error(t('会话未打开'))
       return toMobileSnapshot(workerId, cwd, snapshot)
     },
     send: async (workerId, text, sessionId, generation, images) => {
@@ -1498,7 +1499,7 @@ async function attemptRecentProjectRestore(): Promise<AgentSnapshot | null> {
     )
   } catch (error) {
     store.delete('lastProjectPath')
-    console.warn('无法恢复最近工作区', errorMessage(error))
+    console.warn(t('无法恢复最近工作区'), errorMessage(error))
     return null
   }
 }
@@ -1518,16 +1519,16 @@ function startAgentHost(): void {
 function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
   const owner = BrowserWindow.fromWebContents(event.sender)
   if (!owner || event.senderFrame !== event.sender.mainFrame) {
-    throw new Error('拒绝非主窗口 IPC 请求')
+    throw new Error(t('拒绝非主窗口 IPC 请求'))
   }
   const source = new URL(event.senderFrame.url)
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (is.dev && rendererUrl) {
     if (source.origin !== new URL(rendererUrl).origin) {
-      throw new Error('拒绝非本地开发页面 IPC 请求')
+      throw new Error(t('拒绝非本地开发页面 IPC 请求'))
     }
   } else if (source.href !== pathToFileURL(join(__dirname, '../renderer/index.html')).href) {
-    throw new Error('拒绝非应用页面 IPC 请求')
+    throw new Error(t('拒绝非应用页面 IPC 请求'))
   }
 }
 
@@ -1552,7 +1553,7 @@ const appUpdates = new AppUpdates({
     },
     write: (token) => {
       if (!token) return preferenceStore().delete('updateToken')
-      if (!safeStorage.isEncryptionAvailable()) throw new Error('这台电脑无法安全保存令牌')
+      if (!safeStorage.isEncryptionAvailable()) throw new Error(t('这台电脑无法安全保存令牌'))
       preferenceStore().set('updateToken', safeStorage.encryptString(token).toString('base64'))
     }
   },
@@ -1599,6 +1600,14 @@ const APP_UPDATE_COMMANDS = new Set<AppUpdateCommand['type']>([
 ])
 
 function registerIpc(): void {
+  ipcMain.on('pi:locale', (event) => {
+    event.returnValue = locale()
+  })
+  ipcMain.handle('pi:relaunch', (event) => {
+    assertTrustedRenderer(event)
+    app.relaunch()
+    app.quit()
+  })
   ipcMain.handle(DIAGNOSTICS_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
     const type = (command as DiagnosticsCommand | undefined)?.type
@@ -1609,15 +1618,18 @@ function registerIpc(): void {
       if (error) throw new Error(error)
       return { opened: true }
     }
-    if (type !== 'export') throw new Error('无效的诊断操作')
+    if (type !== 'export') throw new Error(t('无效的诊断操作'))
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
     const target =
       E2E_MODE && process.env.PI_DESKTOP_E2E_DIAGNOSTICS_PATH
         ? process.env.PI_DESKTOP_E2E_DIAGNOSTICS_PATH
         : (
             await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender)!, {
-              title: '导出诊断信息',
-              defaultPath: join(app.getPath('downloads'), `pi-desktop-诊断-${stamp}.md`),
+              title: t('导出诊断信息'),
+              defaultPath: join(
+                app.getPath('downloads'),
+                t('pi-desktop-诊断-{stamp}.md', { stamp })
+              ),
               filters: [{ name: 'Markdown', extensions: ['md'] }],
               properties: ['showOverwriteConfirmation']
             })
@@ -1630,9 +1642,9 @@ function registerIpc(): void {
     assertTrustedRenderer(event)
     const value = command as AppUpdateCommand | undefined
     if (!value || typeof value !== 'object' || !APP_UPDATE_COMMANDS.has(value.type))
-      throw new Error('无效的更新操作')
+      throw new Error(t('无效的更新操作'))
     if (value.type === 'token:set' && typeof value.token !== 'string')
-      throw new Error('无效的令牌')
+      throw new Error(t('无效的令牌'))
     return appUpdates.handle(value)
   })
   ipcMain.handle(NAVIGATION_LIBRARY_CHANNEL, (event, command: unknown) => {
@@ -1648,7 +1660,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(MOBILE_GATEWAY_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
-    if (!mobileGateway) throw new Error('手机网关尚未就绪')
+    if (!mobileGateway) throw new Error(t('手机网关尚未就绪'))
     return mobileGateway.dispatch(command)
   })
   const nativeComputerUseHelperPath = app.isPackaged
@@ -1683,9 +1695,9 @@ function registerIpc(): void {
   })
   const tableExporter = new MarkdownTableExporter((owner) =>
     dialog.showSaveDialog(BrowserWindow.fromId(owner.id)!, {
-      title: '保存表格 CSV',
-      defaultPath: '表格.csv',
-      filters: [{ name: 'CSV 表格', extensions: ['csv'] }],
+      title: t('保存表格 CSV'),
+      defaultPath: t('表格.csv'),
+      filters: [{ name: t('CSV 表格'), extensions: ['csv'] }],
       properties: ['showOverwriteConfirmation']
     })
   )
@@ -1694,13 +1706,13 @@ function registerIpc(): void {
       assertTrustedRenderer(event)
       return tableExporter.export(BrowserWindow.fromWebContents(event.sender)!, request)
     } catch {
-      return { status: 'failed', message: '无法从此窗口保存表格。' }
+      return { status: 'failed', message: t('无法从此窗口保存表格。') }
     }
   })
   ipcMain.handle(TEXT_ATTACHMENT_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
     const parsed = attachmentCommandSchema.safeParse(command)
-    if (!parsed.success) return { type: 'error', message: '无效的文本文件请求' }
+    if (!parsed.success) return { type: 'error', message: t('无效的文本文件请求') }
     const request = parsed.data
     const owner = event.sender.id
     const receiptWorkerId =
@@ -1727,7 +1739,7 @@ function registerIpc(): void {
                 : { sessionId: request.scope.sessionId, generation: request.scope.generation }
             )
             .finally(() => foregroundCapabilities.invalidate())
-        : Promise.reject(new Error('附件所属会话已结束'))
+        : Promise.reject(new Error(t('附件所属会话已结束')))
     try {
       if (request.type === 'send' || request.type === 'query') {
         for (const [id, entry] of attachmentSubmissions)
@@ -1839,9 +1851,9 @@ function registerIpc(): void {
       if (request.type === 'remove') textAttachments.remove(owner, request.scope, request.id)
       if (request.type === 'pick') {
         const window = BrowserWindow.fromWebContents(event.sender)
-        if (!window) throw new Error('窗口已关闭')
+        if (!window) throw new Error(t('窗口已关闭'))
         const selected = await dialog.showOpenDialog(window, {
-          title: '添加 UTF-8 文本文件',
+          title: t('添加 UTF-8 文本文件'),
           properties: ['openFile', 'multiSelections']
         })
         check()
@@ -1871,7 +1883,7 @@ function registerIpc(): void {
           receipt: { submissionId: request.submissionId, status: 'rejected', code: 'stale' }
         }
       const message =
-        error instanceof Error && !('code' in error) ? error.message : '无法添加文本文件，请重试'
+        error instanceof Error && !('code' in error) ? error.message : t('无法添加文本文件，请重试')
       return { type: 'error', message }
     }
   })
@@ -1879,7 +1891,7 @@ function registerIpc(): void {
     try {
       assertTrustedRenderer(event)
     } catch {
-      return { type: 'unavailable', message: '拒绝非可信主窗口终端请求' }
+      return { type: 'unavailable', message: t('拒绝非可信主窗口终端请求') }
     }
     if (
       !terminalPluginEnabled() &&
@@ -1889,7 +1901,7 @@ function registerIpc(): void {
     )
       return {
         type: 'unavailable',
-        message: '终端插件已关闭。在「设置 › Desktop 插件」中打开「终端」后才能新建终端。'
+        message: t('终端插件已关闭。在「设置 › Desktop 插件」中打开「终端」后才能新建终端。')
       }
     return terminalManager.dispatch(event.sender.id, command)
   })
@@ -1897,15 +1909,19 @@ function registerIpc(): void {
     assertTrustedRenderer(event)
     const parsed = gitReviewCommandSchema.safeParse(command)
     if (!parsed.success)
-      return { type: 'unavailable', reason: 'invalid-request', message: '无效的 Git Review 请求' }
+      return {
+        type: 'unavailable',
+        reason: 'invalid-request',
+        message: t('无效的 Git Review 请求')
+      }
     if (!gitReview)
-      return { type: 'unavailable', reason: 'git-unavailable', message: '可信 Git 服务不可用' }
+      return { type: 'unavailable', reason: 'git-unavailable', message: t('可信 Git 服务不可用') }
     return gitReview.dispatch(parsed.data)
   })
   ipcMain.handle(WORKSPACE_FILES_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
     const parsed = workspaceFilesCommandSchema.safeParse(command)
-    if (!parsed.success) throw new Error('无效的工作区文件请求')
+    if (!parsed.success) throw new Error(t('无效的工作区文件请求'))
     return workspaceFiles.dispatch(parsed.data)
   })
   ipcMain.handle('pi:reconnect', async (event) => {
@@ -1969,13 +1985,13 @@ function registerIpc(): void {
       !parsed.success ||
       !RUNTIME_CONFIG_COMMANDS.has(parsed.data.type as RuntimeConfigCommand['type'])
     )
-      throw new Error('无效的配置操作')
+      throw new Error(t('无效的配置操作'))
     return runtimeConfig(runtimeId, parsed.data as RuntimeConfigCommand)
   })
   ipcMain.handle('pi:credential-grant:respond', (event, id: unknown, decision: unknown) => {
     assertTrustedRenderer(event)
     if (typeof id !== 'string' || !['once', 'always', 'deny'].includes(decision as string))
-      throw new Error('无效的授权回应')
+      throw new Error(t('无效的授权回应'))
     credentialPrompts.get(id)?.(decision as CredentialGrantDecision)
   })
   ipcMain.handle('pi:credential-grants', (event) => {
@@ -1985,27 +2001,25 @@ function registerIpc(): void {
   ipcMain.handle('pi:credential-grant:revoke', (event, runtimeId: unknown, account: unknown) => {
     assertTrustedRenderer(event)
     if (typeof runtimeId !== 'string' || typeof account !== 'string')
-      throw new Error('无效的授权')
+      throw new Error(t('无效的授权'))
     credentialBroker.revoke(runtimeId, account)
     return credentialBroker.grantList()
   })
   ipcMain.handle('pi:engine-binary', async (event, runtimeId: unknown, action: unknown) => {
     assertTrustedRenderer(event)
     if (typeof runtimeId !== 'string' || !isDownloadableEngine(runtimeId))
-      throw new Error('这个引擎不需要下载')
+      throw new Error(t('这个引擎不需要下载'))
     if (action === 'remove') {
       await runtimeDirectory.restart(runtimeId)
       await engineBinaries.remove(runtimeId)
       return engineBinaries.status(runtimeId)
     }
-    if (action !== 'install') throw new Error('无效的引擎操作')
+    if (action !== 'install') throw new Error(t('无效的引擎操作'))
     // Answer at once; Settings follows progress through runtimeAccounts.
     void engineBinaries
       .install(runtimeId)
       .then(() => runtimeDirectory.restart(runtimeId))
-      .catch((error) =>
-        console.warn(`Engine download failed (${runtimeId}):`, errorMessage(error))
-      )
+      .catch((error) => console.warn(`Engine download failed (${runtimeId}):`, errorMessage(error)))
     return engineBinaries.status(runtimeId)
   })
   ipcMain.handle('pi:default-runtime', (event) => {
@@ -2018,12 +2032,12 @@ function registerIpc(): void {
       typeof runtimeId !== 'string' ||
       !runtimeProviders.manifests().some((runtime) => runtime.id === runtimeId)
     )
-      throw new Error('未知的 Agent 引擎')
+      throw new Error(t('未知的 Agent 引擎'))
     preferenceStore().set('defaultRuntimeId', runtimeId)
   })
   ipcMain.handle('pi:runtime-select', async (event, runtimeId: unknown, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)
-    if (typeof runtimeId !== 'string') throw new Error('无效的引擎标识')
+    if (typeof runtimeId !== 'string') throw new Error(t('无效的引擎标识'))
     runtimeProviders.resolveProviderId(runtimeId)
     const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
     const captured = sessionWorkers.captureNavigation(origin)
@@ -2031,7 +2045,7 @@ function registerIpc(): void {
     if (project) return openWorker({ cwd: project, runtimeId }, captured, undefined, origin)
     const result = await callLobby({ type: 'state:get' }, runtimeId)
     sessionWorkers.validateSelected(captured)
-    if (result.kind !== 'snapshot') throw new Error('引擎未返回状态')
+    if (result.kind !== 'snapshot') throw new Error(t('引擎未返回状态'))
     lobbyRuntimeId = runtimeId
     lobbyOwnerId = runtimeDirectory.owner(runtimeId)
     lobbySnapshot = result.snapshot
@@ -2043,7 +2057,7 @@ function registerIpc(): void {
   ipcMain.handle('pi:subagent-inspect', (event, taskId: unknown, rawOrigin: unknown) => {
     assertTrustedRenderer(event)
     if (typeof taskId !== 'string' || !taskId || taskId.length > 256)
-      throw new Error('无效的子 Agent 标识')
+      throw new Error(t('无效的子 Agent 标识'))
     const origin = desktopCommandOriginSchema.parse(rawOrigin)
     sessionWorkers.capture(origin)
     const snapshot = sessionWorkers.getSnapshot(origin.scope.workerId)!
@@ -2060,14 +2074,14 @@ function registerIpc(): void {
           { sessionId: origin.sessionId, generation: origin.generation }
         )
         .then((result) => {
-          if (result.kind !== 'subagent-inspection') throw new Error('子 Agent 内容不可读取')
+          if (result.kind !== 'subagent-inspection') throw new Error(t('子 Agent 内容不可读取'))
           return result.snapshot
         })
     return sessionWorkers.inspectSessionTask(taskId, origin)
   })
   ipcMain.handle('pi:session-select', (event, workerId: unknown, rawOrigin?: unknown) => {
     assertTrustedRenderer(event)
-    if (typeof workerId !== 'string' || !workerId) throw new Error('无效的会话标识')
+    if (typeof workerId !== 'string' || !workerId) throw new Error(t('无效的会话标识'))
     const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
     const captured = sessionWorkers.captureNavigation(origin)
     let resident = false
@@ -2099,7 +2113,7 @@ function registerIpc(): void {
     assertTrustedRenderer(event)
     const origin = rawOrigin === undefined ? undefined : desktopCommandOriginSchema.parse(rawOrigin)
     const parsed = hostCommandSchema.safeParse(command)
-    if (!parsed.success) throw new Error('无效的 Pi Desktop IPC 请求')
+    if (!parsed.success) throw new Error(t('无效的 Pi Desktop IPC 请求'))
     const captured = [
       'project:open',
       'project:navigate',
@@ -2113,13 +2127,17 @@ function registerIpc(): void {
       : sessionWorkers.capture(origin)
     if (
       // `account:token` hands out credentials and is only for Main's own engine broker.
-      ['mcp:shutdown', 'runtime:shutdown', 'runtime:refresh', 'bootstrap', 'account:token'].includes(
-        parsed.data.type
-      )
+      [
+        'mcp:shutdown',
+        'runtime:shutdown',
+        'runtime:refresh',
+        'bootstrap',
+        'account:token'
+      ].includes(parsed.data.type)
     )
-      throw new Error('该命令仅供宿主内部使用')
+      throw new Error(t('该命令仅供宿主内部使用'))
     if (parsed.data.type === 'attachment:prompt' || parsed.data.type === 'attachment:query')
-      throw new Error('文本附件必须通过文件选择入口发送')
+      throw new Error(t('文本附件必须通过文件选择入口发送'))
     if (parsed.data.type === 'project:open') {
       const snapshot = await openUserProject(
         parsed.data.cwd,
@@ -2149,7 +2167,7 @@ function registerIpc(): void {
       return projectOpenCoordinator
         .runUserOpen(async () => {
           const cwd = await resolveExistingProjectPath(command.cwd)
-          if (!cwd) throw new Error('所选项目目录不可用，请重试')
+          if (!cwd) throw new Error(t('所选项目目录不可用，请重试'))
           const snapshot = await openWorker(
             {
               cwd,
@@ -2177,7 +2195,7 @@ function registerIpc(): void {
     }
     if (parsed.data.type === 'session:new' || parsed.data.type === 'session:open') {
       const cwd = captured ? sessionWorkers.getSnapshot(captured.workerId)?.project?.path : null
-      if (!cwd) throw new Error('请先选择项目')
+      if (!cwd) throw new Error(t('请先选择项目'))
       const request = parsed.data
       const snapshot = await openWorker(
         {
@@ -2197,7 +2215,7 @@ function registerIpc(): void {
       return { kind: 'snapshot', snapshot } satisfies HostResult
     }
     if (parsed.data.type === 'browser:e2e' && !E2E_MODE) {
-      throw new Error('该 Agent Browser 测试命令只在 E2E 模式可用')
+      throw new Error(t('该 Agent Browser 测试命令只在 E2E 模式可用'))
     }
     return dispatchWorkerCommand(parsed.data, origin, captured)
   })
@@ -2208,11 +2226,11 @@ function registerIpc(): void {
     const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const result = owner
       ? await dialog.showOpenDialog(owner, {
-          title: '选择 Pi 工作区',
+          title: t('选择 Pi 工作区'),
           properties: ['openDirectory', 'createDirectory']
         })
       : await dialog.showOpenDialog({
-          title: '选择 Pi 工作区',
+          title: t('选择 Pi 工作区'),
           properties: ['openDirectory', 'createDirectory']
         })
 
@@ -2223,9 +2241,9 @@ function registerIpc(): void {
   ipcMain.handle('pi:browser', async (event, command: BrowserCommand) => {
     assertTrustedRenderer(event)
     const parsed = browserCommandSchema.safeParse(command)
-    if (!parsed.success) throw new Error('无效的浏览器 IPC 请求')
+    if (!parsed.success) throw new Error(t('无效的浏览器 IPC 请求'))
     const manager = browserManager
-    if (!manager) throw new Error('浏览器工作台尚未就绪')
+    if (!manager) throw new Error(t('浏览器工作台尚未就绪'))
     switch (parsed.data.type) {
       case 'state:get':
         return { state: manager.getState() }
@@ -2237,9 +2255,9 @@ function registerIpc(): void {
         manager.abortAgent()
         return { state: manager.getState() }
       case 'e2e:agent': {
-        if (!E2E_MODE) throw new Error('该浏览器测试命令只在 E2E 模式可用')
+        if (!E2E_MODE) throw new Error(t('该浏览器测试命令只在 E2E 模式可用'))
         const ownerId = sessionWorkers.selectedScope?.workerId ?? lobbyOwnerId
-        if (!ownerId) throw new Error('请先打开 Agent 会话')
+        if (!ownerId) throw new Error(t('请先打开 Agent 会话'))
         const scope = browserAgentScope(ownerId, activeHostIdentity)
         const result = await manager.executePrepared(
           scope,
@@ -2253,9 +2271,9 @@ function registerIpc(): void {
   ipcMain.handle(WORKBENCH_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)
     const parsed = workbenchCommandSchema.safeParse(command)
-    if (!parsed.success) throw new Error('无效的 Workbench IPC 请求')
+    if (!parsed.success) throw new Error(t('无效的 Workbench IPC 请求'))
     const host = workbenchHost
-    if (!host) throw new Error('Workbench 尚未就绪')
+    if (!host) throw new Error(t('Workbench 尚未就绪'))
     const result = await host.dispatch(parsed.data)
     nativePaletteFocus.surfaceUpdated()
     return result
@@ -2283,7 +2301,7 @@ function openMobilePreview(url: string): void {
       width: 400,
       height: 840,
       minWidth: 320,
-      title: '手机端预览',
+      title: t('手机端预览'),
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#181818' : '#ffffff',
       webPreferences: {
         partition: 'persist:pi-mobile-preview',
@@ -2436,7 +2454,7 @@ function createWindow(): void {
   })
   updateWorkbenchContext()
   void workbenchHost.reload().catch((error) => {
-    console.error('无法加载 Workbench 插件', errorMessage(error))
+    console.error(t('无法加载 Workbench 插件'), errorMessage(error))
   })
   packageRootsLifecycle.attachHost(workbenchHost)
 
@@ -2448,7 +2466,7 @@ function createWindow(): void {
         void shell.openExternal(target.toString())
       }
     } catch (error) {
-      console.warn('拒绝打开无效链接', errorMessage(error))
+      console.warn(t('拒绝打开无效链接'), errorMessage(error))
     }
     return { action: 'deny' }
   })
@@ -2557,7 +2575,7 @@ app.whenReady().then(async () => {
     })
     gitReview.setProject(activeProjectPath)
   } catch {
-    console.warn('Git Review 初始化失败')
+    console.warn(t('Git Review 初始化失败'))
   }
 
   const Store = await loadElectronStoreConstructor()
@@ -2640,11 +2658,11 @@ app.whenReady().then(async () => {
         plugins: new MobilePluginViews({
           views: () => workbenchHost?.mobileViews() ?? [],
           context: (viewId) => {
-            if (!workbenchHost) throw new Error('插件宿主尚未就绪')
+            if (!workbenchHost) throw new Error(t('插件宿主尚未就绪'))
             return workbenchHost.panelContext(viewId)
           },
           call: (viewId, method, params, approve) => {
-            if (!workbenchHost) return Promise.reject(new Error('插件宿主尚未就绪'))
+            if (!workbenchHost) return Promise.reject(new Error(t('插件宿主尚未就绪')))
             return workbenchHost.mobileCall(viewId, method, params, approve)
           }
         })
@@ -2663,9 +2681,7 @@ app.whenReady().then(async () => {
       kind: details.type.toLowerCase(),
       reason: details.reason,
       exitCode: details.exitCode,
-      ...(details.serviceName || details.name
-        ? { name: details.serviceName ?? details.name }
-        : {})
+      ...(details.serviceName || details.name ? { name: details.serviceName ?? details.name } : {})
     })
   })
   registerIpc()

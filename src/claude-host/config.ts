@@ -4,6 +4,7 @@ import { readFile, mkdir, writeFile, rename } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { ClaudeStorage } from './storage'
+import { t } from '../shared/i18n'
 /** A Claude subscription login kept in its own configuration home under `accounts/<id>`. */
 const accountSchema = z
   .object({
@@ -49,7 +50,7 @@ export function bundledClaudeExecutable(): string {
     )
   } catch {
     // Installers no longer ship the CLI; Settings downloads it on first use.
-    throw new Error('Claude Code 尚未下载：在「设置 › 引擎与账号」里下载后即可使用')
+    throw new Error(t('Claude Code 尚未下载：在「设置 › 引擎与账号」里下载后即可使用'))
   }
   return join(
     dirname(packagePath).replace('app.asar/', 'app.asar.unpacked/'),

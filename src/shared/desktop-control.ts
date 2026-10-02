@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 export const DESKTOP_CONTROL_CHANNEL = 'pi:desktop-control'
 
@@ -41,9 +42,9 @@ export function desktopControlGateMessage(input: {
   sessionUnlocked: boolean
   accessibilityGranted: boolean
 }): string | null {
-  if (!input.platformSupported) return '桌面控制仅在 macOS 上可用。'
-  if (!input.sessionUnlocked) return '锁屏或锁定会话中拒绝桌面控制。请解锁后再试。'
-  if (!input.accessibilityGranted) return '尚未确认辅助功能授权，拒绝桌面控制。'
+  if (!input.platformSupported) return t('桌面控制仅在 macOS 上可用。')
+  if (!input.sessionUnlocked) return t('锁屏或锁定会话中拒绝桌面控制。请解锁后再试。')
+  if (!input.accessibilityGranted) return t('尚未确认辅助功能授权，拒绝桌面控制。')
   return null
 }
 
@@ -84,11 +85,11 @@ export const screenRecordingAccessSchema = z.enum([
 export type ScreenRecordingAccess = z.infer<typeof screenRecordingAccessSchema>
 
 export const SCREEN_RECORDING_CHIP_LABELS = {
-  granted: '已授权',
-  denied: '未授权',
-  restricted: '受限',
-  pending: '待确认',
-  unsupported: '不支持'
+  granted: t('已授权'),
+  denied: t('未授权'),
+  restricted: t('受限'),
+  pending: t('待确认'),
+  unsupported: t('不支持')
 } as const
 
 export function mapScreenRecordingAccess(

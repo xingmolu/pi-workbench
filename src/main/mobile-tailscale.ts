@@ -3,11 +3,13 @@ import { accessSync, constants } from 'node:fs'
 import { delimiter, join, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import type { TailscaleGatewayStatus } from '../shared/mobile-gateway'
+import { t } from '../shared/i18n'
 
 const execFileAsync = promisify(execFile)
 
-export const MISSING_TAILSCALE_CLI =
+export const MISSING_TAILSCALE_CLI = t(
   '未找到 Tailscale CLI。安装 Tailscale 后即可把回环网关代理到尾网。'
+)
 
 /** Absolute locations Electron GUI apps often miss because Homebrew is not on PATH. */
 export const TAILSCALE_BINARY_CANDIDATES = [
@@ -200,10 +202,9 @@ export async function probeTailscale(
   try {
     const { stdout } = await runTailscale(options, binary, ['status', '--json'], 2500, 1024 * 1024)
     const parsed = asRecord(JSON.parse(stdout))
-    if (!parsed) throw new Error('Tailscale 状态不可读')
+    if (!parsed) throw new Error(t('Tailscale 状态不可读'))
     const self = asRecord(parsed.Self) ?? asRecord(parsed.self)
-    const magicDns =
-      typeof self?.DNSName === 'string' ? self.DNSName.replace(/\.$/, '') : null
+    const magicDns = typeof self?.DNSName === 'string' ? self.DNSName.replace(/\.$/, '') : null
     const online = self?.Online === true || parsed.BackendState === 'Running'
     let serveUrl: string | null = null
     try {

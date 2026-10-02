@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { WorkbenchCommand } from '../../../shared/contracts'
 import { createSandboxedPluginPaneController } from './sandboxed-plugin-pane-controller'
+import { t } from '../../../shared/i18n'
 
 type SandboxedPluginPaneProps = {
   viewId: string
@@ -69,7 +70,7 @@ export default function SandboxedPluginPane({
 
   return (
     <div className="sandboxed-plugin-pane" ref={viewportRef}>
-      {visible && unavailable ? <div role="status">插件面板暂不可用。</div> : null}
+      {visible && unavailable ? <div role="status">{t('插件面板暂不可用。')}</div> : null}
     </div>
   )
 }

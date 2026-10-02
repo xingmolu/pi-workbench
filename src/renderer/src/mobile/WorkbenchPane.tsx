@@ -10,6 +10,7 @@ import { mobileApi } from './api'
 import { PluginFrameView } from './PluginFrameView'
 import { RemoteBrowserView } from './RemoteBrowserView'
 import { RemoteTerminalView } from './RemoteTerminalView'
+import { t } from '../../../shared/i18n'
 
 /** Route ids for plugin pages; browser and terminals keep their own ids. */
 const PLUGIN = 'plugin:'
@@ -27,7 +28,7 @@ function tabs(views: RemoteViewSummary[], plugins: MobilePluginView[]): Tab[] {
     ...plugins.map((view) => ({
       id: `${PLUGIN}${view.id}`,
       title: view.title,
-      detail: view.available ? view.pluginName : '需要电脑上打开一个项目',
+      detail: view.available ? view.pluginName : t('需要电脑上打开一个项目'),
       kind: 'plugin' as const,
       available: view.available
     })),
@@ -90,17 +91,17 @@ export function WorkbenchPane({
         <button
           type="button"
           className="m-icon m-back"
-          aria-label="返回"
+          aria-label={t('返回')}
           onClick={() => (viewId ? onSelect() : onBack())}
         >
           <ChevronLeft size={20} />
         </button>
-        <h1>{selected?.title ?? '打开标签页'}</h1>
+        <h1>{selected?.title ?? t('打开标签页')}</h1>
         {!viewId ? (
           <button
             type="button"
             className="m-icon"
-            aria-label="刷新标签页列表"
+            aria-label={t('刷新标签页列表')}
             onClick={() => void load()}
           >
             <RefreshCw size={17} />
@@ -116,16 +117,19 @@ export function WorkbenchPane({
       ) : null}
       {access === 'off' ? (
         <p className="m-empty">
-          电脑没有开放远程工作台。请在电脑上打开「设置 › 手机 ›
-          远程工作台」，选择「只看」或「可操作」。
+          {t(
+            '电脑没有开放远程工作台。请在电脑上打开「设置 › 手机 › 远程工作台」，选择「只看」或「可操作」。'
+          )}
         </p>
       ) : null}
 
       {!viewId && access && access !== 'off' ? (
         items.length ? (
-          <nav className="m-tabs" aria-label="电脑上的标签页">
+          <nav className="m-tabs" aria-label={t('电脑上的标签页')}>
             <p className="m-tabs-note">
-              {control ? '可以在手机上操作这些标签页。' : '电脑只允许查看，操作需要在电脑上开启。'}
+              {control
+                ? t('可以在手机上操作这些标签页。')
+                : t('电脑只允许查看，操作需要在电脑上开启。')}
             </p>
             {items.map((item) => (
               <button
@@ -148,7 +152,7 @@ export function WorkbenchPane({
           </nav>
         ) : (
           <p className="m-empty">
-            电脑上没有可以在手机打开的标签页。在 Desktop 插件中启用 Git、浏览器或终端后再试。
+            {t('电脑上没有可以在手机打开的标签页。在 Desktop 插件中启用 Git、浏览器或终端后再试。')}
           </p>
         )
       ) : null}
@@ -166,7 +170,7 @@ export function WorkbenchPane({
           onError={setError}
         />
       ) : viewId && access && access !== 'off' && items.length ? (
-        <p className="m-empty">这个标签页已经关闭。</p>
+        <p className="m-empty">{t('这个标签页已经关闭。')}</p>
       ) : null}
     </>
   )

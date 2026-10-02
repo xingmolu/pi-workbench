@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { t } from './i18n/index.ts'
 
 export const NAVIGATION_LIBRARY_CHANNEL = 'pi:navigation-library'
 const path = z
   .string()
   .min(1)
   .max(4096)
-  .refine((value) => !value.includes('\0'), '路径无效')
+  .refine((value) => !value.includes('\0'), t('路径无效'))
 const stamp = z.number().int().nonnegative()
 const projectPreferenceSchema = z.strictObject({
   name: z.string().trim().max(80).optional(),

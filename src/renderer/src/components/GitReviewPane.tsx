@@ -3,24 +3,25 @@ import { parsePatchFiles } from '@pierre/diffs'
 import { ChevronDown, ChevronRight, FileDiff, RefreshCw } from 'lucide-react'
 import type { GitReviewEntry, GitReviewResult, GitReviewView } from '../../../shared/git-review'
 import GitPatchView from './GitPatchView'
+import { t } from '../../../shared/i18n'
 
 type Inventory = Extract<GitReviewResult, { type: 'list' }>
 type Patch = Extract<GitReviewResult, { type: 'patch' }>
 const modes: [GitReviewView, string, string][] = [
-  ['unstaged', '未暂存', '暂存区 → 工作区'],
-  ['staged', '已暂存', 'HEAD → 暂存区（首次提交前也可查看）'],
-  ['branch', '分支', '所选基准与 HEAD 的共同祖先 → HEAD · 仅已提交内容']
+  ['unstaged', t('未暂存'), t('暂存区 → 工作区')],
+  ['staged', t('已暂存'), t('HEAD → 暂存区（首次提交前也可查看）')],
+  ['branch', t('分支'), t('所选基准与 HEAD 的共同祖先 → HEAD · 仅已提交内容')]
 ]
 const statusLabels: Record<string, string> = {
-  M: '修改',
-  A: '新增',
-  D: '删除',
-  T: '类型变化',
-  U: '冲突',
-  '?': '未跟踪'
+  M: t('修改'),
+  A: t('新增'),
+  D: t('删除'),
+  T: t('类型变化'),
+  U: t('冲突'),
+  '?': t('未跟踪')
 }
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : '请求失败，请刷新重试'
+  return error instanceof Error ? error.message : t('请求失败，请刷新重试')
 }
 
 export default function GitReviewPane({
@@ -86,7 +87,7 @@ export default function GitReviewPane({
         .then((result) => {
           if (!active) return
           if (result.type === 'refs') setRefs(result.refs)
-          else setRefsError(result.type === 'unavailable' ? result.message : '无法读取比较基准')
+          else setRefsError(result.type === 'unavailable' ? result.message : t('无法读取比较基准'))
         })
         .catch((error) => {
           if (active) setRefsError(errorText(error))
@@ -116,7 +117,9 @@ export default function GitReviewPane({
           if (!active) return
           if (result.type === 'list') setInventory(result)
           else
-            setListError(result.type === 'unavailable' ? result.message : '无法读取 Git 文件清单')
+            setListError(
+              result.type === 'unavailable' ? result.message : t('无法读取 Git 文件清单')
+            )
         })
         .catch((error) => {
           if (active) setListError(errorText(error))
@@ -146,14 +149,14 @@ export default function GitReviewPane({
       if (!projectPath || !inventory || !ready) return
       if (entry.kind === 'untracked') {
         if (!entry.previewPath)
-          throw new Error(entry.previewUnavailable ?? '此路径暂不支持只读预览')
+          throw new Error(entry.previewUnavailable ?? t('此路径暂不支持只读预览'))
         const result = await window.pi.workspaceFiles({
           type: 'read',
           projectPath,
           path: entry.previewPath
         })
         if (request !== epoch.current) return
-        if (result.type !== 'read') throw new Error('无法读取未跟踪文件')
+        if (result.type !== 'read') throw new Error(t('无法读取未跟踪文件'))
         setPreview(result.text)
       } else {
         const result = await window.pi.gitReview({
@@ -164,9 +167,9 @@ export default function GitReviewPane({
         })
         if (request !== epoch.current) return
         if (result.type !== 'patch')
-          throw new Error(result.type === 'unavailable' ? result.message : '无法读取文件差异')
+          throw new Error(result.type === 'unavailable' ? result.message : t('无法读取文件差异'))
         if (result.reviewId !== inventory.reviewId || result.entryId !== entry.entryId)
-          throw new Error('差异身份不匹配，请刷新重试')
+          throw new Error(t('差异身份不匹配，请刷新重试'))
         setPatch(result)
       }
     } catch (error) {
@@ -177,10 +180,14 @@ export default function GitReviewPane({
   }
 
   const selection = selected ? (
-    <div className="git-selection" role="region" aria-label={`差异 ${selected.path}`}>
+    <div
+      className="git-selection"
+      role="region"
+      aria-label={t('差异 {path}', { path: selected.path })}
+    >
       {patchLoading && (
         <p className="git-message" role="status">
-          正在读取文件差异…
+          {t('正在读取文件差异…')}
         </p>
       )}
       {patchError && (
@@ -190,8 +197,8 @@ export default function GitReviewPane({
       )}
       {preview !== null && (
         <div className="git-patch">
-          <p className="git-message">未跟踪文件 · 只读内容预览，不属于已跟踪差异</p>
-          <pre tabIndex={0} aria-label="未跟踪文件内容">
+          <p className="git-message">{t('未跟踪文件 · 只读内容预览，不属于已跟踪差异')}</p>
+          <pre tabIndex={0} aria-label={t('未跟踪文件内容')}>
             {preview}
           </pre>
         </div>
@@ -201,18 +208,18 @@ export default function GitReviewPane({
   ) : null
 
   return (
-    <section className="git-review-pane" aria-label="Git 审阅">
+    <section className="git-review-pane" aria-label={t('Git 审阅')}>
       {!projectPath ? (
-        <p className="git-message">选择工作区以查看 Git 差异</p>
+        <p className="git-message">{t('选择工作区以查看 Git 差异')}</p>
       ) : !ready ? (
         <p className="git-message" role="status">
-          引擎已断开，重新连接后可查看 Git 差异
+          {t('引擎已断开，重新连接后可查看 Git 差异')}
         </p>
       ) : (
         <>
           <div className="git-toolbar">
             <select
-              aria-label="差异范围"
+              aria-label={t('差异范围')}
               value={view}
               title={modes.find(([mode]) => mode === view)?.[2]}
               onChange={(event) => {
@@ -226,11 +233,11 @@ export default function GitReviewPane({
                 </option>
               ))}
             </select>
-            <span className="git-readonly">只读</span>
+            <span className="git-readonly">{t('只读')}</span>
             <button
               type="button"
-              aria-label="刷新差异"
-              title="刷新差异"
+              aria-label={t('刷新差异')}
+              title={t('刷新差异')}
               onClick={() => {
                 invalidate()
                 setRefresh((value) => value + 1)
@@ -241,7 +248,7 @@ export default function GitReviewPane({
           </div>
           {view === 'branch' && (
             <div className="git-base-select">
-              <label htmlFor="git-base-ref">比较基准</label>
+              <label htmlFor="git-base-ref">{t('比较基准')}</label>
               <select
                 id="git-base-ref"
                 value={baseRef}
@@ -250,10 +257,10 @@ export default function GitReviewPane({
                   setBaseRef(event.target.value)
                 }}
               >
-                <option value="">请选择基准分支</option>
+                <option value="">{t('请选择基准分支')}</option>
                 {refs.map((ref) => (
                   <option key={ref.name} value={ref.name}>
-                    {ref.name.startsWith('refs/heads/') ? '本地' : '远端引用'} · {ref.label}
+                    {ref.name.startsWith('refs/heads/') ? t('本地') : t('远端引用')} · {ref.label}
                   </option>
                 ))}
               </select>
@@ -263,15 +270,21 @@ export default function GitReviewPane({
           {inventory?.branch && (
             <p
               className="git-baseline"
-              title={`共同祖先 ${inventory.branch.mergeBaseOid}\nHEAD ${inventory.branch.headOid}`}
+              title={t('共同祖先 {mergeBaseOid}\nHEAD {headOid}', {
+                mergeBaseOid: inventory.branch.mergeBaseOid,
+                headOid: inventory.branch.headOid
+              })}
             >
-              共同祖先 {inventory.branch.mergeBaseOid.slice(0, 8)} → HEAD{' '}
-              {inventory.branch.headOid.slice(0, 8)}
+              {t('共同祖先 {value} → HEAD{value2} {value3}', {
+                value: inventory.branch.mergeBaseOid.slice(0, 8),
+                value2: ' ',
+                value3: inventory.branch.headOid.slice(0, 8)
+              })}
             </p>
           )}
           {loading && (
             <p className="git-message" role="status">
-              正在读取 Git 差异…
+              {t('正在读取 Git 差异…')}
             </p>
           )}
           {listError && (
@@ -283,10 +296,10 @@ export default function GitReviewPane({
             <>
               {inventory.entries.length === 0 ? (
                 <p className="git-message" role="status">
-                  此范围没有改动
+                  {t('此范围没有改动')}
                 </p>
               ) : (
-                <div className="git-file-list" aria-label="变更文件">
+                <div className="git-file-list" aria-label={t('变更文件')}>
                   {(['tracked', 'untracked'] as const).map((group) => {
                     const entries = inventory.entries.filter(
                       (entry) => (entry.kind === 'untracked') === (group === 'untracked')
@@ -295,7 +308,7 @@ export default function GitReviewPane({
                       entries.length > 0 && (
                         <div key={group}>
                           <h3>
-                            {group === 'untracked' ? '未跟踪 · 只读预览' : '已跟踪'}{' '}
+                            {group === 'untracked' ? t('未跟踪 · 只读预览') : t('已跟踪')}{' '}
                             <span>{entries.length}</span>
                           </h3>
                           {entries.map((entry) => (
@@ -320,7 +333,10 @@ export default function GitReviewPane({
                                 {selected?.entryId === entry.entryId && counts ? (
                                   <span
                                     className="git-change-counts"
-                                    aria-label={`新增 ${counts.added} 行，删除 ${counts.removed} 行`}
+                                    aria-label={t('新增 {added} 行，删除 {removed} 行', {
+                                      added: counts.added,
+                                      removed: counts.removed
+                                    })}
                                   >
                                     <span>+{counts.added}</span>
                                     <span>−{counts.removed}</span>
@@ -331,9 +347,9 @@ export default function GitReviewPane({
                                   title={`Git ${entry.status} · ${entry.kind}`}
                                 >
                                   {entry.kind === 'conflict'
-                                    ? '冲突'
+                                    ? t('冲突')
                                     : entry.kind === 'submodule'
-                                      ? '子模块'
+                                      ? t('子模块')
                                       : (statusLabels[entry.status] ?? entry.status)}
                                 </span>
                                 {selected?.entryId === entry.entryId ? (

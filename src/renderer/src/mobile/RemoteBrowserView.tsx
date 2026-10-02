@@ -17,10 +17,11 @@ import type {
 } from '../../../shared/remote-views'
 import { mobileApi } from './api'
 import { Sheet } from './Sheet'
+import { t } from '../../../shared/i18n'
 
 const KEYS = [
-  ['Enter', '回车'],
-  ['Backspace', '删除'],
+  ['Enter', t('回车')],
+  ['Backspace', t('删除')],
   ['Tab', 'Tab'],
   ['Escape', 'Esc'],
   ['ArrowUp', '↑'],
@@ -114,7 +115,7 @@ export function RemoteBrowserView({
         <button
           type="button"
           className="m-icon"
-          aria-label="后退"
+          aria-label={t('后退')}
           disabled={!control || !state?.canGoBack}
           onClick={() => send({ type: 'back' })}
         >
@@ -123,7 +124,7 @@ export function RemoteBrowserView({
         <button
           type="button"
           className="m-icon"
-          aria-label="前进"
+          aria-label={t('前进')}
           disabled={!control || !state?.canGoForward}
           onClick={() => send({ type: 'forward' })}
         >
@@ -140,10 +141,10 @@ export function RemoteBrowserView({
           }}
         >
           <input
-            aria-label="网址"
+            aria-label={t('网址')}
             value={address}
             readOnly={!control}
-            placeholder="输入网址，例如 localhost:5173"
+            placeholder={t('输入网址，例如 localhost:5173')}
             inputMode="url"
             autoCapitalize="off"
             autoCorrect="off"
@@ -157,7 +158,7 @@ export function RemoteBrowserView({
         <button
           type="button"
           className={`m-icon${loading ? ' m-spin' : ''}`}
-          aria-label="刷新"
+          aria-label={t('刷新')}
           disabled={!control}
           onClick={() => send({ type: 'reload' })}
         >
@@ -168,7 +169,7 @@ export function RemoteBrowserView({
         <button
           type="button"
           className="m-chip-button"
-          aria-label={`标签页：${state?.tabs.length ?? 0} 个`}
+          aria-label={t('标签页：{value} 个', { value: state?.tabs.length ?? 0 })}
           onClick={() => setTabs(true)}
         >
           <Layers size={13} aria-hidden="true" />
@@ -182,7 +183,7 @@ export function RemoteBrowserView({
           onClick={() => send({ type: 'device', mobile: !state?.mobile })}
         >
           {state?.mobile ? <Smartphone size={13} /> : <Monitor size={13} />}
-          {state?.mobile ? '手机尺寸' : '电脑尺寸'}
+          {state?.mobile ? t('手机尺寸') : t('电脑尺寸')}
         </button>
         {control ? (
           <button
@@ -192,22 +193,23 @@ export function RemoteBrowserView({
             onClick={() => setKeyboard(!keyboard)}
           >
             <Keyboard size={13} aria-hidden="true" />
-            输入
+
+            {t('输入')}
           </button>
         ) : (
-          <span className="m-chip">只读</span>
+          <span className="m-chip">{t('只读')}</span>
         )}
         {state?.controller === 'agent' ? (
-          <span className="m-chip is-run">Agent 正在操作</span>
+          <span className="m-chip is-run">{t('Agent 正在操作')}</span>
         ) : null}
-        {!connected ? <span className="m-chip is-warn">连接中…</span> : null}
+        {!connected ? <span className="m-chip is-warn">{t('连接中…')}</span> : null}
       </div>
       {state?.message ? (
         <p className="m-notice" role="status">
           {state.message}
           {control && state.available ? (
             <button type="button" className="m-link" onClick={() => send({ type: 'wake' })}>
-              在电脑上显示
+              {t('在电脑上显示')}
             </button>
           ) : null}
         </p>
@@ -218,7 +220,7 @@ export function RemoteBrowserView({
             ref={image}
             className="m-rb-frame"
             src={`data:image/jpeg;base64,${frame.data}`}
-            alt={active?.title || '电脑上的浏览器画面'}
+            alt={active?.title || t('电脑上的浏览器画面')}
             draggable={false}
             style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
             onPointerDown={(event) => {
@@ -268,7 +270,7 @@ export function RemoteBrowserView({
             }}
           />
         ) : (
-          <p className="m-empty">{connected ? '等待电脑上的画面…' : '正在连接…'}</p>
+          <p className="m-empty">{connected ? t('等待电脑上的画面…') : t('正在连接…')}</p>
         )}
       </div>
       {keyboard && control ? (
@@ -282,14 +284,14 @@ export function RemoteBrowserView({
         >
           <div className="m-rb-type">
             <input
-              aria-label="输入到网页"
-              placeholder="先点网页里的输入框，再在这里输入"
+              aria-label={t('输入到网页')}
+              placeholder={t('先点网页里的输入框，再在这里输入')}
               value={text}
               enterKeyHint="send"
               onChange={(event) => setText(event.target.value)}
             />
             <button type="submit" className="m-button is-primary" disabled={!text}>
-              发送
+              {t('发送')}
             </button>
           </div>
           <div className="m-rb-keys">
@@ -302,7 +304,7 @@ export function RemoteBrowserView({
         </form>
       ) : null}
       {tabs ? (
-        <Sheet title="标签页" onClose={() => setTabs(false)}>
+        <Sheet title={t('标签页')} onClose={() => setTabs(false)}>
           {(state?.tabs ?? []).map((tab) => (
             <div key={tab.id} className={`m-option${tab.active ? ' is-on' : ''}`}>
               <button
@@ -314,14 +316,14 @@ export function RemoteBrowserView({
                   setTabs(false)
                 }}
               >
-                <strong>{tab.title || '新标签页'}</strong>
+                <strong>{tab.title || t('新标签页')}</strong>
                 <small>{tab.url}</small>
               </button>
               {control ? (
                 <button
                   type="button"
                   className="m-icon"
-                  aria-label={`关闭 ${tab.title || '标签页'}`}
+                  aria-label={t('关闭 {title}', { title: tab.title || t('标签页') })}
                   onClick={() => send({ type: 'close_tab', pageId: tab.id })}
                 >
                   <X size={16} />
@@ -340,7 +342,7 @@ export function RemoteBrowserView({
             >
               <Plus size={18} aria-hidden="true" />
               <span className="m-option-text">
-                <strong>新标签页</strong>
+                <strong>{t('新标签页')}</strong>
               </span>
             </button>
           ) : null}

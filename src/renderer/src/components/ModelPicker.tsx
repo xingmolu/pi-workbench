@@ -9,6 +9,7 @@ import {
   recentModels,
   rememberModel
 } from '../store/model-presentation'
+import { t } from '../../../shared/i18n'
 
 const keyOf = (model: Pick<ModelSummary, 'provider' | 'id'>): string =>
   `${model.provider}:${model.id}`
@@ -41,23 +42,25 @@ function ModelRow({
       </span>
       <span className="model-row-meta">
         {unavailable ? (
-          <Lock size={13} aria-label="不可用" />
+          <Lock size={13} aria-label={t('不可用')} />
         ) : (
           <>
             {model.reasoning ? (
-              <span className="model-tag" title="支持推理，可调整思考强度">
-                推理
+              <span className="model-tag" title={t('支持推理，可调整思考强度')}>
+                {t('推理')}
               </span>
             ) : null}
             {model.input?.includes('image') ? (
-              <span className="model-tag" title="支持图片输入">
-                图片
+              <span className="model-tag" title={t('支持图片输入')}>
+                {t('图片')}
               </span>
             ) : null}
             {model.contextWindow ? (
               <span
                 className="model-context"
-                title={`上下文 ${model.contextWindow.toLocaleString()} tokens`}
+                title={t('上下文 {toLocaleString} tokens', {
+                  toLocaleString: model.contextWindow.toLocaleString()
+                })}
               >
                 {contextLabel(model.contextWindow)}
               </span>
@@ -65,7 +68,7 @@ function ModelRow({
           </>
         )}
         <span className="model-check" aria-hidden={!current}>
-          {current ? <Check size={14} aria-label="当前模型" /> : null}
+          {current ? <Check size={14} aria-label={t('当前模型')} /> : null}
         </span>
       </span>
     </Command.Item>
@@ -146,20 +149,20 @@ export default function ModelPicker({
       <Popover.Trigger
         className="tool-chip model-chip"
         disabled={blocked}
-        aria-label="选择模型"
+        aria-label={t('选择模型')}
         title={
           snapshot.busy
-            ? '运行结束后可以切换模型'
+            ? t('运行结束后可以切换模型')
             : [
                 account?.email ?? account?.name,
                 current?.name || current?.id || snapshot.activeModel,
-                thinking ? `思考 ${THINKING_LABEL[thinking.level]}` : ''
+                thinking ? t('思考 {value}', { value: THINKING_LABEL[thinking.level] }) : ''
               ]
                 .filter(Boolean)
-                .join(' · ') || '选择模型'
+                .join(' · ') || t('选择模型')
         }
       >
-        <span>{current?.name || current?.id || snapshot.activeModel || '选择模型'}</span>
+        <span>{current?.name || current?.id || snapshot.activeModel || t('选择模型')}</span>
         {thinking && thinking.level !== 'off' ? (
           <span className="model-chip-effort">{THINKING_LABEL[thinking.level]}</span>
         ) : null}
@@ -168,20 +171,20 @@ export default function ModelPicker({
       <Popover.Portal>
         <Popover.Content
           className="model-picker"
-          aria-label="账号与模型"
+          aria-label={t('账号与模型')}
           side="top"
           sideOffset={8}
           align="start"
           collisionPadding={12}
           data-native-suspend="true"
         >
-          <Command label="搜索账号与模型" defaultValue={selectedKey} loop>
+          <Command label={t('搜索账号与模型')} defaultValue={selectedKey} loop>
             <label className="model-picker-search">
               <Search size={14} />
               <Command.Input
                 autoFocus
-                aria-label="搜索模型或账号"
-                placeholder="搜索模型或账号"
+                aria-label={t('搜索模型或账号')}
+                placeholder={t('搜索模型或账号')}
                 value={query}
                 onValueChange={setQuery}
               />
@@ -189,13 +192,13 @@ export default function ModelPicker({
             </label>
             <Command.List className="model-picker-list">
               <Command.Empty>
-                没有匹配的模型。
+                {t('没有匹配的模型。')}
                 <button type="button" onClick={() => setQuery('')}>
-                  清除搜索
+                  {t('清除搜索')}
                 </button>
               </Command.Empty>
               {!query && recent.length > 1 ? (
-                <Command.Group heading="最近使用">
+                <Command.Group heading={t('最近使用')}>
                   {recent.map((model) => (
                     <ModelRow
                       key={`recent:${keyOf(model)}`}
@@ -217,7 +220,7 @@ export default function ModelPicker({
                       <span className="model-group-heading">
                         <span>{provider.email ?? provider.name}</span>
                         {provider.plan || provider.subscription ? (
-                          <em>{provider.plan ?? '订阅'}</em>
+                          <em>{provider.plan ?? t('订阅')}</em>
                         ) : null}
                         {!query ? <small>{models.length}</small> : null}
                       </span>
@@ -239,8 +242,8 @@ export default function ModelPicker({
           </Command>
           {thinking && thinking.available.length > 1 ? (
             <div className="model-thinking">
-              <span className="model-thinking-label">思考强度</span>
-              <div className="model-thinking-levels" role="radiogroup" aria-label="思考强度">
+              <span className="model-thinking-label">{t('思考强度')}</span>
+              <div className="model-thinking-levels" role="radiogroup" aria-label={t('思考强度')}>
                 {thinking.available.map((level) => (
                   <button
                     type="button"
@@ -269,7 +272,8 @@ export default function ModelPicker({
               }}
             >
               <Settings2 size={13} />
-              管理账号与模型
+
+              {t('管理账号与模型')}
             </button>
             {codex && !codex.connected ? (
               <button
@@ -279,7 +283,7 @@ export default function ModelPicker({
                   onLogin()
                 }}
               >
-                登录 Codex
+                {t('登录 Codex')}
               </button>
             ) : null}
           </div>

@@ -4,6 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ArchiveRestore, Folder, MessageSquare, Search, X } from 'lucide-react'
 import { useNavigationLibrary } from '../../store/navigation-library'
 import { performNavigationAction } from '../../store/navigation-feedback'
+import { t } from '../../../../shared/i18n'
 
 export default function LibraryManager({ onClose }: { onClose: () => void }): React.JSX.Element {
   const opener = useNavigationDialog()
@@ -29,7 +30,7 @@ export default function LibraryManager({ onClose }: { onClose: () => void }): Re
       : sessions.map(([path, value]) => ({
           path,
           cwd: value.cwd,
-          title: value.title || '历史会话'
+          title: value.title || t('历史会话')
         }))
   const matching = items.filter((item) =>
     `${item.title} ${item.cwd}`.toLocaleLowerCase().includes(term)
@@ -54,27 +55,27 @@ export default function LibraryManager({ onClose }: { onClose: () => void }): Re
           }}
         >
           <div className="navigation-dialog-heading">
-            <Dialog.Title>管理项目与归档</Dialog.Title>
-            <Dialog.Close className="icon-btn" aria-label="关闭管理">
+            <Dialog.Title>{t('管理项目与归档')}</Dialog.Title>
+            <Dialog.Close className="icon-btn" aria-label={t('关闭管理')}>
               <X size={18} />
             </Dialog.Close>
           </div>
           <Dialog.Description>
-            这里仅管理导航入口。本地项目文件和 Pi 会话记录始终保留。
+            {t('这里仅管理导航入口。本地项目文件和 Pi 会话记录始终保留。')}
           </Dialog.Description>
-          <div className="library-tabs" role="group" aria-label="选择管理范围">
+          <div className="library-tabs" role="group" aria-label={t('选择管理范围')}>
             <button aria-pressed={tab === 'projects'} onClick={() => setTab('projects')}>
-              已移除的项目 <span>{projects.length}</span>
+              {t('已移除的项目')} <span>{projects.length}</span>
             </button>
             <button aria-pressed={tab === 'sessions'} onClick={() => setTab('sessions')}>
-              已归档的会话 <span>{sessions.length}</span>
+              {t('已归档的会话')} <span>{sessions.length}</span>
             </button>
           </div>
           <label className="library-search">
             <Search size={16} />
             <input
-              aria-label="搜索已移除或已归档的项目"
-              placeholder="按名称或路径筛选…"
+              aria-label={t('搜索已移除或已归档的项目')}
+              placeholder={t('按名称或路径筛选…')}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -96,7 +97,7 @@ export default function LibraryManager({ onClose }: { onClose: () => void }): Re
                   type="button"
                   className="secondary-button"
                   disabled={pending}
-                  aria-label={`恢复 ${item.title}`}
+                  aria-label={t('恢复 {title}', { title: item.title })}
                   onClick={() => {
                     void performNavigationAction(
                       tab === 'projects'
@@ -109,13 +110,14 @@ export default function LibraryManager({ onClose }: { onClose: () => void }): Re
                             archived: false
                           },
                       tab === 'projects'
-                        ? '已恢复项目，可从侧栏重新打开'
-                        : '已取消归档，可从项目列表或搜索重新打开'
+                        ? t('已恢复项目，可从侧栏重新打开')
+                        : t('已取消归档，可从项目列表或搜索重新打开')
                     )
                   }}
                 >
                   <ArchiveRestore size={14} />
-                  恢复
+
+                  {t('恢复')}
                 </button>
               </div>
             ))}
@@ -124,13 +126,15 @@ export default function LibraryManager({ onClose }: { onClose: () => void }): Re
                 <ArchiveRestore size={28} />
                 <strong>
                   {term
-                    ? '没有匹配的记录'
+                    ? t('没有匹配的记录')
                     : tab === 'projects'
-                      ? '没有已移除的项目'
-                      : '没有已归档的会话'}
+                      ? t('没有已移除的项目')
+                      : t('没有已归档的会话')}
                 </strong>
                 <p>
-                  {term ? '换一个名称或路径试试。' : '移除项目或归档会话后，可以随时在这里恢复。'}
+                  {term
+                    ? t('换一个名称或路径试试。')
+                    : t('移除项目或归档会话后，可以随时在这里恢复。')}
                 </p>
               </div>
             )}

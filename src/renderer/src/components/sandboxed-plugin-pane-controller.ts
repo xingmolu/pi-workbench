@@ -1,4 +1,5 @@
 import type { WorkbenchBounds, WorkbenchCommand } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 type SandboxedPluginPaneControllerOptions = {
   viewId: string
@@ -33,12 +34,12 @@ export function createSandboxedPluginPaneController(
         options.send({ type: 'view:set', viewId: options.viewId, visible: false })
       ).catch((error: unknown) => {
         if (!isExpectedHideCancellation(error)) {
-          options.onError?.('无法隐藏插件面板。')
+          options.onError?.(t('无法隐藏插件面板。'))
         }
       })
     } catch (error) {
       if (!isExpectedHideCancellation(error)) {
-        options.onError?.('无法隐藏插件面板。')
+        options.onError?.(t('无法隐藏插件面板。'))
       }
     }
   }
@@ -73,7 +74,7 @@ export function createSandboxedPluginPaneController(
   const complete = (requestGeneration: number, unavailable: boolean): void => {
     if (disposed || requestGeneration !== generation) return
     inFlight = false
-    if (unavailable) options.onError?.('插件面板暂不可用。')
+    if (unavailable) options.onError?.(t('插件面板暂不可用。'))
     options.onUnavailableChange(unavailable)
     const nextBounds = queuedBounds
     queuedBounds = null

@@ -7,6 +7,7 @@ import {
   type CustomEndpointApi
 } from '../../../shared/custom-endpoints'
 import { useSettingsDraft } from './SettingsDraftContext'
+import { t } from '../../../shared/i18n'
 
 type Preset = {
   id: string
@@ -22,7 +23,7 @@ export const API_PRESETS: Preset[] = [
   {
     id: 'openai',
     label: 'OpenAI',
-    hint: 'GPT 系列',
+    hint: t('GPT 系列'),
     baseUrl: 'https://api.openai.com/v1',
     api: 'openai-responses'
   },
@@ -36,29 +37,29 @@ export const API_PRESETS: Preset[] = [
   {
     id: 'openrouter',
     label: 'OpenRouter',
-    hint: '多家模型聚合',
+    hint: t('多家模型聚合'),
     baseUrl: 'https://openrouter.ai/api/v1',
     api: 'openai-completions'
   },
   {
     id: 'deepseek',
     label: 'DeepSeek',
-    hint: 'DeepSeek 官方',
+    hint: t('DeepSeek 官方'),
     baseUrl: 'https://api.deepseek.com/v1',
     api: 'openai-completions'
   },
   {
     id: 'ollama',
     label: 'Ollama',
-    hint: '本机模型',
+    hint: t('本机模型'),
     baseUrl: 'http://localhost:11434/v1',
     api: 'openai-completions',
     keyOptional: true
   },
   {
     id: 'custom',
-    label: '自定义',
-    hint: '任意兼容接口',
+    label: t('自定义'),
+    hint: t('任意兼容接口'),
     baseUrl: '',
     api: 'openai-completions'
   }
@@ -129,7 +130,7 @@ export default function AddApiConnection({
       api
     })
     if (!command.success) {
-      setError('请填写有效的服务地址（HTTPS，或本机 http://localhost）和 API Key。')
+      setError(t('请填写有效的服务地址（HTTPS，或本机 http://localhost）和 API Key。'))
       return
     }
     setBusy('discover')
@@ -142,11 +143,15 @@ export default function AddApiConnection({
       setBaseUrl(response.result.baseUrl)
       setNote(
         response.result.modelIds.length
-          ? `找到 ${response.result.modelIds.length} 个模型${response.result.truncated ? '（未完整返回）' : ''}，已勾选前 ${Math.min(20, response.result.modelIds.length)} 个。`
-          : '服务没有返回模型列表，请在下面手动填写模型 ID。'
+          ? t('找到 {count} 个模型{partial}，已勾选前 {chosen} 个。', {
+              count: response.result.modelIds.length,
+              partial: response.result.truncated ? t('（未完整返回）') : '',
+              chosen: Math.min(20, response.result.modelIds.length)
+            })
+          : t('服务没有返回模型列表，请在下面手动填写模型 ID。')
       )
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '拉取失败，可以手动填写模型 ID。')
+      setError(reason instanceof Error ? reason.message : t('拉取失败，可以手动填写模型 ID。'))
       setModels([])
     } finally {
       setBusy(null)
@@ -158,11 +163,11 @@ export default function AddApiConnection({
     if (engine === 'claude') {
       const url = baseUrl.trim()
       if (!key.trim()) {
-        setError('请填写 API Key。')
+        setError(t('请填写 API Key。'))
         return
       }
       if (url && !customEndpointUrlSchema.safeParse(url).success) {
-        setError('服务地址必须是 HTTPS，或本机 http://localhost。')
+        setError(t('服务地址必须是 HTTPS，或本机 http://localhost。'))
         return
       }
       setBusy('save')
@@ -183,7 +188,7 @@ export default function AddApiConnection({
       return
     }
     const endpoint = createCustomEndpointSchema.safeParse({
-      label: label.trim() || preset?.label || '自定义端点',
+      label: label.trim() || preset?.label || t('自定义端点'),
       api,
       baseUrl: baseUrl.trim(),
       modelIds,
@@ -192,8 +197,8 @@ export default function AddApiConnection({
     if (!endpoint.success) {
       setError(
         modelIds.length
-          ? '请检查服务地址和 API Key。'
-          : '至少需要一个模型：先拉取模型，或手动填写模型 ID。'
+          ? t('请检查服务地址和 API Key。')
+          : t('至少需要一个模型：先拉取模型，或手动填写模型 ID。')
       )
       return
     }
@@ -218,20 +223,22 @@ export default function AddApiConnection({
   }
 
   return (
-    <div className="ea-panel" role="group" aria-label="添加 API 连接">
+    <div className="ea-panel" role="group" aria-label={t('添加 API 连接')}>
       <div className="ea-panel-head">
         {preset ? (
           <button
             type="button"
             className="icon-btn"
-            aria-label="返回选择服务"
+            aria-label={t('返回选择服务')}
             onClick={() => setPreset(null)}
           >
             <ArrowLeft size={15} />
           </button>
         ) : null}
-        <strong>{preset ? `添加 ${preset.label}` : '选择要接入的服务'}</strong>
-        <button type="button" className="icon-btn" aria-label="关闭" onClick={onClose}>
+        <strong>
+          {preset ? t('添加 {label}', { label: preset.label }) : t('选择要接入的服务')}
+        </strong>
+        <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onClose}>
           <X size={15} />
         </button>
       </div>
@@ -254,7 +261,7 @@ export default function AddApiConnection({
           }}
         >
           {claudeAllowed ? (
-            <div className="ea-segment" role="radiogroup" aria-label="用于哪个引擎">
+            <div className="ea-segment" role="radiogroup" aria-label={t('用于哪个引擎')}>
               {(['pi', 'claude'] as const).map((value) => (
                 <button
                   type="button"
@@ -263,19 +270,19 @@ export default function AddApiConnection({
                   aria-checked={engine === value}
                   onClick={() => setEngine(value)}
                 >
-                  {value === 'pi' ? '用于 Pi' : '用于 Claude Code'}
+                  {value === 'pi' ? t('用于 Pi') : t('用于 Claude Code')}
                 </button>
               ))}
             </div>
           ) : null}
-          <label htmlFor="api-label">名称</label>
+          <label htmlFor="api-label">{t('名称')}</label>
           <input
             id="api-label"
             value={label}
-            placeholder={preset.label === '自定义' ? '例如：公司网关' : preset.label}
+            placeholder={preset.label === t('自定义') ? t('例如：公司网关') : preset.label}
             onChange={(event) => setLabel(event.target.value)}
           />
-          <label htmlFor="api-url">服务地址</label>
+          <label htmlFor="api-url">{t('服务地址')}</label>
           <input
             id="api-url"
             value={baseUrl}
@@ -288,7 +295,7 @@ export default function AddApiConnection({
           />
           {preset.id === 'custom' ? (
             <>
-              <label htmlFor="api-protocol">接口协议</label>
+              <label htmlFor="api-protocol">{t('接口协议')}</label>
               <select
                 id="api-protocol"
                 value={api}
@@ -307,7 +314,7 @@ export default function AddApiConnection({
             </>
           ) : null}
           <label htmlFor="api-key">
-            API Key {preset.keyOptional ? <span>本机服务可留空</span> : null}
+            API Key {preset.keyOptional ? <span>{t('本机服务可留空')}</span> : null}
           </label>
           <input
             id="api-key"
@@ -321,7 +328,7 @@ export default function AddApiConnection({
           {engine === 'pi' ? (
             <div className="ea-models">
               <div className="ea-models-head">
-                <span>模型</span>
+                <span>{t('模型')}</span>
                 <button
                   type="button"
                   className="acct-button is-quiet"
@@ -333,11 +340,12 @@ export default function AddApiConnection({
                   ) : (
                     <RefreshCw size={13} />
                   )}
-                  测试并拉取模型
+
+                  {t('测试并拉取模型')}
                 </button>
               </div>
               {models?.length ? (
-                <div className="ea-model-list" role="group" aria-label="选择模型">
+                <div className="ea-model-list" role="group" aria-label={t('选择模型')}>
                   {models.map((id) => (
                     <label key={id} className="ea-check">
                       <input
@@ -357,15 +365,15 @@ export default function AddApiConnection({
                 </div>
               ) : null}
               <textarea
-                aria-label="手动填写模型 ID"
+                aria-label={t('手动填写模型 ID')}
                 rows={2}
                 value={manual}
-                placeholder="也可以手动填写模型 ID，每行一个"
+                placeholder={t('也可以手动填写模型 ID，每行一个')}
                 onChange={(event) => setManual(event.target.value)}
               />
             </div>
           ) : (
-            <p className="ea-hint">Claude Code 会自动列出这个服务可用的模型。</p>
+            <p className="ea-hint">{t('Claude Code 会自动列出这个服务可用的模型。')}</p>
           )}
 
           {note ? (
@@ -385,7 +393,7 @@ export default function AddApiConnection({
               onClick={onClose}
               disabled={busy !== null}
             >
-              取消
+              {t('取消')}
             </button>
             <button
               type="submit"
@@ -393,7 +401,8 @@ export default function AddApiConnection({
               disabled={busy !== null || (engine === 'pi' ? !modelIds.length : !key.trim())}
             >
               {busy === 'save' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
-              保存连接
+
+              {t('保存连接')}
             </button>
           </div>
         </form>

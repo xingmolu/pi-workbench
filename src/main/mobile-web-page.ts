@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
+import { languageTag, locale, t } from '../shared/i18n'
 
 /** The mobile page is a built Vite entry next to the desktop renderer (out/renderer). */
 export const MOBILE_WEB_ROOT = resolve(__dirname, '../renderer')
@@ -21,15 +22,15 @@ const TYPES: Record<string, string> = {
 export function mobileManifest(): string {
   return JSON.stringify({
     id: '/',
-    name: 'Pi 远程对话',
+    name: t('Pi 远程对话'),
     short_name: 'Pi',
-    description: '在手机上继续 Pi Desktop 的对话',
+    description: t('在手机上继续 Pi Desktop 的对话'),
     display: 'standalone',
     start_url: '/',
     scope: '/',
     background_color: '#0b0b0c',
     theme_color: '#0b0b0c',
-    lang: 'zh-CN',
+    lang: languageTag(),
     icons: [
       { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       { src: '/icon.png', sizes: '192x192', type: 'image/png', purpose: 'any' }
@@ -58,12 +59,19 @@ export async function mobileRootFile(
 
 /** Shown when the renderer was never built, e.g. a dev run before `npm run build`. */
 export function mobileUnavailableHtml(): string {
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Pi 远程对话</title><body style="font:15px -apple-system,system-ui,sans-serif;padding:24px;color:#888">手机页面尚未构建。请先运行 npm run build，再刷新此页。</body></html>`
+  return t(
+    '<!doctype html><html lang="zh-CN"><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Pi 远程对话</title><body style="font:15px -apple-system,system-ui,sans-serif;padding:24px;color:#888">手机页面尚未构建。请先运行 npm run build，再刷新此页。</body></html>'
+  )
 }
 
 export async function mobilePageHtml(root = MOBILE_WEB_ROOT): Promise<string | null> {
   try {
-    return await readFile(join(root, 'mobile.html'), 'utf8')
+    const html = await readFile(join(root, 'mobile.html'), 'utf8')
+    // The phone page follows the desktop's interface language; its scripts read the meta tag.
+    return html
+      .replace('<html lang="zh-CN">', `<html lang="${languageTag()}">`)
+      .replace('<head>', `<head>\n    <meta name="pi-locale" content="${locale()}" />`)
+      .replace('<title>Pi 远程对话</title>', `<title>${t('Pi 远程对话')}</title>`)
   } catch {
     return null
   }

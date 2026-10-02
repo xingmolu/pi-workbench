@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LoaderCircle, Puzzle } from 'lucide-react'
 import type { WorkbenchEvent } from '../../../shared/workbench-contracts'
 import { useOverlayState } from '../store/overlay-state'
+import { t } from '../../../shared/i18n'
 
 export type PluginApproval = Extract<WorkbenchEvent, { type: 'plugin-approval' }>
 
@@ -37,11 +38,11 @@ export default function PluginApprovalDialog({
       >
         <header>
           <Puzzle size={15} aria-hidden="true" />
-          <span>插件 {approval.pluginName} 请求</span>
+          <span>{t('插件 {pluginName} 请求', { pluginName: approval.pluginName })}</span>
         </header>
         <h3 id={`plugin-approval-${approval.id}`}>{approval.title}</h3>
         {approval.detail ? <pre>{approval.detail}</pre> : null}
-        <p>这是插件发起的操作，不是 Pi 的对话。允许仅对这一次生效。</p>
+        <p>{t('这是插件发起的操作，不是 Pi 的对话。允许仅对这一次生效。')}</p>
         <footer>
           <button
             type="button"
@@ -50,7 +51,8 @@ export default function PluginApprovalDialog({
             onClick={() => respond(false)}
           >
             {pending === 'deny' ? <LoaderCircle className="spin" size={13} /> : null}
-            拒绝
+
+            {t('拒绝')}
           </button>
           <button
             type="button"
@@ -60,7 +62,8 @@ export default function PluginApprovalDialog({
             autoFocus
           >
             {pending === 'allow' ? <LoaderCircle className="spin" size={13} /> : null}
-            允许一次
+
+            {t('允许一次')}
           </button>
         </footer>
       </section>

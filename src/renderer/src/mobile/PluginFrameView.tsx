@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PluginPanelContext } from '../../../shared/workbench-contracts'
 import { mobileApi } from './api'
 import { Sheet } from './Sheet'
+import { t } from '../../../shared/i18n'
 
 type Confirmation = { title: string; detail: string; answer: (allow: boolean) => void }
 
@@ -62,12 +63,12 @@ export function PluginFrameView({
       let result = await mobileApi.pluginCall(viewId, method, params)
       if (!result.ok && 'confirm' in result) {
         if (!(await ask(result.confirm.title, result.confirm.detail)))
-          return { ok: false, code: 'PERMISSION_DENIED', message: '用户拒绝了这次操作' }
+          return { ok: false, code: 'PERMISSION_DENIED', message: t('用户拒绝了这次操作') }
         result = await mobileApi.pluginCall(viewId, method, params, result.confirm.token)
       }
       if (result.ok) return { ok: true, value: result.value }
       if ('confirm' in result)
-        return { ok: false, code: 'PERMISSION_DENIED', message: '确认已过期，请重试' }
+        return { ok: false, code: 'PERMISSION_DENIED', message: t('确认已过期，请重试') }
       return { ok: false, code: result.code, message: result.message }
     }
     const receive = (event: MessageEvent): void => {
@@ -82,7 +83,7 @@ export function PluginFrameView({
       if (data.type !== 'call') return
       const { method, params } = data as { method?: unknown; params?: unknown }
       if (typeof method !== 'string') {
-        post({ id, ok: false, code: 'INVALID_ARGUMENT', message: '参数无效' })
+        post({ id, ok: false, code: 'INVALID_ARGUMENT', message: t('参数无效') })
         return
       }
       void call(method, params)
@@ -92,7 +93,7 @@ export function PluginFrameView({
             id,
             ok: false,
             code: 'UNAVAILABLE',
-            message: reason instanceof Error ? reason.message : '电脑没有响应'
+            message: reason instanceof Error ? reason.message : t('电脑没有响应')
           })
         )
     }
@@ -138,7 +139,7 @@ export function PluginFrameView({
           referrerPolicy="no-referrer"
         />
       ) : (
-        <p className="m-empty">正在打开…</p>
+        <p className="m-empty">{t('正在打开…')}</p>
       )}
       {toast ? (
         <p className="m-plugin-toast" role="status">
@@ -146,17 +147,17 @@ export function PluginFrameView({
         </p>
       ) : null}
       {confirmation ? (
-        <Sheet title="确认操作" onClose={() => settle(false)}>
+        <Sheet title={t('确认操作')} onClose={() => settle(false)}>
           <div className="m-plugin-confirm">
             <strong>{confirmation.title}</strong>
             {confirmation.detail ? <pre>{confirmation.detail}</pre> : null}
-            <p className="m-sheet-note">这会在电脑上执行。</p>
+            <p className="m-sheet-note">{t('这会在电脑上执行。')}</p>
             <div className="m-plugin-confirm-actions">
               <button type="button" className="m-button" onClick={() => settle(false)}>
-                取消
+                {t('取消')}
               </button>
               <button type="button" className="m-button is-primary" onClick={() => settle(true)}>
-                允许
+                {t('允许')}
               </button>
             </div>
           </div>

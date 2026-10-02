@@ -35,6 +35,7 @@ import { ChangePath, DiffStat, ToolChangeView } from '../components/ToolChangeVi
 import { MobileMarkdown } from './MobileMarkdown'
 import { buildFlow, unplacedApprovals } from './flow'
 import { copyText } from './copy'
+import { t } from '../../../shared/i18n'
 
 type ToolNode = Extract<ConversationNode, { type: 'tool' }>
 export type Respond = (
@@ -54,14 +55,14 @@ const TOOL_ICON: Record<ToolIntent, typeof TerminalSquare> = {
 }
 
 const STATUS_LABEL: Record<ToolNode['status'], string> = {
-  queued: '排队中',
-  'awaiting-approval': '等待确认',
-  'waiting-resource': '等待项目资源',
-  incomplete: '未完成',
-  running: '运行中',
-  success: '完成',
-  error: '失败',
-  blocked: '已拒绝'
+  queued: t('排队中'),
+  'awaiting-approval': t('等待确认'),
+  'waiting-resource': t('等待项目资源'),
+  incomplete: t('未完成'),
+  running: t('运行中'),
+  success: t('完成'),
+  error: t('失败'),
+  blocked: t('已拒绝')
 }
 
 /** Snapshots arrive whole; rows only re-render when their own content changed. */
@@ -72,7 +73,13 @@ function relative(title: string, projectPath: string): string {
   return root ? title.split(`${root}/`).join('').split(`${root}\\`).join('') : title
 }
 
-function CopyButton({ text, label = '复制' }: { text: string; label?: string }): React.JSX.Element {
+function CopyButton({
+  text,
+  label = t('复制')
+}: {
+  text: string
+  label?: string
+}): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -87,7 +94,7 @@ function CopyButton({ text, label = '复制' }: { text: string; label?: string }
       }
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
-      <span>{copied ? '已复制' : label}</span>
+      <span>{copied ? t('已复制') : label}</span>
     </button>
   )
 }
@@ -110,9 +117,9 @@ export function ApprovalCard({
     void respond(approval, allow, scope).finally(() => setPending(null))
   }
   return (
-    <section className="m-approval" aria-label="等待批准">
+    <section className="m-approval" aria-label={t('等待批准')}>
       <header>
-        <strong>等待批准</strong>
+        <strong>{t('等待批准')}</strong>
         <span>{approvalSummary(approval)}</span>
       </header>
       {change ? (
@@ -123,7 +130,7 @@ export function ApprovalCard({
           <pre>{preview.text}</pre>
           {preview.parameters ? (
             <details>
-              <summary>全部参数</summary>
+              <summary>{t('全部参数')}</summary>
               <pre>{preview.parameters}</pre>
             </details>
           ) : null}
@@ -136,7 +143,7 @@ export function ApprovalCard({
           disabled={pending !== null}
           onClick={() => answer(false)}
         >
-          {pending === 'deny' ? '正在拒绝…' : '拒绝'}
+          {pending === 'deny' ? t('正在拒绝…') : t('拒绝')}
         </button>
         <button
           type="button"
@@ -144,7 +151,7 @@ export function ApprovalCard({
           disabled={pending !== null}
           onClick={() => answer(true)}
         >
-          {pending === 'allow' ? '正在允许…' : '允许'}
+          {pending === 'allow' ? t('正在允许…') : t('允许')}
         </button>
       </div>
       {approval.grant ? (
@@ -154,7 +161,7 @@ export function ApprovalCard({
           disabled={pending !== null}
           onClick={() => answer(true, 'turn')}
         >
-          本轮允许操作 {approval.grant.app}
+          {t('本轮允许操作 {app}', { app: approval.grant.app })}
         </button>
       ) : null}
     </section>
@@ -201,7 +208,7 @@ const ToolRow = memo(
           <Icon size={14} aria-hidden="true" />
           {change ? (
             <span className="m-tool-title is-change">
-              <span>{node.name === 'write' ? '写入' : '编辑'}</span>
+              <span>{node.name === 'write' ? t('写入') : t('编辑')}</span>
               <ChangePath path={change.path} projectPath={projectPath} />
               <DiffStat additions={change.additions} deletions={change.deletions} />
             </span>
@@ -222,7 +229,7 @@ const ToolRow = memo(
             {node.output ? (
               <div className="m-tool-output">
                 <span>
-                  输出
+                  {t('输出')}
                   {toolMetaDisplay(node).map((item) => (
                     <em key={item}>{item}</em>
                   ))}
@@ -232,7 +239,7 @@ const ToolRow = memo(
             ) : null}
             {change && node.detail ? (
               <details className="m-raw">
-                <summary>原始参数</summary>
+                <summary>{t('原始参数')}</summary>
                 <pre className="m-pre">{node.detail}</pre>
               </details>
             ) : null}
@@ -254,7 +261,7 @@ function ThinkRow({ node }: { node: Extract<WorkNode, { type: 'think' }> }): Rea
     <div className={`m-think${open ? ' is-open' : ''}`}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Brain size={14} aria-hidden="true" />
-        <span>{node.streaming ? '正在思考…' : '思考了一会儿'}</span>
+        <span>{node.streaming ? t('正在思考…') : t('思考了一会儿')}</span>
         <ChevronRight className="m-chevron" size={14} aria-hidden="true" />
       </button>
       {open ? <MobileMarkdown text={node.text} streaming={node.streaming} /> : null}
@@ -284,14 +291,20 @@ const WorkGroup = memo(
     const digest = running || awaiting ? null : workDigest(nodes)
     const expanded = awaiting || (override ?? requiresAttention)
     return (
-      <section className={`m-work${running && !awaiting ? ' is-running' : ''}${expanded ? ' is-open' : ''}`}>
+      <section
+        className={`m-work${running && !awaiting ? ' is-running' : ''}${expanded ? ' is-open' : ''}`}
+      >
         <button
           type="button"
           className="m-work-head"
           aria-expanded={expanded}
           onClick={() => setOverride(!expanded)}
         >
-          {running && !awaiting ? <span className="activity-orbit" aria-hidden="true" /> : <ChevronRight className="m-chevron" size={14} aria-hidden="true" />}
+          {running && !awaiting ? (
+            <span className="activity-orbit" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="m-chevron" size={14} aria-hidden="true" />
+          )}
           <span className="m-work-label">{label}</span>
           {digest?.parts.length ? (
             <span className="m-work-digest">
@@ -300,7 +313,11 @@ const WorkGroup = memo(
                   {part.label} {part.count}
                 </span>
               ))}
-              {digest.failed ? <span className="is-failed">{digest.failed} 项失败</span> : null}
+              {digest.failed ? (
+                <span className="is-failed">
+                  {digest.failed} {t('项失败')}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </button>
@@ -348,8 +365,8 @@ type UndoPhase =
 
 const FILE_STATUS: Record<CheckpointPlan['files'][number]['status'], string> = {
   ready: '',
-  conflict: '之后被改过',
-  uncaptured: '无法还原'
+  conflict: t('之后被改过'),
+  uncaptured: t('无法还原')
 }
 
 function Receipt({
@@ -378,7 +395,7 @@ function Receipt({
           setPhase(
             result
               ? { phase: 'confirm', plan: result }
-              : { phase: 'message', text: '这一轮没有可撤销的文件改动。' }
+              : { phase: 'message', text: t('这一轮没有可撤销的文件改动。') }
           ),
         fail
       )
@@ -388,16 +405,20 @@ function Receipt({
     setPhase({ phase: 'restoring' })
     undo.restore(force).then((outcome) => {
       if (!outcome || outcome.status === 'unavailable')
-        setPhase({ phase: 'message', text: '改动记录已不可用。' })
+        setPhase({ phase: 'message', text: t('改动记录已不可用。') })
       else if (outcome.status === 'conflict') setPhase({ phase: 'confirm', plan: outcome.plan })
       else if (!outcome.skipped.length && !outcome.failed.length) setPhase({ phase: 'idle' })
       else
         setPhase({
           phase: 'message',
           text: [
-            `已撤销 ${outcome.restored} 个文件`,
-            outcome.skipped.length ? `${outcome.skipped.length} 个无法还原` : '',
-            outcome.failed.length ? `${outcome.failed.length} 个写入失败，可重试` : ''
+            t('已撤销 {restored} 个文件', { restored: outcome.restored }),
+            outcome.skipped.length
+              ? t('{length} 个无法还原', { length: outcome.skipped.length })
+              : '',
+            outcome.failed.length
+              ? t('{length} 个写入失败，可重试', { length: outcome.failed.length })
+              : ''
           ]
             .filter(Boolean)
             .join('，')
@@ -407,11 +428,11 @@ function Receipt({
   const conflicts =
     phase.phase === 'confirm' && phase.plan.files.some((file) => file.status === 'conflict')
   return (
-    <section className={`m-receipt${restored ? ' is-restored' : ''}`} aria-label="本轮改动">
+    <section className={`m-receipt${restored ? ' is-restored' : ''}`} aria-label={t('本轮改动')}>
       <header>
         <FileDiff size={14} aria-hidden="true" />
         <span>
-          {restored ? '已撤销' : '已修改'} {files.length} 个文件
+          {restored ? t('已撤销') : t('已修改')} {t('{length} 个文件', { length: files.length })}
         </span>
         <DiffStat additions={additions} deletions={deletions} />
         {undo && !restored && phase.phase !== 'confirm' ? (
@@ -423,27 +444,30 @@ function Receipt({
               phase.phase === 'planning' ||
               phase.phase === 'restoring'
             }
-            title={undo.blockedReason ?? '把这些文件还原到这一轮开始之前'}
+            title={undo.blockedReason ?? t('把这些文件还原到这一轮开始之前')}
             onClick={plan}
           >
             <RotateCcw size={13} aria-hidden="true" />
-            {phase.phase === 'planning' || phase.phase === 'restoring' ? '处理中…' : '撤销'}
+            {phase.phase === 'planning' || phase.phase === 'restoring' ? t('处理中…') : t('撤销')}
           </button>
         ) : null}
       </header>
       {phase.phase === 'confirm' ? (
-        <div className="m-undo-confirm" role="alertdialog" aria-label="确认撤销">
+        <div className="m-undo-confirm" role="alertdialog" aria-label={t('确认撤销')}>
           <p>
-            将把 {phase.plan.files.length} 个文件还原到这一轮开始之前
-            {phase.plan.laterTurns ? `，并一起撤销之后 ${phase.plan.laterTurns} 轮的改动` : ''}
-            。对话记录不会改变。
+            {t('将把 {length} 个文件还原到这一轮开始之前', { length: phase.plan.files.length })}
+            {phase.plan.laterTurns
+              ? t('，并一起撤销之后 {laterTurns} 轮的改动', { laterTurns: phase.plan.laterTurns })
+              : ''}
+
+            {t('。对话记录不会改变。')}
           </p>
           <ul>
             {phase.plan.files.map((file) => (
               <li key={file.path}>
                 <ChangePath path={file.path} projectPath={projectPath} />
                 <span className={`is-${file.status}`}>
-                  {file.action === 'delete' ? '删除' : '还原'}
+                  {file.action === 'delete' ? t('删除') : t('还原')}
                   {FILE_STATUS[file.status] ? ` · ${FILE_STATUS[file.status]}` : ''}
                 </span>
               </li>
@@ -451,14 +475,14 @@ function Receipt({
           </ul>
           <div className="m-approval-actions">
             <button type="button" className="m-button" onClick={() => setPhase({ phase: 'idle' })}>
-              取消
+              {t('取消')}
             </button>
             <button
               type="button"
               className={`m-button ${conflicts ? 'is-danger' : 'is-primary'}`}
               onClick={() => restore(conflicts)}
             >
-              {conflicts ? '仍然覆盖' : '撤销改动'}
+              {conflicts ? t('仍然覆盖') : t('撤销改动')}
             </button>
           </div>
         </div>
@@ -509,7 +533,11 @@ const NodeView = memo(
           <div className="m-user">
             <p className="m-bubble">{node.text}</p>
             <div className="m-actions">
-              {node.imageCount ? <span>{node.imageCount} 张图片</span> : null}
+              {node.imageCount ? (
+                <span>
+                  {node.imageCount} {t('张图片')}
+                </span>
+              ) : null}
               <CopyButton text={node.text} />
             </div>
           </div>
@@ -536,11 +564,11 @@ const NodeView = memo(
       case 'model':
         return (
           <p className="m-line">
-            {node.initial ? '模型' : '模型切换'} · {node.name || node.modelId}
+            {node.initial ? t('模型') : t('模型切换')} · {node.name || node.modelId}
           </p>
         )
       case 'compaction':
-        return <p className="m-line">上下文已压缩</p>
+        return <p className="m-line">{t('上下文已压缩')}</p>
       default:
         return null
     }
@@ -586,12 +614,21 @@ export function MobileConversation({
             undo={item.entryId ? undo?.(item.entryId) : undefined}
           />
         ) : item.node.type === 'tool' && item.node.subagent ? (
-          <SubagentTool key={item.key} node={item.node} childrenById={childrenById} renderOutput={(text, streaming) => <MobileMarkdown text={text} streaming={streaming} />} />
+          <SubagentTool
+            key={item.key}
+            node={item.node}
+            childrenById={childrenById}
+            renderOutput={(text, streaming) => <MobileMarkdown text={text} streaming={streaming} />}
+          />
         ) : (
           <NodeView key={item.key} node={item.node} latest={item.latest} />
         )
       )}
-      <ConversationActivity nodes={snapshot.nodes} busy={snapshot.busy} approvals={snapshot.approvals.length} />
+      <ConversationActivity
+        nodes={snapshot.nodes}
+        busy={snapshot.busy}
+        approvals={snapshot.approvals.length}
+      />
       {orphans.map((approval) => (
         <ApprovalCard
           key={`${approval.generation}:${approval.id}`}

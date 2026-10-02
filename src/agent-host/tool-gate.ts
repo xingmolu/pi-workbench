@@ -1,4 +1,5 @@
 import type { PermissionMode } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 /**
  * Semantic tool categories. Permission decisions only look at the category, so any agent
@@ -53,15 +54,16 @@ export class ToolGate {
     if (call.category === 'read' || call.category === 'task' || call.category === 'mcp')
       return { decision: 'allow' }
 
-    if (!(await this.approved(call))) return { decision: 'deny', reason: '用户拒绝了这次工具调用' }
+    if (!(await this.approved(call)))
+      return { decision: 'deny', reason: t('用户拒绝了这次工具调用') }
 
     if (LOCKED.has(call.category)) {
-      if (!call.sessionId) return { decision: 'deny', reason: '会话已结束' }
+      if (!call.sessionId) return { decision: 'deny', reason: t('会话已结束') }
       this.dependencies.onWaiting?.(call.toolCallId)
       try {
         await this.dependencies.acquire(call)
       } catch {
-        return { decision: 'deny', reason: '项目操作已取消' }
+        return { decision: 'deny', reason: t('项目操作已取消') }
       }
       if (CHECKPOINTED.has(call.category)) this.dependencies.checkpoint.capture(call)
       this.dependencies.onStarted?.(call.toolCallId)

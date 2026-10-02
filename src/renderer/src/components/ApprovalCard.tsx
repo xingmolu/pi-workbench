@@ -27,7 +27,10 @@ function alwaysAllow(
     }
     const rule = typeof command === 'string' ? suggestCommandRule(command) : null
     if (!rule || rules.commands.includes(rule)) return null
-    return { label: `总是允许 ${rule}`, next: { ...rules, commands: [...rules.commands, rule] } }
+    return {
+      label: t('总是允许 {rule}', { rule }),
+      next: { ...rules, commands: [...rules.commands, rule] }
+    }
   }
   if (
     (request.toolName === 'write' || request.toolName === 'edit') &&
@@ -41,12 +44,15 @@ function alwaysAllow(
         change.path.startsWith(`${root}/`) ||
         change.path.startsWith(`${root}\\`))
     // The Host re-checks the resolved, symlink-free path before honoring the rule.
-    return inside ? { label: '总是允许编辑项目文件', next: { ...rules, projectEdits: true } } : null
+    return inside
+      ? { label: t('总是允许编辑项目文件'), next: { ...rules, projectEdits: true } }
+      : null
   }
   return null
 }
 import { approvalSummary } from '../store/conversation-presentation'
 import { approvalPreview } from '../store/approval-presentation'
+import { t } from '../../../shared/i18n'
 import '../assets/approval.css'
 
 export type ApprovalHandler = (
@@ -105,14 +111,14 @@ export default function ApprovalCard({
     try {
       if (rule && projectPath) await savePermissionRules(projectPath, rule)
       const accepted = await onApproval(request.id, allow, scope)
-      if (accepted === false) throw new Error('确认未能提交，请重试。')
+      if (accepted === false) throw new Error(t('确认未能提交，请重试。'))
       if (mounted.current) setSubmitted(true)
       // Keep locked until the authoritative request disappears, not just until IPC resolves.
     } catch {
       inFlight.current = false
       if (mounted.current) {
         setDecision(null)
-        setError('确认未能提交，请重试。')
+        setError(t('确认未能提交，请重试。'))
       }
     }
   }
@@ -122,7 +128,7 @@ export default function ApprovalCard({
       await navigator.clipboard.writeText(preview.text)
       if (mounted.current) setCopied(true)
     } catch {
-      if (mounted.current) setError('复制失败，请选中操作内容后复制。')
+      if (mounted.current) setError(t('复制失败，请选中操作内容后复制。'))
     }
   }
 
@@ -139,8 +145,8 @@ export default function ApprovalCard({
         <h3 id={titleId}>{approvalSummary(request)}</h3>
       </header>
       <p className="sr-only" id={descriptionId}>
-        仅本次操作。Pi 已暂停此操作，确认后才会执行。
-        {projectPath ? <> 会话目录：{projectPath}。</> : null}
+        {t('仅本次操作。Pi 已暂停此操作，确认后才会执行。')}
+        {projectPath ? <> {t('会话目录：{projectPath}。', { projectPath })}</> : null}
       </p>
       {change ? (
         <ToolChangeView change={change} projectPath={projectPath} />
@@ -152,20 +158,20 @@ export default function ApprovalCard({
           <button
             type="button"
             className="icon-btn approval-copy"
-            aria-label="复制操作内容"
+            aria-label={t('复制操作内容')}
             onClick={() => void copy()}
           >
             {copied ? <Check size={13} /> : <Copy size={13} />}
           </button>
           <span className="sr-only" role="status">
-            {copied ? '已复制操作内容' : ''}
+            {copied ? t('已复制操作内容') : ''}
           </span>
         </div>
       )}
       {preview.parameters !== null ? (
         <details className="approval-parameters">
-          <summary>完整操作参数</summary>
-          <pre tabIndex={0} aria-label="完整操作参数">
+          <summary>{t('完整操作参数')}</summary>
+          <pre tabIndex={0} aria-label={t('完整操作参数')}>
             {preview.parameters}
           </pre>
         </details>
@@ -181,10 +187,10 @@ export default function ApprovalCard({
             type="button"
             className="approval-always"
             disabled={decision !== null}
-            title="这次任务结束前，操作这个应用不再逐次询问"
+            title={t('这次任务结束前，操作这个应用不再逐次询问')}
             onClick={() => void respond(true, undefined, 'turn')}
           >
-            本轮允许操作 {request.grant.app}
+            {t('本轮允许操作 {app}', { app: request.grant.app })}
           </button>
         ) : null}
         {always ? (
@@ -192,7 +198,7 @@ export default function ApprovalCard({
             type="button"
             className="approval-always"
             disabled={decision !== null}
-            title="保存为这个项目的规则，并允许这一次"
+            title={t('保存为这个项目的规则，并允许这一次')}
             onClick={() => void respond(true, always.next)}
           >
             {always.label}
@@ -208,7 +214,8 @@ export default function ApprovalCard({
             {decision === 'deny' && !submitted ? (
               <LoaderCircle className="approval-spinner" size={13} aria-hidden="true" />
             ) : null}
-            拒绝
+
+            {t('拒绝')}
           </button>
           <button
             type="button"
@@ -219,12 +226,13 @@ export default function ApprovalCard({
             {decision === 'allow' && !submitted ? (
               <LoaderCircle className="approval-spinner" size={13} aria-hidden="true" />
             ) : null}
-            允许一次
+
+            {t('允许一次')}
           </button>
         </div>
       </footer>
       <span className="approval-submit-status" role="status">
-        {decision !== null ? (submitted ? '已提交，等待操作状态更新…' : '正在提交确认…') : ''}
+        {decision !== null ? (submitted ? t('已提交，等待操作状态更新…') : t('正在提交确认…')) : ''}
       </span>
     </section>
   )

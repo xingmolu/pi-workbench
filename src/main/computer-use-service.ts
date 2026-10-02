@@ -22,6 +22,7 @@ import {
 } from '../shared/desktop-control'
 import { DesktopControlService } from './desktop-control-service'
 import { TargetCaptureError } from './desktop-control-capture'
+import { t } from '../shared/i18n'
 
 export type ComputerUseExecutionScope = {
   ownerId: string
@@ -103,7 +104,7 @@ function elementCenter(element: ComputerUseElement): { x: number; y: number } {
     element.width <= 0 ||
     element.height <= 0
   ) {
-    throw new Error('目标元素没有可操作的屏幕坐标，请重新 observe 或改用视觉坐标')
+    throw new Error(t('目标元素没有可操作的屏幕坐标，请重新 observe 或改用视觉坐标'))
   }
   return {
     x: Math.round(element.x + element.width / 2),
@@ -129,8 +130,9 @@ function rectsOverlap(left: ComputerUseFrameRect, right: ComputerUseFrameRect): 
 
 class TargetIntegrityError extends Error {}
 
-const SELF_TARGET =
+const SELF_TARGET = t(
   '当前前台窗口是 Pi Desktop 本身，Computer Use 不会读取或操作它。请先用 {"action":"activate","app":"应用名"} 切换到目标应用。'
+)
 
 /** The element the model chose is still the same control at the same place. */
 function sameElement(left: ComputerUseElement, right: ComputerUseElement | undefined): boolean {
@@ -226,13 +228,13 @@ export class ComputerUseService {
         case 'inspect':
           return this.inspect(scope, request.stateId, request.ref)
         case 'act':
-          if (request.intent === 'type' && !request.text) throw new Error('type 操作需要 text')
-          if (request.intent === 'key' && !request.key) throw new Error('key 操作需要 key')
+          if (request.intent === 'type' && !request.text) throw new Error(t('type 操作需要 text'))
+          if (request.intent === 'key' && !request.key) throw new Error(t('key 操作需要 key'))
           if (request.intent !== 'key' && !request.target)
-            throw new Error(`${request.intent} 操作需要 target`)
+            throw new Error(t('{intent} 操作需要 target', { intent: request.intent }))
           return await this.act(scope, request, executionSignal)
       }
-      throw new Error('未知 Computer Use 操作')
+      throw new Error(t('未知 Computer Use 操作'))
     } finally {
       active.delete(controller)
       if (!active.size && this.executions.get(scope.ownerId) === active)
@@ -248,7 +250,7 @@ export class ComputerUseService {
       state.generation !== scope.generation ||
       state.stateId !== stateId
     ) {
-      throw new Error('Computer Use 状态已过期，请重新 observe')
+      throw new Error(t('Computer Use 状态已过期，请重新 observe'))
     }
     return state
   }
@@ -262,7 +264,7 @@ export class ComputerUseService {
       accessibilityGranted: result.permission.access === 'granted'
     })
     if (gate) throw new Error(gate)
-    if (!result.dump) throw new Error(result.message ?? '无法读取当前桌面语义结构')
+    if (!result.dump) throw new Error(result.message ?? t('无法读取当前桌面语义结构'))
     return {
       dump: result.dump,
       permission: result.permission,
@@ -292,16 +294,18 @@ export class ComputerUseService {
   ): Promise<{ frame: ComputerUseVisualFrame; target: DesktopWindowTarget }> {
     const unlocked = await this.desktop.accessibility.sessionUnlocked(signal)
     signal?.throwIfAborted()
-    if (!unlocked) throw new Error('锁屏或锁定会话中拒绝视觉 Computer Use。请解锁后再试。')
+    if (!unlocked) throw new Error(t('锁屏或锁定会话中拒绝视觉 Computer Use。请解锁后再试。'))
     let target: DesktopWindowTarget
     try {
       target = await this.desktop.accessibility.foregroundWindow(signal)
     } catch (error) {
       signal?.throwIfAborted()
-      throw new TargetIntegrityError('无法唯一识别当前目标窗口，请重新 observe', { cause: error })
+      throw new TargetIntegrityError(t('无法唯一识别当前目标窗口，请重新 observe'), {
+        cause: error
+      })
     }
     if (semanticTarget && !sameTarget(semanticTarget, target)) {
-      throw new TargetIntegrityError('辅助功能与截图的目标窗口不一致，请重新 observe')
+      throw new TargetIntegrityError(t('辅助功能与截图的目标窗口不一致，请重新 observe'))
     }
     const frame = await this.desktop.capture.captureVisualFrame(target, signal)
     let current: DesktopWindowTarget
@@ -309,10 +313,10 @@ export class ComputerUseService {
       current = await this.desktop.accessibility.foregroundWindow(signal)
     } catch (error) {
       signal?.throwIfAborted()
-      throw new TargetIntegrityError('截图后无法确认目标窗口，请重新 observe', { cause: error })
+      throw new TargetIntegrityError(t('截图后无法确认目标窗口，请重新 observe'), { cause: error })
     }
     if (!sameTarget(target, current)) {
-      throw new TargetIntegrityError('截图时目标窗口已变化，请重新 observe')
+      throw new TargetIntegrityError(t('截图时目标窗口已变化，请重新 observe'))
     }
     return { frame, target }
   }
@@ -341,7 +345,7 @@ export class ComputerUseService {
     if (requestedMode === 'visual' || requestedMode === 'fused') {
       try {
         if (semantic && !semantic.dump.target) {
-          throw new TargetIntegrityError('辅助功能未能唯一匹配截图窗口，请重新 observe')
+          throw new TargetIntegrityError(t('辅助功能未能唯一匹配截图窗口，请重新 observe'))
         }
         const captured = await this.readVisual(semantic?.dump.target, signal)
         visual = captured.frame
@@ -357,9 +361,11 @@ export class ComputerUseService {
 
     if (!semantic && !visual) {
       const semanticMessage =
-        semanticError instanceof Error ? semanticError.message : '语义观察不可用'
-      const visualMessage = visualError instanceof Error ? visualError.message : '视觉观察不可用'
-      throw new Error(`无法观察桌面：${semanticMessage}；${visualMessage}`)
+        semanticError instanceof Error ? semanticError.message : t('语义观察不可用')
+      const visualMessage = visualError instanceof Error ? visualError.message : t('视觉观察不可用')
+      throw new Error(
+        t('无法观察桌面：{semanticMessage}；{visualMessage}', { semanticMessage, visualMessage })
+      )
     }
 
     const selfPid = this.options.selfPid
@@ -370,7 +376,7 @@ export class ComputerUseService {
       ? semantic.dump.windows.filter((window) => window.windowId === semantic.dump.target?.windowId)
       : undefined
     if (matchingWindows && matchingWindows.length !== 1) {
-      throw new TargetIntegrityError('辅助功能窗口身份不一致，请重新 observe')
+      throw new TargetIntegrityError(t('辅助功能窗口身份不一致，请重新 observe'))
     }
     const flattened = semantic
       ? flattenElements({ ...semantic.dump, windows: matchingWindows ?? semantic.dump.windows })
@@ -433,7 +439,7 @@ export class ComputerUseService {
   ): ComputerUseResult {
     const state = this.requireState(scope, stateId)
     const element = state.elements.get(ref)
-    if (!element) throw new Error('Computer Use 元素引用无效，请重新 observe')
+    if (!element) throw new Error(t('Computer Use 元素引用无效，请重新 observe'))
     return computerUseResultSchema.parse({
       kind: 'inspect',
       stateId,
@@ -456,14 +462,16 @@ export class ComputerUseService {
       try {
         const observation = await this.observe(scope, mode, signal)
         if (!activated.bundleId || observation.bundleId === activated.bundleId) return observation
-        failure = new Error(`前台仍是「${observation.app}」`)
+        failure = new Error(t('前台仍是「{app}」', { app: observation.app }))
       } catch (error) {
         if (signal?.aborted) throw error
         failure = error
       }
     }
-    const reason = failure instanceof Error ? failure.message : '窗口没有出现在前台'
-    throw new Error(`已切换到「${activated.app}」，但无法观察它的窗口：${reason}`)
+    const reason = failure instanceof Error ? failure.message : t('窗口没有出现在前台')
+    throw new Error(
+      t('已切换到「{app}」，但无法观察它的窗口：{reason}', { app: activated.app, reason })
+    )
   }
 
   /**
@@ -487,9 +495,9 @@ export class ComputerUseService {
     signal?: AbortSignal
   ): Promise<{ x: number; y: number }> {
     const visual = state.observation.visual
-    if (!visual) throw new Error('当前 stateId 没有视觉截图，请重新 visual/fused observe')
+    if (!visual) throw new Error(t('当前 stateId 没有视觉截图，请重新 visual/fused observe'))
     if (Date.now() - visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs) {
-      throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
     }
     const display = this.desktop.capture
       .readDisplays()
@@ -499,12 +507,12 @@ export class ComputerUseService {
       !rectsOverlap(display.bounds, visual.framePoints) ||
       display.scaleFactor !== visual.scaleFactor
     ) {
-      throw new Error('显示器布局已变化，请重新 observe')
+      throw new Error(t('显示器布局已变化，请重新 observe'))
     }
-    if (!state.target) throw new Error('目标窗口身份缺失，请重新 observe')
+    if (!state.target) throw new Error(t('目标窗口身份缺失，请重新 observe'))
     const current = await this.desktop.accessibility.foregroundWindow(signal)
     if (!sameTarget(state.target, current)) {
-      throw new Error('目标窗口已变化，请重新 observe')
+      throw new Error(t('目标窗口已变化，请重新 observe'))
     }
     return computerUseImagePointToScreenPoint(visual, target)
   }
@@ -523,10 +531,10 @@ export class ComputerUseService {
     let inputContext: InputContext
 
     if (request.target.kind === 'ref') {
-      if (!state.target) throw new Error('无法确认语义元素所属窗口，请重新 observe')
+      if (!state.target) throw new Error(t('无法确认语义元素所属窗口，请重新 observe'))
       const element = state.elements.get(request.target.ref)
       if (!element || !state.semanticFingerprint) {
-        throw new Error('当前 stateId 不包含这个语义元素，请重新 semantic/fused observe')
+        throw new Error(t('当前 stateId 不包含这个语义元素，请重新 semantic/fused observe'))
       }
       const current = await this.readCurrentSemantic(signal)
       // Live apps (chat, mail) change elsewhere all the time; the chosen control must not.
@@ -535,10 +543,10 @@ export class ComputerUseService {
         !sameElement(element, flattenElements(targetWindows(current.dump)).index.get(element.ref))
       ) {
         this.states.delete(this.scopeKey(scope))
-        throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
+        throw new Error(t('Computer Use 状态已变化，请重新 observe 后再操作'))
       }
       if (!current.dump.target || !sameTarget(state.target, current.dump.target)) {
-        throw new Error('目标窗口已变化，请重新 observe')
+        throw new Error(t('目标窗口已变化，请重新 observe'))
       }
       point = elementCenter(element)
       inputContext = {
@@ -552,7 +560,7 @@ export class ComputerUseService {
         const current = await this.readCurrentSemantic(signal)
         if (fingerprint(current.dump) !== state.semanticFingerprint) {
           this.states.delete(this.scopeKey(scope))
-          throw new Error('Computer Use 状态已变化，请重新 observe 后再操作')
+          throw new Error(t('Computer Use 状态已变化，请重新 observe 后再操作'))
         }
         inputContext = {
           permission: current.permission,
@@ -569,15 +577,15 @@ export class ComputerUseService {
       state.observation.visual &&
       Date.now() - state.observation.visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs
     ) {
-      throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
     }
     if (state.target && !pointInsideTarget(point, state.target)) {
-      throw new Error('操作坐标不在目标窗口内，请重新 observe')
+      throw new Error(t('操作坐标不在目标窗口内，请重新 observe'))
     }
     if (state.target) {
       const currentTarget = await this.desktop.accessibility.foregroundWindow(signal)
       if (!sameTarget(state.target, currentTarget))
-        throw new Error('目标窗口已变化，请重新 observe')
+        throw new Error(t('目标窗口已变化，请重新 observe'))
     }
     const expiresAt = state.observation.visual
       ? state.observation.visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
@@ -596,7 +604,7 @@ export class ComputerUseService {
         expiresAt,
         signal
       })
-      if (!result.executed) throw new Error(result.message ?? '无法执行桌面点击')
+      if (!result.executed) throw new Error(result.message ?? t('无法执行桌面点击'))
     } else if (request.intent === 'move') {
       await this.desktop.input.move(point.x, point.y, signal, state.target, expiresAt)
     } else {
@@ -612,7 +620,7 @@ export class ComputerUseService {
         expiresAt,
         signal
       })
-      if (!focused.executed) throw new Error(focused.message ?? '无法聚焦输入目标')
+      if (!focused.executed) throw new Error(focused.message ?? t('无法聚焦输入目标'))
       signal?.throwIfAborted()
       await this.desktop.input.typeText(request.text!, signal, state.target, expiresAt)
     }
@@ -626,15 +634,15 @@ export class ComputerUseService {
     request: Extract<ComputerUseOperation, { action: 'act' }>,
     signal?: AbortSignal
   ): Promise<ComputerUseResult> {
-    if (!state.target) throw new Error('无法确认按键所属窗口，请重新 observe')
+    if (!state.target) throw new Error(t('无法确认按键所属窗口，请重新 observe'))
     if (
       state.observation.visual &&
       Date.now() - state.observation.visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs
     ) {
-      throw new Error('视觉 Computer Use 状态已过期，请重新 observe')
+      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
     }
     const current = await this.desktop.accessibility.foregroundWindow(signal)
-    if (!sameTarget(state.target, current)) throw new Error('目标窗口已变化，请重新 observe')
+    if (!sameTarget(state.target, current)) throw new Error(t('目标窗口已变化，请重新 observe'))
     const expiresAt = state.observation.visual
       ? state.observation.visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
       : undefined
@@ -678,10 +686,10 @@ export class ComputerUseService {
       observation,
       message:
         verification === 'semantic-change'
-          ? '操作已发送，并观察到语义界面状态变化。'
+          ? t('操作已发送，并观察到语义界面状态变化。')
           : verification === 'visual-change'
-            ? '操作已发送，并观察到视觉变化；这不单独证明业务动作成功，请依据新截图继续确认。'
-            : '操作已发送，但未观察到可验证变化；请依据新状态继续确认。'
+            ? t('操作已发送，并观察到视觉变化；这不单独证明业务动作成功，请依据新截图继续确认。')
+            : t('操作已发送，但未观察到可验证变化；请依据新状态继续确认。')
     })
   }
 }

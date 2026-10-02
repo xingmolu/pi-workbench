@@ -2,12 +2,13 @@ import { lstat, open, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { serializeMarkdownTable, type MarkdownTableResult } from '../shared/markdown-table-export'
+import { t } from '../shared/i18n'
 
 type Owner = { id: number; isDestroyed: () => boolean }
 type Dialog = (owner: Owner) => Promise<{ canceled: boolean; filePath?: string }>
 const failed = (): MarkdownTableResult => ({
   status: 'failed',
-  message: '保存失败，文件可能已更改，请重新选择保存位置。'
+  message: t('保存失败，文件可能已更改，请重新选择保存位置。')
 })
 export class MarkdownTableExporter {
   private active = new Set<number>()
@@ -17,7 +18,7 @@ export class MarkdownTableExporter {
     try {
       text = serializeMarkdownTable(value).text
     } catch {
-      return { status: 'failed', message: '表格格式无效或超过导出上限。' }
+      return { status: 'failed', message: t('表格格式无效或超过导出上限。') }
     }
     if (owner.isDestroyed() || this.active.has(owner.id) || this.active.size >= 4) return failed()
     this.active.add(owner.id)

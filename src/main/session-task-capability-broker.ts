@@ -6,10 +6,8 @@ import {
   type SessionTaskResponse,
   type SessionTaskResponseData
 } from '../shared/session-task-capability'
-import type {
-  SessionTaskOrchestrator,
-  SessionTaskParent
-} from './session-task-orchestrator'
+import type { SessionTaskOrchestrator, SessionTaskParent } from './session-task-orchestrator'
+import { t } from '../shared/i18n'
 
 export type SessionTaskCapabilityIdentity = Pick<AgentSnapshot, 'sessionId' | 'generation'>
 
@@ -26,7 +24,7 @@ type PendingRequest = {
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return (message || 'SessionTask 操作失败').slice(0, 4096)
+  return (message || t('SessionTask 操作失败')).slice(0, 4096)
 }
 
 function cancellable(action: SessionTaskRequest['action']): boolean {
@@ -62,7 +60,7 @@ export class SessionTaskCapabilityBroker {
         type: 'session-task-response',
         requestId: request.requestId,
         ok: false,
-        error: '重复的 SessionTask requestId'
+        error: t('重复的 SessionTask requestId')
       })
       return true
     }
@@ -76,7 +74,7 @@ export class SessionTaskCapabilityBroker {
         type: 'session-task-response',
         requestId: request.requestId,
         ok: false,
-        error: '父会话身份已改变，请重新发起任务操作'
+        error: t('父会话身份已改变，请重新发起任务操作')
       })
       return true
     }

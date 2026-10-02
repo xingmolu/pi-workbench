@@ -18,12 +18,13 @@ import type { WorkspaceFileEntry, WorkspaceFilesResult } from '../../../shared/w
 import { stageTextFile, useTextAttachments } from '../store/text-attachments'
 import { HighlightedCode } from './HighlightedCode'
 import { useOverlayState } from '../store/overlay-state'
+import { t } from '../../../shared/i18n'
 
 type Listing = Extract<WorkspaceFilesResult, { type: 'list' | 'search' }>
 type ReadResult = Extract<WorkspaceFilesResult, { type: 'read' }>
 type Load<T> = { value?: T; error?: string }
 const message = (error: unknown): string =>
-  (error instanceof Error ? error.message : '无法读取，请重试').replace(
+  (error instanceof Error ? error.message : t('无法读取，请重试')).replace(
     /^Error invoking remote method '[^']+': (?:Error: )?/,
     ''
   )
@@ -39,11 +40,11 @@ function ListingStatus({
     <>
       {state.error ? (
         <p className="files-message is-error" role="alert">
-          {state.error}。可刷新重试。
+          {t('{error}。可刷新重试。', { error: state.error })}
         </p>
       ) : !state.value ? (
         <p className="files-message" role="status">
-          正在读取文件列表…
+          {t('正在读取文件列表…')}
         </p>
       ) : !state.value.entries.length ? (
         <p className="files-message" role="status">
@@ -52,7 +53,7 @@ function ListingStatus({
       ) : null}
       {state.value?.truncated ? (
         <p className="files-message files-warning" role="status">
-          仅显示部分结果，已达到扫描或数量上限。请缩小范围。
+          {t('仅显示部分结果，已达到扫描或数量上限。请缩小范围。')}
         </p>
       ) : null}
     </>
@@ -89,7 +90,7 @@ function FileButton({
       <Icon size={14} aria-hidden="true" />
       <span>{fullPath ? entry.path : entry.name}</span>
       {unavailable ? (
-        <small>{entry.kind === 'symlink' ? '符号链接 · 不可用' : '不支持'}</small>
+        <small>{entry.kind === 'symlink' ? t('符号链接 · 不可用') : t('不支持')}</small>
       ) : null}
     </button>
   )
@@ -116,7 +117,7 @@ function Directory(props: DirectoryProps): React.JSX.Element {
   }, [projectPath, path, includeHidden, revision])
   return (
     <>
-      <ListingStatus state={state} empty={path ? '空目录' : '项目目录为空'} />
+      <ListingStatus state={state} empty={path ? t('空目录') : t('项目目录为空')} />
       <ul className="files-list">
         {state.value?.entries.map((entry) => (
           <li key={entry.path}>
@@ -269,27 +270,27 @@ export default function FilesPane({
     const request = copyEpoch.current
     try {
       await navigator.clipboard.writeText(text)
-      if (request === copyEpoch.current) setFeedback(`已复制${label}`)
+      if (request === copyEpoch.current) setFeedback(t('已复制{label}', { label }))
     } catch {
-      if (request === copyEpoch.current) setFeedback('复制失败，请检查剪贴板权限后重试')
+      if (request === copyEpoch.current) setFeedback(t('复制失败，请检查剪贴板权限后重试'))
     }
     if (request === copyEpoch.current) timer.current = setTimeout(() => setFeedback(''), 3000)
   }
   return (
-    <section className="files-pane" aria-label="项目文件">
+    <section className="files-pane" aria-label={t('项目文件')}>
       {!projectPath ? (
-        <p className="files-message">打开项目后可浏览文件。</p>
+        <p className="files-message">{t('打开项目后可浏览文件。')}</p>
       ) : (
         <>
           <div className="files-toolbar" hidden={selected !== null}>
             <span className="files-project" title={projectPath}>
               {projectPath.split('/').filter(Boolean).at(-1)}
             </span>
-            <small>只读</small>
+            <small>{t('只读')}</small>
             <button
               type="button"
-              aria-label="刷新文件"
-              title="刷新文件"
+              aria-label={t('刷新文件')}
+              title={t('刷新文件')}
               onClick={() => {
                 setRevision((value) => value + 1)
                 if (selected) read(selected)
@@ -304,20 +305,20 @@ export default function FilesPane({
                 <Search size={14} aria-hidden="true" />
                 <input
                   ref={searchInput}
-                  aria-label="搜索文件名"
+                  aria-label={t('搜索文件名')}
                   value={query}
                   maxLength={100}
-                  placeholder="按文件名搜索"
+                  placeholder={t('按文件名搜索')}
                   onChange={(event) => {
                     setSearch({})
                     setQuery(event.target.value)
                   }}
                 />
               </label>
-              <label className="files-check files-hidden-toggle" title="显示隐藏文件">
+              <label className="files-check files-hidden-toggle" title={t('显示隐藏文件')}>
                 <input
                   type="checkbox"
-                  aria-label="显示隐藏文件"
+                  aria-label={t('显示隐藏文件')}
                   checked={includeHidden}
                   onChange={(event) => {
                     setSearch({})
@@ -342,7 +343,7 @@ export default function FilesPane({
             </div>
             {query.trim() ? (
               <div className="files-tree">
-                <ListingStatus state={search} empty="没有匹配的文件" />
+                <ListingStatus state={search} empty={t('没有匹配的文件')} />
                 {search.value?.entries.map((entry) => (
                   <FileButton key={entry.path} entry={entry} fullPath onSelect={read} />
                 ))}
@@ -355,8 +356,8 @@ export default function FilesPane({
                 <div className="files-preview-title">
                   <button
                     type="button"
-                    aria-label="返回文件列表"
-                    title="返回文件列表"
+                    aria-label={t('返回文件列表')}
+                    title={t('返回文件列表')}
                     ref={backButton}
                     onClick={() => {
                       epoch.current++
@@ -371,8 +372,8 @@ export default function FilesPane({
                   <strong title={selected}>{selected.split('/').at(-1)}</strong>
                   <button
                     type="button"
-                    aria-label="刷新文件"
-                    title="刷新文件"
+                    aria-label={t('刷新文件')}
+                    title={t('刷新文件')}
                     onClick={() => {
                       setRevision((value) => value + 1)
                       read(selected)
@@ -387,8 +388,8 @@ export default function FilesPane({
                 <div className="files-actions">
                   <button
                     type="button"
-                    aria-label="添加到对话"
-                    title="添加到对话"
+                    aria-label={t('添加到对话')}
+                    title={t('添加到对话')}
                     disabled={
                       !preview.value ||
                       attachments.staging ||
@@ -401,27 +402,27 @@ export default function FilesPane({
                   </button>
                   <button
                     type="button"
-                    aria-label="复制相对路径"
-                    title="复制相对路径"
-                    onClick={() => void copy(selected, '相对路径')}
+                    aria-label={t('复制相对路径')}
+                    title={t('复制相对路径')}
+                    onClick={() => void copy(selected, t('相对路径'))}
                   >
                     <Link2 size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
-                    aria-label="复制内容"
-                    title="复制内容"
+                    aria-label={t('复制内容')}
+                    title={t('复制内容')}
                     disabled={!preview.value}
                     onClick={() => {
-                      if (preview.value) void copy(preview.value.text, '内容')
+                      if (preview.value) void copy(preview.value.text, t('内容'))
                     }}
                   >
                     <Copy size={14} aria-hidden="true" />
                   </button>
-                  <label className="files-check files-wrap-toggle" title="自动换行">
+                  <label className="files-check files-wrap-toggle" title={t('自动换行')}>
                     <input
                       type="checkbox"
-                      aria-label="自动换行"
+                      aria-label={t('自动换行')}
                       checked={wrap}
                       onChange={(event) => setWrap(event.target.checked)}
                     />
@@ -434,7 +435,7 @@ export default function FilesPane({
               </div>
               {preview.error ? (
                 <p role="alert" className="files-message is-error">
-                  {preview.error}。可刷新重试或返回文件列表。
+                  {t('{error}。可刷新重试或返回文件列表。', { error: preview.error })}
                 </p>
               ) : preview.value ? (
                 <>
@@ -442,12 +443,14 @@ export default function FilesPane({
                     <HighlightedCode text={preview.value.text} filename={selected} lineNumbers />
                   </pre>
                   <small className="files-size">
-                    UTF-8 · {preview.value.size.toLocaleString()} 字节 · 只读预览
+                    {t('UTF-8 · {toLocaleString} 字节 · 只读预览', {
+                      toLocaleString: preview.value.size.toLocaleString()
+                    })}
                   </small>
                 </>
               ) : (
                 <p role="status" className="files-message">
-                  正在读取文件…
+                  {t('正在读取文件…')}
                 </p>
               )}
             </div>

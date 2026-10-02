@@ -5,6 +5,7 @@ import { useRuntimeCatalog } from '../store/runtime-catalog'
 import { engineSummary } from '../store/engine-presentation'
 import { confirmDiscardSettingsDraft, useSettingsDraftController } from './SettingsDraftContext'
 import { commandOrigin, usePiStore } from '../store/pi-store'
+import { t } from '../../../shared/i18n'
 
 /**
  * Engine changes open a new chat; they never reinterpret a saved or running conversation.
@@ -46,8 +47,8 @@ export default function RuntimePicker({
     <Dropdown.Root>
       <Dropdown.Trigger
         className={variant === 'split' ? 'runtime-picker-split' : 'runtime-picker-trigger'}
-        aria-label="选择 Agent 引擎"
-        title={variant === 'split' ? '选择新会话使用的引擎' : undefined}
+        aria-label={t('选择 Agent 引擎')}
+        title={variant === 'split' ? t('选择新会话使用的引擎') : undefined}
         disabled={disabled || pending || !snapshot.ready || Boolean(snapshot.edit?.pending)}
       >
         {variant === 'split' ? (
@@ -59,7 +60,7 @@ export default function RuntimePicker({
         ) : (
           <>
             {pending ? <LoaderCircle size={14} className="spin" /> : <Cpu size={14} />}
-            <span>{current?.label ?? 'Agent 引擎'}</span>
+            <span>{current?.label ?? t('Agent 引擎')}</span>
             <ChevronDown size={12} />
           </>
         )}
@@ -70,7 +71,7 @@ export default function RuntimePicker({
           align={variant === 'split' ? 'end' : 'start'}
           sideOffset={6}
         >
-          <Dropdown.Label className="runtime-picker-label">新会话使用的引擎</Dropdown.Label>
+          <Dropdown.Label className="runtime-picker-label">{t('新会话使用的引擎')}</Dropdown.Label>
           {runtimes.map((runtime) => (
             <Dropdown.Item
               className="runtime-picker-option"
@@ -84,7 +85,7 @@ export default function RuntimePicker({
               {current?.id === runtime.id ? <Check size={14} /> : null}
             </Dropdown.Item>
           ))}
-          <p className="runtime-picker-note">切换后新建会话，当前任务可在后台继续。</p>
+          <p className="runtime-picker-note">{t('切换后新建会话，当前任务可在后台继续。')}</p>
         </Dropdown.Content>
       </Dropdown.Portal>
     </Dropdown.Root>

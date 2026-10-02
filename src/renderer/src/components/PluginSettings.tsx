@@ -19,15 +19,20 @@ import {
   type PluginPermissionRisk
 } from '../../../shared/plugin-api'
 import { SettingsPage } from './SettingsPrimitives'
+import { t } from '../../../shared/i18n'
 import '../assets/plugin-settings.css'
 
-const RISK_LABEL: Record<PluginPermissionRisk, string> = { low: '低', medium: '中', high: '高' }
+const RISK_LABEL: Record<PluginPermissionRisk, string> = {
+  low: t('低'),
+  medium: t('中'),
+  high: t('高')
+}
 const STATUS_LABEL = {
-  stopped: '未运行',
-  starting: '正在启动',
-  running: '运行中',
-  crashed: '已崩溃',
-  failed: '加载失败'
+  stopped: t('未运行'),
+  starting: t('正在启动'),
+  running: t('运行中'),
+  crashed: t('已崩溃'),
+  failed: t('加载失败')
 } as const
 
 /** Shown before a plugin that runs code (or asks for more than a view) is enabled. */
@@ -43,11 +48,12 @@ function GrantReview({
   onConfirm: () => void
 }): React.JSX.Element {
   return (
-    <div className="plugin-grant" role="group" aria-label={`授权 ${plugin.name}`}>
+    <div className="plugin-grant" role="group" aria-label={t('授权 {name}', { name: plugin.name })}>
       {plugin.runtime?.hasMain ? (
         <p>
-          该插件会在独立进程中运行代码。权限只约束它调用 Pi Desktop 的接口，
-          不能阻止它直接访问本机文件或网络，请只启用来源可信的插件。
+          {t(
+            '该插件会在独立进程中运行代码。权限只约束它调用 Pi Desktop 的接口， 不能阻止它直接访问本机文件或网络，请只启用来源可信的插件。'
+          )}
         </p>
       ) : null}
       <ul>
@@ -57,18 +63,22 @@ function GrantReview({
           return (
             <li key={permission} className={risk ? `is-${risk}` : 'is-unsupported'}>
               <code>{permission}</code>
-              <span>{risk ? `风险：${RISK_LABEL[risk]}` : '此版本不支持，不会授予'}</span>
+              <span>
+                {risk
+                  ? t('风险：{value}', { value: RISK_LABEL[risk] })
+                  : t('此版本不支持，不会授予')}
+              </span>
             </li>
           )
         })}
-        {plugin.requestedPermissions.length === 0 ? <li>不请求额外权限</li> : null}
+        {plugin.requestedPermissions.length === 0 ? <li>{t('不请求额外权限')}</li> : null}
       </ul>
       <div className="plugin-grant-actions">
         <button type="button" className="secondary-button" disabled={pending} onClick={onCancel}>
-          取消
+          {t('取消')}
         </button>
         <button type="button" className="primary-button" disabled={pending} onClick={onConfirm}>
-          授权并启用
+          {t('授权并启用')}
         </button>
       </div>
     </div>
@@ -88,7 +98,7 @@ function SettingField({
   disabled: boolean
   onChange: (value: PluginSetting['value']) => void
 }): React.JSX.Element {
-  const label = `${pluginName} 设置：${setting.title}`
+  const label = t('{pluginName} 设置：{title}', { pluginName, title: setting.title })
   let control: React.JSX.Element
   switch (setting.type) {
     case 'boolean':
@@ -153,17 +163,17 @@ function SettingField({
 }
 
 function pluginScope(plugin: DesktopPluginSummary): string {
-  if (plugin.scope === 'builtin' || plugin.scope === 'bundled') return '内置'
-  if (plugin.scope === 'project') return '项目'
-  return '用户'
+  if (plugin.scope === 'builtin' || plugin.scope === 'bundled') return t('内置')
+  if (plugin.scope === 'project') return t('项目')
+  return t('用户')
 }
 
 function diagnosticMessage(diagnostic: WorkbenchDiagnostic): string {
   if (diagnostic.code === 'plugin-crash-disabled') {
-    return '桌面面板已因连续崩溃停用。请重启 Pi Desktop 后再尝试启用。'
+    return t('桌面面板已因连续崩溃停用。请重启 Pi Desktop 后再尝试启用。')
   }
   if (diagnostic.code === 'plugin-crashed') {
-    return '插件面板发生崩溃；再次打开时会重建。'
+    return t('插件面板发生崩溃；再次打开时会重建。')
   }
   return diagnostic.message
 }
@@ -174,7 +184,7 @@ function DiagnosticList({
   diagnostics: WorkbenchDiagnostic[]
 }): React.JSX.Element {
   return (
-    <ul className="plugin-diagnostics" aria-label="插件诊断">
+    <ul className="plugin-diagnostics" aria-label={t('插件诊断')}>
       {diagnostics.map((diagnostic, index) => {
         const Icon = diagnostic.severity === 'error' ? CircleAlert : TriangleAlert
         return (
@@ -185,7 +195,7 @@ function DiagnosticList({
           >
             <Icon size={13} aria-hidden="true" />
             <span>
-              <strong>{diagnostic.severity === 'error' ? '错误' : '警告'}</strong>
+              <strong>{diagnostic.severity === 'error' ? t('错误') : t('警告')}</strong>
               {diagnosticMessage(diagnostic)}
               <code>{diagnostic.code}</code>
             </span>
@@ -242,19 +252,24 @@ export default function PluginSettings({
       dispatch({ type: 'reload:success' })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      dispatch({ type: 'reload:failure', message: `插件列表刷新失败：${message}` })
+      dispatch({ type: 'reload:failure', message: t('插件列表刷新失败：{message}', { message }) })
     }
   }
 
   return (
     <SettingsPage
-      title="Desktop 插件"
-      description="插件可以在右侧工作台添加面板，并为 Agent 提供工具、技能和主题。会运行代码的插件需要你查看权限并授权后才会启动。"
+      title={t('Desktop 插件')}
+      description={t(
+        '插件可以在右侧工作台添加面板，并为 Agent 提供工具、技能和主题。会运行代码的插件需要你查看权限并授权后才会启动。'
+      )}
     >
       <div className="plugin-toolbar">
         <span>
-          {snapshot.plugins.length} 个插件 · 已启用{' '}
-          {snapshot.plugins.filter(({ desktopEnabled }) => desktopEnabled).length} 个
+          {t('{length} 个插件 · 已启用{value} {length2} 个', {
+            length: snapshot.plugins.length,
+            value: ' ',
+            length2: snapshot.plugins.filter(({ desktopEnabled }) => desktopEnabled).length
+          })}
         </span>
         <button
           className="plugin-reload-button"
@@ -263,7 +278,7 @@ export default function PluginSettings({
           onClick={() => void reload()}
         >
           <RefreshCw className={operation.reloading ? 'spin' : undefined} size={13} />
-          {operation.reloading ? '正在刷新' : '重新加载'}
+          {operation.reloading ? t('正在刷新') : t('重新加载')}
         </button>
       </div>
 
@@ -278,7 +293,7 @@ export default function PluginSettings({
         {snapshot.plugins.length === 0 ? (
           <div className="plugin-list-empty">
             <Puzzle size={17} />
-            <span>尚未取得插件清单。重新加载后会显示可用的 Desktop 插件。</span>
+            <span>{t('尚未取得插件清单。重新加载后会显示可用的 Desktop 插件。')}</span>
           </div>
         ) : (
           snapshot.plugins.map((plugin) => {
@@ -312,7 +327,7 @@ export default function PluginSettings({
                     ) : null}
                     <p className="plugin-meta">
                       <span title={pluginSourceLabel(plugin)}>{pluginSourceLabel(plugin)}</span>
-                      {plugin.builtin ? <span>固定启用</span> : null}
+                      {plugin.builtin ? <span>{t('固定启用')}</span> : null}
                     </p>
                   </div>
                   <button
@@ -320,8 +335,8 @@ export default function PluginSettings({
                     type="button"
                     role="switch"
                     aria-checked={plugin.desktopEnabled}
-                    aria-label={`${plugin.name} Desktop 面板`}
-                    title={plugin.builtin ? '内置插件固定启用' : undefined}
+                    aria-label={t('{name} Desktop 面板', { name: plugin.name })}
+                    title={plugin.builtin ? t('内置插件固定启用') : undefined}
                     disabled={plugin.builtin || pending}
                     onClick={() => void toggle(plugin)}
                   >
@@ -330,7 +345,7 @@ export default function PluginSettings({
                 </div>
 
                 {plugin.requestedPermissions.length > 0 ? (
-                  <div className="plugin-permissions" aria-label="请求权限">
+                  <div className="plugin-permissions" aria-label={t('请求权限')}>
                     <ShieldAlert size={12} aria-hidden="true" />
                     {plugin.requestedPermissions.map((permission) => (
                       <code key={permission}>{permission}</code>
@@ -341,7 +356,7 @@ export default function PluginSettings({
                 {plugin.runtime?.needsGrant ? (
                   <div className="plugin-executable-warning" role="note">
                     <TriangleAlert size={13} aria-hidden="true" />
-                    <span>插件请求的权限有变化，已暂停运行。重新打开开关以查看并授权。</span>
+                    <span>{t('插件请求的权限有变化，已暂停运行。重新打开开关以查看并授权。')}</span>
                   </div>
                 ) : null}
                 {reviewing === plugin.pluginId ? (
@@ -357,7 +372,7 @@ export default function PluginSettings({
                   <div
                     className="plugin-settings-fields"
                     role="group"
-                    aria-label={`${plugin.name} 设置`}
+                    aria-label={t('{name} 设置', { name: plugin.name })}
                   >
                     {plugin.settings.map((setting) => (
                       <SettingField
@@ -388,8 +403,9 @@ export default function PluginSettings({
                   <div className="plugin-executable-warning" role="note">
                     <TriangleAlert size={13} aria-hidden="true" />
                     <span>
-                      该插件还含 Pi 已加载的 Skills/Extensions。切换 Desktop
-                      开关不会停用或停止这些资源。
+                      {t(
+                        '该插件还含 Pi 已加载的 Skills/Extensions。切换 Desktop 开关不会停用或停止这些资源。'
+                      )}
                     </span>
                   </div>
                 ) : null}
@@ -411,7 +427,7 @@ export default function PluginSettings({
 
       {registryDiagnostics.length > 0 ? (
         <div className="registry-diagnostics">
-          <strong>发现诊断</strong>
+          <strong>{t('发现诊断')}</strong>
           <DiagnosticList diagnostics={registryDiagnostics} />
         </div>
       ) : null}

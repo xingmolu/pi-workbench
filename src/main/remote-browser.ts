@@ -6,6 +6,7 @@ import type {
   RemoteBrowserInput,
   RemoteBrowserState
 } from '../shared/remote-views'
+import { t } from '../shared/i18n'
 
 type Image = {
   getSize(): { width: number; height: number }
@@ -26,7 +27,9 @@ export type RemoteBrowserListener = (
 ) => void
 
 const MAX_IMAGE_WIDTH = 900
-const UNAVAILABLE = '电脑上的浏览器暂时无法显示：请确认 Pi Desktop 窗口没有被最小化，电脑没有锁屏。'
+const UNAVAILABLE = t(
+  '电脑上的浏览器暂时无法显示：请确认 Pi Desktop 窗口没有被最小化，电脑没有锁屏。'
+)
 
 /**
  * Streams the desktop browser to paired phones. Frames are captured only while someone
@@ -80,7 +83,7 @@ export class RemoteBrowser {
 
   async input(input: RemoteBrowserInput): Promise<void> {
     const source = this.source()
-    if (!source) throw new Error('浏览器工作台尚未就绪')
+    if (!source) throw new Error(t('浏览器工作台尚未就绪'))
     this.burst()
     switch (input.type) {
       case 'tap':
@@ -149,7 +152,7 @@ export class RemoteBrowser {
       mobile: Boolean(source?.remoteMobile),
       controller: state?.controller ?? 'idle',
       ...(!state?.available
-        ? { message: '电脑上还没有打开项目，浏览器不可用。' }
+        ? { message: t('电脑上还没有打开项目，浏览器不可用。') }
         : this.unavailable
           ? { message: UNAVAILABLE }
           : state.error

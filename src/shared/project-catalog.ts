@@ -1,6 +1,12 @@
 import type { AgentSnapshot, SessionSummary } from './contracts'
+import { t } from './i18n'
 
-export type ProjectCatalogQuery = { cwd?: string; offset?: number; includeHidden?: boolean; includeArchived?: boolean }
+export type ProjectCatalogQuery = {
+  cwd?: string
+  offset?: number
+  includeHidden?: boolean
+  includeArchived?: boolean
+}
 export type ProjectNavigationFailures = Record<string, { message: string; sessionPath?: string }>
 export type ProjectCatalogCommand = ProjectCatalogQuery & {
   type: 'project:catalog'
@@ -45,15 +51,15 @@ export function projectNavigationReason(
   snapshot: AgentSnapshot,
   residentSelection = false
 ): string | null {
-  if (!snapshot.ready && !(residentSelection && snapshot.desktopScope)) return 'Pi 引擎未连接'
+  if (!snapshot.ready && !(residentSelection && snapshot.desktopScope)) return t('Pi 引擎未连接')
   // Only the resident-worker controller grants navigation during execution.
   if (
     !snapshot.desktopScope &&
     (snapshot.busy || snapshot.queuedCount > 0 || snapshot.approvals.length)
   )
-    return '请先停止当前会话'
-  if (snapshot.edit?.pending) return '请先完成或取消编辑'
+    return t('请先停止当前会话')
+  if (snapshot.edit?.pending) return t('请先完成或取消编辑')
   if (['starting', 'browser', 'device_code', 'waiting'].includes(snapshot.login.phase))
-    return '请先完成登录'
+    return t('请先完成登录')
   return null
 }

@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { PiPackageRoot, PiPackageRootsMessage } from '../shared/workbench-host-contracts'
+import { t } from '../shared/i18n'
 
 export type LoadedPiResource = {
   sourceInfo: {
@@ -39,7 +40,7 @@ export type CurrentPackageRootsIdentity<Runtime> = {
 }
 
 function rendererSafePackageSource(scope: 'user' | 'project'): string {
-  return scope === 'project' ? 'Pi 项目包' : 'Pi 用户包'
+  return scope === 'project' ? t('Pi 项目包') : t('Pi 用户包')
 }
 
 export async function collectLoadedPiPackageRoots(

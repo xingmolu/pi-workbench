@@ -26,6 +26,7 @@ import {
   mobileRootFile,
   mobileUnavailableHtml
 } from './mobile-web-page'
+import { t } from '../shared/i18n'
 
 const BODY_LIMIT = 64 * 1024
 /** A prompt may carry up to four phone photos; the page downsizes them before upload. */
@@ -58,7 +59,7 @@ const newSessionSchema = z.object({
 /** Invalid input answers 400 with a fixed message instead of echoing the parser. */
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
-  if (!result.success) throw new Error('请求参数无效')
+  if (!result.success) throw new Error(t('请求参数无效'))
   return result.data
 }
 const COOKIE = 'pi_device'
@@ -109,7 +110,7 @@ function readBody(request: IncomingMessage, limit = BODY_LIMIT): Promise<string>
       size += chunk.length
       if (size > limit) {
         request.destroy()
-        reject(new Error('请求过大'))
+        reject(new Error(t('请求过大')))
         return
       }
       chunks.push(chunk)
@@ -224,7 +225,7 @@ export class MobileGatewayServer {
     qrSvg: string
   } {
     const url = withPairToken(remoteUrl, token) ?? this.lanUrl(token) ?? this.loopbackUrl(token)
-    if (!url) throw new Error('网关未启动')
+    if (!url) throw new Error(t('网关未启动'))
     return {
       token,
       expiresAt,
@@ -328,7 +329,7 @@ export class MobileGatewayServer {
     try {
       const host = hostnameOf(request.headers.host)
       if (!this.allowedHosts().has(host) && !host.endsWith('.ts.net')) {
-        json(response, 421, { error: '拒绝未知 Host' })
+        json(response, 421, { error: t('拒绝未知 Host') })
         return
       }
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
@@ -347,7 +348,7 @@ export class MobileGatewayServer {
       if (request.method === 'GET' && (url.pathname === '/sw.js' || url.pathname === '/icon.png')) {
         const file = await mobileRootFile(url.pathname, this.options.webRoot ?? MOBILE_WEB_ROOT)
         if (!file) {
-          json(response, 404, { error: '未知资源' })
+          json(response, 404, { error: t('未知资源') })
           return
         }
         response.writeHead(200, {
@@ -362,7 +363,7 @@ export class MobileGatewayServer {
       if (request.method === 'GET' && url.pathname.startsWith('/assets/')) {
         const asset = await mobileAsset(url.pathname, this.options.webRoot ?? MOBILE_WEB_ROOT)
         if (!asset) {
-          json(response, 404, { error: '未知资源' })
+          json(response, 404, { error: t('未知资源') })
           return
         }
         // Build assets carry a content hash in their names.
@@ -389,7 +390,7 @@ export class MobileGatewayServer {
         }
         const grant = this.options.pairing.pair(
           String(body.token ?? ''),
-          String(body.deviceName ?? '手机')
+          String(body.deviceName ?? t('手机'))
         )
         response.writeHead(200, {
           'content-type': 'application/json; charset=utf-8',
@@ -419,12 +420,12 @@ export class MobileGatewayServer {
           'x-content-type-options': 'nosniff',
           'referrer-policy': 'no-referrer'
         })
-        response.end(file ? file.body : '未找到')
+        response.end(file ? file.body : t('未找到'))
         return
       }
       const device = this.requireDevice(request, url)
       if (!device) {
-        json(response, 401, { error: '尚未配对' })
+        json(response, 401, { error: t('尚未配对') })
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/me') {
@@ -457,7 +458,7 @@ export class MobileGatewayServer {
           sessionPath?: string
         }
         if (!body.cwd) {
-          json(response, 400, { error: '缺少项目路径' })
+          json(response, 400, { error: t('缺少项目路径') })
           return
         }
         json(response, 200, await this.options.sessions.open(body.cwd, body.sessionPath))
@@ -478,7 +479,7 @@ export class MobileGatewayServer {
         if (request.method === 'GET' && !action) {
           const snapshot = this.options.sessions.snapshot(workerId)
           if (!snapshot) {
-            json(response, 404, { error: '会话不在运行' })
+            json(response, 404, { error: t('会话不在运行') })
             return
           }
           json(response, 200, snapshot)
@@ -487,7 +488,7 @@ export class MobileGatewayServer {
         if (request.method === 'GET' && action === 'events') {
           const current = this.options.sessions.snapshot(workerId)
           if (!current) {
-            json(response, 404, { error: '会话不在运行' })
+            json(response, 404, { error: t('会话不在运行') })
             return
           }
           const deviceConnections = [...this.sse].filter(
@@ -497,7 +498,7 @@ export class MobileGatewayServer {
             this.sse.size >= (this.options.maxConnections ?? 32) ||
             deviceConnections >= (this.options.maxConnectionsPerDevice ?? 8)
           ) {
-            json(response, 429, { error: '实时连接已达到上限' })
+            json(response, 429, { error: t('实时连接已达到上限') })
             return
           }
           response.writeHead(200, {
@@ -526,7 +527,7 @@ export class MobileGatewayServer {
         ) as Record<string, unknown>
         if (request.method === 'POST' && action === 'send') {
           const input = parse(sendSchema, body)
-          if (!input.text.trim() && !input.images) throw new Error('请输入任务内容')
+          if (!input.text.trim() && !input.images) throw new Error(t('请输入任务内容'))
           await this.options.sessions.send(
             workerId,
             input.text,
@@ -615,9 +616,9 @@ export class MobileGatewayServer {
         json(response, 200, { ok: true })
         return
       }
-      json(response, 404, { error: '未知接口' })
+      json(response, 404, { error: t('未知接口') })
     } catch (error) {
-      const message = error instanceof Error ? error.message : '网关错误'
+      const message = error instanceof Error ? error.message : t('网关错误')
       const status = /配对码|尚未配对|已达到/.test(message) ? 401 : 400
       if (!response.headersSent) json(response, status, { error: message })
     }
@@ -636,11 +637,11 @@ export class MobileGatewayServer {
       return
     }
     if (!plugins) {
-      json(response, 404, { error: '未知接口' })
+      json(response, 404, { error: t('未知接口') })
       return
     }
     if (access === 'off') {
-      json(response, 403, { error: '电脑未允许远程查看工作台：请在「设置 › 手机」中开启。' })
+      json(response, 403, { error: t('电脑未允许远程查看工作台：请在「设置 › 手机」中开启。') })
       return
     }
     try {
@@ -659,13 +660,13 @@ export class MobileGatewayServer {
         return
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : '插件页面不可用'
-      json(response, error instanceof SyntaxError || message === '请求参数无效' ? 400 : 404, {
-        error: error instanceof SyntaxError ? '请求参数无效' : message
+      const message = error instanceof Error ? error.message : t('插件页面不可用')
+      json(response, error instanceof SyntaxError || message === t('请求参数无效') ? 400 : 404, {
+        error: error instanceof SyntaxError ? t('请求参数无效') : message
       })
       return
     }
-    json(response, 404, { error: '未知接口' })
+    json(response, 404, { error: t('未知接口') })
   }
 
   private async handleViews(
@@ -682,7 +683,7 @@ export class MobileGatewayServer {
     }
     const match = /^\/api\/views\/([^/]+)\/(events|input)$/.exec(url.pathname)
     if (!match || !views) {
-      json(response, 404, { error: '未知接口' })
+      json(response, 404, { error: t('未知接口') })
       return
     }
     const id = decodeURIComponent(match[1]!)
@@ -690,8 +691,8 @@ export class MobileGatewayServer {
       json(response, 403, {
         error:
           access === 'off'
-            ? '电脑未允许远程查看工作台：请在「设置 › 手机」中开启。'
-            : '电脑只允许查看，不允许远程操作。'
+            ? t('电脑未允许远程查看工作台：请在「设置 › 手机」中开启。')
+            : t('电脑只允许查看，不允许远程操作。')
       })
       return
     }
@@ -701,12 +702,12 @@ export class MobileGatewayServer {
       return
     }
     if (match[2] !== 'events' || request.method !== 'GET') {
-      json(response, 404, { error: '未知接口' })
+      json(response, 404, { error: t('未知接口') })
       return
     }
     const mine = [...this.viewStreams.values()].filter((item) => item.deviceId === deviceId)
     if (mine.length >= MAX_VIEW_STREAMS_PER_DEVICE) {
-      json(response, 429, { error: '实时连接已达到上限' })
+      json(response, 429, { error: t('实时连接已达到上限') })
       return
     }
     let open = true

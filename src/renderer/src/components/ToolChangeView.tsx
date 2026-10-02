@@ -2,6 +2,7 @@ import { memo } from 'react'
 import type { ToolFileChange } from '../../../shared/contracts'
 import { PierrePatchDiff } from './PierrePatchDiff'
 import { displayChangePath } from '../store/turn-changes'
+import { t } from '../../../shared/i18n'
 
 export function DiffStat({
   additions,
@@ -11,7 +12,10 @@ export function DiffStat({
   deletions: number
 }): React.JSX.Element {
   return (
-    <span className="diff-stat" aria-label={`新增 ${additions} 行，删除 ${deletions} 行`}>
+    <span
+      className="diff-stat"
+      aria-label={t('新增 {additions} 行，删除 {deletions} 行', { additions, deletions })}
+    >
       {additions ? <span className="diff-stat-add">+{additions}</span> : null}
       {deletions ? <span className="diff-stat-del">−{deletions}</span> : null}
       {!additions && !deletions ? <span>0</span> : null}
@@ -49,11 +53,11 @@ export const ToolChangeView = memo(function ToolChangeView({
   const label =
     change.source === 'proposed'
       ? change.kind === 'write'
-        ? '拟写入'
-        : '拟修改'
+        ? t('拟写入')
+        : t('拟修改')
       : change.kind === 'write'
-        ? '已写入'
-        : '已修改'
+        ? t('已写入')
+        : t('已修改')
   return (
     <section className={`tool-change is-${change.source}`} aria-label={`${label} ${change.path}`}>
       {header ? (
@@ -65,7 +69,7 @@ export const ToolChangeView = memo(function ToolChangeView({
       ) : null}
       {change.omitted ? (
         <p className="tool-change-omitted">
-          改动较大，未在对话中展开。可在「审查」中查看完整差异。
+          {t('改动较大，未在对话中展开。可在「审查」中查看完整差异。')}
         </p>
       ) : (
         <div className="tool-change-body">

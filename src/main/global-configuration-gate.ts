@@ -1,4 +1,5 @@
 import { HostRejectedError } from './host-response-broker'
+import { t } from '../shared/i18n'
 
 /** Shared auth/model/MCP files may change only while every resident is quiescent. */
 export class GlobalConfigurationGate {
@@ -15,10 +16,11 @@ export class GlobalConfigurationGate {
     this.uncertainOwners.delete(owner)
   }
   async run<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.active) throw new Error('全局配置正在更新，请稍后重试')
-    if (this.uncertainOwners.size) throw new Error('全局配置操作完成状态未确认，请先结束对应进程')
+    if (this.active) throw new Error(t('全局配置正在更新，请稍后重试'))
+    if (this.uncertainOwners.size)
+      throw new Error(t('全局配置操作完成状态未确认，请先结束对应进程'))
     if (!this.allIdle())
-      throw new Error('请先结束所有会话的运行、队列、审批、编辑或登录，再修改全局配置')
+      throw new Error(t('请先结束所有会话的运行、队列、审批、编辑或登录，再修改全局配置'))
     this.active = true
     try {
       return await operation()

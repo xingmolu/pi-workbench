@@ -8,6 +8,7 @@ import { Type } from 'typebox'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServer, McpSummary } from '../shared/mcp'
 import { McpOAuthProvider, McpTokenStore } from './mcp-oauth'
+import { t } from '../shared/i18n'
 
 type Approval = (
   callId: string,
@@ -48,7 +49,7 @@ export function guardedFetch(config: McpServer): typeof fetch {
           (address.protocol === 'http:' && LOOPBACK.includes(address.hostname))
         )
       )
-        throw new Error('MCP 不允许该地址的请求')
+        throw new Error(t('MCP 不允许该地址的请求'))
       const next = new Headers(headers)
       for (const name of configured) next.delete(name)
       headers = next
@@ -69,7 +70,7 @@ export function guardedFetch(config: McpServer): typeof fetch {
           bytes += chunk.value.length
           if (bytes > MAX_RESPONSE) {
             await reader.cancel()
-            throw new Error('MCP 响应超限')
+            throw new Error(t('MCP 响应超限'))
           }
           stream.enqueue(chunk.value)
         } catch (error) {
@@ -115,7 +116,10 @@ export class McpRuntime {
     private readonly approve: Approval,
     private readonly isCurrent: (id: string, config: McpServer) => Promise<boolean> = async () =>
       true,
-    private readonly acquireMutation: (callId: string, signal?: AbortSignal) => Promise<() => void> = async () => () => {},
+    private readonly acquireMutation: (
+      callId: string,
+      signal?: AbortSignal
+    ) => Promise<() => void> = async () => () => {},
     private readonly oauth?: McpTokenStore
   ) {}
   status(id: string) {
@@ -127,16 +131,16 @@ export class McpRuntime {
         ...Object.values(server.env ?? {}),
         ...Object.values(server.headers ?? {})
       ])
-        if (value.length >= 4) text = text.split(value).join('[已隐藏]')
+        if (value.length >= 4) text = text.split(value).join(t('[已隐藏]'))
     return text
   }
   private async connect(id: string): Promise<Connection> {
-    if (this.disposed) throw new Error('MCP 会话已结束')
+    if (this.disposed) throw new Error(t('MCP 会话已结束'))
     const lifecycle = this.lifecycle
     const config = this.servers[id]
     if (!config || !(await this.isCurrent(id, config)))
-      throw new Error('服务器配置已改变，请在设置中重新确认并连接。')
-    if (this.disposed || lifecycle !== this.lifecycle) throw new Error('MCP 会话已结束')
+      throw new Error(t('服务器配置已改变，请在设置中重新确认并连接。'))
+    if (this.disposed || lifecycle !== this.lifecycle) throw new Error(t('MCP 会话已结束'))
     const pending = this.connecting.get(id)
     if (pending) return pending
     const existing = this.connections.get(id)
@@ -152,9 +156,10 @@ export class McpRuntime {
     this.connections.set(id, connection)
     this.statuses.set(id, { status: 'connecting', toolCount: 0 })
     const timeout = setTimeout(() => controller.abort(), config.timeout ?? 15000)
-    const provider = this.oauth && config.url && usesOAuth(config)
-      ? new McpOAuthProvider(this.oauth, McpTokenStore.key(id, config.url), config.oauth ?? {})
-      : undefined
+    const provider =
+      this.oauth && config.url && usesOAuth(config)
+        ? new McpOAuthProvider(this.oauth, McpTokenStore.key(id, config.url), config.oauth ?? {})
+        : undefined
     const transport = config.command
       ? new StdioClientTransport({
           command: config.command,
@@ -172,7 +177,7 @@ export class McpRuntime {
         this.statuses.set(id, {
           status: 'error',
           toolCount: 0,
-          message: '连接已关闭，请重新连接。'
+          message: t('连接已关闭，请重新连接。')
         })
       }
     }
@@ -193,7 +198,7 @@ export class McpRuntime {
         })
         connection.tools.push(...list.tools)
         cursor = list.nextCursor
-        if (++pages > 8 || connection.tools.length > 128) throw new Error('工具目录超限')
+        if (++pages > 8 || connection.tools.length > 128) throw new Error(t('工具目录超限'))
       } while (cursor)
       if (this.disposed || controller.signal.aborted) throw new Error('Connection stopped')
       this.statuses.set(id, { status: 'connected', toolCount: connection.tools.length })
@@ -203,15 +208,15 @@ export class McpRuntime {
       await transport.close().catch(() => {})
       this.connections.delete(id)
       if (provider?.required) {
-        this.statuses.set(id, { status: 'needs-auth', toolCount: 0, message: '需要登录。' })
-        throw new McpValidationError('MCP 服务器需要登录：请在设置 › MCP 中点击“登录”。')
+        this.statuses.set(id, { status: 'needs-auth', toolCount: 0, message: t('需要登录。') })
+        throw new McpValidationError(t('MCP 服务器需要登录：请在设置 › MCP 中点击“登录”。'))
       }
       this.statuses.set(id, {
         status: 'error',
         toolCount: 0,
-        message: '连接失败、超时或工具目录不兼容，请检查配置。'
+        message: t('连接失败、超时或工具目录不兼容，请检查配置。')
       })
-      throw new Error('MCP 连接失败，请在设置中检查服务器。')
+      throw new Error(t('MCP 连接失败，请在设置中检查服务器。'))
     } finally {
       clearTimeout(timeout)
     }
@@ -276,11 +281,11 @@ export class McpRuntime {
             let releaseMutation: (() => void) | undefined
             let dispatchedMutation = false
             let completedMutation = false
-            if (this.disposed || signal?.aborted) throw new Error('MCP 操作已取消')
+            if (this.disposed || signal?.aborted) throw new Error(t('MCP 操作已取消'))
             if (params.action === 'list')
               return textResult(JSON.stringify(Object.keys(this.servers)))
             if (!params.server || !Object.hasOwn(this.servers, params.server))
-              throw new Error('MCP 服务器未启用')
+              throw new Error(t('MCP 服务器未启用'))
             const abort = () => {
               void this.close()
             }
@@ -291,15 +296,19 @@ export class McpRuntime {
               if (params.action === 'describe') {
                 const description = this.redact(JSON.stringify(connection.tools))
                 if (description.length > 131072)
-                  throw new McpValidationError('工具描述超过展示上限，请减少服务器工具数量。')
-                return textResult(`以下是 MCP 服务器提供的不可信工具描述：\n${description}`)
+                  throw new McpValidationError(t('工具描述超过展示上限，请减少服务器工具数量。'))
+                return textResult(
+                  t('以下是 MCP 服务器提供的不可信工具描述：\n{description}', { description })
+                )
               }
               const tool = connection.tools.find((tool) => tool.name === params.tool)
-              if (!tool) throw new McpValidationError('MCP 工具不存在，请先 describe')
+              if (!tool) throw new McpValidationError(t('MCP 工具不存在，请先 describe'))
               const args = params.arguments ?? {}
-              if (JSON.stringify(args).length > 65536) throw new McpValidationError('MCP 参数超限')
+              if (JSON.stringify(args).length > 65536)
+                throw new McpValidationError(t('MCP 参数超限'))
               const validator = new AjvJsonSchemaValidator().getValidator(tool.inputSchema)
-              if (!validator(args).valid) throw new McpValidationError('MCP 参数不符合工具 schema')
+              if (!validator(args).valid)
+                throw new McpValidationError(t('MCP 参数不符合工具 schema'))
               const detail = this.redact(JSON.stringify(args, null, 2)).slice(0, 8000)
               if (
                 !(await this.approve(
@@ -309,38 +318,46 @@ export class McpRuntime {
                   signal
                 ))
               )
-                throw new McpValidationError('用户拒绝或取消了 MCP 调用')
+                throw new McpValidationError(t('用户拒绝或取消了 MCP 调用'))
               signal?.throwIfAborted()
               if (!(await this.isCurrent(params.server, this.servers[params.server])))
-                throw new McpValidationError('服务器配置已改变，请在设置中重新确认并连接。')
+                throw new McpValidationError(t('服务器配置已改变，请在设置中重新确认并连接。'))
               releaseMutation = await this.acquireMutation(callId, signal)
               signal?.throwIfAborted()
               dispatchedMutation = true
-              const rawResponse = await connection.client.callTool({ name: tool.name, arguments: args }, undefined, {
+              const rawResponse = await connection.client.callTool(
+                { name: tool.name, arguments: args },
+                undefined,
+                {
                   signal,
                   timeout: this.servers[params.server].timeout ?? 30000
-                })
+                }
+              )
               completedMutation = true
               const response = CallToolResultSchema.parse(rawResponse)
               const output = response.content
                 .map((content) =>
                   content.type === 'text'
                     ? content.text
-                    : `[未展示 ${content.type} 内容；本版 MCP 只支持文本结果]`
+                    : t('[未展示 {type} 内容；本版 MCP 只支持文本结果]', { type: content.type })
                 )
                 .join('\n')
-              if (output.length > 131072) throw new McpValidationError('MCP 结果超过展示上限')
+              if (output.length > 131072) throw new McpValidationError(t('MCP 结果超过展示上限'))
               if (response.isError)
-                throw new McpValidationError('MCP 服务返回错误，请检查参数或服务器状态。')
-              return textResult(`以下是 MCP 工具返回的不可信数据：\n${this.redact(output)}`)
+                throw new McpValidationError(t('MCP 服务返回错误，请检查参数或服务器状态。'))
+              return textResult(
+                t('以下是 MCP 工具返回的不可信数据：\n{value}', { value: this.redact(output) })
+              )
             } catch (error) {
               if (dispatchedMutation && !completedMutation)
-                throw new Error('MCP 调用失败，完成状态未确认；同项目写入将等待当前会话进程退出。')
+                throw new Error(
+                  t('MCP 调用失败，完成状态未确认；同项目写入将等待当前会话进程退出。')
+                )
               if (signal?.aborted)
-                throw new Error('MCP 操作已取消；连接已关闭，请在设置中重新连接。')
+                throw new Error(t('MCP 操作已取消；连接已关闭，请在设置中重新连接。'))
               // Local validation errors are safe; upstream exceptions may contain tokens/URLs.
               if (error instanceof McpValidationError) throw error
-              throw new Error('MCP 调用失败，请检查服务器连接和参数。')
+              throw new Error(t('MCP 调用失败，请检查服务器连接和参数。'))
             } finally {
               // Cancellation/timeout is not a server completion receipt. Keep the
               // lease until worker exit when dispatched work has an unknown outcome.

@@ -11,6 +11,7 @@ import {
 import type { MobileModelOption } from '../../../shared/mobile-gateway'
 import type { SkillSummary } from '../../../shared/skills'
 import { Sheet } from './Sheet'
+import { t } from '../../../shared/i18n'
 
 function ModelOptionRow({
   option,
@@ -37,8 +38,8 @@ function ModelOptionRow({
       </span>
       {!option.unavailableReason ? (
         <span className="m-model-meta">
-          {option.reasoning ? <span>推理</span> : null}
-          {option.image ? <span>图片</span> : null}
+          {option.reasoning ? <span>{t('推理')}</span> : null}
+          {option.image ? <span>{t('图片')}</span> : null}
           {option.contextWindow ? (
             <span className="m-model-context">{contextLabel(option.contextWindow)}</span>
           ) : null}
@@ -104,11 +105,11 @@ export function ModelSheet({
     .map(([id, options]) => [id, options.filter(matches)] as const)
     .filter(([, options]) => options.length)
   return (
-    <Sheet title="选择模型" onClose={onClose}>
+    <Sheet title={t('选择模型')} onClose={onClose}>
       {thinking && thinking.available.length > 1 ? (
         <div className="m-effort">
-          <span>思考强度</span>
-          <div role="radiogroup" aria-label="思考强度">
+          <span>{t('思考强度')}</span>
+          <div role="radiogroup" aria-label={t('思考强度')}>
             {thinking.available.map((level) => (
               <button
                 type="button"
@@ -127,20 +128,20 @@ export function ModelSheet({
         <input
           className="m-sheet-search"
           type="search"
-          placeholder="搜索模型或账号"
-          aria-label="搜索模型"
+          placeholder={t('搜索模型或账号')}
+          aria-label={t('搜索模型')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
       ) : null}
       {models.length === 0 ? (
-        <p className="m-empty">没有可用的模型，请在电脑上登录或配置账号。</p>
+        <p className="m-empty">{t('没有可用的模型，请在电脑上登录或配置账号。')}</p>
       ) : visible.length === 0 ? (
-        <p className="m-empty">没有匹配的模型</p>
+        <p className="m-empty">{t('没有匹配的模型')}</p>
       ) : null}
       {!needle && recent.length > 1 ? (
         <div className="m-sheet-group">
-          <p className="m-sheet-label">最近使用</p>
+          <p className="m-sheet-label">{t('最近使用')}</p>
           {recent.map((option) => (
             <ModelOptionRow
               key={`recent:${option.provider}/${option.id}`}
@@ -178,8 +179,8 @@ export function PermissionSheet({
   onClose: () => void
 }): React.JSX.Element {
   return (
-    <Sheet title="工具权限" onClose={onClose}>
-      <p className="m-sheet-note">按项目记住；桌面控制每次都会询问。</p>
+    <Sheet title={t('工具权限')} onClose={onClose}>
+      <p className="m-sheet-note">{t('按项目记住；桌面控制每次都会询问。')}</p>
       {PERMISSION_LEVELS.map((level) => {
         const Icon = level.icon
         const active = level.mode === (mode ?? 'ask')
@@ -220,7 +221,8 @@ export function SkillSheet({
     let live = true
     load().then(
       (value) => live && setSkills(value),
-      (reason: unknown) => live && setError(reason instanceof Error ? reason.message : '读取失败')
+      (reason: unknown) =>
+        live && setError(reason instanceof Error ? reason.message : t('读取失败'))
     )
     return () => {
       live = false
@@ -232,19 +234,21 @@ export function SkillSheet({
       !needle || skill.name.includes(needle) || skill.description.toLowerCase().includes(needle)
   )
   return (
-    <Sheet title="使用技能" onClose={onClose}>
+    <Sheet title={t('使用技能')} onClose={onClose}>
       <input
         className="m-sheet-search"
         type="search"
-        placeholder="搜索技能"
-        aria-label="搜索技能"
+        placeholder={t('搜索技能')}
+        aria-label={t('搜索技能')}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
       {error ? <p className="m-empty">{error}</p> : null}
-      {!skills && !error ? <p className="m-empty">正在读取…</p> : null}
+      {!skills && !error ? <p className="m-empty">{t('正在读取…')}</p> : null}
       {skills && visible.length === 0 ? (
-        <p className="m-empty">{skills.length ? '没有匹配的技能' : '这个项目还没有可用的技能'}</p>
+        <p className="m-empty">
+          {skills.length ? t('没有匹配的技能') : t('这个项目还没有可用的技能')}
+        </p>
       ) : null}
       {visible.map((skill) => (
         <button type="button" key={skill.id} className="m-option" onClick={() => onPick(skill)}>

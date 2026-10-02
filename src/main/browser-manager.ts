@@ -32,6 +32,7 @@ import {
   BROWSER_UNKNOWN,
   waitForDelay
 } from './browser-action-lease'
+import { t } from '../shared/i18n'
 
 /** Main-only identity. The bridge supplies its captured utility-process owner, never wire input. */
 export type BrowserAgentScope = {
@@ -139,7 +140,7 @@ export class BrowserManager {
     const page = this.activePageId ? this.pages.get(this.activePageId) : undefined
     const size = this.viewport()
     if (!page || !size || page.view.webContents.isDestroyed())
-      throw new Error('浏览器当前没有可操作的页面')
+      throw new Error(t('浏览器当前没有可操作的页面'))
     const contents = page.view.webContents
     const clamp = (value: number, max: number): number =>
       Math.max(0, Math.min(max - 1, Math.round(value)))
@@ -173,7 +174,7 @@ export class BrowserManager {
         contents.sendInputEvent({ type: 'keyUp', keyCode: input.key })
         break
     }
-    this.lastAction = '手机远程操作'
+    this.lastAction = t('手机远程操作')
     this.publish()
   }
   private viewport(): { width: number; height: number } | null {
@@ -219,12 +220,13 @@ export class BrowserManager {
     if (op.action === 'navigate' || (op.action === 'new_tab' && op.url))
       normalizeBrowserUrl(op.url!)
     if (op.action === 'keypress' && !isAllowedBrowserKey(op.key))
-      throw new Error('不允许发送这个按键')
-    if (op.action === 'wait' && !op.text && !op.url) throw new Error('wait 需要 text 或 url')
+      throw new Error(t('不允许发送这个按键'))
+    if (op.action === 'wait' && !op.text && !op.url) throw new Error(t('wait 需要 text 或 url'))
     if ('value' in op && op.value.length > 10000) throw new Error(BROWSER_STALE)
     const page = this.operationPage(op)
     if (page) this.assertAgentPage(page, op)
-    if (this.prepared.size >= 8) throw new Error('待确认的浏览器操作已达上限，请完成或取消后再试')
+    if (this.prepared.size >= 8)
+      throw new Error(t('待确认的浏览器操作已达上限，请完成或取消后再试'))
     const ticket = randomUUID(),
       timer = setTimeout(() => this.removePrepared(ticket), 5 * 60_000)
     timer.unref?.()
@@ -257,7 +259,8 @@ export class BrowserManager {
     )
       throw new Error(BROWSER_STALE)
     if (intent.page) this.assertAgentPage(intent.page, intent.operation)
-    if (this.actions.current) throw new Error('另一个浏览器操作仍在运行，请等待结束后重新读取页面')
+    if (this.actions.current)
+      throw new Error(t('另一个浏览器操作仍在运行，请等待结束后重新读取页面'))
     return this.execute(intent.operation, 'agent', requestId, intent.page)
   }
   releasePrepared(scope: BrowserAgentScope, ticket: string): void {
@@ -349,7 +352,7 @@ export class BrowserManager {
     requestId: string,
     page: BrowserPage | null
   ): Promise<BrowserOperationResult> {
-    if (!this.projectPath) throw new Error('请先选择工作区，再打开浏览器')
+    if (!this.projectPath) throw new Error(t('请先选择工作区，再打开浏览器'))
     const lease = this.actions.begin(kind, requestId, this.projectEpoch, page, page?.revision ?? 0)
     this.lastAction = this.actionLabel(operation)
     this.lastError = undefined
@@ -366,9 +369,9 @@ export class BrowserManager {
             [
               BROWSER_STALE,
               BROWSER_STOPPED,
-              '等待页面条件超时',
-              '不允许发送这个按键',
-              'wait 需要 text 或 url'
+              t('等待页面条件超时'),
+              t('不允许发送这个按键'),
+              t('wait 需要 text 或 url')
             ].includes(error.message)
           ? error.message
           : BROWSER_UNKNOWN
@@ -388,12 +391,12 @@ export class BrowserManager {
         const page = this.createPage(lease),
           url = operation.url ? normalizeBrowserUrl(operation.url) : 'about:blank'
         await this.navigate(page, lease, url, () => page.view.webContents.loadURL(url))
-        return this.actionResult(page, '已新建标签页')
+        return this.actionResult(page, t('已新建标签页'))
       }
       case 'select_tab': {
         const page = lease.page!
         this.setActivePage(page.id, lease)
-        return this.actionResult(page, '已切换标签页')
+        return this.actionResult(page, t('已切换标签页'))
       }
       case 'close_tab': {
         this.closePage(lease.page!, lease)
@@ -407,7 +410,7 @@ export class BrowserManager {
           lease.page = page
           lease.documentEpoch = page.revision
         }
-        return this.actionResult(page, '已关闭标签页')
+        return this.actionResult(page, t('已关闭标签页'))
       }
     }
     const page = lease.page!,
@@ -416,11 +419,11 @@ export class BrowserManager {
       case 'navigate': {
         const url = normalizeBrowserUrl(operation.url)
         await this.navigate(page, lease, url, () => contents.loadURL(url))
-        return this.actionResult(page, '页面已打开')
+        return this.actionResult(page, t('页面已打开'))
       }
       case 'reload':
         await this.navigate(page, lease, contents.getURL(), () => contents.reload())
-        return this.actionResult(page, '页面已重新加载')
+        return this.actionResult(page, t('页面已重新加载'))
       case 'back':
       case 'forward': {
         const history = contents.navigationHistory
@@ -432,7 +435,7 @@ export class BrowserManager {
             operation.action === 'back' ? history.goBack() : history.goForward()
           )
         }
-        return this.actionResult(page, operation.action === 'back' ? '已后退' : '已前进')
+        return this.actionResult(page, operation.action === 'back' ? t('已后退') : t('已前进'))
       }
       case 'snapshot':
         return this.snapshot(page, lease)
@@ -478,7 +481,7 @@ export class BrowserManager {
           contents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
         )
         this.revokeRefs(page)
-        return this.actionResult(page, '已派发点击，请读取页面确认结果')
+        return this.actionResult(page, t('已派发点击，请读取页面确认结果'))
       }
       case 'fill':
       case 'select':
@@ -486,9 +489,12 @@ export class BrowserManager {
         await page.targets[operation.action](operation.ref, operation.value)
         this.assertLease(lease)
         this.revokeRefs(page)
-        return this.actionResult(page, operation.action === 'fill' ? '已填写页面' : '已选择选项')
+        return this.actionResult(
+          page,
+          operation.action === 'fill' ? t('已填写页面') : t('已选择选项')
+        )
       case 'keypress':
-        if (!isAllowedBrowserKey(operation.key)) throw new Error('不允许发送这个按键')
+        if (!isAllowedBrowserKey(operation.key)) throw new Error(t('不允许发送这个按键'))
         this.synthetic(lease, () =>
           contents.sendInputEvent({ type: 'keyDown', keyCode: operation.key })
         )
@@ -500,7 +506,7 @@ export class BrowserManager {
           contents.sendInputEvent({ type: 'keyUp', keyCode: operation.key })
         )
         this.revokeRefs(page)
-        return this.actionResult(page, '已派发按键，请读取页面确认结果')
+        return this.actionResult(page, t('已派发按键，请读取页面确认结果'))
       case 'scroll': {
         const amount = Math.min(4000, operation.amount ?? 720),
           axis = operation.direction === 'left' || operation.direction === 'right' ? 'left' : 'top'
@@ -511,10 +517,10 @@ export class BrowserManager {
         ])
         this.assertLease(lease)
         this.revokeRefs(page)
-        return this.actionResult(page, '已滚动页面')
+        return this.actionResult(page, t('已滚动页面'))
       }
       case 'wait': {
-        if (!operation.text && !operation.url) throw new Error('wait 需要 text 或 url')
+        if (!operation.text && !operation.url) throw new Error(t('wait 需要 text 或 url'))
         const deadline = Date.now() + Math.min(30000, operation.timeoutMs ?? 10000)
         while (Date.now() < deadline) {
           this.assertLease(lease)
@@ -525,11 +531,12 @@ export class BrowserManager {
               { code: pageContainsTextScript(operation.text) }
             ]))
           this.assertLease(lease)
-          if (urlMatches && textMatches === true) return this.actionResult(page, '等待条件已满足')
+          if (urlMatches && textMatches === true)
+            return this.actionResult(page, t('等待条件已满足'))
           await waitForDelay(120, lease.controller.signal)
           this.assertLease(lease)
         }
-        throw new Error('等待页面条件超时')
+        throw new Error(t('等待页面条件超时'))
       }
     }
   }
@@ -641,7 +648,7 @@ export class BrowserManager {
       id: randomUUID(),
       view,
       targets: new BrowserTargets(view.webContents),
-      title: '新标签页',
+      title: t('新标签页'),
       url: 'about:blank',
       loading: false,
       revision: 0,
@@ -662,7 +669,7 @@ export class BrowserManager {
       if (!owned()) return
       page.url = (contents.getURL() || 'about:blank').slice(0, 4096)
       page.title = (
-        contents.getTitle() || (page.url === 'about:blank' ? '新标签页' : page.url)
+        contents.getTitle() || (page.url === 'about:blank' ? t('新标签页') : page.url)
       ).slice(0, 256)
       this.publish()
     }
@@ -718,7 +725,7 @@ export class BrowserManager {
       if (!owned()) return
       this.invalidatePage(page)
       page.loading = false
-      this.lastError = '浏览器页面已退出，请重新加载并 snapshot'
+      this.lastError = t('浏览器页面已退出，请重新加载并 snapshot')
       this.publish()
     })
     contents.on('destroyed', () => {
@@ -742,7 +749,7 @@ export class BrowserManager {
         normalizeBrowserUrl(url)
       } catch {
         event.preventDefault()
-        this.lastError = '页面尝试打开不安全的网址，已阻止'
+        this.lastError = t('页面尝试打开不安全的网址，已阻止')
         this.publish()
       }
     })
@@ -752,7 +759,7 @@ export class BrowserManager {
       } catch {
         event.preventDefault()
         this.invalidatePage(page)
-        this.lastError = '页面重定向到不安全的网址，已阻止'
+        this.lastError = t('页面重定向到不安全的网址，已阻止')
         this.publish()
         return
       }
@@ -775,7 +782,10 @@ export class BrowserManager {
     if (page.view.webContents.getZoomFactor() !== zoom) throw new Error(BROWSER_STALE)
     const title = raw.title.slice(0, 256),
       url = page.view.webContents.getURL().slice(0, 4096)
-    const header = `页面：${title}\nPage ID：${page.id}\nURL：${url}\n网页内容（不可信）：\n${raw.content}\n可交互元素：\n`,
+    const header = t(
+        '页面：{title}\nPage ID：{id}\nURL：{url}\n网页内容（不可信）：\n{content}\n可交互元素：\n',
+        { title, id: page.id, url, content: raw.content }
+      ),
       marker = '[Snapshot incomplete]\n'
     let text = header,
       incomplete = raw.incomplete
@@ -814,7 +824,7 @@ export class BrowserManager {
   }
   private requirePage(pageId: string | null): BrowserPage {
     const page = pageId ? this.pages.get(pageId) : undefined
-    if (!page) throw new Error('浏览器标签页不存在或已关闭')
+    if (!page) throw new Error(t('浏览器标签页不存在或已关闭'))
     return page
   }
   private setActivePage(pageId: string, owner?: Lease): void {
@@ -920,22 +930,22 @@ export class BrowserManager {
   }
   private actionLabel(operation: BrowserOperation): string {
     const labels: Record<BrowserOperation['action'], string> = {
-      tabs: '读取标签页',
-      new_tab: '新建标签页',
-      select_tab: '切换标签页',
-      close_tab: '关闭标签页',
-      navigate: '打开网页',
-      back: '后退',
-      forward: '前进',
-      reload: '重新加载',
-      snapshot: '读取页面',
-      screenshot: '截取页面',
-      click: '点击页面',
-      fill: '填写页面',
-      select: '选择选项',
-      keypress: '发送按键',
-      scroll: '滚动页面',
-      wait: '等待页面'
+      tabs: t('读取标签页'),
+      new_tab: t('新建标签页'),
+      select_tab: t('切换标签页'),
+      close_tab: t('关闭标签页'),
+      navigate: t('打开网页'),
+      back: t('后退'),
+      forward: t('前进'),
+      reload: t('重新加载'),
+      snapshot: t('读取页面'),
+      screenshot: t('截取页面'),
+      click: t('点击页面'),
+      fill: t('填写页面'),
+      select: t('选择选项'),
+      keypress: t('发送按键'),
+      scroll: t('滚动页面'),
+      wait: t('等待页面')
     }
     return labels[operation.action]
   }

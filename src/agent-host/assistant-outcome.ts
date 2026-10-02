@@ -1,4 +1,5 @@
 import type { ConversationNode, ModelSummary, SessionStatus } from '../shared/contracts'
+import { t } from '../shared/i18n'
 
 export function projectRunStatus(input: {
   busy: boolean
@@ -25,7 +26,7 @@ export function assistantTerminalNode(message: AssistantOutcome): ConversationNo
     return {
       id: `stopped-${message.timestamp}`,
       type: 'stopped',
-      message: '已停止生成，可继续对话'
+      message: t('已停止生成，可继续对话')
     }
   }
   return message.errorMessage
@@ -65,7 +66,7 @@ export class ModelRejections {
     if (match?.[1] !== message.model) return
     this.rejected.set(
       JSON.stringify([message.provider, message.model]),
-      '服务端已确认：当前 ChatGPT 账号不支持此模型'
+      t('服务端已确认：当前 ChatGPT 账号不支持此模型')
     )
   }
 

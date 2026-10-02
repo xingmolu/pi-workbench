@@ -14,15 +14,16 @@ import { useResolvedTheme } from '../store/theme'
 import { useComposerPrefill } from '../store/composer-prefill'
 import { useOverlayState } from '../store/overlay-state'
 import { shortcutLabel } from './shortcut-label'
+import { t } from '../../../shared/i18n'
 import '@xterm/xterm/css/xterm.css'
 
 const states = {
-  starting: '启动中',
-  running: '运行中',
-  exited: '已退出',
-  failed: '失败',
-  degraded: '屏幕未恢复',
-  closing: '结束中'
+  starting: t('启动中'),
+  running: t('运行中'),
+  exited: t('已退出'),
+  failed: t('失败'),
+  degraded: t('屏幕未恢复'),
+  closing: t('结束中')
 }
 export default function TerminalPane({
   projectPath,
@@ -60,7 +61,9 @@ export default function TerminalPane({
   useEffect(() => {
     void controller.current?.context(projectPath, visible)
   }, [projectPath, visible])
-  useEffect(() => { controller.current?.setTheme(theme) }, [theme])
+  useEffect(() => {
+    controller.current?.setTheme(theme)
+  }, [theme])
   const c = controller.current
   const entries = c?.entries.filter((e) => e.metadata.projectPath === projectPath) ?? []
   const current = c?.current
@@ -107,7 +110,8 @@ export default function TerminalPane({
     if (!text) return
     const clipped = text.length > 8000 ? text.slice(-8000) : text
     const fence = clipped.includes('```') ? '~~~' : '```'
-    const heading = `终端输出${text.length > clipped.length ? '（末尾 8000 字符）' : ''}：`
+    const heading =
+      text.length > clipped.length ? t('终端输出（末尾 8000 字符）：') : t('终端输出：')
     useComposerPrefill.getState().request(`${heading}\n${fence}\n${clipped}\n${fence}`, 'append')
   }
   const closeTerminal = (recreate = false): void => {
@@ -134,29 +138,29 @@ export default function TerminalPane({
     restoreFocus(revision)
   }
   return (
-    <section ref={pane} className="terminal-pane" hidden={!visible} aria-label="用户终端">
+    <section ref={pane} className="terminal-pane" hidden={!visible} aria-label={t('用户终端')}>
       <div className="terminal-toolbar">
-        <div className="terminal-tabs" role="tablist" aria-label="项目终端">
+        <div className="terminal-tabs" role="tablist" aria-label={t('项目终端')}>
           {entries.map((entry) => (
             <button
               type="button"
               role="tab"
               key={terminalKey(entry.metadata)}
               aria-selected={entry === current}
-              title={entry.title || `终端 ${entry.ordinal}`}
+              title={entry.title || t('终端 {ordinal}', { ordinal: entry.ordinal })}
               onClick={() => c?.select(entry)}
             >
               <span className={`terminal-state-dot is-${entry.metadata.state}`} />
-              <span>{entry.title || `终端 ${entry.ordinal}`}</span>
+              <span>{entry.title || t('终端 {ordinal}', { ordinal: entry.ordinal })}</span>
             </button>
           ))}
         </div>
         <button
           type="button"
           className="icon-btn"
-          aria-label="新建终端"
+          aria-label={t('新建终端')}
           ref={newButton}
-          title="新建终端"
+          title={t('新建终端')}
           disabled={!projectPath || c?.busy}
           onClick={() => void c?.create()}
         >
@@ -165,8 +169,8 @@ export default function TerminalPane({
         <button
           type="button"
           className="icon-btn"
-          aria-label="搜索终端"
-          title={`搜索终端（${shortcutLabel('F')}）`}
+          aria-label={t('搜索终端')}
+          title={t('搜索终端（{value}）', { value: shortcutLabel('F') })}
           aria-pressed={searchOpen}
           disabled={!c?.currentHasScreen}
           onClick={() => (searchOpen ? c?.closeSearch() : c?.openSearch())}
@@ -176,8 +180,8 @@ export default function TerminalPane({
         <button
           type="button"
           className="icon-btn"
-          aria-label="添加到对话"
-          title={selection ? '把选中的终端输出添加到对话' : '先选中终端里的文字'}
+          aria-label={t('添加到对话')}
+          title={selection ? t('把选中的终端输出添加到对话') : t('先选中终端里的文字')}
           disabled={!selection}
           onClick={addToChat}
         >
@@ -186,8 +190,8 @@ export default function TerminalPane({
         <button
           type="button"
           className="icon-btn"
-          aria-label="粘贴到终端"
-          title="粘贴到终端"
+          aria-label={t('粘贴到终端')}
+          title={t('粘贴到终端')}
           disabled={!metadata || degraded || metadata.exitConfirmed || c?.busy}
           onClick={() => {
             const identity = current && terminalKey(current.metadata)
@@ -204,7 +208,7 @@ export default function TerminalPane({
               })
               .catch(() => {
                 if (c) {
-                  c.error = '无法读取剪贴板，请使用粘贴快捷键。'
+                  c.error = t('无法读取剪贴板，请使用粘贴快捷键。')
                   render()
                 }
               })
@@ -215,8 +219,8 @@ export default function TerminalPane({
         <button
           type="button"
           className="icon-btn"
-          aria-label="关闭终端"
-          title="关闭终端"
+          aria-label={t('关闭终端')}
+          title={t('关闭终端')}
           disabled={!metadata || c?.busy || metadata.state === 'closing'}
           onClick={(event) => {
             focusReturn.current = event.currentTarget
@@ -231,8 +235,8 @@ export default function TerminalPane({
           <Search size={13} aria-hidden="true" />
           <input
             ref={searchInput}
-            aria-label="在终端中搜索"
-            placeholder="搜索"
+            aria-label={t('在终端中搜索')}
+            placeholder={t('搜索')}
             value={query}
             aria-invalid={missing}
             onChange={(event) => {
@@ -250,21 +254,38 @@ export default function TerminalPane({
               }
             }}
           />
-          {missing ? <span className="terminal-search-status">无匹配</span> : null}
-          <button type="button" className="icon-btn" aria-label="上一个匹配" onClick={() => find(true)}>
+          {missing ? <span className="terminal-search-status">{t('无匹配')}</span> : null}
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t('上一个匹配')}
+            onClick={() => find(true)}
+          >
             <ArrowUp size={13} />
           </button>
-          <button type="button" className="icon-btn" aria-label="下一个匹配" onClick={() => find()}>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t('下一个匹配')}
+            onClick={() => find()}
+          >
             <ArrowDown size={13} />
           </button>
-          <button type="button" className="icon-btn" aria-label="关闭搜索" onClick={() => c?.closeSearch()}>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t('关闭搜索')}
+            onClick={() => c?.closeSearch()}
+          >
             <X size={13} />
           </button>
         </div>
       ) : null}
       <div className="terminal-trust-note">
-        本机用户 shell · 不受 Agent 审批 · 只有你选择“添加到对话”的内容才会发给模型 ·{' '}
-        {shortcutLabel('')}点击打开链接和文件
+        {t(
+          '本机用户 shell · 不受 Agent 审批 · 只有你选择“添加到对话”的内容才会发给模型 ·{value} {value2}点击打开链接和文件',
+          { value: ' ', value2: shortcutLabel('') }
+        )}
       </div>
       {c?.error ? (
         <div className="terminal-notice is-error" role="alert">
@@ -273,27 +294,29 @@ export default function TerminalPane({
       ) : null}
       {current?.pendingDismiss ? (
         <div className="terminal-notice" role="status">
-          Shell 已退出，关闭记录待同步；此屏幕仍计入 8 个终端上限。返回所属项目会继续完成关闭。
+          {t(
+            'Shell 已退出，关闭记录待同步；此屏幕仍计入 8 个终端上限。返回所属项目会继续完成关闭。'
+          )}
         </div>
       ) : null}
       {!projectPath ? (
         <div className="terminal-empty">
           <TerminalSquare size={22} />
-          <strong>先选择工作区</strong>
-          <p>新终端将从所选项目目录启动。</p>
+          <strong>{t('先选择工作区')}</strong>
+          <p>{t('新终端将从所选项目目录启动。')}</p>
         </div>
       ) : !entries.length ? (
         <div className="terminal-empty">
           <TerminalSquare size={22} />
-          <strong>尚未创建终端</strong>
-          <p>点击右上角 +，启动独立的本机 shell。无需登录 Pi。</p>
-          <small>项目目录不限制 shell 的文件访问权限。</small>
+          <strong>{t('尚未创建终端')}</strong>
+          <p>{t('点击右上角 +，启动独立的本机 shell。无需登录 Pi。')}</p>
+          <small>{t('项目目录不限制 shell 的文件访问权限。')}</small>
         </div>
       ) : null}
       {degraded ? (
         <div className="terminal-notice terminal-recovery" role="status">
-          <strong>终端进程仍在，屏幕状态未恢复</strong>
-          <p>窗口已重新加载。为避免残缺屏幕影响交互，此终端仅可管理；不会自动重跑命令。</p>
+          <strong>{t('终端进程仍在，屏幕状态未恢复')}</strong>
+          <p>{t('窗口已重新加载。为避免残缺屏幕影响交互，此终端仅可管理；不会自动重跑命令。')}</p>
           <button
             type="button"
             className="secondary-button"
@@ -303,22 +326,22 @@ export default function TerminalPane({
               closeTerminal(true)
             }}
           >
-            结束并新建
+            {t('结束并新建')}
           </button>
         </div>
       ) : metadata?.exitConfirmed || metadata?.failure ? (
         <div className="terminal-notice" role="status">
           <strong>
             {metadata.failure
-              ? `终端失败（${metadata.failure}）`
-              : `Shell 已退出（退出码 ${metadata.exitCode ?? '未知'}）`}
+              ? t('终端失败（{failure}）', { failure: metadata.failure })
+              : t('Shell 已退出（退出码 {code}）', { code: metadata.exitCode ?? t('未知') })}
           </strong>
           <p>
             {metadata.exitConfirmed
               ? c?.currentHasScreen
-                ? '屏幕保留供查看；新终端不会重放命令。'
-                : '历史屏幕未恢复；新终端不会重放命令。'
-              : '尚未确认 shell 退出，请先结束终端。'}
+                ? t('屏幕保留供查看；新终端不会重放命令。')
+                : t('历史屏幕未恢复；新终端不会重放命令。')
+              : t('尚未确认 shell 退出，请先结束终端。')}
           </p>
           <button
             type="button"
@@ -329,7 +352,7 @@ export default function TerminalPane({
               closeTerminal(true)
             }}
           >
-            {metadata.exitConfirmed ? '新建替代终端' : '结束并新建'}
+            {metadata.exitConfirmed ? t('新建替代终端') : t('结束并新建')}
           </button>
         </div>
       ) : null}
@@ -341,14 +364,16 @@ export default function TerminalPane({
         </footer>
       ) : null}
       {background ? (
-        <div className="terminal-background-note">其他项目仍有 {background} 个终端未结束</div>
+        <div className="terminal-background-note">
+          {t('其他项目仍有 {background} 个终端未结束', { background })}
+        </div>
       ) : null}
       {prompt ? (
         <div
           className="terminal-confirmation"
           role="dialog"
           aria-modal="true"
-          aria-label={prompt.kind === 'paste' ? '确认粘贴' : '确认结束终端'}
+          aria-label={prompt.kind === 'paste' ? t('确认粘贴') : t('确认结束终端')}
           onKeyDown={(event) => {
             event.stopPropagation()
             if (event.key === 'Escape') {
@@ -365,11 +390,13 @@ export default function TerminalPane({
             }
           }}
         >
-          <strong>{prompt.kind === 'paste' ? '粘贴内容含换行或控制字符' : '结束这个终端？'}</strong>
+          <strong>
+            {prompt.kind === 'paste' ? t('粘贴内容含换行或控制字符') : t('结束这个终端？')}
+          </strong>
           <p>
             {prompt.kind === 'paste'
-              ? '以下内容可能立即执行命令。确认后才会发送。'
-              : '这会终止 shell 和常规任务。已脱离终端的后台进程不保证结束。'}
+              ? t('以下内容可能立即执行命令。确认后才会发送。')
+              : t('这会终止 shell 和常规任务。已脱离终端的后台进程不保证结束。')}
           </p>
           {prompt.kind === 'paste' ? (
             <pre>{pastePreview(prompt.text ?? '')}</pre>
@@ -378,14 +405,14 @@ export default function TerminalPane({
           )}
           <div>
             <button autoFocus type="button" className="secondary-button" onClick={cancel}>
-              取消
+              {t('取消')}
             </button>
             <button type="button" className="primary-button" onClick={() => void confirm()}>
               {prompt.kind === 'paste'
-                ? '确认粘贴'
+                ? t('确认粘贴')
                 : prompt.kind === 'recreate'
-                  ? '确认结束并新建'
-                  : '确认结束'}
+                  ? t('确认结束并新建')
+                  : t('确认结束')}
             </button>
           </div>
         </div>

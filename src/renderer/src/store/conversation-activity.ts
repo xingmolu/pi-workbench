@@ -1,4 +1,5 @@
 import type { ConversationNode } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 /** The latest turn only: old approvals or errors cannot mask a new run. */
 export function conversationActivity(
@@ -13,6 +14,6 @@ export function conversationActivity(
   const last = turn.at(-1)
   // Active work groups already own their progress indicator.
   if (last?.type === 'think' || last?.type === 'tool') return null
-  if (last?.type === 'assistant' && last.streaming) return '正在回复'
-  return '正在处理'
+  if (last?.type === 'assistant' && last.streaming) return t('正在回复')
+  return t('正在处理')
 }

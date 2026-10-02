@@ -6,6 +6,7 @@ import {
   type WorkspaceFileEntry,
   type WorkspaceFilesResult
 } from '../shared/workspace-files'
+import { t } from '../shared/i18n'
 
 const MAX_BYTES = 1024 * 1024
 const SEARCH_IGNORED = new Set(['node_modules', 'dist', 'out', '.git'])
@@ -46,22 +47,22 @@ export class WorkspaceFiles {
 
   async dispatch(command: unknown): Promise<WorkspaceFilesResult> {
     const parsed = workspaceFilesCommandSchema.safeParse(command)
-    if (!parsed.success) return fail('无效的工作区文件请求')
+    if (!parsed.success) return fail(t('无效的工作区文件请求'))
     const request = parsed.data
     const project = this.projectPath
     const epoch = this.epoch
-    if (!project) return fail('尚未打开项目')
+    if (!project) return fail(t('尚未打开项目'))
     const check = (): void => {
       if (this.epoch !== epoch || this.projectPath !== request.projectPath)
-        fail('项目已切换，请重试')
+        fail(t('项目已切换，请重试'))
     }
     check()
     try {
       if (!isAbsolute(project) || (await fs.realpath(project)) !== project)
-        fail('项目目录不可用，请重新打开项目')
+        fail(t('项目目录不可用，请重新打开项目'))
       const rootInfo = await fs.lstat(project)
       if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())
-        fail('项目目录不可用，请重新打开项目')
+        fail(t('项目目录不可用，请重新打开项目'))
       let result: WorkspaceFilesResult
       switch (request.type) {
         case 'list':
@@ -80,19 +81,19 @@ export class WorkspaceFiles {
       check()
       if (error instanceof WorkspaceError) throw error
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ENOTDIR') return fail('文件不存在或已被移动')
-      if (code === 'EACCES' || code === 'EPERM') return fail('没有权限访问此文件')
-      if (code === 'ELOOP') return fail('不支持访问符号链接')
-      return fail('无法读取工作区文件，请重试')
+      if (code === 'ENOENT' || code === 'ENOTDIR') return fail(t('文件不存在或已被移动'))
+      if (code === 'EACCES' || code === 'EPERM') return fail(t('没有权限访问此文件'))
+      if (code === 'ELOOP') return fail(t('不支持访问符号链接'))
+      return fail(t('无法读取工作区文件，请重试'))
     }
   }
 
   private async validate(root: string, path: string): Promise<string> {
     let target = root
     for (const segment of path ? path.split('/') : []) {
-      if (segment.toLowerCase() === '.git') fail('不支持访问 Git 内部文件')
+      if (segment.toLowerCase() === '.git') fail(t('不支持访问 Git 内部文件'))
       target = join(target, segment)
-      if ((await fs.lstat(target)).isSymbolicLink()) fail('不支持访问符号链接')
+      if ((await fs.lstat(target)).isSymbolicLink()) fail(t('不支持访问符号链接'))
     }
     return target
   }
@@ -122,15 +123,15 @@ export class WorkspaceFiles {
 
   private async read(root: string, path: string): Promise<WorkspaceFilesResult> {
     const target = await this.validate(root, path)
-    if (!(await fs.lstat(target)).isFile()) fail('只能预览普通文件')
+    if (!(await fs.lstat(target)).isFile()) fail(t('只能预览普通文件'))
     const handle = await fs.open(
       target,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     )
     try {
       const info = await handle.stat()
-      if (!info.isFile()) fail('只能预览普通文件')
-      if (info.size > MAX_BYTES) fail('文件超过 1 MiB，无法预览')
+      if (!info.isFile()) fail(t('只能预览普通文件'))
+      if (info.size > MAX_BYTES) fail(t('文件超过 1 MiB，无法预览'))
       const buffer = Buffer.alloc(MAX_BYTES + 1)
       let size = 0
       while (size < buffer.length) {
@@ -138,14 +139,14 @@ export class WorkspaceFiles {
         if (!bytesRead) break
         size += bytesRead
       }
-      if (size > MAX_BYTES) fail('文件超过 1 MiB，无法预览')
+      if (size > MAX_BYTES) fail(t('文件超过 1 MiB，无法预览'))
       const bytes = buffer.subarray(0, size)
-      if (bytes.includes(0)) fail('二进制文件无法预览')
+      if (bytes.includes(0)) fail(t('二进制文件无法预览'))
       let text: string
       try {
         text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       } catch {
-        return fail('二进制文件或非 UTF-8 文本无法预览')
+        return fail(t('二进制文件或非 UTF-8 文本无法预览'))
       }
       return { type: 'read', path, text, size }
     } finally {

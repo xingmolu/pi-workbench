@@ -11,6 +11,7 @@ import {
 import { navigateToEditedUserParent } from './session-edit-navigation'
 import { observeAttachmentPrompt } from './attachment-acceptance'
 import { SessionRuntimeUnsafeError } from './session-mutation-safety'
+import { t } from '../shared/i18n'
 
 type Image = { type: 'image'; mimeType: string; data: string }
 export type EditableUser = {
@@ -27,16 +28,16 @@ export function latestUserId(manager: SessionManager): string | null {
   )
 }
 export function captureEditableUser(manager: SessionManager, id: string): EditableUser {
-  if (latestUserId(manager) !== id) throw new Error('只能编辑当前分支最近的问题')
+  if (latestUserId(manager) !== id) throw new Error(t('只能编辑当前分支最近的问题'))
   const entry = manager.getEntry(id)
   if (!entry || entry.type !== 'message' || entry.message.role !== 'user')
-    throw new Error('原问题无法编辑')
+    throw new Error(t('原问题无法编辑'))
   const content = entry.message.content
   let text = '',
     seenText = false,
     bytes = 0
   const images: Image[] = []
-  const unsupported = () => new Error('此问题包含暂不支持的内容格式，无法安全编辑；原内容已保留')
+  const unsupported = () => new Error(t('此问题包含暂不支持的内容格式，无法安全编辑；原内容已保留'))
   if (typeof content === 'string') text = content
   else if (Array.isArray(content)) {
     if (content.length > 65) throw unsupported()
@@ -58,7 +59,7 @@ export function captureEditableUser(manager: SessionManager, id: string): Editab
         Object.keys(block).every((key) => ['type', 'mimeType', 'data'].includes(key))
       ) {
         bytes += Buffer.byteLength(block.data)
-        if (bytes > 16 * 1024 * 1024) throw new Error('原内容超过 16 MiB，无法编辑')
+        if (bytes > 16 * 1024 * 1024) throw new Error(t('原内容超过 16 MiB，无法编辑'))
         if (
           block.mimeType.length > 128 ||
           !/^image\/[\w.+-]+$/.test(block.mimeType) ||
@@ -71,7 +72,7 @@ export function captureEditableUser(manager: SessionManager, id: string): Editab
     }
   } else throw unsupported()
   if (bytes + Buffer.byteLength(text) > 16 * 1024 * 1024)
-    throw new Error('原内容超过 16 MiB，无法编辑')
+    throw new Error(t('原内容超过 16 MiB，无法编辑'))
   const context = parseTextContext(text)
   if (
     !context &&
@@ -80,13 +81,13 @@ export function captureEditableUser(manager: SessionManager, id: string): Editab
     throw unsupported()
   const editableText = context?.text ?? text
   if (!editTextSchema.safeParse(editableText).success)
-    throw new Error('问题文字超过 1 MiB，无法编辑')
+    throw new Error(t('问题文字超过 1 MiB，无法编辑'))
   const files = (context?.files ?? []).map((file) => Object.freeze({ ...file }))
   const attachments: PreparedEdit['attachments'] = [
     ...files.map(({ name, size }) => ({ kind: 'text' as const, name, size })),
     ...images.map((image, i) => ({
       kind: 'image' as const,
-      name: `图片 ${i + 1}`,
+      name: t('图片 {value}', { value: i + 1 }),
       size: Buffer.from(image.data, 'base64').length,
       mimeType: image.mimeType
     }))
@@ -134,7 +135,7 @@ type Submission = {
   inFlight: boolean
 }
 const errorResult = (message: string): SessionEditResult => ({ type: 'error', message })
-const stale = '会话、问题或模型已变化，请关闭后重新打开编辑确认'
+const stale = t('会话、问题或模型已变化，请关闭后重新打开编辑确认')
 function fingerprint(manager: SessionManager, id: string): string {
   return createHash('sha256')
     .update(JSON.stringify(manager.getEntry(id)))
@@ -173,7 +174,7 @@ function guardEditModelRequests(session: AgentSession, signal: AbortSignal): () 
       // A preflight Stop can precede Pi's new run controller. Abort that actual
       // run now, before delegating any model IO, using the public Agent API.
       session.agent.abort()
-      const error = new Error('编辑已停止')
+      const error = new Error(t('编辑已停止'))
       error.name = 'AbortError'
       throw error
     }
@@ -237,7 +238,8 @@ export class SessionEditService {
         state.session.sessionManager.getLeafId() !== scope.leafId
       )
         throw new Error(stale)
-      if (this.pending || !idle(state)) throw new Error('当前会话正在运行或等待处理，暂时不能编辑')
+      if (this.pending || !idle(state))
+        throw new Error(t('当前会话正在运行或等待处理，暂时不能编辑'))
       const draft = captureEditableUser(state.session.sessionManager, scope.entryId)
       const token = randomUUID()
       this.draft = {
@@ -261,17 +263,17 @@ export class SessionEditService {
     } catch (cause) {
       const safeMessages = [
         stale,
-        '只能编辑当前分支最近的问题',
-        '原问题无法编辑',
-        '此问题包含暂不支持的内容格式，无法安全编辑；原内容已保留',
-        '原内容超过 16 MiB，无法编辑',
-        '问题文字超过 1 MiB，无法编辑',
-        '当前会话正在运行或等待处理，暂时不能编辑'
+        t('只能编辑当前分支最近的问题'),
+        t('原问题无法编辑'),
+        t('此问题包含暂不支持的内容格式，无法安全编辑；原内容已保留'),
+        t('原内容超过 16 MiB，无法编辑'),
+        t('问题文字超过 1 MiB，无法编辑'),
+        t('当前会话正在运行或等待处理，暂时不能编辑')
       ]
       return errorResult(
         cause instanceof Error && safeMessages.includes(cause.message)
           ? cause.message
-          : '无法准备编辑，原问题已保留'
+          : t('无法准备编辑，原问题已保留')
       )
     }
   }
@@ -281,15 +283,15 @@ export class SessionEditService {
       this.draft.token !== token ||
       !this.owns(this.draft.state.runtime, this.draft.scope.sessionId)
     )
-      return errorResult('此编辑已失效')
-    if (this.pending) return errorResult('正在发送，请使用停止并核对发送结果')
+      return errorResult(t('此编辑已失效'))
+    if (this.pending) return errorResult(t('正在发送，请使用停止并核对发送结果'))
     this.draft = null
     return { type: 'cancelled' }
   }
   query(submissionId: string): SessionEditResult {
     const entry = this.submissions.get(submissionId)
     if (!entry || !this.owns(entry.owner, entry.sessionId))
-      return errorResult('无法确认此发送记录，请核对当前会话；不要重新发送')
+      return errorResult(t('无法确认此发送记录，请核对当前会话；不要重新发送'))
     return { type: 'receipt', receipt: { ...entry.receipt } }
   }
   private owns(runtime: object, sessionId: string): boolean {
@@ -319,9 +321,9 @@ export class SessionEditService {
       state.session.thinkingLevel !== draft.thinking
     )
       throw new Error(stale)
-    if (!idle(state)) throw new Error('当前会话正在运行或等待处理，未发送编辑')
+    if (!idle(state)) throw new Error(t('当前会话正在运行或等待处理，未发送编辑'))
     if (state.unavailable || !draft.model)
-      throw new Error('当前模型不可用，未发送编辑；请检查模型后重新确认')
+      throw new Error(t('当前模型不可用，未发送编辑；请检查模型后重新确认'))
     if (
       latest &&
       (latestUserId(state.session.sessionManager) !== draft.scope.entryId ||
@@ -341,16 +343,16 @@ export class SessionEditService {
         previous.payload === payload &&
         this.owns(previous.owner, previous.sessionId)
         ? { type: 'receipt', receipt: { ...previous.receipt } }
-        : errorResult('发送编号与原请求不一致，未再次发送')
+        : errorResult(t('发送编号与原请求不一致，未再次发送'))
     const draft = this.draft
     if (
       !draft ||
       command.token !== draft.token ||
       !this.owns(draft.state.runtime, draft.scope.sessionId)
     )
-      return errorResult('此编辑已失效，请关闭后重新打开编辑')
+      return errorResult(t('此编辑已失效，请关闭后重新打开编辑'))
     if ([...this.submissions.values()].some((record) => record.token === command.token))
-      return errorResult('此编辑已提交过，请查询原发送结果；不要重新发送')
+      return errorResult(t('此编辑已提交过，请查询原发送结果；不要重新发送'))
     if (this.submissions.size >= 32) {
       for (const [id, record] of this.submissions) {
         if (
@@ -363,7 +365,7 @@ export class SessionEditService {
       }
     }
     if (this.submissions.size >= 32)
-      return errorResult('编辑发送记录已满，请重新连接后核对会话；未发送此编辑')
+      return errorResult(t('编辑发送记录已满，请重新连接后核对会话；未发送此编辑'))
     const alreadyPending = this.pending
     const manager = draft.state.session.sessionManager,
       session = draft.state.session
@@ -387,7 +389,7 @@ export class SessionEditService {
       receipt: {
         submissionId: command.submissionId,
         status: 'uncertain',
-        message: '正在确认发送结果，请勿重复发送',
+        message: t('正在确认发送结果，请勿重复发送'),
         ...actual()
       },
       inFlight: true
@@ -411,25 +413,26 @@ export class SessionEditService {
         this.operations.publish()
       } catch (cause) {
         throw new SessionRuntimeUnsafeError(
-          '编辑后的会话显示更新失败，运行时已停止；请重新连接并核对记录',
+          t('编辑后的会话显示更新失败，运行时已停止；请重新连接并核对记录'),
           { cause }
         )
       }
     }
     try {
-      if (alreadyPending) throw new Error('其他编辑尚未确认，请先查询结果')
+      if (alreadyPending) throw new Error(t('其他编辑尚未确认，请先查询结果'))
       if (this.now() - draft.at > 15 * 60 * 1000)
-        throw new Error('编辑已超过 15 分钟，请重新打开确认')
+        throw new Error(t('编辑已超过 15 分钟，请重新打开确认'))
       if (!editTextSchema.safeParse(command.text).success)
-        throw new Error('问题文字超过 1 MiB，未发送编辑')
+        throw new Error(t('问题文字超过 1 MiB，未发送编辑'))
       if (!command.text.trim() && !draft.draft.images.length && !draft.draft.files.length)
-        throw new Error('请输入问题内容')
+        throw new Error(t('请输入问题内容'))
       this.validate(draft, draft.scope.leafId)
       const controller = new AbortController()
       this.controller = controller
       await this.operations.refresh()
       this.validate(draft, draft.scope.leafId)
-      if (controller.signal.aborted) return receipt('cancelled', '编辑已取消，原问题和草稿已保留')
+      if (controller.signal.aborted)
+        return receipt('cancelled', t('编辑已取消，原问题和草稿已保留'))
       const navigated = await navigateToEditedUserParent(session, draft.scope.entryId, {
         signal: controller.signal,
         revalidate: (phase, leaf) =>
@@ -443,8 +446,8 @@ export class SessionEditService {
         return receipt(
           actual().mutated ? 'failed-after-mutation' : 'cancelled',
           actual().mutated
-            ? '编辑已停止，但扩展或会话上下文已变化；请核对当前记录'
-            : '编辑已取消，原问题和草稿已保留'
+            ? t('编辑已停止，但扩展或会话上下文已变化；请核对当前记录')
+            : t('编辑已取消，原问题和草稿已保留')
         )
       }
       // Runtime config remains the captured current config, not the ancestor's.
@@ -459,16 +462,19 @@ export class SessionEditService {
         if (context.thinkingLevel !== draft.thinking)
           manager.appendThinkingLevelChange(draft.thinking)
       } catch (cause) {
-        throw new SessionRuntimeUnsafeError('编辑写入未完成，运行时已停止；请重新连接并核对记录', {
-          cause
-        })
+        throw new SessionRuntimeUnsafeError(
+          t('编辑写入未完成，运行时已停止；请重新连接并核对记录'),
+          {
+            cause
+          }
+        )
       }
       const leaf = manager.getLeafId()
       session.refreshContext()
       await reproject()
       this.validate(draft, leaf, draft.scope.generation + 1, false)
       if (controller.signal.aborted)
-        return receipt('failed-after-mutation', '编辑已停止，会话上下文已变化；请核对当前记录')
+        return receipt('failed-after-mutation', t('编辑已停止，会话上下文已变化；请核对当前记录'))
       promptStarted = true
       const releaseRequestGate = guardEditModelRequests(session, controller.signal)
       const observed = observeAttachmentPrompt(
@@ -479,8 +485,8 @@ export class SessionEditService {
           receipt(
             status === 'accepted' ? 'accepted' : 'failed-after-mutation',
             status === 'accepted'
-              ? 'Pi 已接受编辑；这不代表已保存或模型已收到'
-              : 'Pi 未接受编辑，但上下文已变化；请核对当前记录'
+              ? t('Pi 已接受编辑；这不代表已保存或模型已收到')
+              : t('Pi 未接受编辑，但上下文已变化；请核对当前记录')
           )
           this.operations.publish()
         },
@@ -488,7 +494,10 @@ export class SessionEditService {
           // Real filesystem failures can leave memory ahead of disk. Do not use
           // that runtime again; preserve the underlying cause for host recovery.
           if (filesystemFailure(cause)) {
-            receipt('failed-after-mutation', '编辑写入未完成，运行时已停止；请重新连接并核对记录')
+            receipt(
+              'failed-after-mutation',
+              t('编辑写入未完成，运行时已停止；请重新连接并核对记录')
+            )
             this.operations.unsafe?.(
               new SessionRuntimeUnsafeError(entry.receipt.message, { cause })
             )
@@ -499,20 +508,20 @@ export class SessionEditService {
       void observed.finished.finally(() => {
         releaseRequestGate()
         if (controller.signal.aborted)
-          receipt('failed-after-mutation', '编辑已停止；会话上下文可能已变化，请核对当前记录')
+          receipt('failed-after-mutation', t('编辑已停止；会话上下文可能已变化，请核对当前记录'))
         entry.inFlight = false
         if (this.controller === controller) this.controller = null
         this.operations.publish()
       })
       const status = await observed.receipt
       if (status === 'uncertain' && entry.receipt.status === 'uncertain')
-        receipt('uncertain', '发送结果尚未确认，请查询结果；不要重新发送')
+        receipt('uncertain', t('发送结果尚未确认，请查询结果；不要重新发送'))
       return { type: 'receipt', receipt: { ...entry.receipt } }
     } catch (cause) {
       let failure = cause
       if (filesystemFailure(cause))
         failure = new SessionRuntimeUnsafeError(
-          '编辑写入未完成，运行时已停止；请重新连接并核对记录',
+          t('编辑写入未完成，运行时已停止；请重新连接并核对记录'),
           { cause }
         )
       if (!(failure instanceof SessionRuntimeUnsafeError)) {
@@ -520,7 +529,7 @@ export class SessionEditService {
           await reproject()
         } catch {
           failure = new SessionRuntimeUnsafeError(
-            '编辑后的会话显示更新失败，运行时已停止；请重新连接并核对记录',
+            t('编辑后的会话显示更新失败，运行时已停止；请重新连接并核对记录'),
             { cause }
           )
         }
@@ -533,19 +542,19 @@ export class SessionEditService {
       return receipt(
         actual().mutated ? 'failed-after-mutation' : 'rejected',
         actual().mutated
-          ? '编辑未完成，会话上下文可能已变化；请核对当前记录，不要直接重试'
+          ? t('编辑未完成，会话上下文可能已变化；请核对当前记录，不要直接重试')
           : cause instanceof Error &&
               [
                 stale,
-                '其他编辑尚未确认，请先查询结果',
-                '编辑已超过 15 分钟，请重新打开确认',
-                '问题文字超过 1 MiB，未发送编辑',
-                '请输入问题内容',
-                '当前会话正在运行或等待处理，未发送编辑',
-                '当前模型不可用，未发送编辑；请检查模型后重新确认'
+                t('其他编辑尚未确认，请先查询结果'),
+                t('编辑已超过 15 分钟，请重新打开确认'),
+                t('问题文字超过 1 MiB，未发送编辑'),
+                t('请输入问题内容'),
+                t('当前会话正在运行或等待处理，未发送编辑'),
+                t('当前模型不可用，未发送编辑；请检查模型后重新确认')
               ].includes(cause.message)
             ? cause.message
-            : '编辑尚未发送：准备失败，原问题已保留'
+            : t('编辑尚未发送：准备失败，原问题已保留')
       )
     } finally {
       if (!promptStarted) {

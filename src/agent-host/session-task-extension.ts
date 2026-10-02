@@ -1,6 +1,7 @@
 import type { ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import { getSessionTaskCapabilityClient } from './session-task-runtime-client'
+import { t } from '../shared/i18n'
 
 const SESSION_TASK_PARAMETERS = Type.Object({
   action: Type.Union([
@@ -37,12 +38,13 @@ type SessionTaskParams = {
 function operation(params: SessionTaskParams) {
   switch (params.action) {
     case 'delegate':
-      if (!params.tasks?.length || params.tasks.length > 4) throw new Error('delegate 需要 1-4 个 tasks')
-      if (params.tasks.some((task) => !task.trim())) throw new Error('delegate tasks 不能为空')
+      if (!params.tasks?.length || params.tasks.length > 4)
+        throw new Error(t('delegate 需要 1-4 个 tasks'))
+      if (params.tasks.some((task) => !task.trim())) throw new Error(t('delegate tasks 不能为空'))
       return { action: 'delegate' as const, tasks: params.tasks }
     case 'send':
-      if (!params.taskId) throw new Error('send 需要 taskId')
-      if (!params.prompt?.trim()) throw new Error('send 需要 prompt')
+      if (!params.taskId) throw new Error(t('send 需要 taskId'))
+      if (!params.prompt?.trim()) throw new Error(t('send 需要 prompt'))
       return { action: 'send' as const, taskId: params.taskId, prompt: params.prompt }
     case 'supervise':
       return {
@@ -54,7 +56,7 @@ function operation(params: SessionTaskParams) {
       return { action: 'collect' as const }
     case 'cancel':
     case 'release':
-      if (!params.taskId) throw new Error(`${params.action} 需要 taskId`)
+      if (!params.taskId) throw new Error(t('{action} 需要 taskId', { action: params.action }))
       return { action: params.action, taskId: params.taskId }
   }
 }
@@ -64,12 +66,13 @@ export function registerSessionTaskTool(pi: ExtensionAPI): void {
 
   pi.registerTool({
     name: 'session_task',
-    label: '后台 Agent',
+    label: t('后台 Agent'),
     description:
       'Delegate one to four independent tasks to background Agent sessions, supervise their progress, collect canonical results, send follow-up instructions, cancel work, and release settled task relationships.',
-    promptSnippet: 'Delegate independent work to background Agent sessions and coordinate the results.',
+    promptSnippet:
+      'Delegate independent work to background Agent sessions and coordinate the results.',
     promptGuidelines: [
-      'Use delegate for 1-4 independent tasks that can start without each other\'s results. For dependent work, keep it in the current session or delegate the next step after collecting the prerequisite result.',
+      "Use delegate for 1-4 independent tasks that can start without each other's results. For dependent work, keep it in the current session or delegate the next step after collecting the prerequisite result.",
       'Delegate admission may partially succeed. Preserve spawnedTaskIds/failedIndexes and do not assume an interrupted response means no worker was created.',
       'Use supervise snapshot for one aggregate status view, any to continue when the first task settles, or all to wait for every task. Do not manually poll individual tasks.',
       'Use collect to read canonical results for the current owned tasks. Treat ambiguous/no-result/error outcomes as explicit instead of guessing missing text.',

@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { t } from '../../../shared/i18n'
 
 export class MarkdownErrorBoundary extends Component<
   { source: string; children: ReactNode },
@@ -14,7 +15,7 @@ export class MarkdownErrorBoundary extends Component<
   render(): ReactNode {
     return this.state.failed ? (
       <div>
-        <p>Markdown 显示失败，以下是完整原文。</p>
+        <p>{t('Markdown 显示失败，以下是完整原文。')}</p>
         <pre className="markdown-plain-fallback">{this.props.source}</pre>
       </div>
     ) : (

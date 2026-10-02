@@ -4,9 +4,11 @@ import type {
   ComputerUseOperation,
   ComputerUseResult
 } from '../shared/computer-use'
+import { t } from '../shared/i18n'
 
-const imageUnavailable =
+const imageUnavailable = t(
   'MODEL_IMAGE_INPUT_UNAVAILABLE: 当前模型配置未声明图像输入能力。请使用 semantic；若语义内容不足，请停止并请用户切换已确认支持图像的模型或提供界面信息。不要自行打开调试端口、修改目标应用、解包或读取应用源码。'
+)
 export const COMPUTER_USE_RECOVERY_GUIDELINE =
   'If desktop content is unavailable or incomplete, report the limitation and ask the user to bring the target forward, provide UI details, or select a model configured for image input. Do not infer hidden controls or silently replace UI inspection with shell commands, remote debugging, application unpacking or source/config-file analysis. Those are separate tasks requiring an explicit user request.'
 
@@ -41,7 +43,7 @@ export async function executeComputerUse(
     result = await call(operation, signal)
   } catch (error) {
     if (!signal?.aborted)
-      onAvailability?.('桌面观察或操作失败。请重新 observe；仍不可用时报告限制并等待用户指示。')
+      onAvailability?.(t('桌面观察或操作失败。请重新 observe；仍不可用时报告限制并等待用户指示。'))
     throw error
   }
   signal?.throwIfAborted()
@@ -61,11 +63,11 @@ export async function executeComputerUse(
   if (observation) {
     if (observation.truncated)
       diagnostics.push(
-        'SEMANTIC_TRUNCATED: 语义树达到遍历容量或时间上限，不能据此声称已读取完整界面。'
+        t('SEMANTIC_TRUNCATED: 语义树达到遍历容量或时间上限，不能据此声称已读取完整界面。')
       )
     // Containers/window chrome alone do not establish that web content was read.
     const chromeRoles = new Set(['AXWindow', 'AXGroup', 'AXScrollArea', 'AXWebArea', 'AXUnknown'])
-    const chromeTitles = new Set(['close', 'minimize', 'zoom', '关闭', '最小化', '全屏幕'])
+    const chromeTitles = new Set(['close', 'minimize', 'zoom', t('关闭'), t('最小化'), t('全屏幕')])
     const content = observation.elements.some(
       (e) =>
         !chromeRoles.has(e.role) &&
@@ -74,12 +76,12 @@ export async function executeComputerUse(
     )
     if (!content) {
       diagnostics.push(
-        'SEMANTIC_CONTENT_LIMITED: 未识别到可用的页面内容；这不代表页面为空。' +
+        t('SEMANTIC_CONTENT_LIMITED: 未识别到可用的页面内容；这不代表页面为空。') +
           COMPUTER_USE_RECOVERY_GUIDELINE
       )
     }
     onAvailability?.(
-      !content && !observation.visual ? '语义内容不足且没有可供当前模型使用的截图。' : null
+      !content && !observation.visual ? t('语义内容不足且没有可供当前模型使用的截图。') : null
     )
   }
   const visual = observation?.visual

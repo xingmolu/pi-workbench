@@ -4,6 +4,7 @@ import {
   type SessionTaskRequest,
   type SessionTaskResponseData
 } from '../shared/session-task-capability'
+import { t } from '../shared/i18n'
 
 export type SessionTaskOperation =
   | { action: 'delegate'; tasks: string[] }
@@ -43,11 +44,12 @@ export class SessionTaskCapabilityClient {
   }
 
   request(operation: SessionTaskOperation, signal?: AbortSignal): Promise<SessionTaskResponseData> {
-    if (signal?.aborted) return Promise.reject(new Error('SessionTask 操作已取消'))
+    if (signal?.aborted) return Promise.reject(new Error(t('SessionTask 操作已取消')))
     const identity = this.options.identity()
-    if (!identity.sessionId) return Promise.reject(new Error('当前会话尚未建立稳定身份'))
+    if (!identity.sessionId) return Promise.reject(new Error(t('当前会话尚未建立稳定身份')))
     const requestId = this.createRequestId()
-    if (this.pending.has(requestId)) return Promise.reject(new Error('SessionTask requestId 冲突'))
+    if (this.pending.has(requestId))
+      return Promise.reject(new Error(t('SessionTask requestId 冲突')))
 
     return new Promise<SessionTaskResponseData>((resolve, reject) => {
       let settled = false
@@ -70,13 +72,15 @@ export class SessionTaskCapabilityClient {
       const onAbort = (): void => {
         if (cancellable(operation.action)) {
           this.safeCancel(requestId)
-          finishReject(new Error('等待后台任务已取消'))
+          finishReject(new Error(t('等待后台任务已取消')))
         } else if (sideEffecting(operation.action)) {
           finishReject(
-            new Error('SessionTask 操作响应未知；操作可能已执行，请使用 supervise snapshot 核对后再重试')
+            new Error(
+              t('SessionTask 操作响应未知；操作可能已执行，请使用 supervise snapshot 核对后再重试')
+            )
           )
         } else {
-          finishReject(new Error('SessionTask 读取已取消'))
+          finishReject(new Error(t('SessionTask 读取已取消')))
         }
       }
       const pending: Pending = {

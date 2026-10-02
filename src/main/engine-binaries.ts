@@ -12,6 +12,7 @@ import { isAbsolute, join, normalize, sep } from 'node:path'
 import { createGunzip } from 'node:zlib'
 import { ENGINE_BINARY_PINS } from '../shared/engine-binaries.generated'
 import type { DownloadableEngine, EngineBinaryStatus } from '../shared/engine-binaries'
+import { t } from '../shared/i18n'
 
 type Pin = {
   tarball: string
@@ -44,6 +45,12 @@ export type EngineBinariesOptions = {
 
 const COMPLETE = '.pi-desktop-complete'
 const ATTEMPTS = 3
+
+/** The HTTP status a failed download carries, or 0 for network and other errors. */
+function httpStatus(error: unknown): number {
+  const status = (error as { httpStatus?: unknown } | null)?.httpStatus
+  return typeof status === 'number' ? status : 0
+}
 
 /**
  * Engine CLIs are large (100–330 MB each), so the installer ships none of them. The first time
@@ -146,7 +153,7 @@ export class EngineBinaries {
 
   /** Removes downloaded builds; a bundled build, if any, takes over again. */
   async remove(engine: DownloadableEngine): Promise<void> {
-    if (this.installs.has(engine)) throw new Error('正在下载，请稍后再试')
+    if (this.installs.has(engine)) throw new Error(t('正在下载，请稍后再试'))
     await rm(join(this.options.root, engine), { recursive: true, force: true })
     this.errors.delete(engine)
     this.options.onChange?.()
@@ -154,7 +161,7 @@ export class EngineBinaries {
 
   private async download(engine: DownloadableEngine): Promise<void> {
     const pin = this.pin(engine)
-    if (!pin) throw new Error('这个引擎没有适用于当前系统的版本')
+    if (!pin) throw new Error(t('这个引擎没有适用于当前系统的版本'))
     this.errors.delete(engine)
     this.progress.set(engine, { received: 0 })
     this.options.onChange?.()
@@ -171,7 +178,7 @@ export class EngineBinaries {
       for await (const chunk of createReadStream(part)) hash.update(chunk as Buffer)
       if (hash.digest('base64') !== expected) {
         await rm(part, { force: true })
-        throw new Error('下载内容校验失败，已丢弃')
+        throw new Error(t('下载内容校验失败，已丢弃'))
       }
       // Nothing is unpacked before the archive matches the pinned digest.
       await mkdir(staging, { recursive: true })
@@ -183,7 +190,7 @@ export class EngineBinaries {
       for await (const chunk of gunzip) await extractor.push(chunk as Buffer)
       await extractor.end()
       const executable = join(staging, pin.executable)
-      if (!existsSync(executable)) throw new Error('下载的包里没有找到引擎程序')
+      if (!existsSync(executable)) throw new Error(t('下载的包里没有找到引擎程序'))
       await chmod(executable, 0o755)
       await writeFile(join(staging, COMPLETE), new Date().toISOString())
       const target = this.directory(engine)
@@ -219,7 +226,13 @@ export class EngineBinaries {
           have ? { headers: { range: `bytes=${have}-` } } : undefined
         )
         const resumed = have > 0 && response.status === 206
-        if (!response.ok || !response.body) throw new Error(`下载失败（HTTP ${response.status}）`)
+        if (!response.ok || !response.body)
+          throw Object.assign(
+            new Error(t('下载失败（HTTP {status}）', { status: response.status })),
+            {
+              httpStatus: response.status
+            }
+          )
         const output = createWriteStream(part, { flags: resumed ? 'a' : 'w' })
         let received = resumed ? have : 0
         let lastReport = received
@@ -245,14 +258,16 @@ export class EngineBinaries {
       } catch (error) {
         lastError = error
         // Server errors and digest failures are not helped by retrying; network drops are.
-        if (error instanceof Error && error.message.startsWith('下载失败（HTTP 4')) break
+        if (httpStatus(error) >= 400 && httpStatus(error) < 500) break
         await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs ?? 1000))
       }
     }
-    if (lastError instanceof Error && lastError.message.startsWith('下载失败')) throw lastError
+    if (httpStatus(lastError)) throw lastError
     throw lastError instanceof Error
-      ? new Error(`下载中断：${lastError.message}，可以点「重试」从断点继续`)
-      : new Error('下载中断，可以点「重试」从断点继续')
+      ? new Error(
+          t('下载中断：{message}，可以点「重试」从断点继续', { message: lastError.message })
+        )
+      : new Error(t('下载中断，可以点「重试」从断点继续'))
   }
 }
 
@@ -324,7 +339,7 @@ export class TarExtractor {
 
   async end(): Promise<void> {
     if (this.file?.stream) this.file.stream.destroy()
-    if (this.file && this.file.remaining > 0) throw new Error('下载的压缩包不完整')
+    if (this.file && this.file.remaining > 0) throw new Error(t('下载的压缩包不完整'))
   }
 
   private async entry(header: Buffer): Promise<void> {
@@ -351,7 +366,7 @@ export class TarExtractor {
     if (wanted) {
       const path = normalize(join(this.target, relative))
       if (isAbsolute(relative) || !path.startsWith(this.target + sep))
-        throw new Error('压缩包里有越界路径，已拒绝')
+        throw new Error(t('压缩包里有越界路径，已拒绝'))
       await mkdir(join(path, '..'), { recursive: true })
       stream = createWriteStream(path, { mode: mode & 0o111 ? 0o755 : 0o644 })
     }

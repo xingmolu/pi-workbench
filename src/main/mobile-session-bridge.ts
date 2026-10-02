@@ -16,6 +16,7 @@ import type {
 } from '../shared/mobile-gateway'
 import { liveSessionToMobile } from '../shared/mobile-gateway'
 import type { LiveSessionSummary } from '../shared/session-runtime'
+import { t } from '../shared/i18n'
 
 export type MobileIdentity = { sessionId: string; generation: number }
 
@@ -96,7 +97,7 @@ export function toMobileSnapshot(
     workerId,
     cwd,
     sessionPath: snapshot.activeSessionPath,
-    title: titleFrom(snapshot, '会话'),
+    title: titleFrom(snapshot, t('会话')),
     sessionId: snapshot.sessionId,
     generation: snapshot.generation,
     revision: snapshot.revision,

@@ -49,6 +49,7 @@ import {
   saveConfig,
   type ClaudeConfig
 } from './config'
+import { t } from '../shared/i18n'
 
 type NativeQuery = Query
 const SDK_MODE = { ask: 'default', auto: 'default', open: 'bypassPermissions' } as const
@@ -911,7 +912,8 @@ export class ClaudeHost {
         await this.login(command.providerId, command.method)
         return this.ack()
       case 'account:add':
-        if (command.platform !== 'claude') throw new Error('Claude Code 只能添加 Claude 订阅账号')
+        if (command.platform !== 'claude')
+          throw new Error(t('Claude Code 只能添加 Claude 订阅账号'))
         await this.addAccount()
         return this.ack()
       case 'account:remove':
@@ -1323,7 +1325,7 @@ export class ClaudeHost {
           this.snapshot.login = {
             phase: 'error',
             providerId: duplicate.id,
-            message: `${account.email} 已经添加过，已切换到这个账号`
+            message: t('{email} 已经添加过，已切换到这个账号', { email: account.email })
           }
         } else this.snapshot.login = { phase: 'success', providerId: provider }
         this.publish()

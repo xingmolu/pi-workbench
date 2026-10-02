@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 const controlCharacters = /[\p{Cc}\p{Zl}\p{Zp}]/u
 const boundedText = (max: number) =>
@@ -44,7 +45,7 @@ export const customEndpointUrlSchema = z
     } catch {
       return false
     }
-  }, '端点地址必须为 HTTPS，或显式的本机 HTTP 地址')
+  }, t('端点地址必须为 HTTPS，或显式的本机 HTTP 地址'))
 
 const keySchema = z
   .string()
@@ -93,7 +94,7 @@ export type CustomEndpointMetadata = {
   modelIds: string[]
   imageModelIds?: string[]
   editable: boolean
-  unsupportedReason: '此配置包含不支持的字段或地址，请在 Pi 配置文件中管理' | null
+  unsupportedReason: string | null
 }
 
 export type CustomEndpointConfigSnapshot = { revision: string; endpoints: CustomEndpointMetadata[] }
@@ -141,7 +142,7 @@ export const customEndpointMetadataSchema: z.ZodType<CustomEndpointMetadata> = z
     modelIds: z.array(z.string()),
     imageModelIds: z.array(z.string()).optional(),
     editable: z.boolean(),
-    unsupportedReason: z.literal('此配置包含不支持的字段或地址，请在 Pi 配置文件中管理').nullable()
+    unsupportedReason: z.string().max(200).nullable()
   })
   .strict()
   .superRefine(({ modelIds, imageModelIds }, context) => {
@@ -177,16 +178,20 @@ export function isCustomEndpointId(id: string): boolean {
 }
 
 /** Discovery does not save credentials or mutate the active session. */
-export const endpointDiscoverSchema = z.object({
-  type: z.literal('endpoint:discover'),
-  baseUrl: customEndpointUrlSchema,
-  key: keySchema,
-  api: customEndpointApiSchema
-}).strict()
+export const endpointDiscoverSchema = z
+  .object({
+    type: z.literal('endpoint:discover'),
+    baseUrl: customEndpointUrlSchema,
+    key: keySchema,
+    api: customEndpointApiSchema
+  })
+  .strict()
 export type EndpointDiscoverCommand = z.infer<typeof endpointDiscoverSchema>
-export const endpointDiscoverySchema = z.object({
-  baseUrl: customEndpointUrlSchema,
-  modelIds: z.array(boundedText(200)).max(100),
-  truncated: z.boolean()
-}).strict()
+export const endpointDiscoverySchema = z
+  .object({
+    baseUrl: customEndpointUrlSchema,
+    modelIds: z.array(boundedText(200)).max(100),
+    truncated: z.boolean()
+  })
+  .strict()
 export type EndpointDiscovery = z.infer<typeof endpointDiscoverySchema>

@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode
 } from 'react'
+import { t } from '../../../shared/i18n'
 
 type SettingsDraftContextValue = {
   dirty: boolean
@@ -17,18 +18,15 @@ type SettingsDraftContextValue = {
 
 const SettingsDraftContext = createContext<SettingsDraftContextValue | null>(null)
 
-export const SETTINGS_DISCARD_MESSAGE =
+export const SETTINGS_DISCARD_MESSAGE = t(
   '当前页面有未保存修改。离开后这些修改会丢失，确定继续吗？'
+)
 
 export function confirmDiscardSettingsDraft(dirty: boolean): boolean {
   return !dirty || window.confirm(SETTINGS_DISCARD_MESSAGE)
 }
 
-export function SettingsDraftProvider({
-  children
-}: {
-  children: ReactNode
-}): React.JSX.Element {
+export function SettingsDraftProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const sources = useRef(new Set<string>())
   const [dirty, setDirty] = useState(false)
 

@@ -17,25 +17,26 @@ import {
   type PermissionRules
 } from '../../../shared/permission-rules'
 import { savePermissionRules } from '../store/permission-rules'
+import { t } from '../../../shared/i18n'
 
 const LEVELS = [
   {
     mode: 'ask',
     icon: Hand,
-    title: '请求批准',
-    description: '写文件、运行命令和网页操作前都会询问'
+    title: t('请求批准'),
+    description: t('写文件、运行命令和网页操作前都会询问')
   },
   {
     mode: 'auto',
     icon: ShieldCheck,
-    title: '帮我批准',
-    description: '自动批准项目内可撤销的编辑和常规命令，其余仍会询问'
+    title: t('帮我批准'),
+    description: t('自动批准项目内可撤销的编辑和常规命令，其余仍会询问')
   },
   {
     mode: 'open',
     icon: ShieldAlert,
-    title: '完全访问权限',
-    description: '不再询问，可运行任何命令、访问项目外文件和网络'
+    title: t('完全访问权限'),
+    description: t('不再询问，可运行任何命令、访问项目外文件和网络')
   }
 ] as const
 
@@ -60,7 +61,7 @@ export default function PermissionControl({
     if (!project) return false
     const parsed = permissionRulesSchema.safeParse(next)
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? '规则无效')
+      setError(parsed.error.issues[0]?.message ?? t('规则无效'))
       return false
     }
     try {
@@ -72,7 +73,7 @@ export default function PermissionControl({
         (cause instanceof Error ? cause.message : '').replace(
           /^Error invoking remote method '[^']+': (?:Error: )?/,
           ''
-        ) || '保存失败，请重试'
+        ) || t('保存失败，请重试')
       )
       return false
     }
@@ -96,7 +97,7 @@ export default function PermissionControl({
         >
           <LevelIcon size={14} aria-hidden="true" />
           <span className="chip-label">
-            {level.title === '完全访问权限' ? '完全访问' : level.title}
+            {level.title === t('完全访问权限') ? t('完全访问') : level.title}
           </span>
           <ChevronDown size={12} aria-hidden="true" />
         </button>
@@ -107,13 +108,13 @@ export default function PermissionControl({
           side="top"
           align="start"
           sideOffset={8}
-          aria-label="工具权限"
+          aria-label={t('工具权限')}
         >
           <p className="permission-heading">
-            {snapshot.runtime?.label ?? 'Agent'} 可以做什么？
+            {t('{value} 可以做什么？', { value: snapshot.runtime?.label ?? 'Agent' })}
             {project ? <span title={project.path}>{project.name}</span> : null}
           </p>
-          <div className="permission-modes" role="radiogroup" aria-label="工具权限">
+          <div className="permission-modes" role="radiogroup" aria-label={t('工具权限')}>
             {LEVELS.map(({ mode, icon: Icon, title, description }) => (
               <button
                 key={mode}
@@ -126,88 +127,97 @@ export default function PermissionControl({
                 <Icon size={16} aria-hidden="true" />
                 <span>
                   <strong>{title}</strong>
-                  <small>{snapshot.runtime?.id === 'claude' && mode === 'auto' ? '自动批准项目内编辑；运行命令和其他操作仍会询问' : description}</small>
+                  <small>
+                    {snapshot.runtime?.id === 'claude' && mode === 'auto'
+                      ? t('自动批准项目内编辑；运行命令和其他操作仍会询问')
+                      : description}
+                  </small>
                 </span>
                 {snapshot.permissionMode === mode ? <Check size={14} aria-hidden="true" /> : null}
               </button>
             ))}
           </div>
-          {(!snapshot.runtime || snapshot.runtime.features.includes('permission-rules')) && <details className="permission-rules">
-            <summary>
-              <ChevronRight size={13} aria-hidden="true" />
-              自定义规则
-              {ruleCount ? <span>{ruleCount}</span> : null}
-            </summary>
-            <label className="permission-edits">
-              <input
-                type="checkbox"
-                checked={rules.projectEdits}
-                onChange={(event) => void update({ ...rules, projectEdits: event.target.checked })}
-              />
-              <span>
-                <strong>自动允许编辑项目内文件</strong>
-                <small>在「请求批准」下也生效；每轮改动都可以撤销</small>
-              </span>
-            </label>
-            <div className="permission-commands">
-              <span className="permission-subtitle">始终允许的命令</span>
-              {rules.commands.length ? (
-                <ul>
-                  {rules.commands.map((rule) => (
-                    <li key={rule}>
-                      <code>{rule}</code>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        aria-label={`移除规则 ${rule}`}
-                        onClick={() =>
-                          void update({
-                            ...rules,
-                            commands: rules.commands.filter((item) => item !== rule)
-                          })
-                        }
-                      >
-                        <X size={13} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>在确认卡片中选择「总是允许」即可添加，也可以手动输入。</p>
-              )}
-              <form
-                className="permission-add"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void add()
-                }}
-              >
+          {(!snapshot.runtime || snapshot.runtime.features.includes('permission-rules')) && (
+            <details className="permission-rules">
+              <summary>
+                <ChevronRight size={13} aria-hidden="true" />
+
+                {t('自定义规则')}
+                {ruleCount ? <span>{ruleCount}</span> : null}
+              </summary>
+              <label className="permission-edits">
                 <input
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="例如 npm test"
-                  aria-label="添加始终允许的命令"
-                  spellCheck={false}
+                  type="checkbox"
+                  checked={rules.projectEdits}
+                  onChange={(event) =>
+                    void update({ ...rules, projectEdits: event.target.checked })
+                  }
                 />
-                <button
-                  type="submit"
-                  className="icon-btn"
-                  aria-label="添加规则"
-                  disabled={!draft.trim()}
+                <span>
+                  <strong>{t('自动允许编辑项目内文件')}</strong>
+                  <small>{t('在「请求批准」下也生效；每轮改动都可以撤销')}</small>
+                </span>
+              </label>
+              <div className="permission-commands">
+                <span className="permission-subtitle">{t('始终允许的命令')}</span>
+                {rules.commands.length ? (
+                  <ul>
+                    {rules.commands.map((rule) => (
+                      <li key={rule}>
+                        <code>{rule}</code>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={t('移除规则 {rule}', { rule })}
+                          onClick={() =>
+                            void update({
+                              ...rules,
+                              commands: rules.commands.filter((item) => item !== rule)
+                            })
+                          }
+                        >
+                          <X size={13} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>{t('在确认卡片中选择「总是允许」即可添加，也可以手动输入。')}</p>
+                )}
+                <form
+                  className="permission-add"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void add()
+                  }}
                 >
-                  <Plus size={14} />
-                </button>
-              </form>
-              <small className="permission-note">
-                按开头的词匹配；含 ; &amp;&amp; | 重定向或 $() 的组合命令始终需要确认。
-              </small>
-            </div>
-            {error ? (
-              <p className="permission-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-          </details>}
+                  <input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder={t('例如 npm test')}
+                    aria-label={t('添加始终允许的命令')}
+                    spellCheck={false}
+                  />
+                  <button
+                    type="submit"
+                    className="icon-btn"
+                    aria-label={t('添加规则')}
+                    disabled={!draft.trim()}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </form>
+                <small className="permission-note">
+                  {t('按开头的词匹配；含 ; &amp;&amp; | 重定向或 $() 的组合命令始终需要确认。')}
+                </small>
+              </div>
+              {error ? (
+                <p className="permission-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </details>
+          )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

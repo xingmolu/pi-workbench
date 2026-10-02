@@ -18,6 +18,7 @@ import {
 } from '../../../shared/mcp'
 import { projectNavigationReason } from '../../../shared/project-catalog'
 import { confirmDiscardSettingsDraft, useSettingsDraft } from './SettingsDraftContext'
+import { t } from '../../../shared/i18n'
 import '../assets/mcp-settings.css'
 
 type Form = {
@@ -53,15 +54,15 @@ const emptyForm = (): Form => ({
   confirmed: false
 })
 const labels: Record<McpSummary['status'], string> = {
-  connected: '已连接',
-  connecting: '连接中',
-  'needs-auth': '需要登录',
-  authorizing: '登录中',
-  error: '连接失败',
-  disconnected: '未连接',
-  disabled: '已停用',
-  untrusted: '待确认启用',
-  unsupported: '高级配置只读'
+  connected: t('已连接'),
+  connecting: t('连接中'),
+  'needs-auth': t('需要登录'),
+  authorizing: t('登录中'),
+  error: t('连接失败'),
+  disconnected: t('未连接'),
+  disabled: t('已停用'),
+  untrusted: t('待确认启用'),
+  unsupported: t('高级配置只读')
 }
 /** HTTP servers sign in with OAuth unless the user supplied their own Authorization header. */
 const signsIn = (server: McpSummary): boolean =>
@@ -76,11 +77,11 @@ function parseSecrets(text: string): Record<string, string> | undefined {
     .filter((line) => line.trim())
     .map((line) => {
       const split = line.indexOf('=')
-      if (split < 1) throw new Error('环境变量或请求头请每行填写 KEY=value。')
+      if (split < 1) throw new Error(t('环境变量或请求头请每行填写 KEY=value。'))
       return [line.slice(0, split).trim(), line.slice(split + 1)]
     })
   if (new Set(entries.map(([key]) => key)).size !== entries.length)
-    throw new Error('存在重复的变量或请求头。')
+    throw new Error(t('存在重复的变量或请求头。'))
   return Object.fromEntries(entries)
 }
 export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): React.JSX.Element {
@@ -96,7 +97,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
   const baseline = useRef<Form | null>(null)
   const identity = { sessionId: snapshot.sessionId, generation: snapshot.generation }
   const blocked =
-    projectNavigationReason(snapshot) ?? (snapshot.edit?.pending ? '请先完成编辑' : null)
+    projectNavigationReason(snapshot) ?? (snapshot.edit?.pending ? t('请先完成编辑') : null)
   const run = async (command: McpCommand) => {
     if (lock.current) return
     lock.current = true
@@ -118,8 +119,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       setUnknown(command.type !== 'mcp:list')
       setError(
         command.type === 'mcp:list'
-          ? '读取失败，请刷新重试。'
-          : '操作未确认完成。请刷新列表核对，不要直接重复提交。'
+          ? t('读取失败，请刷新重试。')
+          : t('操作未确认完成。请刷新列表核对，不要直接重复提交。')
       )
     } finally {
       if (attempt === epoch.current) {
@@ -198,7 +199,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             })
       })
       if (form.enabled && !form.confirmed) {
-        setError('启用前请确认本机执行与网络访问风险。')
+        setError(t('启用前请确认本机执行与网络访问风险。'))
         return
       }
       setForm({ ...form, secrets: '', clientSecret: '' })
@@ -213,7 +214,9 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       })
     } catch {
       setError(
-        '配置无效。检查名称、命令/URL、超时、OAuth 端口及 KEY=value 格式；HTTP 仅支持 HTTPS 或本机地址。'
+        t(
+          '配置无效。检查名称、命令/URL、超时、OAuth 端口及 KEY=value 格式；HTTP 仅支持 HTTPS 或本机地址。'
+        )
       )
     }
   }
@@ -221,13 +224,16 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
   const visible =
     catalog?.servers.filter((server) => server.id.toLowerCase().includes(query.toLowerCase())) ?? []
   return (
-    <section className="mcp-settings" aria-label="MCP 服务器设置">
+    <section className="mcp-settings" aria-label={t('MCP 服务器设置')}>
       <header className="mcp-heading">
         <div>
-          <h2>MCP 服务器</h2>
+          <h2>{t('MCP 服务器')}</h2>
           <p>
-            通过 MCP 协议为 Agent 接入本地命令或远程服务提供的工具。配置保存在{' '}
-            <code>~/.pi/agent/mcp.json</code>，不会自动导入其他应用或项目的配置。
+            {t('通过 MCP 协议为 Agent 接入本地命令或远程服务提供的工具。配置保存在{value}', {
+              value: ' '
+            })}
+            <code>~/.pi/agent/mcp.json</code>
+            {t('，不会自动导入其他应用或项目的配置。')}
           </p>
         </div>
         <button
@@ -242,7 +248,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
           }}
         >
           <RefreshCw size={14} className={pending ? 'spin' : undefined} />
-          刷新列表
+
+          {t('刷新列表')}
         </button>
       </header>
       {error && (
@@ -257,7 +264,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
       )}
       {blocked && (
         <p role="status" className="mcp-message">
-          {blocked}；当前仅可查看配置。
+          {t('{blocked}；当前仅可查看配置。', { blocked })}
         </p>
       )}
       {form ? (
@@ -280,31 +287,32 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             }}
           >
             <ChevronLeft size={14} />
-            返回列表
+
+            {t('返回列表')}
           </button>
-          <h3>{form.create ? '新建 MCP 服务器' : `编辑 ${form.id}`}</h3>
+          <h3>{form.create ? t('新建 MCP 服务器') : t('编辑 {id}', { id: form.id })}</h3>
 
           <div className="mcp-form-group">
-            <p className="mcp-form-group-title">基本信息</p>
+            <p className="mcp-form-group-title">{t('基本信息')}</p>
             <div className="mcp-form-card">
               <label className="mcp-field">
-                <span>名称</span>
+                <span>{t('名称')}</span>
                 <input
                   required
                   pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}"
-                  aria-label="名称"
+                  aria-label={t('名称')}
                   value={form.id}
                   disabled={!form.create || pending}
                   placeholder="my-mcp-server"
                   onChange={(event) => setForm({ ...form, id: event.target.value })}
                 />
-                <small>字母、数字、- 或 _，保存后不可修改。</small>
+                <small>{t('字母、数字、- 或 _，保存后不可修改。')}</small>
               </label>
               <label className="mcp-field">
-                <span>连接类型</span>
+                <span>{t('连接类型')}</span>
                 <span className="mcp-select">
                   <select
-                    aria-label="连接类型"
+                    aria-label={t('连接类型')}
                     value={form.transport}
                     disabled={pending}
                     onChange={(event) =>
@@ -316,8 +324,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                       })
                     }
                   >
-                    <option value="stdio">stdio · 本地命令</option>
-                    <option value="http">Streamable HTTP · 远程服务</option>
+                    <option value="stdio">{t('stdio · 本地命令')}</option>
+                    <option value="http">{t('Streamable HTTP · 远程服务')}</option>
                   </select>
                   <ChevronDown size={14} aria-hidden="true" />
                 </span>
@@ -326,17 +334,17 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
           </div>
 
           <div className="mcp-form-group">
-            <p className="mcp-form-group-title">连接</p>
+            <p className="mcp-form-group-title">{t('连接')}</p>
             <div className="mcp-form-card">
               {form.transport === 'stdio' ? (
                 <>
                   <label className="mcp-field">
-                    <span>命令</span>
+                    <span>{t('命令')}</span>
                     <input
                       required
                       className="is-mono"
-                      placeholder="npx 或可执行文件的绝对路径"
-                      aria-label="命令"
+                      placeholder={t('npx 或可执行文件的绝对路径')}
+                      aria-label={t('命令')}
                       value={form.command}
                       disabled={pending}
                       onChange={(event) =>
@@ -345,9 +353,9 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                     />
                   </label>
                   <label className="mcp-field">
-                    <span>参数 · 每行一个</span>
+                    <span>{t('参数 · 每行一个')}</span>
                     <textarea
-                      aria-label="参数 · 每行一个"
+                      aria-label={t('参数 · 每行一个')}
                       className="is-mono"
                       value={form.args}
                       disabled={pending}
@@ -360,7 +368,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                 </>
               ) : (
                 <label className="mcp-field">
-                  <span>服务 URL</span>
+                  <span>{t('服务 URL')}</span>
                   <input
                     required
                     type="url"
@@ -371,18 +379,18 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                       setForm({ ...form, url: event.target.value, confirmed: false })
                     }
                     placeholder="https://example.com/mcp"
-                    aria-label="服务 URL"
+                    aria-label={t('服务 URL')}
                   />
-                  <small>仅支持 HTTPS 或本机地址；凭据请放在请求头里，不要写进 URL。</small>
+                  <small>{t('仅支持 HTTPS 或本机地址；凭据请放在请求头里，不要写进 URL。')}</small>
                 </label>
               )}
               <label className="mcp-field is-inline">
-                <span>超时时间（毫秒）</span>
+                <span>{t('超时时间（毫秒）')}</span>
                 <input
                   type="number"
                   min={1000}
                   max={60000}
-                  aria-label="超时时间（毫秒）"
+                  aria-label={t('超时时间（毫秒）')}
                   required
                   value={form.timeout}
                   disabled={pending}
@@ -394,13 +402,15 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
 
           <div className="mcp-form-group">
             <p className="mcp-form-group-title">
-              {form.transport === 'stdio' ? '环境变量' : '请求头'}
+              {form.transport === 'stdio' ? t('环境变量') : t('请求头')}
             </p>
             <div className="mcp-form-card">
               <label className="mcp-field">
-                <span>{form.transport === 'stdio' ? '环境变量' : '请求头'} · 每行 KEY=value</span>
+                <span>
+                  {form.transport === 'stdio' ? t('环境变量') : t('请求头')} {t('· 每行 KEY=value')}
+                </span>
                 <textarea
-                  aria-label={`${form.transport === 'stdio' ? '环境变量' : '请求头'} · 每行 KEY=value`}
+                  aria-label={`${form.transport === 'stdio' ? t('环境变量') : t('请求头')} ${t('· 每行 KEY=value')}`}
                   value={form.secrets}
                   disabled={pending}
                   autoComplete="off"
@@ -409,11 +419,12 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                   onChange={(event) =>
                     setForm({ ...form, secrets: event.target.value, confirmed: false })
                   }
-                  placeholder="留空保留已有值；填写后替换此组配置"
+                  placeholder={t('留空保留已有值；填写后替换此组配置')}
                 />
                 <small>
-                  已有秘密值不会回显；不要把令牌放进命令参数或
-                  URL。秘密保存在权限受限的本地配置文件中，不是系统钥匙串。
+                  {t(
+                    '已有秘密值不会回显；不要把令牌放进命令参数或 URL。秘密保存在权限受限的本地配置文件中，不是系统钥匙串。'
+                  )}
                 </small>
               </label>
             </div>
@@ -421,24 +432,26 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
 
           {form.transport === 'http' && (
             <div className="mcp-form-group">
-              <p className="mcp-form-group-title">OAuth 登录</p>
+              <p className="mcp-form-group-title">{t('OAuth 登录')}</p>
               <details
                 className="mcp-form-card mcp-oauth"
                 open={Boolean(form.clientId || form.scope || form.redirectPort)}
               >
                 <summary>
-                  需要登录的服务会自动发现授权服务器并注册客户端；只有服务方要求时才填写下面的项目。
+                  {t(
+                    '需要登录的服务会自动发现授权服务器并注册客户端；只有服务方要求时才填写下面的项目。'
+                  )}
                 </summary>
                 <label className="mcp-field">
-                  <span>客户端 ID</span>
+                  <span>{t('客户端 ID')}</span>
                   <input
-                    aria-label="客户端 ID"
+                    aria-label={t('客户端 ID')}
                     className="is-mono"
                     value={form.clientId}
                     disabled={pending}
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="留空则自动注册"
+                    placeholder={t('留空则自动注册')}
                     onChange={(event) =>
                       setForm({ ...form, clientId: event.target.value, confirmed: false })
                     }
@@ -446,15 +459,15 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                 </label>
                 {form.clientId.trim() && (
                   <label className="mcp-field">
-                    <span>客户端密钥</span>
+                    <span>{t('客户端密钥')}</span>
                     <input
-                      aria-label="客户端密钥"
+                      aria-label={t('客户端密钥')}
                       type="password"
                       className="is-mono"
                       value={form.clientSecret}
                       disabled={pending}
                       autoComplete="off"
-                      placeholder="留空保留已有值；公开客户端不需要"
+                      placeholder={t('留空保留已有值；公开客户端不需要')}
                       onChange={(event) =>
                         setForm({ ...form, clientSecret: event.target.value, confirmed: false })
                       }
@@ -462,36 +475,37 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                   </label>
                 )}
                 <label className="mcp-field">
-                  <span>授权范围</span>
+                  <span>{t('授权范围')}</span>
                   <input
-                    aria-label="授权范围"
+                    aria-label={t('授权范围')}
                     className="is-mono"
                     value={form.scope}
                     disabled={pending}
                     spellCheck={false}
-                    placeholder="留空使用服务器声明的范围"
+                    placeholder={t('留空使用服务器声明的范围')}
                     onChange={(event) =>
                       setForm({ ...form, scope: event.target.value, confirmed: false })
                     }
                   />
                 </label>
                 <label className="mcp-field is-inline">
-                  <span>回调端口</span>
+                  <span>{t('回调端口')}</span>
                   <input
-                    aria-label="回调端口"
+                    aria-label={t('回调端口')}
                     inputMode="numeric"
                     pattern="[0-9]{4,5}"
                     value={form.redirectPort}
                     disabled={pending}
-                    placeholder="自动"
+                    placeholder={t('自动')}
                     onChange={(event) =>
                       setForm({ ...form, redirectPort: event.target.value, confirmed: false })
                     }
                   />
                 </label>
                 <small className="mcp-oauth-note">
-                  登录时会在浏览器打开授权页，并通过 http://127.0.0.1:端口/callback
-                  接收结果；预先注册的客户端需要固定端口。令牌保存在权限受限的本地文件中。
+                  {t(
+                    '登录时会在浏览器打开授权页，并通过 http://127.0.0.1:端口/callback 接收结果；预先注册的客户端需要固定端口。令牌保存在权限受限的本地文件中。'
+                  )}
                 </small>
               </details>
             </div>
@@ -501,14 +515,14 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             <div className="mcp-form-card">
               <label className="mcp-toggle">
                 <span>
-                  <strong>保存后启用</strong>
+                  <strong>{t('保存后启用')}</strong>
                   <small>
-                    启用后 Agent 会连接这个服务器并使用它的工具；工具调用仍按审批档位确认。
+                    {t('启用后 Agent 会连接这个服务器并使用它的工具；工具调用仍按审批档位确认。')}
                   </small>
                 </span>
                 <input
                   type="checkbox"
-                  aria-label="保存后启用"
+                  aria-label={t('保存后启用')}
                   checked={form.enabled}
                   disabled={pending}
                   onChange={(event) =>
@@ -526,8 +540,9 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                     onChange={(event) => setForm({ ...form, confirmed: event.target.checked })}
                   />
                   <span>
-                    我信任此服务器，允许它以本机用户权限运行或访问所填网络地址；审批只保护 Agent
-                    的工具调用，不限制它的启动行为。
+                    {t(
+                      '我信任此服务器，允许它以本机用户权限运行或访问所填网络地址；审批只保护 Agent 的工具调用，不限制它的启动行为。'
+                    )}
                   </span>
                 </label>
               )}
@@ -546,14 +561,14 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                 setError('')
               }}
             >
-              取消
+              {t('取消')}
             </button>
             <button
               className="mcp-button is-primary"
               type="submit"
               disabled={pending || unknown || !!blocked || !catalog?.writable}
             >
-              {pending ? '保存与连接中…' : '保存服务器'}
+              {pending ? t('保存与连接中…') : t('保存服务器')}
             </button>
           </div>
         </form>
@@ -563,8 +578,8 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
             <label className="mcp-search">
               <Search size={14} aria-hidden="true" />
               <input
-                aria-label="搜索 MCP 服务器"
-                placeholder="搜索服务器"
+                aria-label={t('搜索 MCP 服务器')}
+                placeholder={t('搜索服务器')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -575,7 +590,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
               disabled={!editable || !snapshot.project}
               onClick={() => void run({ type: 'mcp:reload', ...identity })}
             >
-              重新连接
+              {t('重新连接')}
             </button>
             <button
               className="mcp-button is-primary"
@@ -589,20 +604,21 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
               }}
             >
               <Plus size={14} />
-              新建
+
+              {t('新建')}
             </button>
           </div>
           {!catalog ? (
             <p role="status" className="mcp-loading">
-              {pending ? '读取服务器配置…' : '尚未读取配置'}
+              {pending ? t('读取服务器配置…') : t('尚未读取配置')}
             </p>
           ) : !catalog.servers.length ? (
             <div className="mcp-empty">
               <span className="mcp-tile" aria-hidden="true">
                 <Server size={18} />
               </span>
-              <h3>还没有 MCP 服务器</h3>
-              <p>添加本地命令或远程服务，让 Agent 使用它提供的工具。</p>
+              <h3>{t('还没有 MCP 服务器')}</h3>
+              <p>{t('添加本地命令或远程服务，让 Agent 使用它提供的工具。')}</p>
             </div>
           ) : (
             <div className="mcp-list">
@@ -619,14 +635,16 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                           {labels[server.status]}
                         </span>
                       </div>
-                      <code>{server.command ?? server.url ?? '本版不支持的高级配置'}</code>
+                      <code>{server.command ?? server.url ?? t('本版不支持的高级配置')}</code>
                       <small>
-                        {server.toolCount} 个工具
-                        {server.envKeys.length ? ` · 环境变量：${server.envKeys.join(', ')}` : ''}
-                        {server.headerKeys.length
-                          ? ` · 请求头：${server.headerKeys.join(', ')}`
+                        {t('{toolCount} 个工具', { toolCount: server.toolCount })}
+                        {server.envKeys.length
+                          ? t(' · 环境变量：{value}', { value: server.envKeys.join(', ') })
                           : ''}
-                        {signsIn(server) && server.oauth?.authorized ? ' · 已登录' : ''}
+                        {server.headerKeys.length
+                          ? t(' · 请求头：{value}', { value: server.headerKeys.join(', ') })
+                          : ''}
+                        {signsIn(server) && server.oauth?.authorized ? t(' · 已登录') : ''}
                       </small>
                     </div>
                     <div className="mcp-row-actions">
@@ -640,7 +658,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                               void run({ type: 'mcp:logout', ...identity, id: server.id })
                             }
                           >
-                            退出登录
+                            {t('退出登录')}
                           </button>
                         ) : (
                           <button
@@ -651,7 +669,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                               void run({ type: 'mcp:login', ...identity, id: server.id })
                             }
                           >
-                            {server.status === 'authorizing' ? '重新打开登录' : '登录'}
+                            {server.status === 'authorizing' ? t('重新打开登录') : t('登录')}
                           </button>
                         ))}
                       <button
@@ -660,7 +678,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                         disabled={!editable || !server.editable}
                         onClick={() => edit(server)}
                       >
-                        编辑
+                        {t('编辑')}
                       </button>
                       <button
                         className="mcp-button"
@@ -678,7 +696,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                             : setConfirm(server)
                         }
                       >
-                        {server.enabled ? '停用' : '启用'}
+                        {server.enabled ? t('停用') : t('启用')}
                       </button>
                     </div>
                   </div>
@@ -690,7 +708,9 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                   {confirm?.id === server.id && (
                     <div className="mcp-confirm">
                       <p>
-                        启用 {server.id} 会允许本机命令启动或连接该网络地址。仅启用你信任的服务器。
+                        {t('启用 {id} 会允许本机命令启动或连接该网络地址。仅启用你信任的服务器。', {
+                          id: server.id
+                        })}
                       </p>
                       <div>
                         <button
@@ -699,7 +719,7 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                           disabled={pending}
                           onClick={() => setConfirm(null)}
                         >
-                          取消
+                          {t('取消')}
                         </button>
                         <button
                           className="mcp-button is-primary"
@@ -715,21 +735,24 @@ export default function McpSettings({ snapshot }: { snapshot: AgentSnapshot }): 
                             })
                           }
                         >
-                          确认信任并启用
+                          {t('确认信任并启用')}
                         </button>
                       </div>
                     </div>
                   )}
                 </article>
               ))}
-              {visible.length === 0 ? <p className="mcp-no-match">没有匹配的服务器</p> : null}
+              {visible.length === 0 ? (
+                <p className="mcp-no-match">{t('没有匹配的服务器')}</p>
+              ) : null}
             </div>
           )}
         </>
       )}
       <p className="mcp-footnote">
-        当前支持文本工具；远程服务可以通过浏览器 OAuth 登录。不支持 MCP Apps、资源与提示模板或 JSON
-        批量导入。停止工具调用会关闭连接；若调用结果未确认，请重启应用并核对记录后再连接。
+        {t(
+          '当前支持文本工具；远程服务可以通过浏览器 OAuth 登录。不支持 MCP Apps、资源与提示模板或 JSON 批量导入。停止工具调用会关闭连接；若调用结果未确认，请重启应用并核对记录后再连接。'
+        )}
       </p>
     </section>
   )

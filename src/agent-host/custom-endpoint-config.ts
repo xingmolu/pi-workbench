@@ -20,19 +20,20 @@ import {
   type CustomEndpointMetadata,
   type CustomEndpointMetadataInput
 } from '../shared/custom-endpoints'
+import { t } from '../shared/i18n'
 
 const MAX_BYTES = 1024 * 1024
 // jsonc-parser 3.3.1 publishes ambient const enums, unusable with isolatedModules.
 // These are its public SyntaxKind values; the scanner still handles all tokenization.
 const tokenKind = { openObject: 1, closeObject: 2, openArray: 3, closeArray: 4, eof: 17 } as const
-const UNSUPPORTED = '此配置包含不支持的字段或地址，请在 Pi 配置文件中管理' as const
+const UNSUPPORTED = t('此配置包含不支持的字段或地址，请在 Pi 配置文件中管理')
 const messages = {
-  'invalid-config': 'Pi 模型配置无法安全读取，请检查配置文件',
-  'invalid-input': '端点输入无效',
-  conflict: 'Pi 模型配置已更改，请重新加载后再保存',
-  collision: '端点标识已存在',
-  'read-only': '此端点不可通过表单编辑',
-  io: '无法读写 Pi 模型配置，请检查文件权限后重试'
+  'invalid-config': t('Pi 模型配置无法安全读取，请检查配置文件'),
+  'invalid-input': t('端点输入无效'),
+  conflict: t('Pi 模型配置已更改，请重新加载后再保存'),
+  collision: t('端点标识已存在'),
+  'read-only': t('此端点不可通过表单编辑'),
+  io: t('无法读写 Pi 模型配置，请检查文件权限后重试')
 } as const
 export class CustomEndpointConfigError extends Error {
   constructor(readonly code: keyof typeof messages) {
@@ -124,7 +125,7 @@ function project(
   )
   return {
     id,
-    label: label.success ? label.data : '未命名端点',
+    label: label.success ? label.data : t('未命名端点'),
     api: api.success ? api.data : null,
     baseUrl: url.success ? url.data : null,
     modelIds: ids.success ? ids.data : [],

@@ -46,6 +46,7 @@ import {
   pluginToolName,
   type PluginAgentContributions
 } from '../shared/plugin-agent'
+import { t } from '../shared/i18n'
 
 /** The part of PluginRuntime the Workbench state depends on. */
 export type MobilePluginViewSource = MobilePluginView & {
@@ -138,7 +139,7 @@ const BUILTIN_PLUGIN: DesktopPluginSummary = {
   pluginId: 'works.pi.desktop.builtin',
   name: 'Pi Desktop',
   version: '0.1.0',
-  description: 'Pi Desktop 内置工作台视图',
+  description: t('Pi Desktop 内置工作台视图'),
   source: 'builtin',
   scope: 'builtin',
   builtin: true,
@@ -152,7 +153,7 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
     viewId: 'works.pi.desktop.files',
-    title: '文件',
+    title: t('文件'),
     icon: 'files',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'files' }
@@ -160,7 +161,7 @@ const BUILTIN_CONTRIBUTIONS: WorkbenchSnapshot['contributions'] = [
   {
     pluginId: BUILTIN_PLUGIN.pluginId,
     viewId: 'works.pi.desktop.review',
-    title: '审查',
+    title: t('审查'),
     icon: 'git-review',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'review' }
@@ -339,10 +340,10 @@ export function createWorkbenchHostState(
       if (!setting)
         throw new PluginApiError(
           'INVALID_ARGUMENT',
-          `设置 ${key.slice(0, 64)} 未在 manifest 中声明`
+          t('设置 {value} 未在 manifest 中声明', { value: key.slice(0, 64) })
         )
       if (!acceptsSettingValue(setting, value))
-        throw new PluginApiError('INVALID_ARGUMENT', `设置 ${key} 的值类型不对`)
+        throw new PluginApiError('INVALID_ARGUMENT', t('设置 {key} 的值类型不对', { key }))
       next[key] = value
     }
     storedSettings[plugin.pluginId] = next
@@ -892,7 +893,7 @@ export function createWorkbenchHostState(
         }
         case 'plugin:command:run': {
           if (!dependencies.runtime || !isDesktopEnabled(command.pluginId))
-            throw new Error('插件未启用')
+            throw new Error(t('插件未启用'))
           await dependencies.runtime.runCommand(command.pluginId, command.commandId)
           break
         }
@@ -1084,7 +1085,7 @@ export function createWorkbenchHostState(
     },
     setPluginSettings(pluginId, values) {
       const plugin = discovered(pluginId)
-      if (!plugin) throw new PluginApiError('NOT_FOUND', '插件不可用')
+      if (!plugin) throw new PluginApiError('NOT_FOUND', t('插件不可用'))
       const result = storeSettings(plugin, values)
       revision += 1
       dependencies.onState?.(snapshot())

@@ -1,6 +1,7 @@
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { z } from 'zod'
 import type { AccountQuota } from '../shared/account-quota'
+import { t } from '../shared/i18n'
 
 const URL = 'https://chatgpt.com/backend-api/wham/usage'
 const windowSchema = z.object({
@@ -32,8 +33,8 @@ export function parseQuota(body: unknown): Pick<AccountQuota, 'plan' | 'windows'
   const windows: AccountQuota['windows'] = []
   const add = (limits: z.infer<typeof limitsSchema> | null | undefined, prefix: string) => {
     for (const [key, label] of [
-      ['primary_window', '主要额度'],
-      ['secondary_window', '次要额度']
+      ['primary_window', t('主要额度')],
+      ['secondary_window', t('次要额度')]
     ] as const) {
       const window = limits?.[key]
       if (window)
@@ -49,7 +50,7 @@ export function parseQuota(body: unknown): Pick<AccountQuota, 'plan' | 'windows'
   }
   add(data.rate_limit, '')
   for (const extra of data.additional_rate_limits ?? [])
-    add(extra.rate_limit, `${extra.limit_name ?? extra.metered_feature ?? '附加'} · `)
+    add(extra.rate_limit, `${extra.limit_name ?? extra.metered_feature ?? t('附加')} · `)
   return { ...(data.plan_type ? { plan: data.plan_type } : {}), windows }
 }
 
@@ -105,7 +106,7 @@ export class AccountQuotaReader {
         ) ||
         !runtime.isUsingSubscription(providerId)
       )
-        return { ...base, state: 'signed-out', message: '此账号没有可用的 Codex 订阅登录。' }
+        return { ...base, state: 'signed-out', message: t('此账号没有可用的 Codex 订阅登录。') }
       const auth = await runtime.getAuth(providerId, {
         signal: controller.signal,
         minOAuthValidityMs: 300000
@@ -156,10 +157,14 @@ export class AccountQuotaReader {
         ...base,
         ...data,
         state: data.windows.length ? 'available' : 'unavailable',
-        ...(data.windows.length ? {} : { message: '服务商未返回可展示的额度。' })
+        ...(data.windows.length ? {} : { message: t('服务商未返回可展示的额度。') })
       }
     } catch {
-      return { ...base, state: 'unavailable', message: '暂时无法读取额度，请稍后刷新或重新登录。' }
+      return {
+        ...base,
+        state: 'unavailable',
+        message: t('暂时无法读取额度，请稍后刷新或重新登录。')
+      }
     } finally {
       clearTimeout(timeout)
     }

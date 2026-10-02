@@ -16,6 +16,7 @@ import {
   probeTailscale,
   remotePairingUrl
 } from './mobile-tailscale'
+import { t } from '../shared/i18n'
 
 type DevicePersistence = {
   load(): PairedDeviceRecord[]
@@ -147,19 +148,19 @@ export class MobileGatewayService {
     }
     if (command.type === 'preview:open') {
       const open = this.options.openPreview
-      if (!open) throw new Error('当前环境不支持预览')
+      if (!open) throw new Error(t('当前环境不支持预览'))
       if (!this.gateway.isRunning) await this.gateway.start()
       this.startPowerSave()
       // One preview device at a time: the window pairs afresh, replacing the last one.
       for (const device of this.pairing.list())
         if (isPreviewDevice(device.name)) this.pairing.revoke(device.deviceId)
       const url = this.gateway.loopbackUrl(this.pairing.createOffer().token)
-      if (!url) throw new Error('网关未启动')
+      if (!url) throw new Error(t('网关未启动'))
       open(url)
       return
     }
     if (command.type === 'remote-views') {
-      if (!this.options.remoteViews) throw new Error('远程工作台不可用')
+      if (!this.options.remoteViews) throw new Error(t('远程工作台不可用'))
       this.options.remoteViews.set(command.access)
       // Turning it off takes effect at once, not at the phone's next reconnect.
       if (command.access === 'off') this.gateway.closeViews()
@@ -171,7 +172,7 @@ export class MobileGatewayService {
     }
     if (command.type === 'clipboard:copy') {
       const write = this.options.writeClipboard
-      if (!write) throw new Error('无法复制到剪贴板')
+      if (!write) throw new Error(t('无法复制到剪贴板'))
       write(command.text)
       return
     }
@@ -179,10 +180,10 @@ export class MobileGatewayService {
       if (!this.gateway.isRunning) await this.gateway.start()
       this.startPowerSave()
       const port = this.gateway.listenPort
-      if (!port) throw new Error('网关未启动')
+      if (!port) throw new Error(t('网关未启动'))
       this.tailscale = await (this.options.enableTailscaleServe ?? enableTailscaleServe)(port)
       if (!this.tailscale.serveUrl) {
-        const message = this.tailscale.error ?? '未能开启 Tailscale Serve'
+        const message = this.tailscale.error ?? t('未能开启 Tailscale Serve')
         this.tailscale = { ...this.tailscale, error: message }
         throw new Error(message)
       }

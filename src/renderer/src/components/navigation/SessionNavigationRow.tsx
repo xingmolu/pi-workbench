@@ -5,6 +5,7 @@ import { useNavigationLibrary } from '../../store/navigation-library'
 import { performNavigationAction } from '../../store/navigation-feedback'
 import RowMenu from './RowMenu'
 import NameDialog from './NameDialog'
+import { t } from '../../../../shared/i18n'
 
 export default function SessionNavigationRow({
   cwd,
@@ -23,33 +24,34 @@ export default function SessionNavigationRow({
   const pref = session.path ? library.sessions[session.path] : undefined
   const archived = pref?.archivedAt !== undefined
   const metadataReason = !session.path
-    ? '会话保存后可操作'
+    ? t('会话保存后可操作')
     : updating
-      ? '正在处理操作，请稍候'
+      ? t('正在处理操作，请稍候')
       : null
   const mutationReason =
     metadataReason ??
     blocked ??
     (['running', 'awaiting-approval'].includes(session.status)
-      ? '请先停止运行或处理待确认操作'
+      ? t('请先停止运行或处理待确认操作')
       : null)
-  const archiveReason = mutationReason ?? (session.sessionTask ? '后台子任务请从父任务管理' : null)
+  const archiveReason =
+    mutationReason ?? (session.sessionTask ? t('后台子任务请从父任务管理') : null)
   return (
     <>
       <RowMenu
         className={`project-session-item${session.active ? ' is-active' : ''}${pref?.pinnedAt !== undefined ? ' is-pinned' : ''}`}
-        label={`${session.title} 会话操作`}
+        label={t('{title} 会话操作', { title: session.title })}
         actions={[
           {
             id: 'rename',
-            label: '重命名会话',
+            label: t('重命名会话'),
             icon: Pencil,
             reason: mutationReason,
             run: () => setRenaming(true)
           },
           {
             id: 'pin',
-            label: pref?.pinnedAt === undefined ? '置顶会话' : '取消置顶',
+            label: pref?.pinnedAt === undefined ? t('置顶会话') : t('取消置顶'),
             icon: pref?.pinnedAt === undefined ? Pin : PinOff,
             reason: metadataReason,
             run: () => {
@@ -61,13 +63,13 @@ export default function SessionNavigationRow({
                   title: session.title,
                   pinned: pref?.pinnedAt === undefined
                 },
-                pref?.pinnedAt === undefined ? '已置顶会话' : '已取消置顶'
+                pref?.pinnedAt === undefined ? t('已置顶会话') : t('已取消置顶')
               )
             }
           },
           {
             id: 'archive',
-            label: archived ? '取消归档' : '归档会话',
+            label: archived ? t('取消归档') : t('归档会话'),
             icon: archived ? ArchiveRestore : Archive,
             separator: true,
             reason: archived ? metadataReason : archiveReason,
@@ -80,7 +82,7 @@ export default function SessionNavigationRow({
                   title: session.title,
                   archived: !archived
                 },
-                archived ? '已恢复会话' : '会话已归档，历史记录仍保留',
+                archived ? t('已恢复会话') : t('会话已归档，历史记录仍保留'),
                 {
                   type: 'session:archive',
                   cwd,
@@ -97,8 +99,8 @@ export default function SessionNavigationRow({
       </RowMenu>
       {renaming && (
         <NameDialog
-          title="重命名会话"
-          description="名称将保存到原会话记录，不会切换当前会话或修改对话内容。"
+          title={t('重命名会话')}
+          description={t('名称将保存到原会话记录，不会切换当前会话或修改对话内容。')}
           initialValue={session.title}
           onClose={() => setRenaming(false)}
           onSave={(name) =>

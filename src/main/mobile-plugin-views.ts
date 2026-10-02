@@ -10,6 +10,7 @@ import type {
 import type { PluginPanelContext } from '../shared/workbench-contracts'
 import { PLUGIN_HOST_METHODS, PluginApiError } from '../shared/plugin-api'
 import type { MobilePluginViewSource } from './workbench-host-state'
+import { t } from '../shared/i18n'
 
 /** What the gateway needs from the desktop's plugin host. */
 export type MobilePluginSource = {
@@ -139,8 +140,8 @@ export class MobilePluginViews {
 
   open(deviceId: string, viewId: string): { url: string; context: PluginPanelContext } {
     const view = this.source.views().find((item) => item.id === viewId)
-    if (!view) throw new PluginApiError('NOT_FOUND', '这个插件页面没有开放给手机')
-    if (!view.available) throw new PluginApiError('NOT_FOUND', '请先在电脑上打开一个项目')
+    if (!view) throw new PluginApiError('NOT_FOUND', t('这个插件页面没有开放给手机'))
+    if (!view.available) throw new PluginApiError('NOT_FOUND', t('请先在电脑上打开一个项目'))
     this.sweep()
     const token = randomBytes(24).toString('base64url')
     this.frames.set(token, {
@@ -159,7 +160,7 @@ export class MobilePluginViews {
 
   context(viewId: string): PluginPanelContext {
     if (!this.source.views().some((item) => item.id === viewId))
-      throw new PluginApiError('NOT_FOUND', '这个插件页面没有开放给手机')
+      throw new PluginApiError('NOT_FOUND', t('这个插件页面没有开放给手机'))
     return this.source.context(viewId)
   }
 
@@ -169,11 +170,15 @@ export class MobilePluginViews {
     request: z.infer<typeof mobilePluginCallSchema>
   ): Promise<MobilePluginCallResult> {
     const needed = mobileMethodAccess(request.method)
-    if (!needed) return { ok: false, code: 'UNSUPPORTED', message: '手机端不支持这个操作' }
+    if (!needed) return { ok: false, code: 'UNSUPPORTED', message: t('手机端不支持这个操作') }
     if (access === 'off')
-      return { ok: false, code: 'PERMISSION_DENIED', message: '电脑未开放远程工作台' }
+      return { ok: false, code: 'PERMISSION_DENIED', message: t('电脑未开放远程工作台') }
     if (needed === 'control' && access !== 'control')
-      return { ok: false, code: 'PERMISSION_DENIED', message: '电脑只允许查看，不允许远程操作。' }
+      return {
+        ok: false,
+        code: 'PERMISSION_DENIED',
+        message: t('电脑只允许查看，不允许远程操作。')
+      }
     this.sweep()
     const key = callKey(request.viewId, request.method, request.params)
     let asked = null as { title: string; detail: string } | null
@@ -205,7 +210,7 @@ export class MobilePluginViews {
           : error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
             ? error.code
             : 'INTERNAL'
-      const message = error instanceof Error ? error.message.slice(0, 2000) : '宿主处理失败'
+      const message = error instanceof Error ? error.message.slice(0, 2000) : t('宿主处理失败')
       return { ok: false, code, message }
     }
   }
@@ -281,54 +286,6 @@ export class MobilePluginViews {
  * `window.piPlugin` inside a phone frame. Every call goes to the phone page by `postMessage`,
  * which forwards it to the gateway with the device's own credentials.
  */
-export const MOBILE_PLUGIN_BRIDGE_SCRIPT = `(() => {
-  'use strict'
-  const pending = new Map()
-  const listeners = new Set()
-  let sequence = 0
-  let context = null
-  let panelState = null
-  const request = (type, payload) =>
-    new Promise((resolve, reject) => {
-      const id = ++sequence
-      pending.set(id, { resolve, reject })
-      window.parent.postMessage(Object.assign({ source: 'pi-plugin', id, type }, payload), '*')
-    })
-  window.addEventListener('message', (event) => {
-    if (event.source !== window.parent) return
-    const data = event.data
-    if (!data || data.source !== 'pi-host') return
-    if (data.type === 'context') {
-      context = data.context
-      for (const listener of [...listeners]) {
-        try { listener(context) } catch (error) { console.error(error) }
-      }
-      return
-    }
-    const entry = pending.get(data.id)
-    if (!entry) return
-    pending.delete(data.id)
-    if (data.ok) entry.resolve(data.value === undefined ? null : data.value)
-    else
-      entry.reject(Object.freeze({
-        name: 'PluginApiError',
-        code: data.code || 'INTERNAL',
-        message: data.message || '插件调用失败'
-      }))
-  })
-  const api = Object.freeze({
-    surface: 'mobile',
-    getContext: () =>
-      context ? Promise.resolve(context) : request('context', {}).then((value) => (context = value)),
-    getState: async () => panelState,
-    setState: async (_generation, value) => { panelState = value },
-    call: (method, params) => request('call', { method: String(method), params: params || {} }),
-    onContext: (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    }
-  })
-  Object.defineProperty(window, 'piPlugin', { value: api })
-  document.documentElement.dataset.piSurface = 'mobile'
-})()
-`
+export const MOBILE_PLUGIN_BRIDGE_SCRIPT = t(
+  "(() => {\n  'use strict'\n  const pending = new Map()\n  const listeners = new Set()\n  let sequence = 0\n  let context = null\n  let panelState = null\n  const request = (type, payload) =>\n    new Promise((resolve, reject) => {\n      const id = ++sequence\n      pending.set(id, { resolve, reject })\n      window.parent.postMessage(Object.assign({ source: 'pi-plugin', id, type }, payload), '*')\n    })\n  window.addEventListener('message', (event) => {\n    if (event.source !== window.parent) return\n    const data = event.data\n    if (!data || data.source !== 'pi-host') return\n    if (data.type === 'context') {\n      context = data.context\n      for (const listener of [...listeners]) {\n        try { listener(context) } catch (error) { console.error(error) }\n      }\n      return\n    }\n    const entry = pending.get(data.id)\n    if (!entry) return\n    pending.delete(data.id)\n    if (data.ok) entry.resolve(data.value === undefined ? null : data.value)\n    else\n      entry.reject(Object.freeze({\n        name: 'PluginApiError',\n        code: data.code || 'INTERNAL',\n        message: data.message || '插件调用失败'\n      }))\n  })\n  const api = Object.freeze({\n    surface: 'mobile',\n    getContext: () =>\n      context ? Promise.resolve(context) : request('context', {}).then((value) => (context = value)),\n    getState: async () => panelState,\n    setState: async (_generation, value) => { panelState = value },\n    call: (method, params) => request('call', { method: String(method), params: params || {} }),\n    onContext: (listener) => {\n      listeners.add(listener)\n      return () => listeners.delete(listener)\n    }\n  })\n  Object.defineProperty(window, 'piPlugin', { value: api })\n  document.documentElement.dataset.piSurface = 'mobile'\n})()\n"
+)

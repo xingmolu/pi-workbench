@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Palette } from 'lucide-react'
 import type { MobileThemeChoice } from './theme'
+import { t } from '../../../shared/i18n'
 
 const CHOICES: [MobileThemeChoice, string][] = [
-  ['system', '跟随系统'],
-  ['dark', '深色'],
-  ['light', '浅色']
+  ['system', t('跟随系统')],
+  ['dark', t('深色')],
+  ['light', t('浅色')]
 ]
 
 export function ThemeButton({
@@ -39,7 +40,7 @@ export function ThemeButton({
       <button
         type="button"
         className="m-icon"
-        aria-label="主题"
+        aria-label={t('主题')}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >

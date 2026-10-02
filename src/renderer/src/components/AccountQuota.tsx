@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { AccountSummary } from '../../../shared/contracts'
 import type { AccountQuota as Quota } from '../../../shared/account-quota'
+import { t } from '../../../shared/i18n'
 
 export default function AccountQuota({
   account,
@@ -44,24 +45,29 @@ export default function AccountQuota({
         result.quota.providerId !== account.id ||
         result.quota.authGeneration !== authGeneration
       ) {
-        setError('账号已更新，请重新刷新额度。')
+        setError(t('账号已更新，请重新刷新额度。'))
         return
       }
       setQuota(result.quota)
     } catch {
-      if (attempt === epoch.current) setError('额度读取失败，请稍后重试。')
+      if (attempt === epoch.current) setError(t('额度读取失败，请稍后重试。'))
     } finally {
       if (attempt === epoch.current) setPending(false)
     }
   }
   const connected = account.connected && !loginActive
   return (
-    <section className="acct-quota" aria-label="Codex 订阅额度">
+    <section className="acct-quota" aria-label={t('Codex 订阅额度')}>
       <div className="acct-quota-head">
         <span>
-          订阅额度{quota?.plan ? <em>{quota.plan}</em> : null}
+          {t('订阅额度')}
+          {quota?.plan ? <em>{quota.plan}</em> : null}
           {quota ? (
-            <small>读取于 {new Date(quota.fetchedAt).toLocaleTimeString('zh-CN')}</small>
+            <small>
+              {t('读取于 {value}', {
+                value: new Date(quota.fetchedAt).toLocaleTimeString('zh-CN')
+              })}
+            </small>
           ) : null}
         </span>
         <button
@@ -71,7 +77,7 @@ export default function AccountQuota({
           onClick={() => void refresh()}
         >
           <RefreshCw size={13} className={pending ? 'spin' : undefined} />
-          {pending ? '读取中…' : '刷新额度'}
+          {pending ? t('读取中…') : t('刷新额度')}
         </button>
       </div>
       {quota?.state === 'available' ? (
@@ -87,21 +93,23 @@ export default function AccountQuota({
                   <span>
                     {window.label}
                     {window.windowMinutes
-                      ? ` · ${window.windowMinutes >= 1440 ? `${Math.round(window.windowMinutes / 1440)} 天` : `${window.windowMinutes} 分钟`}`
+                      ? ` · ${window.windowMinutes >= 1440 ? t('{value} 天', { value: Math.round(window.windowMinutes / 1440) }) : t('{windowMinutes} 分钟', { windowMinutes: window.windowMinutes })}`
                       : ''}
                   </span>
-                  <strong>剩余 {left.toFixed(0)}%</strong>
+                  <strong>{t('剩余 {value}%', { value: left.toFixed(0) })}</strong>
                 </div>
                 <meter
                   min={0}
                   max={100}
                   value={100 - window.usedPercent}
-                  aria-label={`${window.label}剩余额度`}
+                  aria-label={t('{label}剩余额度', { label: window.label })}
                 />
                 <small>
                   {window.resetsAt != null
-                    ? `${new Date(window.resetsAt * 1000).toLocaleString('zh-CN')} 重置`
-                    : '重置时间未知'}
+                    ? t('{value} 重置', {
+                        value: new Date(window.resetsAt * 1000).toLocaleString('zh-CN')
+                      })
+                    : t('重置时间未知')}
                 </small>
               </div>
             )
@@ -112,12 +120,12 @@ export default function AccountQuota({
           {error ||
             quota?.message ||
             (account.connected
-              ? '点击“刷新额度”查看账号额度；未读取不代表额度为零。'
-              : '登录 Codex 后可读取额度。')}
+              ? t('点击“刷新额度”查看账号额度；未读取不代表额度为零。')
+              : t('登录 Codex 后可读取额度。'))}
         </p>
       )}
       <p className="acct-quota-note">
-        来源：Codex 账号服务。额度与会话用量不同；接口不可用时不会估算剩余次数或费用。
+        {t('来源：Codex 账号服务。额度与会话用量不同；接口不可用时不会估算剩余次数或费用。')}
       </p>
     </section>
   )

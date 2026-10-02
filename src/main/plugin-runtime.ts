@@ -16,6 +16,7 @@ import type { PermissionMode } from '../shared/contracts'
 import { isViewCallable } from '../shared/plugin-api'
 import type { PluginFileService, PluginGitService } from './plugin-services'
 import type { ValidatedPluginCommand } from './workbench-manifest'
+import { t } from '../shared/i18n'
 
 /** A spawned plugin process. Main supplies the Electron implementation; tests use fakes. */
 export type PluginProcessHandle = {
@@ -162,14 +163,14 @@ export class PluginRuntime {
   async runCommand(pluginId: string, commandId: string): Promise<void> {
     const running = this.running.get(pluginId)
     if (!running || running.status !== 'running' || !running.registered.has(commandId))
-      throw new PluginApiError('NOT_FOUND', '插件命令不可用')
+      throw new PluginApiError('NOT_FOUND', t('插件命令不可用'))
     await this.invoke(
       running,
       'command',
       commandId,
       undefined,
       this.timeouts.command,
-      '插件命令超时'
+      t('插件命令超时')
     )
   }
 
@@ -182,10 +183,10 @@ export class PluginRuntime {
   ): Promise<string> {
     const running = this.running.get(pluginId)
     if (!running || running.status !== 'running')
-      throw new PluginApiError('NOT_FOUND', '插件未运行')
+      throw new PluginApiError('NOT_FOUND', t('插件未运行'))
     if (!running.plugin.granted.has('agent.tools'))
-      throw new PluginApiError('PERMISSION_DENIED', '需要权限 agent.tools')
-    if (!running.tools.has(name)) throw new PluginApiError('NOT_FOUND', '插件工具尚未就绪')
+      throw new PluginApiError('PERMISSION_DENIED', t('需要权限 agent.tools'))
+    if (!running.tools.has(name)) throw new PluginApiError('NOT_FOUND', t('插件工具尚未就绪'))
     try {
       const value = await this.invoke(
         running,
@@ -193,7 +194,7 @@ export class PluginRuntime {
         name,
         input ?? {},
         this.timeouts.tool,
-        '插件工具超时',
+        t('插件工具超时'),
         signal
       )
       this.dependencies.audit({ pluginId, method: `tool:${name}`, outcome: 'ok' })
@@ -201,7 +202,9 @@ export class PluginRuntime {
     } catch (error) {
       const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
       this.dependencies.audit({ pluginId, method: `tool:${name}`, outcome: code })
-      throw error instanceof PluginApiError ? error : new PluginApiError('INTERNAL', '插件工具失败')
+      throw error instanceof PluginApiError
+        ? error
+        : new PluginApiError('INTERNAL', t('插件工具失败'))
     }
   }
 
@@ -214,7 +217,7 @@ export class PluginRuntime {
     timeoutMessage: string,
     signal?: AbortSignal
   ): Promise<unknown> {
-    if (signal?.aborted) return Promise.reject(new PluginApiError('CONFLICT', '调用已取消'))
+    if (signal?.aborted) return Promise.reject(new PluginApiError('CONFLICT', t('调用已取消')))
     const id = running.nextInvokeId++
     return new Promise<unknown>((resolve, reject) => {
       const settle = (): void => {
@@ -224,7 +227,7 @@ export class PluginRuntime {
       }
       const onAbort = (): void => {
         settle()
-        reject(new PluginApiError('CONFLICT', '调用已取消'))
+        reject(new PluginApiError('CONFLICT', t('调用已取消')))
       }
       const timer = setTimeout(() => {
         settle()
@@ -280,7 +283,7 @@ export class PluginRuntime {
     handle.onExit(() => this.exited(running))
     running.loadTimer = setTimeout(() => {
       if (running.status !== 'starting') return
-      this.fail(running, 'failed', `插件 ${plugin.name} 加载超时`)
+      this.fail(running, 'failed', t('插件 {name} 加载超时', { name: plugin.name }))
     }, this.timeouts.load)
     handle.postMessage({
       kind: 'load',
@@ -296,7 +299,7 @@ export class PluginRuntime {
     running.stopping = true
     this.running.delete(pluginId)
     clearTimeout(running.loadTimer)
-    this.rejectInvokes(running, new PluginApiError('PLUGIN_CRASHED', '插件已停止'))
+    this.rejectInvokes(running, new PluginApiError('PLUGIN_CRASHED', t('插件已停止')))
     try {
       running.handle.postMessage({ kind: 'unload' })
     } catch {
@@ -325,7 +328,11 @@ export class PluginRuntime {
 
   private exited(running: Running): void {
     if (running.stopping) return
-    this.fail(running, 'crashed', `插件 ${running.plugin.name} 意外退出，已停用它的命令`)
+    this.fail(
+      running,
+      'crashed',
+      t('插件 {name} 意外退出，已停用它的命令', { name: running.plugin.name })
+    )
   }
 
   private rejectInvokes(running: Running, error: Error): void {
@@ -346,7 +353,14 @@ export class PluginRuntime {
         this.dependencies.onChange()
         return
       case 'load-failed':
-        this.fail(running, 'failed', `插件 ${running.plugin.name} 加载失败：${message.message}`)
+        this.fail(
+          running,
+          'failed',
+          t('插件 {name} 加载失败：{message}', {
+            name: running.plugin.name,
+            message: message.message
+          })
+        )
         return
       case 'reply': {
         const waiter = running.invokes.get(message.id)
@@ -355,7 +369,7 @@ export class PluginRuntime {
         if (message.ok) waiter.resolve(message.value)
         else
           waiter.reject(
-            new PluginApiError(message.code ?? 'INTERNAL', message.message ?? '插件命令失败')
+            new PluginApiError(message.code ?? 'INTERNAL', message.message ?? t('插件命令失败'))
           )
         return
       }
@@ -376,7 +390,7 @@ export class PluginRuntime {
       if (auditsSuccess(method)) this.dependencies.audit({ pluginId, method, outcome: 'ok' })
     } catch (error) {
       const code: PluginErrorCode = error instanceof PluginApiError ? error.code : 'INTERNAL'
-      const message = error instanceof PluginApiError ? error.message : '宿主处理失败'
+      const message = error instanceof PluginApiError ? error.message : t('宿主处理失败')
       reply = { kind: 'reply', id, ok: false, code, message }
       this.dependencies.audit({ pluginId, method: method.slice(0, 128), outcome: code })
     }
@@ -396,9 +410,9 @@ export class PluginRuntime {
   ): Promise<unknown> {
     try {
       if (Object.hasOwn(PLUGIN_HOST_METHODS, method) && !isViewCallable(method as PluginHostMethod))
-        throw new PluginApiError('UNSUPPORTED', '面板不能调用此方法')
+        throw new PluginApiError('UNSUPPORTED', t('面板不能调用此方法'))
       if (remote && !Object.hasOwn(PLUGIN_HOST_METHODS, method))
-        throw new PluginApiError('UNSUPPORTED', '手机端暂不支持插件自定义调用')
+        throw new PluginApiError('UNSUPPORTED', t('手机端暂不支持插件自定义调用'))
       // Channels the host does not implement go to the plugin's own `onPanelInvoke`.
       const running = this.running.get(plugin.pluginId)
       const value =
@@ -409,7 +423,7 @@ export class PluginRuntime {
               method.slice(0, 128),
               params ?? {},
               this.timeouts.command,
-              '插件面板调用超时'
+              t('插件面板调用超时')
             )
           : remote
             ? await this.remoteApproval.run(remote.approve, () =>
@@ -426,13 +440,15 @@ export class PluginRuntime {
         method: method.slice(0, 128),
         outcome: code
       })
-      throw error instanceof PluginApiError ? error : new PluginApiError('INTERNAL', '宿主处理失败')
+      throw error instanceof PluginApiError
+        ? error
+        : new PluginApiError('INTERNAL', t('宿主处理失败'))
     }
   }
 
   private project(): string {
     const { projectPath } = this.dependencies.context()
-    if (!projectPath) throw new PluginApiError('NOT_FOUND', '没有打开的项目')
+    if (!projectPath) throw new PluginApiError('NOT_FOUND', t('没有打开的项目'))
     return projectPath
   }
 
@@ -455,18 +471,18 @@ export class PluginRuntime {
       title,
       detail
     }) ?? Promise.resolve(false))
-    if (!approved) throw new PluginApiError('PERMISSION_DENIED', '用户拒绝了这次操作')
+    if (!approved) throw new PluginApiError('PERMISSION_DENIED', t('用户拒绝了这次操作'))
   }
 
   /** The approved target must still be the open project when the write happens. */
   private assertProject(project: string): void {
     if (this.dependencies.context().projectPath !== project)
-      throw new PluginApiError('CONFLICT', '项目已切换，操作已取消')
+      throw new PluginApiError('CONFLICT', t('项目已切换，操作已取消'))
   }
 
   private services(): NonNullable<PluginRuntimeDependencies['services']> {
     const services = this.dependencies.services
-    if (!services) throw new PluginApiError('UNSUPPORTED', '此环境未提供文件与 Git 服务')
+    if (!services) throw new PluginApiError('UNSUPPORTED', t('此环境未提供文件与 Git 服务'))
     return services
   }
 
@@ -477,19 +493,25 @@ export class PluginRuntime {
     params: unknown
   ): Promise<unknown> {
     if (!Object.hasOwn(PLUGIN_HOST_METHODS, method))
-      throw new PluginApiError('UNSUPPORTED', `pi.${method.slice(0, 64)} 在此版本不可用`)
+      throw new PluginApiError(
+        'UNSUPPORTED',
+        t('pi.{value} 在此版本不可用', { value: method.slice(0, 64) })
+      )
     const spec = PLUGIN_HOST_METHODS[method as PluginHostMethod]
     const parsed = spec.params.safeParse(params)
-    if (!parsed.success) throw new PluginApiError('INVALID_ARGUMENT', '参数无效')
+    if (!parsed.success) throw new PluginApiError('INVALID_ARGUMENT', t('参数无效'))
     if (spec.permission !== null && !plugin.granted.has(spec.permission))
-      throw new PluginApiError('PERMISSION_DENIED', `需要权限 ${spec.permission}`)
+      throw new PluginApiError(
+        'PERMISSION_DENIED',
+        t('需要权限 {permission}', { permission: spec.permission })
+      )
     const args = parsed.data as Record<string, unknown>
     switch (method as PluginHostMethod) {
       case 'commands.register': {
         const commandId = args.id as string
-        if (!registry) throw new PluginApiError('UNSUPPORTED', '面板不能注册命令')
+        if (!registry) throw new PluginApiError('UNSUPPORTED', t('面板不能注册命令'))
         if (!plugin.commands.some((command) => command.id === commandId))
-          throw new PluginApiError('INVALID_ARGUMENT', '命令必须先在 manifest 中声明')
+          throw new PluginApiError('INVALID_ARGUMENT', t('命令必须先在 manifest 中声明'))
         registry.registered.add(commandId)
         this.dependencies.onChange()
         return undefined
@@ -499,10 +521,10 @@ export class PluginRuntime {
         this.dependencies.onChange()
         return undefined
       case 'agent.registerTool': {
-        if (!registry) throw new PluginApiError('UNSUPPORTED', '面板不能注册工具')
+        if (!registry) throw new PluginApiError('UNSUPPORTED', t('面板不能注册工具'))
         const name = args.name as string
         if (!(plugin.agentTools ?? []).includes(name))
-          throw new PluginApiError('INVALID_ARGUMENT', '工具必须先在 manifest 中声明')
+          throw new PluginApiError('INVALID_ARGUMENT', t('工具必须先在 manifest 中声明'))
         registry.tools.add(name)
         return undefined
       }
@@ -516,8 +538,8 @@ export class PluginRuntime {
         const project = this.project()
         await this.confirm(
           plugin,
-          `写入 ${args.path as string}`,
-          `${(args.content as string).length} 个字符`,
+          t('写入 {value}', { value: args.path as string }),
+          t('{length} 个字符', { length: (args.content as string).length }),
           false
         )
         this.assertProject(project)
@@ -537,7 +559,12 @@ export class PluginRuntime {
       case 'git.stage': {
         const project = this.project()
         const paths = args.paths as string[]
-        await this.confirm(plugin, `暂存 ${paths.length} 个文件`, paths.join('\n'), false)
+        await this.confirm(
+          plugin,
+          t('暂存 {length} 个文件', { length: paths.length }),
+          paths.join('\n'),
+          false
+        )
         this.assertProject(project)
         await this.services().git.stage(project, paths)
         return undefined
@@ -545,7 +572,12 @@ export class PluginRuntime {
       case 'git.unstage': {
         const project = this.project()
         const paths = args.paths as string[]
-        await this.confirm(plugin, `取消暂存 ${paths.length} 个文件`, paths.join('\n'), false)
+        await this.confirm(
+          plugin,
+          t('取消暂存 {length} 个文件', { length: paths.length }),
+          paths.join('\n'),
+          false
+        )
         this.assertProject(project)
         await this.services().git.unstage(project, paths)
         return undefined
@@ -555,7 +587,7 @@ export class PluginRuntime {
         const paths = args.paths as string[]
         await this.confirm(
           plugin,
-          `丢弃 ${paths.length} 个文件的未暂存改动`,
+          t('丢弃 {length} 个文件的未暂存改动', { length: paths.length }),
           paths.join('\n'),
           true
         )
@@ -565,7 +597,7 @@ export class PluginRuntime {
       }
       case 'git.commit': {
         const project = this.project()
-        await this.confirm(plugin, '提交暂存的改动', args.message as string, false)
+        await this.confirm(plugin, t('提交暂存的改动'), args.message as string, false)
         this.assertProject(project)
         return this.services().git.commit(project, args.message as string)
       }
@@ -573,15 +605,22 @@ export class PluginRuntime {
         const project = this.project()
         const plan = await this.services().git.pushPlan(project)
         const commits = plan.commits.map(({ hash, subject }) => `${hash.slice(0, 7)} ${subject}`)
-        if (plan.moreCommits > 0) commits.push(`…另外 ${plan.moreCommits} 个提交`)
+        if (plan.moreCommits > 0)
+          commits.push(t('…另外 {moreCommits} 个提交', { moreCommits: plan.moreCommits }))
         await this.confirm(
           plugin,
-          `推送 ${plan.branch} 到 ${plan.remote}/${plan.remoteBranch}`,
+          t('推送 {branch} 到 {remote}/{remoteBranch}', {
+            branch: plan.branch,
+            remote: plan.remote,
+            remoteBranch: plan.remoteBranch
+          }),
           [
-            `远程：${plan.remote}  ${plan.url}`,
-            plan.setUpstream ? `将新建远程分支 ${plan.remoteBranch} 并设为上游` : null,
+            t('远程：{remote}  {url}', { remote: plan.remote, url: plan.url }),
+            plan.setUpstream
+              ? t('将新建远程分支 {remoteBranch} 并设为上游', { remoteBranch: plan.remoteBranch })
+              : null,
             '',
-            ...(commits.length > 0 ? commits : ['没有新的提交'])
+            ...(commits.length > 0 ? commits : [t('没有新的提交')])
           ]
             .filter((line) => line !== null)
             .join('\n'),
@@ -596,7 +635,7 @@ export class PluginRuntime {
         return undefined
       case 'ui.openPanel': {
         const viewId = plugin.views.get('panel') ?? [...plugin.views.values()][0]
-        if (!viewId) throw new PluginApiError('NOT_FOUND', '插件没有可打开的面板')
+        if (!viewId) throw new PluginApiError('NOT_FOUND', t('插件没有可打开的面板'))
         this.dependencies.openView(viewId)
         return undefined
       }
@@ -606,7 +645,8 @@ export class PluginRuntime {
       case 'plugin.getSettings':
         return this.dependencies.settings?.get(plugin.pluginId) ?? {}
       case 'plugin.setSettings': {
-        if (!this.dependencies.settings) throw new PluginApiError('UNSUPPORTED', '插件设置不可用')
+        if (!this.dependencies.settings)
+          throw new PluginApiError('UNSUPPORTED', t('插件设置不可用'))
         return this.dependencies.settings.set(
           plugin.pluginId,
           args.values as Record<string, unknown>
@@ -614,7 +654,7 @@ export class PluginRuntime {
       }
       case 'plugin.getDataPath': {
         if (!this.dependencies.dataPath)
-          throw new PluginApiError('UNSUPPORTED', '插件数据目录不可用')
+          throw new PluginApiError('UNSUPPORTED', t('插件数据目录不可用'))
         return this.dependencies.dataPath(plugin.pluginId)
       }
       case 'workspace.get': {
@@ -630,7 +670,7 @@ export class PluginRuntime {
         return { base: this.dependencies.appearance?.() ?? 'dark' }
       case 'ui.openView': {
         const viewId = plugin.views.get(args.id as string)
-        if (!viewId) throw new PluginApiError('NOT_FOUND', '视图未在 manifest 中声明')
+        if (!viewId) throw new PluginApiError('NOT_FOUND', t('视图未在 manifest 中声明'))
         this.dependencies.openView(viewId)
         return undefined
       }
@@ -652,7 +692,7 @@ export class PluginRuntime {
           encoded = undefined
         }
         if (encoded === undefined || Buffer.byteLength(encoded) > PLUGIN_STORAGE_MAX_BYTES)
-          throw new PluginApiError('INVALID_ARGUMENT', '存储值必须是不超过 32 KiB 的 JSON')
+          throw new PluginApiError('INVALID_ARGUMENT', t('存储值必须是不超过 32 KiB 的 JSON'))
         this.dependencies.storage.set(
           storageKey(plugin.pluginId, this.dependencies.context().projectPath, args.key as string),
           JSON.parse(encoded)

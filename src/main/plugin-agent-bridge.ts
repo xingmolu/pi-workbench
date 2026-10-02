@@ -5,6 +5,7 @@ import {
   type PluginAgentContributions,
   type PluginAgentResponse
 } from '../shared/plugin-agent'
+import { t } from '../shared/i18n'
 
 export type PluginAgentBridgeDependencies = {
   contributions(): Promise<PluginAgentContributions | null>
@@ -58,7 +59,7 @@ export class PluginAgentBridge {
                 type: 'plugin-tool-response',
                 requestId: request.requestId,
                 ok: false,
-                error: (error instanceof Error ? error.message : '插件工具失败').slice(0, 2000)
+                error: (error instanceof Error ? error.message : t('插件工具失败')).slice(0, 2000)
               })
           )
           .finally(() => this.calls.delete(key))
@@ -82,7 +83,7 @@ export class PluginAgentBridge {
       canonicalize(request.cwd).catch(() => null),
       project ? canonicalize(project).catch(() => null) : null
     ])
-    if (!cwd || !open || cwd !== open) throw new Error('插件工具只在当前窗口打开的项目中可用')
+    if (!cwd || !open || cwd !== open) throw new Error(t('插件工具只在当前窗口打开的项目中可用'))
     return this.dependencies.runTool(request.pluginId, request.name, request.input, signal)
   }
 }

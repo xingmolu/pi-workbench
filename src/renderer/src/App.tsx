@@ -49,6 +49,7 @@ import type { PluginCommandSummary } from '../../shared/workbench-contracts'
 import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/workbench-selection'
 import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbench-status'
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
+import { t } from '../../shared/i18n'
 
 export default function App(): React.JSX.Element {
   useEffect(() => {
@@ -113,9 +114,9 @@ export default function App(): React.JSX.Element {
     Boolean(state.files.length || state.staging || state.sending || state.submission)
   )
   const navigationDisabledReason = forkPending
-    ? '正在分叉会话'
+    ? t('正在分叉会话')
     : editPhase !== 'closed'
-      ? '请先完成或取消编辑'
+      ? t('请先完成或取消编辑')
       : null
   const [layout, dispatchLayout] = useReducer(workspaceLayoutReducer, INITIAL_WORKSPACE_LAYOUT)
   const settingsOpenRef = useRef(layout.settingsOpen)
@@ -190,7 +191,7 @@ export default function App(): React.JSX.Element {
       ;(
         directoryRow ??
         opener ??
-        document.querySelector<HTMLElement>('[aria-label="关闭子 Agent 列表"]')
+        document.querySelector<HTMLElement>(t('[aria-label="关闭子 Agent 列表"]'))
       )?.focus({ preventScroll: true })
     })
   }, [])
@@ -312,7 +313,7 @@ export default function App(): React.JSX.Element {
           ),
         onToast: (pluginId, message) =>
           useNavigationFeedback.getState().notify({
-            message: `${pluginNames.current.get(pluginId) ?? '插件'}：${message}`
+            message: `${pluginNames.current.get(pluginId) ?? t('插件')}：${message}`
           })
       }),
     [acceptWorkbenchSnapshot, reportWorkbenchError]
@@ -438,7 +439,7 @@ export default function App(): React.JSX.Element {
     async (command: HostCommand): Promise<boolean> => {
       const origin = commandOrigin(snapshot)
       if (usePiStore.getState().disconnected) {
-        setClientError('Pi 引擎未连接，请先重新连接引擎。')
+        setClientError(t('Pi 引擎未连接，请先重新连接引擎。'))
         return false
       }
       try {
@@ -469,7 +470,7 @@ export default function App(): React.JSX.Element {
     try {
       recover(await window.pi.reconnect())
     } catch {
-      disconnect('重新连接失败。草稿和当前画布已保留，请稍后重试。')
+      disconnect(t('重新连接失败。草稿和当前画布已保留，请稍后重试。'))
     } finally {
       setReconnecting(false)
     }
@@ -484,7 +485,7 @@ export default function App(): React.JSX.Element {
     )
       return
     if (usePiStore.getState().disconnected) {
-      setClientError('Pi 引擎未连接，请先重新连接引擎。')
+      setClientError(t('Pi 引擎未连接，请先重新连接引擎。'))
       return
     }
     navigationLock.current = true
@@ -557,7 +558,7 @@ export default function App(): React.JSX.Element {
         const message =
           error instanceof Error
             ? error.message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
-            : '项目切换未完成，请重试'
+            : t('项目切换未完成，请重试')
         if (attempt === navigationAttempt.current)
           setNavigationFailures((previous) => ({
             ...previous,
@@ -646,8 +647,8 @@ export default function App(): React.JSX.Element {
         <button
           type="button"
           className="icon-btn subagent-directory-toggle"
-          aria-label="子 Agent 列表"
-          title="子 Agent 列表"
+          aria-label={t('子 Agent 列表')}
+          title={t('子 Agent 列表')}
           aria-expanded={subagentDirectoryOpen}
           onClick={() => {
             if (subagentDirectoryOpen) closeDirectory()
@@ -664,8 +665,8 @@ export default function App(): React.JSX.Element {
       {!subagentPreview && !subagentDirectoryOpen && (
         <button
           className="icon-btn workbench-toggle"
-          aria-label={workbenchOpen ? '折叠工作台' : '展开工作台'}
-          title={`${workbenchOpen ? '折叠工作台' : '展开工作台'}（${shortcutLabel('\\')}）`}
+          aria-label={workbenchOpen ? t('折叠工作台') : t('展开工作台')}
+          title={`${workbenchOpen ? t('折叠工作台') : t('展开工作台')}（${shortcutLabel('\\')}）`}
           data-shortcut={shortcutLabel('\\')}
           aria-expanded={workbenchOpen}
           onClick={() => setWorkbenchOpen((open) => !open)}
@@ -793,7 +794,9 @@ export default function App(): React.JSX.Element {
           snapshot={snapshot}
           returnFocusRef={paletteOpenerRef}
           nativeFocusToken={nativePaletteTokenRef.current}
-          disabledReason={navigationDisabledReason ?? (navigating ? '正在切换会话，请稍候' : null)}
+          disabledReason={
+            navigationDisabledReason ?? (navigating ? t('正在切换会话，请稍候') : null)
+          }
           filesAvailable={Boolean(
             snapshot.ready &&
             snapshot.project &&
@@ -844,7 +847,9 @@ export default function App(): React.JSX.Element {
       <SettingsDialog
         skillsContent={
           snapshot.runtime && !snapshot.runtime.features.includes('skills') ? (
-            <p className="inline-hint">{snapshot.runtime.label} 在运行时加载项目内的原生技能。</p>
+            <p className="inline-hint">
+              {snapshot.runtime.label} {t('在运行时加载项目内的原生技能。')}
+            </p>
           ) : (
             <SkillsSettings
               snapshot={snapshot}
@@ -858,7 +863,7 @@ export default function App(): React.JSX.Element {
               }
               onInsert={(request) => {
                 settingsOpenerRef.current = document.querySelector<HTMLTextAreaElement>(
-                  'textarea[aria-label="任务输入"]'
+                  t('textarea[aria-label="任务输入"]')
                 )
                 useSkillInsertion.getState().request(request)
                 closeSettings()

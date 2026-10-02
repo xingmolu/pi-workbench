@@ -7,6 +7,7 @@ import {
 } from '../shared/plugin-api'
 import { execFile } from 'node:child_process'
 import type { GitProcessResult, GitReviewProcess } from './git-review-process'
+import { t } from '../shared/i18n'
 
 function inside(root: string, candidate: string): boolean {
   const rel = relative(root, candidate)
@@ -20,7 +21,7 @@ function inside(root: string, candidate: string): boolean {
 export async function resolveInProject(projectPath: string, path: string): Promise<string> {
   const root = await realpath(projectPath)
   const target = resolve(root, path)
-  if (!inside(root, target)) throw new PluginApiError('PERMISSION_DENIED', '路径不在项目内')
+  if (!inside(root, target)) throw new PluginApiError('PERMISSION_DENIED', t('路径不在项目内'))
   let existing = target
   const rest: string[] = []
   for (;;) {
@@ -35,13 +36,13 @@ export async function resolveInProject(projectPath: string, path: string): Promi
     }
   }
   const real = join(await realpath(existing), ...rest)
-  if (!inside(root, real)) throw new PluginApiError('PERMISSION_DENIED', '路径不在项目内')
+  if (!inside(root, real)) throw new PluginApiError('PERMISSION_DENIED', t('路径不在项目内'))
   return real
 }
 
 function notFound(error: unknown): never {
   if ((error as { code?: string }).code === 'ENOENT')
-    throw new PluginApiError('NOT_FOUND', '文件不存在')
+    throw new PluginApiError('NOT_FOUND', t('文件不存在'))
   throw error
 }
 
@@ -102,15 +103,15 @@ export class PluginFileService {
   async readText(projectPath: string, path: string): Promise<{ text: string }> {
     const target = await resolveInProject(projectPath, path)
     const stat = await lstat(target).catch(notFound)
-    if (!stat.isFile()) throw new PluginApiError('INVALID_ARGUMENT', '只能读取普通文件')
+    if (!stat.isFile()) throw new PluginApiError('INVALID_ARGUMENT', t('只能读取普通文件'))
     if (stat.size > PLUGIN_FS_MAX_READ_BYTES)
-      throw new PluginApiError('INVALID_ARGUMENT', '文件超过 1 MiB')
+      throw new PluginApiError('INVALID_ARGUMENT', t('文件超过 1 MiB'))
     const bytes = await readFile(target)
     try {
       if (bytes.includes(0)) throw new Error('binary')
       return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
     } catch {
-      throw new PluginApiError('INVALID_ARGUMENT', '只能读取 UTF-8 文本文件')
+      throw new PluginApiError('INVALID_ARGUMENT', t('只能读取 UTF-8 文本文件'))
     }
   }
 
@@ -118,11 +119,11 @@ export class PluginFileService {
     const target = await resolveInProject(projectPath, path)
     const existing = await lstat(target).catch(() => null)
     if (existing && !existing.isFile())
-      throw new PluginApiError('INVALID_ARGUMENT', '只能写入普通文件')
+      throw new PluginApiError('INVALID_ARGUMENT', t('只能写入普通文件'))
     await mkdir(dirname(target), { recursive: true })
     // Re-check after creating parents: a racing symlink must not redirect the write.
     const verified = await resolveInProject(projectPath, path)
-    if (verified !== target) throw new PluginApiError('CONFLICT', '路径在写入前发生了变化')
+    if (verified !== target) throw new PluginApiError('CONFLICT', t('路径在写入前发生了变化'))
     await writeFile(target, content, 'utf8')
   }
 }
@@ -159,9 +160,9 @@ function redactUrl(url: string): string {
 }
 
 function pushFailure(stderr: string, timedOut: boolean): PluginApiError {
-  if (timedOut) return new PluginApiError('TIMEOUT', '推送超时')
+  if (timedOut) return new PluginApiError('TIMEOUT', t('推送超时'))
   if (/\[rejected\]|non-fast-forward|fetch first/.test(stderr))
-    return new PluginApiError('CONFLICT', '远程有新的提交，请先拉取合并后再推送')
+    return new PluginApiError('CONFLICT', t('远程有新的提交，请先拉取合并后再推送'))
   if (
     /Authentication failed|could not read (?:Username|Password)|Permission denied|terminal prompts disabled|403/.test(
       stderr
@@ -169,7 +170,7 @@ function pushFailure(stderr: string, timedOut: boolean): PluginApiError {
   )
     return new PluginApiError(
       'PERMISSION_DENIED',
-      '推送需要凭据：请先配置凭据助手或 SSH 密钥（可在终端中完成一次推送）'
+      t('推送需要凭据：请先配置凭据助手或 SSH 密钥（可在终端中完成一次推送）')
     )
   const line = redactUrl(
     stderr
@@ -177,7 +178,10 @@ function pushFailure(stderr: string, timedOut: boolean): PluginApiError {
       .map((text) => text.trim())
       .find((text) => /^(?:fatal|error|remote):/.test(text)) ?? ''
   )
-  return new PluginApiError('INTERNAL', line ? `推送失败：${line.slice(0, 300)}` : '推送失败')
+  return new PluginApiError(
+    'INTERNAL',
+    line ? t('推送失败：{value}', { value: line.slice(0, 300) }) : t('推送失败')
+  )
 }
 
 export type PluginGitStatus = {
@@ -217,11 +221,11 @@ export class PluginGitService {
     const result: GitProcessResult = await this.process.run({ cwd, args, budget })
     if (result.ok) return result.stdout.toString('utf8')
     if (result.reason === 'exit' && result.stderrKind === 'not-repository')
-      throw new PluginApiError('NOT_FOUND', '项目不是 Git 仓库')
-    if (result.reason === 'timeout') throw new PluginApiError('TIMEOUT', 'Git 操作超时')
+      throw new PluginApiError('NOT_FOUND', t('项目不是 Git 仓库'))
+    if (result.reason === 'timeout') throw new PluginApiError('TIMEOUT', t('Git 操作超时'))
     if (result.reason === 'stdout-limit')
-      throw new PluginApiError('INVALID_ARGUMENT', 'Git 输出过大')
-    throw new PluginApiError('INTERNAL', 'Git 操作失败')
+      throw new PluginApiError('INVALID_ARGUMENT', t('Git 输出过大'))
+    throw new PluginApiError('INTERNAL', t('Git 操作失败'))
   }
 
   /** Commands run in the project directory, which may be a subdirectory of the repository. */
@@ -240,7 +244,7 @@ export class PluginGitService {
     )
       throw new PluginApiError(
         'UNSUPPORTED',
-        '仓库配置了 clean/process 过滤器，插件不能安全地操作它'
+        t('仓库配置了 clean/process 过滤器，插件不能安全地操作它')
       )
     return root
   }
@@ -375,9 +379,9 @@ export class PluginGitService {
   async pushPlan(projectPath: string): Promise<PluginGitPushPlan> {
     const root = await this.root(projectPath)
     const branch = await this.optional(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
-    if (!branch) throw new PluginApiError('CONFLICT', '当前不在任何分支上，无法推送')
+    if (!branch) throw new PluginApiError('CONFLICT', t('当前不在任何分支上，无法推送'))
     const head = await this.optional(root, ['rev-parse', '--verify', '--quiet', 'HEAD'])
-    if (!head) throw new PluginApiError('CONFLICT', '还没有提交，无法推送')
+    if (!head) throw new PluginApiError('CONFLICT', t('还没有提交，无法推送'))
     // Without --local, git follows includes and reads worktree config too; the hardened
     // runner already excludes system and global config, so this is the repository's own.
     const repositoryConfig = await this.optional(root, [
@@ -387,7 +391,7 @@ export class PluginGitService {
       '--list'
     ])
     if (repositoryConfig === null)
-      throw new PluginApiError('UNSUPPORTED', '无法读取仓库配置，插件不能代为推送')
+      throw new PluginApiError('UNSUPPORTED', t('无法读取仓库配置，插件不能代为推送'))
     // The runner's own `-c` overrides appear with the `command` scope; they are not the repo's.
     const unsafe = repositoryConfig
       .split('\n')
@@ -398,7 +402,7 @@ export class PluginGitService {
     if (unsafe)
       throw new PluginApiError(
         'UNSUPPORTED',
-        `仓库配置了 ${unsafe}，插件不能代为推送，请在终端中推送`
+        t('仓库配置了 {unsafe}，插件不能代为推送，请在终端中推送', { unsafe })
       )
 
     const configuredRemote = await this.optional(root, [
@@ -420,7 +424,7 @@ export class PluginGitService {
         : remotes.length === 1
           ? remotes[0]
           : null
-      if (!chosen) throw new PluginApiError('NOT_FOUND', '没有可推送的远程仓库')
+      if (!chosen) throw new PluginApiError('NOT_FOUND', t('没有可推送的远程仓库'))
       remote = chosen
       remoteBranch = branch
       setUpstream = true
@@ -431,11 +435,11 @@ export class PluginGitService {
       budget: 'status'
     })
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(remote) || !refFormat.ok)
-      throw new PluginApiError('UNSUPPORTED', '远程仓库或分支名称无法安全推送')
+      throw new PluginApiError('UNSUPPORTED', t('远程仓库或分支名称无法安全推送'))
     const url =
       (await this.optional(root, ['config', '--get', `remote.${remote}.pushurl`])) ??
       (await this.optional(root, ['config', '--get', `remote.${remote}.url`]))
-    if (!url) throw new PluginApiError('NOT_FOUND', `远程仓库 ${remote} 没有地址`)
+    if (!url) throw new PluginApiError('NOT_FOUND', t('远程仓库 {remote} 没有地址', { remote }))
 
     const tracking = `refs/remotes/${remote}/${remoteBranch}`
     const hasTracking =
@@ -452,7 +456,7 @@ export class PluginGitService {
         return { hash, subject }
       })
     if (commits.length === 0 && hasTracking)
-      throw new PluginApiError('CONFLICT', '没有需要推送的提交')
+      throw new PluginApiError('CONFLICT', t('没有需要推送的提交'))
     return {
       root,
       branch,
@@ -468,11 +472,11 @@ export class PluginGitService {
 
   /** Pushes exactly the approved commit to the approved remote branch. */
   async push(plan: PluginGitPushPlan): Promise<{ remote: string; branch: string }> {
-    if (!this.pushRunner) throw new PluginApiError('UNSUPPORTED', '此环境不支持推送')
+    if (!this.pushRunner) throw new PluginApiError('UNSUPPORTED', t('此环境不支持推送'))
     const head = await this.optional(plan.root, ['rev-parse', '--verify', '--quiet', 'HEAD'])
     const branch = await this.optional(plan.root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
     if (head !== plan.head || branch !== plan.branch)
-      throw new PluginApiError('CONFLICT', '确认后仓库发生了变化，推送已取消')
+      throw new PluginApiError('CONFLICT', t('确认后仓库发生了变化，推送已取消'))
     const result = await this.pushRunner(plan.root, [
       'push',
       '--porcelain',
@@ -494,7 +498,7 @@ export class PluginGitService {
   private async pathspec(root: string, projectPath: string, path: string): Promise<string> {
     const absolute = await resolveInProject(projectPath, path)
     const rel = relative(root, absolute)
-    if (!inside(root, absolute)) throw new PluginApiError('PERMISSION_DENIED', '路径不在仓库内')
+    if (!inside(root, absolute)) throw new PluginApiError('PERMISSION_DENIED', t('路径不在仓库内'))
     return rel.split(sep).join('/') || '.'
   }
 

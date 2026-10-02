@@ -6,6 +6,7 @@ import {
   sessionTaskViewSchema,
   type SessionTaskViewWire
 } from '../shared/session-task-capability'
+import { t } from '../shared/i18n'
 
 const OPERATIONS = {
   delegate: 'spawn',
@@ -43,7 +44,7 @@ export function sessionTaskPresentation(
 function taskSummary(task: SessionTaskViewWire, previous?: SubagentSummary): SubagentSummary {
   return {
     id: task.taskId,
-    title: previous?.title ?? '子 Agent',
+    title: previous?.title ?? t('子 Agent'),
     ...(previous?.prompt ? { prompt: previous.prompt } : {}),
     state: task.state,
     workerId: task.workerId,
@@ -69,7 +70,7 @@ export function sessionTaskResultPresentation(
           ? taskSummary(item.task, previous)
           : {
               id: previous?.id ?? `failed:${item.index}`,
-              title: previous?.title ?? '子 Agent',
+              title: previous?.title ?? t('子 Agent'),
               prompt: previous?.prompt,
               state: 'error' as const,
               output: item.error
@@ -89,7 +90,7 @@ export function sessionTaskResultPresentation(
               ? (result.outcome as 'error' | 'stopped' | 'unavailable')
               : task.state,
         ...(result.markdown ? { output: result.markdown, truncated: result.truncated } : {}),
-        ...(result.outcome === 'ambiguous' ? { activity: '结果不明确，请查看子会话' } : {})
+        ...(result.outcome === 'ambiguous' ? { activity: t('结果不明确，请查看子会话') } : {})
       }))
     }
   const supervision = sessionTaskSuperviseResultSchema.safeParse(details)

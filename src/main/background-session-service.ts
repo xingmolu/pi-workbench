@@ -1,11 +1,7 @@
 import { createHash } from 'node:crypto'
-import type {
-  AgentSnapshot,
-  HostCommand,
-  HostResult,
-  PermissionMode
-} from '../shared/contracts'
+import type { AgentSnapshot, HostCommand, HostResult, PermissionMode } from '../shared/contracts'
 import type { BackgroundSessionAdmission } from './session-worker-pool'
+import { t } from '../shared/i18n'
 
 export type BackgroundSessionLifecycleListener = (
   workerId: string,
@@ -47,11 +43,7 @@ export type BackgroundSessionStatus = BackgroundSessionHandle & {
 }
 
 export type BackgroundSessionWaitOutcome =
-  | 'completed'
-  | 'error'
-  | 'stopped'
-  | 'unavailable'
-  | 'timeout'
+  'completed' | 'error' | 'stopped' | 'unavailable' | 'timeout'
 
 export type BackgroundSessionWaitOptions = {
   timeoutMs: number
@@ -64,13 +56,7 @@ export type BackgroundSessionWaitResult = {
 }
 
 export type BackgroundSessionResultOutcome =
-  | 'ready'
-  | 'pending'
-  | 'error'
-  | 'stopped'
-  | 'unavailable'
-  | 'no-result'
-  | 'ambiguous'
+  'ready' | 'pending' | 'error' | 'stopped' | 'unavailable' | 'no-result' | 'ambiguous'
 
 export type BackgroundSessionResult = {
   outcome: BackgroundSessionResultOutcome
@@ -92,7 +78,7 @@ function requireResidentSnapshot(
   workerId: string
 ): AgentSnapshot {
   const snapshot = runtime.tryGetSnapshot(workerId)
-  if (!snapshot) throw new Error('后台会话已结束')
+  if (!snapshot) throw new Error(t('后台会话已结束'))
   return snapshot
 }
 
@@ -100,7 +86,7 @@ function requireIdentity(snapshot: AgentSnapshot): {
   sessionId: string
   generation: number
 } {
-  if (!snapshot.sessionId) throw new Error('后台会话尚未建立稳定身份')
+  if (!snapshot.sessionId) throw new Error(t('后台会话尚未建立稳定身份'))
   return { sessionId: snapshot.sessionId, generation: snapshot.generation }
 }
 
@@ -109,17 +95,14 @@ function requireParentSnapshot(
   parent: BackgroundSessionParent
 ): AgentSnapshot {
   const snapshot = requireResidentSnapshot(runtime, parent.workerId)
-  if (
-    snapshot.sessionId !== parent.sessionId ||
-    snapshot.generation !== parent.generation
-  ) {
-    throw new Error('父会话身份已改变，请重新创建任务')
+  if (snapshot.sessionId !== parent.sessionId || snapshot.generation !== parent.generation) {
+    throw new Error(t('父会话身份已改变，请重新创建任务'))
   }
   return snapshot
 }
 
 function requireProject(snapshot: AgentSnapshot): string {
-  if (!snapshot.project?.path) throw new Error('父会话没有可用工作区')
+  if (!snapshot.project?.path) throw new Error(t('父会话没有可用工作区'))
   return snapshot.project.path
 }
 
@@ -137,7 +120,7 @@ function requireHandleSnapshot(
 ): AgentSnapshot {
   const snapshot = requireResidentSnapshot(runtime, handle.workerId)
   if (!matchesHandle(snapshot, handle)) {
-    throw new Error('后台会话身份已改变，请重新创建任务')
+    throw new Error(t('后台会话身份已改变，请重新创建任务'))
   }
   return snapshot
 }
@@ -147,7 +130,7 @@ function statusFromSnapshot(
   snapshot: AgentSnapshot
 ): BackgroundSessionStatus {
   if (!matchesHandle(snapshot, handle)) {
-    throw new Error('后台会话身份已改变，请重新创建任务')
+    throw new Error(t('后台会话身份已改变，请重新创建任务'))
   }
   return {
     ...handle,
@@ -249,7 +232,7 @@ function resultFromSnapshot(
 
 function inheritedModel(snapshot: AgentSnapshot): { providerId: string; modelId: string } {
   if (!snapshot.activeProvider || !snapshot.activeModel) {
-    throw new Error('父会话没有可继承的模型')
+    throw new Error(t('父会话没有可继承的模型'))
   }
   return { providerId: snapshot.activeProvider, modelId: snapshot.activeModel }
 }
@@ -264,20 +247,25 @@ export class BackgroundSessionService {
     prompt: string
   ): Promise<BackgroundSessionHandle> {
     const text = prompt.trim()
-    if (!text) throw new Error('后台任务不能为空')
+    if (!text) throw new Error(t('后台任务不能为空'))
 
     const parentSnapshot = requireParentSnapshot(this.runtime, parent)
     const projectPath = requireProject(parentSnapshot)
     const permissionMode: PermissionMode = parentSnapshot.permissionMode
 
     if (parentSnapshot.runtime && parentSnapshot.runtime.subagents !== 'desktop')
-      throw new Error('当前运行时不支持桌面派发的子 Agent')
-    const model = parentSnapshot.runtime && !parentSnapshot.runtime.features.includes('model-selection')
-      ? undefined : inheritedModel(parentSnapshot)
-    const admitted = await this.runtime.openBackground({
-      cwd: projectPath,
-      ...(parentSnapshot.runtime ? { runtimeId: parentSnapshot.runtime.id } : {})
-    }, model)
+      throw new Error(t('当前运行时不支持桌面派发的子 Agent'))
+    const model =
+      parentSnapshot.runtime && !parentSnapshot.runtime.features.includes('model-selection')
+        ? undefined
+        : inheritedModel(parentSnapshot)
+    const admitted = await this.runtime.openBackground(
+      {
+        cwd: projectPath,
+        ...(parentSnapshot.runtime ? { runtimeId: parentSnapshot.runtime.id } : {})
+      },
+      model
+    )
     let child = admitted.snapshot
     let identity = requireIdentity(child)
 
@@ -291,8 +279,12 @@ export class BackgroundSessionService {
       identity = requireIdentity(child)
     }
 
-    if (!child.ready || child.composeBlockReason !== null || child.modelAvailability !== 'available') {
-      throw new Error('后台会话当前不能接收任务')
+    if (
+      !child.ready ||
+      child.composeBlockReason !== null ||
+      child.modelAvailability !== 'available'
+    ) {
+      throw new Error(t('后台会话当前不能接收任务'))
     }
 
     const handle = {
@@ -318,10 +310,10 @@ export class BackgroundSessionService {
 
   async send(handle: BackgroundSessionHandle, prompt: string): Promise<void> {
     const text = prompt.trim()
-    if (!text) throw new Error('后台任务不能为空')
+    if (!text) throw new Error(t('后台任务不能为空'))
     const snapshot = requireHandleSnapshot(this.runtime, handle)
     if (!snapshot.ready || snapshot.composeBlockReason !== null) {
-      throw new Error('后台会话当前不能接收任务')
+      throw new Error(t('后台会话当前不能接收任务'))
     }
     const cursor = captureResultCursor(snapshot, text)
     await this.runtime.requestWorker(
@@ -367,10 +359,10 @@ export class BackgroundSessionService {
     }
     const subscribe = this.runtime.subscribe
     if (!subscribe) {
-      return Promise.reject(new Error('后台会话运行时不支持生命周期订阅'))
+      return Promise.reject(new Error(t('后台会话运行时不支持生命周期订阅')))
     }
     if (options.signal?.aborted) {
-      return Promise.reject(new Error('等待后台任务已取消'))
+      return Promise.reject(new Error(t('等待后台任务已取消')))
     }
 
     return new Promise<BackgroundSessionWaitResult>((resolve, reject) => {
@@ -404,7 +396,7 @@ export class BackgroundSessionService {
         const outcome = settledOutcome(status)
         if (outcome) finish({ outcome, status })
       }
-      const onAbort = (): void => fail(new Error('等待后台任务已取消'))
+      const onAbort = (): void => fail(new Error(t('等待后台任务已取消')))
 
       options.signal?.addEventListener('abort', onAbort, { once: true })
       try {

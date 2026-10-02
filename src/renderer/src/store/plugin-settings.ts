@@ -1,4 +1,5 @@
 import type { DesktopPluginSummary, WorkbenchCommand } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 
 export function pluginDesktopToggleCommand(
   plugin: Pick<DesktopPluginSummary, 'pluginId' | 'builtin'>,
@@ -17,8 +18,8 @@ export function pluginSourceLabel(
     scope?: DesktopPluginSummary['scope']
   }
 ): string {
-  if (plugin.scope === 'bundled') return '随 Pi Desktop 分发'
-  return plugin.builtin ? 'Pi Desktop 内置' : plugin.source
+  if (plugin.scope === 'bundled') return t('随 Pi Desktop 分发')
+  return plugin.builtin ? t('Pi Desktop 内置') : plugin.source
 }
 
 export type PluginSettingsOperationState = {
@@ -72,7 +73,7 @@ export function pluginSettingsOperationReducer(
 export function pluginSettingsErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   if (/requires an app restart|repeated crashes/i.test(message)) {
-    return '插件因连续崩溃已锁定。请重启 Pi Desktop 后再启用。'
+    return t('插件因连续崩溃已锁定。请重启 Pi Desktop 后再启用。')
   }
-  return `插件设置未保存：${message}`
+  return t('插件设置未保存：{message}', { message })
 }

@@ -14,6 +14,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import type { WorkbenchContribution, WorkbenchIcon } from '../../../shared/contracts'
+import { t } from '../../../shared/i18n'
 import '../assets/workbench-tabs.css'
 const icons: Record<WorkbenchIcon, LucideIcon> = {
   files: Files,
@@ -38,23 +39,23 @@ type Props = {
   onMenuOpenChange: (open: boolean) => void
 }
 const DESCRIPTIONS: Partial<Record<WorkbenchIcon, string>> = {
-  files: '浏览和预览项目文件',
-  'git-review': '审查未提交的改动',
-  'git-branch': '分支、提交与历史',
-  terminal: '在项目目录里运行命令',
-  browser: '预览网页和本地服务'
+  files: t('浏览和预览项目文件'),
+  'git-review': t('审查未提交的改动'),
+  'git-branch': t('分支、提交与历史'),
+  terminal: t('在项目目录里运行命令'),
+  browser: t('预览网页和本地服务')
 }
 export function WorkbenchLauncher({
   contributions,
   onSelect
 }: Pick<Props, 'contributions' | 'onSelect'>): React.JSX.Element {
   return (
-    <nav className="workbench-launcher" aria-label="打开工作台工具">
+    <nav className="workbench-launcher" aria-label={t('打开工作台工具')}>
       {contributions.length ? (
         <>
           <div className="workbench-launcher-head" aria-hidden="true">
-            <strong>工作台</strong>
-            <span>在对话旁边打开工具，改动、文件和命令都在这里。</span>
+            <strong>{t('工作台')}</strong>
+            <span>{t('在对话旁边打开工具，改动、文件和命令都在这里。')}</span>
           </div>
           <div className="workbench-launcher-grid">
             {contributions.map((contribution) => (
@@ -71,7 +72,9 @@ export function WorkbenchLauncher({
                   <strong>{contribution.title}</strong>
                   <small>
                     {DESCRIPTIONS[contribution.icon] ??
-                      (contribution.pluginId.startsWith('works.pi.') ? '内置工具' : '插件提供')}
+                      (contribution.pluginId.startsWith('works.pi.')
+                        ? t('内置工具')
+                        : t('插件提供'))}
                   </small>
                 </span>
               </button>
@@ -79,7 +82,7 @@ export function WorkbenchLauncher({
           </div>
         </>
       ) : (
-        <p>暂无可用面板</p>
+        <p>{t('暂无可用面板')}</p>
       )}
     </nav>
   )
@@ -125,7 +128,7 @@ export default function WorkbenchTabs({
           null
       }}
     >
-      <div className="workbench-tabs" role="tablist" aria-label="已打开的工作台工具">
+      <div className="workbench-tabs" role="tablist" aria-label={t('已打开的工作台工具')}>
         {openedViewIds.map((id) => {
           const contribution = contributions.find((item) => item.viewId === id)
           return contribution ? (
@@ -171,7 +174,7 @@ export default function WorkbenchTabs({
               </button>
               <button
                 className="workbench-tab-close"
-                aria-label={`关闭${contribution.title}标签`}
+                aria-label={t('关闭{title}标签', { title: contribution.title })}
                 onClick={() => close(id)}
               >
                 <X size={12} />
@@ -181,7 +184,7 @@ export default function WorkbenchTabs({
         })}
       </div>
       <DropdownMenu.Root open={menuOpen} onOpenChange={onMenuOpenChange}>
-        <DropdownMenu.Trigger className="icon-btn workbench-add" aria-label="打开工具">
+        <DropdownMenu.Trigger className="icon-btn workbench-add" aria-label={t('打开工具')}>
           <Plus size={16} />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
@@ -193,8 +196,7 @@ export default function WorkbenchTabs({
               // Radix restores focus on a later timer. Respect a newer focus
               // choice made after the menu disappeared (e.g. tab arrow keys).
               const active = document.activeElement
-              if (active && active !== document.body && active.isConnected)
-                event.preventDefault()
+              if (active && active !== document.body && active.isConnected) event.preventDefault()
             }}
           >
             {contributions.map((contribution) => (

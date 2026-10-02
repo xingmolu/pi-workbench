@@ -5,6 +5,7 @@ import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight } from 'lucide-react'
 import { useDesktopSettings } from '../store/desktop-settings'
 import { workDigest, workPresentation, type WorkNode } from '../store/conversation-work-groups'
+import { t } from '../../../shared/i18n'
 
 export default function WorkSummary({
   nodes,
@@ -32,7 +33,11 @@ export default function WorkSummary({
       onOpenChange={setExpanded}
     >
       <Collapsible.Trigger className="work-summary-trigger">
-        {running && !awaitingApproval ? <span className="activity-orbit" aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+        {running && !awaitingApproval ? (
+          <span className="activity-orbit" aria-hidden="true" />
+        ) : (
+          <ChevronRight size={14} aria-hidden="true" />
+        )}
         <span>{label}</span>
         {digest && digest.parts.length > 0 ? (
           <span className="work-summary-digest">
@@ -41,7 +46,11 @@ export default function WorkSummary({
                 {part.label} {part.count}
               </span>
             ))}
-            {digest.failed > 0 ? <span className="is-failed">{digest.failed} 项失败</span> : null}
+            {digest.failed > 0 ? (
+              <span className="is-failed">
+                {digest.failed} {t('项失败')}
+              </span>
+            ) : null}
           </span>
         ) : null}
       </Collapsible.Trigger>

@@ -1,5 +1,6 @@
 import { readAgentSessionIdentity, subscribeAgentSessionIdentity } from './agent-session-identity'
 import { SessionTaskCapabilityClient } from './session-task-capability-client'
+import { t } from '../shared/i18n'
 
 let client: SessionTaskCapabilityClient | null = null
 let unsubscribeIdentity: (() => void) | null = null
@@ -12,13 +13,10 @@ export function getSessionTaskCapabilityClient(): SessionTaskCapabilityClient {
   })
   unsubscribeIdentity = subscribeAgentSessionIdentity((identity, previous) => {
     if (!previous) return
-    if (
-      identity?.sessionId === previous.sessionId &&
-      identity?.generation === previous.generation
-    )
+    if (identity?.sessionId === previous.sessionId && identity?.generation === previous.generation)
       return
     client?.rejectAll(
-      '父会话已切换；SessionTask 操作结果可能未知，请回到原会话后使用 supervise snapshot 核对'
+      t('父会话已切换；SessionTask 操作结果可能未知，请回到原会话后使用 supervise snapshot 核对')
     )
   })
   return client
@@ -32,6 +30,6 @@ export function acceptSessionTaskCapabilityResponse(message: unknown): boolean {
 export function disposeSessionTaskCapabilityClient(): void {
   unsubscribeIdentity?.()
   unsubscribeIdentity = null
-  client?.rejectAll('Agent Host 已结束')
+  client?.rejectAll(t('Agent Host 已结束'))
   client = null
 }

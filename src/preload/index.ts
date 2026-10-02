@@ -90,6 +90,8 @@ const acceptSnapshot = (snapshot: AgentSnapshot): AgentSnapshot => {
 }
 
 const api: PiDesktopAPI = {
+  locale: ipcRenderer.sendSync('pi:locale') === 'en' ? 'en' : 'zh-CN',
+  relaunch: () => ipcRenderer.invoke('pi:relaunch'),
   navigationLibrary: async (command) => navigationLibrarySchema.parse(
     await ipcRenderer.invoke(NAVIGATION_LIBRARY_CHANNEL, navigationLibraryCommandSchema.parse(command))
   ),

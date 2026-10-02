@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { axHitTargetSchema, DESKTOP_CONTROL_AX_LIMITS } from './desktop-control'
+import { t } from './i18n'
 
 export const COMPUTER_USE_LIMITS = {
   maxStateIdLength: 80,
@@ -211,10 +212,10 @@ export function computerUseImagePointToScreenPoint(
   const frameRatio = visual.framePoints.width / visual.framePoints.height
   const imageRatio = visual.image.width / visual.image.height
   if (Math.abs(frameRatio / imageRatio - 1) > 0.03) {
-    throw new Error('窗口截图与屏幕坐标比例不一致，请重新 observe')
+    throw new Error(t('窗口截图与屏幕坐标比例不一致，请重新 observe'))
   }
   if (point.x >= visual.image.width || point.y >= visual.image.height) {
-    throw new Error('视觉坐标超出截图范围，请重新 observe')
+    throw new Error(t('视觉坐标超出截图范围，请重新 observe'))
   }
   return {
     x: Math.round(visual.framePoints.x + (point.x / visual.image.width) * visual.framePoints.width),

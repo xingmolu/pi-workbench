@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'n
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { format } from 'node:util'
+import { t } from '../shared/i18n'
 
 const MAX_BYTES = 1024 * 1024
 
@@ -85,22 +86,22 @@ export class Diagnostics {
     const log = this.lines(this.logFile).slice(-lines)
     return redact(
       [
-        '# Pi Desktop 诊断信息',
+        t('# Pi Desktop 诊断信息'),
         '',
-        '## 环境',
+        t('## 环境'),
         ...Object.entries(facts).map(
           ([key, value]) => `- ${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`
         ),
         '',
-        `## 最近 7 天进程意外退出（${crashes.length}）`,
+        t('## 最近 7 天进程意外退出（{length}）', { length: crashes.length }),
         ...(crashes.length
           ? crashes.map(
               (entry) =>
                 `- ${entry.at} ${entry.kind}${entry.name ? ` (${entry.name})` : ''}: ${entry.reason}${entry.exitCode !== undefined ? ` exit ${entry.exitCode}` : ''}`
             )
-          : ['- 无']),
+          : [t('- 无')]),
         '',
-        `## 主进程日志（最后 ${log.length} 行）`,
+        t('## 主进程日志（最后 {length} 行）', { length: log.length }),
         '```',
         ...log,
         '```',

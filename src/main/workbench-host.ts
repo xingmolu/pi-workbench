@@ -55,6 +55,7 @@ import {
   type WorkbenchPanelViewRequest,
   type WorkbenchStateStore
 } from './workbench-host-state'
+import { t } from '../shared/i18n'
 
 export interface WorkbenchHost {
   /** A `pi.*` call from a plugin view, authorized against the view's owning plugin. */
@@ -162,7 +163,8 @@ export function pluginProcessEnv(pluginId: string, source = process.env): Record
     'TMPDIR',
     'TEMP',
     'TMP',
-    'SystemRoot'
+    'SystemRoot',
+    'PI_DESKTOP_LOCALE'
   ])
     if (source[key]) env[key] = source[key]!
   if (!env.HOME) env.HOME = homedir()
@@ -421,7 +423,7 @@ class WorkbenchHostImplementation implements WorkbenchHost {
     approve: NonNullable<PluginRuntimeDependencies['approve']>
   ): Promise<unknown> {
     if (!this.state.mobileViews().some((view) => view.id === viewId))
-      return Promise.reject(new PluginApiError('NOT_FOUND', '这个插件页面没有开放给手机'))
+      return Promise.reject(new PluginApiError('NOT_FOUND', t('这个插件页面没有开放给手机')))
     return this.plugins.call(viewId, method, params, approve)
   }
 
@@ -561,11 +563,11 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     ...(runtime ? { runtime } : {}),
     appVersion: dependencies.appVersion,
     userRoots: () =>
-      pluginRootsIn(join(dependencies.agentDir, 'desktop-plugins'), '本机插件', 'user'),
+      pluginRootsIn(join(dependencies.agentDir, 'desktop-plugins'), t('本机插件'), 'user'),
     ...(dependencies.bundledPluginDirectory
       ? {
           bundledRoots: () =>
-            pluginRootsIn(dependencies.bundledPluginDirectory!, '内置插件', 'bundled')
+            pluginRootsIn(dependencies.bundledPluginDirectory!, t('内置插件'), 'bundled')
         }
       : {}),
     discover: discoverWorkbenchManifests,
@@ -604,22 +606,22 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
     {
       call: async (viewId, method, params, approve) => {
         const plugin = state.pluginForView(viewId)
-        if (!plugin) throw new PluginApiError('NOT_FOUND', '插件未启用')
-        if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
+        if (!plugin) throw new PluginApiError('NOT_FOUND', t('插件未启用'))
+        if (!runtime) throw new PluginApiError('UNSUPPORTED', t('插件运行时不可用'))
         return runtime.callFromView(plugin, method, params, approve ? { approve } : undefined)
       },
       runTool: async (pluginId, name, input, signal) => {
-        if (!runtime) throw new PluginApiError('UNSUPPORTED', '插件运行时不可用')
+        if (!runtime) throw new PluginApiError('UNSUPPORTED', t('插件运行时不可用'))
         await state.whenLoaded()
         const tool = state
           .agentContributions()
           .tools.find((candidate) => candidate.pluginId === pluginId && candidate.name === name)
-        if (!tool) throw new PluginApiError('NOT_FOUND', '插件工具不可用')
+        if (!tool) throw new PluginApiError('NOT_FOUND', t('插件工具不可用'))
         if ((JSON.stringify(input ?? {}) ?? '').length > 64 * 1024)
-          throw new PluginApiError('INVALID_ARGUMENT', '插件工具参数超限')
+          throw new PluginApiError('INVALID_ARGUMENT', t('插件工具参数超限'))
         const validate = new AjvJsonSchemaValidator().getValidator(tool.parameters)
         if (!validate(input ?? {}).valid)
-          throw new PluginApiError('INVALID_ARGUMENT', '参数不符合插件工具声明的 schema')
+          throw new PluginApiError('INVALID_ARGUMENT', t('参数不符合插件工具声明的 schema'))
         return runtime.runTool(pluginId, name, input ?? {}, signal)
       },
       respond: (id, allow) => approvals.get(id)?.(allow)

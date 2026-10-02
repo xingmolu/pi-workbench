@@ -7,6 +7,7 @@ import {
   type EditReceipt
 } from '../../../shared/session-edit'
 import { usePiStore } from './pi-store'
+import { t } from '../../../shared/i18n'
 
 type EditState = {
   scope: EditScope | null
@@ -51,14 +52,14 @@ usePiStore.subscribe(({ snapshot }) => {
       useSessionEdit.setState({
         phase: 'finished',
         recoveryRequired: false,
-        message: '已重新连接。编辑草稿已保留，请核对当前历史；此前发送结果无法继续查询'
+        message: t('已重新连接。编辑草稿已保留，请核对当前历史；此前发送结果无法继续查询')
       })
     return // Own same-session generation rotation must retain the receipt.
   }
   if (!snapshot.ready || !same(state.scope, snapshot))
     useSessionEdit.setState({
       phase: 'stale',
-      message: '会话、问题或模型已变化，请关闭后重新打开编辑确认'
+      message: t('会话、问题或模型已变化，请关闭后重新打开编辑确认')
     })
 })
 export async function prepareSessionEdit(snapshot: AgentSnapshot): Promise<void> {
@@ -86,13 +87,13 @@ export async function prepareSessionEdit(snapshot: AgentSnapshot): Promise<void>
     else
       useSessionEdit.setState({
         phase: 'stale',
-        message: result.type === 'error' ? result.message : '无法准备编辑，原问题已保留'
+        message: result.type === 'error' ? result.message : t('无法准备编辑，原问题已保留')
       })
   } catch {
     if (useSessionEdit.getState().scope === scope)
       useSessionEdit.setState({
         phase: 'stale',
-        message: '无法准备编辑，原问题已保留；请关闭后重试'
+        message: t('无法准备编辑，原问题已保留；请关闭后重试')
       })
   }
 }
@@ -122,14 +123,16 @@ export async function closeSessionEdit(): Promise<void> {
       if (!stillCurrent()) return
       if (state.phase === 'uncertain' && result.type !== 'cancelled') {
         useSessionEdit.setState({
-          message: result.type === 'error' ? result.message : '执行仍未结束，请停止后再核对'
+          message: result.type === 'error' ? result.message : t('执行仍未结束，请停止后再核对')
         })
         return
       }
     } catch {
       if (!stillCurrent()) return
       if (state.phase === 'uncertain') {
-        useSessionEdit.setState({ message: '引擎连接中断，请使用重新连接引擎恢复；编辑内容仍保留' })
+        useSessionEdit.setState({
+          message: t('引擎连接中断，请使用重新连接引擎恢复；编辑内容仍保留')
+        })
         return
       }
     }
@@ -145,11 +148,11 @@ export async function sendSessionEdit(query = false): Promise<void> {
   )
     return
   if (!query && !editTextSchema.safeParse(state.text).success) {
-    useSessionEdit.setState({ message: '问题文字超过 1 MiB，无法发送' })
+    useSessionEdit.setState({ message: t('问题文字超过 1 MiB，无法发送') })
     return
   }
   const submissionId = state.submissionId ?? crypto.randomUUID()
-  useSessionEdit.setState({ phase: 'sending', submissionId, message: '正在等待 Pi 接收确认…' })
+  useSessionEdit.setState({ phase: 'sending', submissionId, message: t('正在等待 Pi 接收确认…') })
   try {
     const { result } = await window.pi.send(
       query
@@ -168,13 +171,13 @@ export async function sendSessionEdit(query = false): Promise<void> {
     } else
       useSessionEdit.setState({
         phase: query ? 'uncertain' : 'finished',
-        message: result.type === 'error' ? result.message : '发送状态无法确认，请核对当前会话'
+        message: result.type === 'error' ? result.message : t('发送状态无法确认，请核对当前会话')
       })
   } catch {
     if (useSessionEdit.getState().scope === state.scope)
       useSessionEdit.setState({
         phase: 'uncertain',
-        message: '发送结果尚未确认，编辑内容已保留；请查询结果，不要重新发送'
+        message: t('发送结果尚未确认，编辑内容已保留；请查询结果，不要重新发送')
       })
   }
 }

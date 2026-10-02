@@ -11,6 +11,7 @@ import {
 } from '../shared/custom-endpoints'
 import { CustomEndpointConfigError, type CustomEndpointConfigWrite } from './custom-endpoint-config'
 import { guardModelMutation, SessionRuntimeUnsafeError } from './session-mutation-safety'
+import { t } from '../shared/i18n'
 
 export type {
   CustomEndpointSaveRequest,
@@ -158,7 +159,7 @@ export class CustomEndpointService<M extends RuntimeModel> {
         let answered = false
         const rejectInteraction = (): never => {
           unexpectedInteraction = true
-          throw new Error('端点登录交互不受支持，请检查配置')
+          throw new Error(t('端点登录交互不受支持，请检查配置'))
         }
         await d.runtime.login(id, 'api_key', {
           prompt: async (prompt) => {
@@ -221,18 +222,18 @@ export class CustomEndpointService<M extends RuntimeModel> {
       result.ok = true
       result.message =
         result.selection === 'model-missing' || result.selection === 'model-config-changed'
-          ? '端点已保存；当前模型已移除或配置已更改，请重新选择模型后发送'
-          : '端点已保存'
+          ? t('端点已保存；当前模型已移除或配置已更改，请重新选择模型后发送')
+          : t('端点已保存')
     } catch (error) {
       if (error instanceof SessionRuntimeUnsafeError) throw error
       result.message =
         error instanceof CustomEndpointConfigError
           ? error.message
           : result.metadata === 'unchanged'
-            ? '端点未保存，请检查输入、配置版本及当前会话状态后重试'
+            ? t('端点未保存，请检查输入、配置版本及当前会话状态后重试')
             : stage === 'credential'
-              ? '端点配置已保存，凭据保存结果不确定；请重新加载并检查登录状态，勿自动重试'
-              : '端点配置已保存，但运行时未同步；请重新加载并检查当前模型后再发送'
+              ? t('端点配置已保存，凭据保存结果不确定；请重新加载并检查登录状态，勿自动重试')
+              : t('端点配置已保存，但运行时未同步；请重新加载并检查当前模型后再发送')
       if (target && result.metadata === 'saved') {
         try {
           // Failure blocking is a latch, not a model mutation. An otherwise busy

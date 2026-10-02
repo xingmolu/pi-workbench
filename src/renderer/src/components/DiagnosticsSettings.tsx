@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives'
+import { t } from '../../../shared/i18n'
 import '../assets/accounts-settings.css'
 
 /** Settings › 常规: local logs and crash records, exported as a redacted report on request. */
@@ -24,7 +25,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     setMessage('')
     try {
       const result = await window.pi.diagnostics({ type: 'export' })
-      if ('saved' in result) setMessage(`已保存到 ${result.saved}`)
+      if ('saved' in result) setMessage(t('已保存到 {saved}', { saved: result.saved }))
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -33,13 +34,20 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   }
 
   return (
-    <SettingsGroup title="诊断">
+    <SettingsGroup title={t('诊断')}>
       <SettingsRow
-        label="导出诊断信息"
+        label={t('导出诊断信息')}
         description={
-          <span role="status" aria-label="诊断状态">
+          <span role="status" aria-label={t('诊断状态')}>
             {message ||
-              `${crashes === null ? '' : crashes ? `最近 7 天有 ${crashes} 次进程意外退出。` : '最近 7 天没有进程意外退出。'}报告包含版本、系统、引擎状态和最近的日志，已去掉密钥、令牌和用户目录；只保存在你选的位置，不会自动上传。`}
+              (crashes === null
+                ? ''
+                : crashes
+                  ? t('最近 7 天有 {crashes} 次进程意外退出。', { crashes })
+                  : t('最近 7 天没有进程意外退出。')) +
+                t(
+                  '报告包含版本、系统、引擎状态和最近的日志，已去掉密钥、令牌和用户目录；只保存在你选的位置，不会自动上传。'
+                )}
           </span>
         }
       >
@@ -49,7 +57,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
           disabled={busy}
           onClick={() => void exportReport()}
         >
-          导出…
+          {t('导出…')}
         </button>
         <button
           type="button"
@@ -60,7 +68,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
               .catch((reason: Error) => setMessage(reason.message))
           }
         >
-          日志文件夹
+          {t('日志文件夹')}
         </button>
       </SettingsRow>
     </SettingsGroup>

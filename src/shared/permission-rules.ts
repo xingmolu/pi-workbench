@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 /** Shell syntax that can chain, redirect, substitute or background another command. */
 const COMPOUND = /[;&|`<>()$\n\r\\]/
@@ -8,7 +9,7 @@ const ruleSchema = z
   .trim()
   .min(1)
   .max(200)
-  .refine((rule) => !COMPOUND.test(rule), '规则不能包含 ; & | ` < > ( ) $ \\ 或换行')
+  .refine((rule) => !COMPOUND.test(rule), t('规则不能包含 ; & | ` < > ( ) $ \\ 或换行'))
 
 export const permissionRulesSchema = z
   .object({

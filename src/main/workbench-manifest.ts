@@ -9,6 +9,7 @@ import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
 import { normalizeManifestJson, MANIFEST_JSON_FILE } from './manifest-compat'
 import { MAX_THEME_CSS_BYTES, sanitizeThemeCss } from '../shared/theme-tokens'
+import { t } from '../shared/i18n'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
 
@@ -556,7 +557,7 @@ export async function discoverWorkbenchManifests({
       piDesktopFile &&
       (manifest.contributes.views.length > 0 || manifest.contributes.workbench.length > 0)
     )
-      compat.warnings.push('按 manifest.json 插件的方式，允许该插件的面板页面运行内联脚本。')
+      compat.warnings.push(t('按 manifest.json 插件的方式，允许该插件的面板页面运行内联脚本。'))
     const compatDiagnostics: WorkbenchDiagnostic[] = compat.warnings.map((message) => ({
       severity: 'warning',
       code: 'compat-ignored',
@@ -754,7 +755,10 @@ export async function discoverWorkbenchManifests({
         diagnostics.push({
           severity: 'warning',
           code: 'theme-tokens-ignored',
-          message: `主题 ${resolveTitle(theme.label)} 中有 ${ignored} 条声明不是可覆盖的设计变量，已忽略。`,
+          message: t('主题 {value} 中有 {ignored} 条声明不是可覆盖的设计变量，已忽略。', {
+            value: resolveTitle(theme.label),
+            ignored
+          }),
           pluginId: manifest.id
         })
       themes.push({ id: theme.id, label: resolveTitle(theme.label), base: theme.base, tokens })

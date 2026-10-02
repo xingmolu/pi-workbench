@@ -3,6 +3,7 @@ import {
   type AppUpdateCommand,
   type AppUpdateStatus
 } from '../shared/app-updates'
+import { t } from '../shared/i18n'
 
 /** The part of electron-updater's `autoUpdater` this module drives. */
 export type Updater = {
@@ -71,7 +72,7 @@ export class AppUpdates {
   /** Starts the periodic checks; nothing happens for an unpackaged build. */
   start(): void {
     if (!this.options.packaged) {
-      this.set({ state: 'unsupported', message: '开发版本不检查更新' })
+      this.set({ state: 'unsupported', message: t('开发版本不检查更新') })
       return
     }
     const check = (): void => void this.check().catch(() => undefined)
@@ -92,12 +93,12 @@ export class AppUpdates {
         await this.check()
         break
       case 'download':
-        if (this.state.state !== 'available') throw new Error('没有可下载的新版本')
+        if (this.state.state !== 'available') throw new Error(t('没有可下载的新版本'))
         if (this.install === 'manual') this.options.openExternal(this.releaseUrl())
         else await this.updater().downloadUpdate()
         break
       case 'install':
-        if (this.state.state !== 'ready') throw new Error('新版本还没有下载好')
+        if (this.state.state !== 'ready') throw new Error(t('新版本还没有下载好'))
         this.updater().quitAndInstall()
         break
       case 'open-release':
@@ -105,7 +106,7 @@ export class AppUpdates {
         break
       case 'token:set': {
         const token = command.token.trim()
-        if (!/^[A-Za-z0-9_]{20,255}$/.test(token)) throw new Error('这不像是 GitHub 令牌')
+        if (!/^[A-Za-z0-9_]{20,255}$/.test(token)) throw new Error(t('这不像是 GitHub 令牌'))
         this.options.token.write(token)
         this.wired = undefined
         await this.check()
@@ -138,7 +139,7 @@ export class AppUpdates {
       if (result == null && (this.state.state as string) === 'checking') {
         this.set({
           state: 'unsupported',
-          message: '这种安装方式不能检查更新，请到发布页下载新版本'
+          message: t('这种安装方式不能检查更新，请到发布页下载新版本')
         })
         return
       }
@@ -157,10 +158,14 @@ export class AppUpdates {
       this.set({
         state: 'needs-token',
         message: this.options.token.read()
-          ? 'GitHub 令牌无效或没有这个仓库的读取权限'
-          : '发布页在私有仓库里，需要填写一个只读的 GitHub 令牌才能检查更新'
+          ? t('GitHub 令牌无效或没有这个仓库的读取权限')
+          : t('发布页在私有仓库里，需要填写一个只读的 GitHub 令牌才能检查更新')
       })
-    else this.set({ state: 'error', message: `检查更新失败：${message.slice(0, 200)}` })
+    else
+      this.set({
+        state: 'error',
+        message: t('检查更新失败：{value}', { value: message.slice(0, 200) })
+      })
   }
 
   private updater(): Updater {

@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { t } from './i18n'
 
 export const editTextSchema = z
   .string()
   .max(1048576)
   .refine(
     (value) => new TextEncoder().encode(value).length <= 1048576,
-    '问题文字超过 1 MiB，无法编辑'
+    t('问题文字超过 1 MiB，无法编辑')
   )
 export const editScopeSchema = z
   .object({

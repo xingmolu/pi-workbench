@@ -4,6 +4,7 @@ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServer } from '../shared/mcp'
 import { LoopbackCallback, McpOAuthProvider, McpTokenStore } from './mcp-oauth'
 import { httpTransport } from './mcp-runtime'
+import { t } from '../shared/i18n'
 
 type Pending = { status: 'authorizing' } | { status: 'failed'; message: string }
 
@@ -33,7 +34,7 @@ export class McpLogins {
 
   /** Starts a sign-in; `settled` runs once it succeeded so the caller can reconnect. */
   start(id: string, config: McpServer, settled: () => Promise<unknown>): void {
-    if (!config.url) throw new Error('只有 HTTP 服务器支持登录。')
+    if (!config.url) throw new Error(t('只有 HTTP 服务器支持登录。'))
     this.cancel(id)
     this.pending.set(id, { status: 'authorizing' })
     const key = McpTokenStore.key(id, config.url)
@@ -44,7 +45,7 @@ export class McpLogins {
         state,
         open: (url) => {
           if (url.protocol !== 'https:' && url.protocol !== 'http:')
-            throw new Error('授权地址无效。')
+            throw new Error(t('授权地址无效。'))
           this.openExternal(url.href)
         }
       })
@@ -61,7 +62,7 @@ export class McpLogins {
         const code = await Promise.race([
           callback.code,
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('登录超时，请重试。')), this.timeout)
+            timer = setTimeout(() => reject(new Error(t('登录超时，请重试。'))), this.timeout)
           })
         ]).finally(() => clearTimeout(timer))
         await transport.finishAuth(code)
@@ -94,7 +95,7 @@ export class McpLogins {
     const callback = this.running.get(id)
     this.running.delete(id)
     this.pending.delete(id)
-    callback?.fail(new Error('登录已取消。'))
+    callback?.fail(new Error(t('登录已取消。')))
   }
 
   async logout(id: string, url: string): Promise<void> {
@@ -111,12 +112,15 @@ export class McpLogins {
 function loginMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   if (
-    ['授权被拒绝。', '授权回调无效，请重新登录。', '登录超时，请重试。', '授权地址无效。'].includes(
-      message
-    )
+    [
+      t('授权被拒绝。'),
+      t('授权回调无效，请重新登录。'),
+      t('登录超时，请重试。'),
+      t('授权地址无效。')
+    ].includes(message)
   )
     return message
   if ((error as NodeJS.ErrnoException)?.code === 'EADDRINUSE')
-    return '回调端口被占用，请更换端口后重试。'
-  return '登录失败：服务器不支持 OAuth 或授权未完成，请检查配置后重试。'
+    return t('回调端口被占用，请更换端口后重试。')
+  return t('登录失败：服务器不支持 OAuth 或授权未完成，请检查配置后重试。')
 }

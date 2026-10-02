@@ -1,6 +1,7 @@
-export const BROWSER_STOPPED = '浏览器操作已停止；已派发的页面操作可能已经发生，请重新读取页面'
-export const BROWSER_STALE = '页面或目标已变化，请重新 snapshot 后再操作'
-export const BROWSER_UNKNOWN = '浏览器操作结果未知，请检查当前页面并重新 snapshot，不要自动重试'
+import { t } from '../shared/i18n'
+export const BROWSER_STOPPED = t('浏览器操作已停止；已派发的页面操作可能已经发生，请重新读取页面')
+export const BROWSER_STALE = t('页面或目标已变化，请重新 snapshot 后再操作')
+export const BROWSER_UNKNOWN = t('浏览器操作结果未知，请检查当前页面并重新 snapshot，不要自动重试')
 
 export type BrowserActionLease<Page> = {
   readonly requestId: string

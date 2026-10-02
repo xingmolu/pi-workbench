@@ -19,6 +19,7 @@ import {
 import { MOBILE_KEEP_AWAKE_COPY, MOBILE_SECURITY_COPY } from '../../../shared/mobile-gateway'
 import { ThemeButton } from './ThemeButton'
 import type { MobileThemeChoice } from './theme'
+import { t } from '../../../shared/i18n'
 
 const OPEN_KEY = 'pi-mobile-open-projects'
 const NOTICE_KEY = 'pi-mobile-notice'
@@ -93,11 +94,11 @@ export function SessionList({
   return (
     <>
       <header className="m-top">
-        <h1>远程对话</h1>
+        <h1>{t('远程对话')}</h1>
         <button
           type="button"
           className="m-icon m-list-search"
-          aria-label="搜索"
+          aria-label={t('搜索')}
           aria-pressed={searching}
           onClick={() => setSearching(!searching)}
         >
@@ -106,7 +107,7 @@ export function SessionList({
         <button
           type="button"
           className="m-icon"
-          aria-label="刷新"
+          aria-label={t('刷新')}
           disabled={refreshing}
           onClick={() => {
             setRefreshing(true)
@@ -121,10 +122,10 @@ export function SessionList({
             className={`m-icon${notifications.state === 'on' ? ' is-active' : ''}`}
             aria-label={
               notifications.state === 'on'
-                ? '关闭通知'
+                ? t('关闭通知')
                 : notifications.state === 'denied'
-                  ? '通知已被浏览器阻止'
-                  : '开启通知'
+                  ? t('通知已被浏览器阻止')
+                  : t('开启通知')
             }
             aria-pressed={notifications.state === 'on'}
             disabled={notifications.state === 'denied'}
@@ -133,24 +134,24 @@ export function SessionList({
             {notifications.state === 'on' ? <Bell size={18} /> : <BellOff size={18} />}
           </button>
         ) : null}
-        <button type="button" className="m-icon" aria-label="打开标签页" onClick={onWorkbench}>
+        <button type="button" className="m-icon" aria-label={t('打开标签页')} onClick={onWorkbench}>
           <MonitorSmartphone size={18} />
         </button>
         <ThemeButton choice={theme} onChoice={onTheme} />
       </header>
       <div className="m-connect">
         <span className="m-live-dot" />
-        已连接到 {host || '本机'}
+        {t('已连接到')} {host || t('本机')}
       </div>
       {notice ? (
         <div className="m-notice">
           <p title={`${MOBILE_SECURITY_COPY} ${MOBILE_KEEP_AWAKE_COPY}`}>
-            仅扫自己的码 · 远程时请保持 Mac 唤醒
+            {t('仅扫自己的码 · 远程时请保持 Mac 唤醒')}
           </p>
           <button
             type="button"
             className="m-icon"
-            aria-label="关闭提示"
+            aria-label={t('关闭提示')}
             onClick={() => {
               setNotice(false)
               try {
@@ -170,16 +171,14 @@ export function SessionList({
         </p>
       ) : null}
       <div className="m-list-meta">
-        <strong>当前设备上的项目和会话</strong>
-        <small>
-          {visible.length} 个项目 · {total} 个会话
-        </small>
+        <strong>{t('当前设备上的项目和会话')}</strong>
+        <small>{t('{length} 个项目 · {total} 个会话', { length: visible.length, total })}</small>
       </div>
       <div className={`m-search${searching ? ' is-on' : ''}`}>
         <input
           type="search"
-          placeholder="搜索会话"
-          aria-label="搜索会话"
+          placeholder={t('搜索会话')}
+          aria-label={t('搜索会话')}
           enterKeyHint="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -187,7 +186,7 @@ export function SessionList({
       </div>
       <div className="m-list-scroll">
         {visible.length === 0 ? (
-          <p className="m-empty">{query ? '没有匹配的会话' : '还没有会话'}</p>
+          <p className="m-empty">{query ? t('没有匹配的会话') : t('还没有会话')}</p>
         ) : null}
         {visible.map((group) => {
           const expanded = Boolean(query) || isOpen(group.path)
@@ -207,7 +206,7 @@ export function SessionList({
                   <span className="m-project-name">{group.name}</span>
                   <span className="m-project-sub">
                     {group.path}
-                    {latest ? ` · 更新于 ${latest}` : ''}
+                    {latest ? t(' · 更新于 {latest}', { latest }) : ''}
                   </span>
                 </span>
                 <span className="m-count">{group.sessions.length}</span>
@@ -221,7 +220,7 @@ export function SessionList({
                     onClick={() => onNewSession(group.path)}
                   >
                     <Plus size={15} aria-hidden="true" />
-                    <span className="m-session-title">新会话</span>
+                    <span className="m-session-title">{t('新会话')}</span>
                   </button>
                   {group.sessions.map((session) => {
                     const badge = mobileStatusBadge(session.status)

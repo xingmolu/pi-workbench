@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { HostCommand, HostEvent, HostRequest, HostResult } from '../shared/contracts'
 import { hostResultMatchesCommand } from '../shared/command-result'
 import { hostMessageSchema } from '../shared/schemas'
+import { t } from '../shared/i18n'
 
 type PendingRequest = {
   command: HostCommand
@@ -39,13 +40,21 @@ export class HostResponseBroker {
     return this.pending.size
   }
 
-  request(command: HostCommand, dispatch: (request: HostRequest) => void, expectedIdentity?: HostRequest['expectedIdentity']): Promise<HostResult> {
+  request(
+    command: HostCommand,
+    dispatch: (request: HostRequest) => void,
+    expectedIdentity?: HostRequest['expectedIdentity']
+  ): Promise<HostResult> {
     const requestId = this.createRequestId()
-    const request: HostRequest = { ...command, requestId, ...(expectedIdentity ? { expectedIdentity } : {}) }
+    const request: HostRequest = {
+      ...command,
+      requestId,
+      ...(expectedIdentity ? { expectedIdentity } : {})
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId)
-        reject(new Error(`Agent Host 请求超时：${command.type}`))
+        reject(new Error(t('Agent Host 请求超时：{type}', { type: command.type })))
       }, this.timeoutMs)
       this.pending.set(requestId, { command, resolve, reject, timer })
       try {
@@ -67,7 +76,7 @@ export class HostResponseBroker {
         message.type === 'response' &&
         typeof message.requestId === 'string'
       ) {
-        this.rejectPending(message.requestId, new Error('Agent Host 返回无效响应'))
+        this.rejectPending(message.requestId, new Error(t('Agent Host 返回无效响应')))
       }
       return null
     }
@@ -80,7 +89,9 @@ export class HostResponseBroker {
     if (!value.ok) {
       pending.reject(new HostRejectedError(value.error))
     } else if (!hostResultMatchesCommand(pending.command, value.data)) {
-      pending.reject(new Error(`Agent Host 响应类型不匹配：${pending.command.type}`))
+      pending.reject(
+        new Error(t('Agent Host 响应类型不匹配：{type}', { type: pending.command.type }))
+      )
     } else {
       pending.resolve(value.data)
     }

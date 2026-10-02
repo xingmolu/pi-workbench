@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ACCENT_COLORS } from './theme-tokens'
+import { LANGUAGE_SETTINGS } from './i18n'
 
 export const DESKTOP_SETTINGS_CHANNEL = 'pi:desktop-settings'
 export const desktopSettingsSchema = z.strictObject({
@@ -14,7 +15,9 @@ export const desktopSettingsSchema = z.strictObject({
   reducedMotion: z.boolean(),
   sendShortcut: z.enum(['enter', 'modifier-enter']),
   workDetails: z.enum(['compact', 'expanded']),
-  showUsage: z.boolean()
+  showUsage: z.boolean(),
+  /** Interface language; `system` follows the computer. Applied after a restart. */
+  language: z.enum(LANGUAGE_SETTINGS).default('system')
 })
 export type DesktopSettings = z.infer<typeof desktopSettingsSchema>
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
@@ -27,7 +30,8 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   reducedMotion: false,
   sendShortcut: 'enter',
   workDetails: 'compact',
-  showUsage: false
+  showUsage: false,
+  language: 'system'
 }
 export const desktopSettingsCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('get') }),

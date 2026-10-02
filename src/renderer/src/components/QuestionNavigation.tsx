@@ -3,6 +3,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { List } from 'lucide-react'
 import type { ConversationNode } from '../../../shared/contracts'
 import { textContextSummary } from '../../../shared/text-attachments'
+import { t } from '../../../shared/i18n'
 
 export default function QuestionNavigation({
   nodes,
@@ -26,12 +27,12 @@ export default function QuestionNavigation({
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         className="session-action"
-        aria-label="问题导航"
-        title="问题导航"
+        aria-label={t('问题导航')}
+        title={t('问题导航')}
         disabled={questions.length === 0}
       >
         <List size={14} />
-        <span>问题导航</span>
+        <span>{t('问题导航')}</span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
@@ -39,7 +40,7 @@ export default function QuestionNavigation({
           align="end"
           sideOffset={8}
           collisionPadding={12}
-          aria-label="问题导航"
+          aria-label={t('问题导航')}
           onCloseAutoFocus={(event) => {
             if (!mounted.current) {
               event.preventDefault()
@@ -54,12 +55,15 @@ export default function QuestionNavigation({
           }}
         >
           <div className="popover-heading">
-            <strong>问题导航</strong>
-            <span>{questions.length} 条</span>
+            <strong>{t('问题导航')}</strong>
+            <span>
+              {questions.length} {t('条')}
+            </span>
           </div>
           <ol>
             {questions.map((node, index) => {
-              const summary = textContextSummary(node.text).replace(/\s+/g, ' ').trim() || '空白问题'
+              const summary =
+                textContextSummary(node.text).replace(/\s+/g, ' ').trim() || t('空白问题')
               return (
                 <li key={node.id}>
                   <button

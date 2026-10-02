@@ -14,6 +14,7 @@ import type {
   ValidatedWorkbenchPlugin,
   WorkbenchManifestDiscovery
 } from './workbench-manifest'
+import { t } from '../shared/i18n'
 
 const HOST_VIEW_OWNERS = new Map([
   [BROWSER_VIEW_ID, BROWSER_PLUGIN_ID],
@@ -25,7 +26,7 @@ export const BUILTIN_WORKBENCH_PLUGIN_ID = 'works.pi.desktop.builtin'
 const BUILTIN_PLUGIN_TEMPLATE: Omit<DesktopPluginSummary, 'version'> = {
   pluginId: BUILTIN_WORKBENCH_PLUGIN_ID,
   name: 'Pi Desktop',
-  description: 'Pi Desktop 内置工作台视图',
+  description: t('Pi Desktop 内置工作台视图'),
   source: 'builtin',
   scope: 'builtin',
   builtin: true,
@@ -39,7 +40,7 @@ export const BUILTIN_WORKBENCH_CONTRIBUTIONS: readonly WorkbenchContribution[] =
   {
     pluginId: BUILTIN_WORKBENCH_PLUGIN_ID,
     viewId: 'works.pi.desktop.files',
-    title: '文件',
+    title: t('文件'),
     icon: 'files',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'files' }
@@ -47,7 +48,7 @@ export const BUILTIN_WORKBENCH_CONTRIBUTIONS: readonly WorkbenchContribution[] =
   {
     pluginId: BUILTIN_WORKBENCH_PLUGIN_ID,
     viewId: 'works.pi.desktop.review',
-    title: '审查',
+    title: t('审查'),
     icon: 'git-review',
     activation: 'onProject',
     surface: { kind: 'first-party', adapter: 'review' }
@@ -177,9 +178,7 @@ export function buildWorkbenchRegistrySnapshot({
       }))
     ],
     contributions: [
-      ...BUILTIN_WORKBENCH_CONTRIBUTIONS.filter(({ activation }) =>
-        isAvailable(activation)
-      ),
+      ...BUILTIN_WORKBENCH_CONTRIBUTIONS.filter(({ activation }) => isAvailable(activation)),
       ...discovery.plugins.flatMap((plugin) =>
         isDesktopEnabled(plugin.pluginId)
           ? plugin.workbench

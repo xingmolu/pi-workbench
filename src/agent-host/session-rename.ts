@@ -1,10 +1,11 @@
 import { normalizeSessionName } from '../shared/session-name'
 import { SessionRuntimeUnsafeError } from './session-mutation-safety'
+import { t } from '../shared/i18n'
 export { SessionMutationGuard as SessionPersistenceGuard } from './session-mutation-safety'
 
 export class SessionRenamePersistenceError extends SessionRuntimeUnsafeError {
   constructor(cause: unknown) {
-    super('会话名称保存失败，运行时已停止；请重新连接后重试', { cause })
+    super(t('会话名称保存失败，运行时已停止；请重新连接后重试'), { cause })
   }
 }
 
@@ -31,10 +32,10 @@ export async function renameSession(
     target.sessionId !== request.sessionId ||
     target.generation !== request.generation
   ) {
-    throw new Error('会话已切换，请重新打开重命名')
+    throw new Error(t('会话已切换，请重新打开重命名'))
   }
-  if (!target.persisted) throw new Error('当前会话尚未保存，不能重命名')
-  if (target.busy || target.promptPending) throw new Error('当前会话正在运行，不能重命名')
+  if (!target.persisted) throw new Error(t('当前会话尚未保存，不能重命名'))
+  if (target.busy || target.promptPending) throw new Error(t('当前会话正在运行，不能重命名'))
   if (target.currentName?.trim() === name) return
   try {
     operations.setSessionName(name)

@@ -5,12 +5,10 @@ import type {
   SessionMessageEntry
 } from '@earendil-works/pi-coding-agent'
 import type { ConversationNode } from '../shared/contracts'
-import {
-  clearAgentSessionIdentity,
-  setAgentSessionIdentity
-} from './agent-session-identity'
+import { clearAgentSessionIdentity, setAgentSessionIdentity } from './agent-session-identity'
 import { ConversationProjection } from './conversation-projection'
 import { historyGroupId, projectSessionHistory, type HistoryToolOverlay } from './session-history'
+import { t } from '../shared/i18n'
 
 type Message = SessionMessageEntry['message']
 type Occurrence = { id: string; message: Message; streaming: boolean }
@@ -83,14 +81,14 @@ export class DisplayFailureQuarantine {
     } catch {
       if (!this.failed) {
         this.failed = true
-        this.defer(() => this.exit('会话显示更新失败，请重新连接'))
+        this.defer(() => this.exit(t('会话显示更新失败，请重新连接')))
       }
       return undefined
     }
   }
 
   assertHealthy(): void {
-    if (this.failed) throw new Error('会话显示更新失败，请重新连接')
+    if (this.failed) throw new Error(t('会话显示更新失败，请重新连接'))
   }
 }
 

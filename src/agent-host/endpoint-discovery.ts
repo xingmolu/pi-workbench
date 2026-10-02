@@ -3,6 +3,7 @@ import {
   type EndpointDiscoverCommand,
   type EndpointDiscovery
 } from '../shared/custom-endpoints'
+import { t } from '../shared/i18n'
 
 export function modelsUrl(baseUrl: string): string {
   const url = new URL(baseUrl)
@@ -31,18 +32,20 @@ export async function discoverEndpointModels(
       signal: AbortSignal.timeout(15000)
     })
   } catch {
-    throw new Error('无法连接模型列表，请检查地址和网络后重试，或手动填写模型。')
+    throw new Error(t('无法连接模型列表，请检查地址和网络后重试，或手动填写模型。'))
   }
   if (!response.ok) {
     await response.body?.cancel()
     throw new Error(
       response.status === 401 || response.status === 403
-        ? '认证失败，请检查 API Key 和访问权限。'
-        : `模型列表请求失败（HTTP ${response.status}），可在高级设置中手动填写模型。`
+        ? t('认证失败，请检查 API Key 和访问权限。')
+        : t('模型列表请求失败（HTTP {status}），可在高级设置中手动填写模型。', {
+            status: response.status
+          })
     )
   }
   const reader = response.body?.getReader()
-  if (!reader) throw new Error('服务未返回模型列表。')
+  if (!reader) throw new Error(t('服务未返回模型列表。'))
   const chunks: Uint8Array[] = []
   let size = 0
   try {
@@ -50,7 +53,7 @@ export async function discoverEndpointModels(
       const { done, value } = await reader.read()
       if (done) break
       size += value.byteLength
-      if (size > 2 * 1024 * 1024) throw new Error('模型列表过大，请手动填写模型。')
+      if (size > 2 * 1024 * 1024) throw new Error(t('模型列表过大，请手动填写模型。'))
       chunks.push(value)
     }
   } finally {
@@ -60,10 +63,10 @@ export async function discoverEndpointModels(
   try {
     data = JSON.parse(Buffer.concat(chunks).toString('utf8'))
   } catch {
-    throw new Error('服务返回的不是有效模型列表，可手动填写模型。')
+    throw new Error(t('服务返回的不是有效模型列表，可手动填写模型。'))
   }
   const rows = data && typeof data === 'object' && 'data' in data ? data.data : null
-  if (!Array.isArray(rows)) throw new Error('服务不支持标准模型列表，可手动填写模型。')
+  if (!Array.isArray(rows)) throw new Error(t('服务不支持标准模型列表，可手动填写模型。'))
   const ids = [
     ...new Set(
       rows.flatMap((row) => {
@@ -77,7 +80,7 @@ export async function discoverEndpointModels(
       })
     )
   ]
-  if (!ids.length) throw new Error('未发现可用模型，请检查此密钥的模型权限，或手动填写。')
+  if (!ids.length) throw new Error(t('未发现可用模型，请检查此密钥的模型权限，或手动填写。'))
   return {
     baseUrl: modelsUrl(request.baseUrl).replace(/\/models$/, ''),
     modelIds: ids.slice(0, 100),
