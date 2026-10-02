@@ -70,3 +70,28 @@ jobs:
             awk '/^# Test source/ { skip = 1; next } /^# / { skip = 0 } !skip' "$file" | head -c 8000
             echo
           done
+
+      # Why a terminal could not start: node-pty spawning PowerShell as the terminal host does.
+      - name: Terminal spawn check
+        if: failure()
+        run: |
+          cat > pty-check.cjs <<'JS'
+          const { spawn } = require('node-pty')
+          const shell = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+          try {
+            const pty = spawn(shell, ['-NoLogo', '-NoProfile'], {
+              name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(),
+              env: { SystemRoot: process.env.SystemRoot, Path: process.env.Path ?? process.env.PATH },
+              encoding: 'utf8', handleFlowControl: false
+            })
+            let out = ''
+            pty.onData((data) => { out += data })
+            pty.write('Write-Output "PI_$(20+22)"\r')
+            setTimeout(() => { console.log('spawned; output has PI_42:', out.includes('PI_42')); pty.kill(); process.exit(0) }, 8000)
+          } catch (error) {
+            console.log('spawn failed:', error && error.stack)
+            process.exit(1)
+          }
+          JS
+          echo "--- node"; node pty-check.cjs || true
+          echo "--- electron as node"; ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/electron.exe pty-check.cjs || true

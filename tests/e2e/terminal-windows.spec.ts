@@ -102,7 +102,13 @@ test('a PowerShell terminal opens in the project, runs commands and closes', asy
   if (created.type !== 'terminal') throw new Error('Create failed')
   const terminal = cap(created.terminal)
   await page.evaluate((identity) => window.pi.terminal({ type: 'attach', ...identity }), terminal)
-  await expect.poll(async () => (await list())[0]?.state).toBe('running')
+  // A failed start names its reason (spawn, host-exit, …) in the mismatch.
+  await expect
+    .poll(async () => {
+      const [terminal] = await list()
+      return terminal?.failure ? `failed: ${terminal.failure}` : terminal?.state
+    })
+    .toBe('running')
 
   const run = (data: string): Promise<unknown> =>
     page.evaluate(
