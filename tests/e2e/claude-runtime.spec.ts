@@ -47,6 +47,8 @@ async function launch(attempt = 1): Promise<void> {
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',
       TMPDIR: root,
+      TMP: root,
+      TEMP: root,
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'pi'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'data'),

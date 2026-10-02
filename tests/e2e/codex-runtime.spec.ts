@@ -63,6 +63,8 @@ test.beforeEach(async () => {
       HOME: join(root, 'home'),
       LANG: 'en_US.UTF-8',
       TMPDIR: root,
+      TMP: root,
+      TEMP: root,
       PI_DESKTOP_E2E: '1',
       PI_DESKTOP_E2E_AGENT_DIR: join(root, 'agent'),
       PI_DESKTOP_E2E_USER_DATA: join(root, 'data'),
