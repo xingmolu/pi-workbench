@@ -1,11 +1,21 @@
 /**
- * Electron needs the X display (and its auth file) to start on Linux CI under xvfb-run. Specs
- * that build a clean environment for the app must pass these through explicitly.
+ * Variables the app needs from the host to start at all, for specs that build a clean
+ * environment: the X display (and its auth file) on Linux CI under xvfb-run, and the system
+ * directories Windows processes expect.
  */
 export function displayEnv(): Record<string, string> {
-  return {
-    ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
-    ...(process.env.XAUTHORITY ? { XAUTHORITY: process.env.XAUTHORITY } : {}),
-    ...(process.env.WAYLAND_DISPLAY ? { WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY } : {})
+  const keep = [
+    'DISPLAY',
+    'XAUTHORITY',
+    'WAYLAND_DISPLAY',
+    ...(process.platform === 'win32'
+      ? ['SystemRoot', 'SYSTEMROOT', 'windir', 'SystemDrive', 'ComSpec', 'PATHEXT', 'ProgramData']
+      : [])
+  ]
+  const env: Record<string, string> = {}
+  for (const key of keep) {
+    const value = process.env[key]
+    if (value) env[key] = value
   }
+  return env
 }
