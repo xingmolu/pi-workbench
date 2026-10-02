@@ -390,8 +390,11 @@ jobs:
             linux-*)
               sudo apt-get update -q
               sudo apt-get install -y xvfb ./dist/*.deb
-              exe="$(dpkg -L pi-desktop | grep -E '/pi-desktop$' | grep -v '^/usr/bin' | head -1)"
-              test -x "$exe"
+              # The program itself, not the docs directory of the same name.
+              exe="$(dpkg -L pi-desktop | grep -E '/pi-desktop$' | while read -r path; do
+                if [ -f "$path" ] && [ -x "$path" ]; then echo "$path"; fi
+              done | head -1)"
+              test -n "$exe"
               echo "executable=$exe" >> "$GITHUB_OUTPUT"
               appimage="$(ls dist/*.AppImage | head -1)"
               chmod +x "$appimage"
