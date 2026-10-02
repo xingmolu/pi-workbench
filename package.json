@@ -2,6 +2,7 @@
   "name": "pi-desktop",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Pi Desktop Electron shell",
   "main": "./out/main/index.js",
   "author": "Pi Desktop",

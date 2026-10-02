@@ -21,7 +21,7 @@ if (!port) throw new Error('Plugin host must run as a utility process')
 type PluginModule = {
   onLoad?: () => unknown
   onUnload?: () => unknown
-  /** manifest.json: view channels the host does not implement arrive here. */
+  /** View channels the host does not implement arrive here. */
   onPanelInvoke?: (channel: string, payload: unknown) => unknown
 }
 type CommandHandler = () => unknown
@@ -79,7 +79,7 @@ const pi = Object.freeze({
     notify: (message: string | { message: string }) =>
       call('ui.notify', { message: typeof message === 'string' ? message : message?.message }),
     openView: (id: string) => call('ui.openView', { id }),
-    /** manifest.json panels open as the plugin's view in the work panel. */
+    /** Floating panels open as the plugin's view in the work panel. */
     openPanel: () => call('ui.openPanel', {})
   }),
   plugin: Object.freeze({
@@ -89,7 +89,7 @@ const pi = Object.freeze({
     getDataPath: () => call('plugin.getDataPath')
   }),
   /**
-   * message bus and resident services are not implemented. They are accepted
+   * A message bus and resident services are not implemented. They are accepted
    * as no-ops so plugins that use them still load; settings shows that they were ignored.
    */
   bus: Object.freeze({

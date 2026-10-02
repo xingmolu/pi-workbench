@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-/** Permission names follow the common manifest.json format vocabulary where one exists. */
+/** Permission names follow the common plugin vocabulary where one exists. */
 export const PLUGIN_PERMISSIONS = {
   'ui.view': 'low',
   'ui.command': 'low',
@@ -92,7 +92,7 @@ export const PLUGIN_HOST_METHODS = {
     permission: null,
     params: z.object({ id: localIdSchema }).strict()
   },
-  /** Toasts are attributed to the plugin, so they need no permission (as in manifest.json). */
+  /** Toasts are attributed to the plugin, so they need no permission. */
   'ui.showToast': {
     permission: null,
     params: z.object({ message: z.string().trim().min(1).max(500) }).strict()
@@ -101,7 +101,7 @@ export const PLUGIN_HOST_METHODS = {
     permission: null,
     params: z.object({ message: z.string().trim().min(1).max(500) }).strict()
   },
-  /** floating panel: opens the plugin's `panel` view, or its first view. */
+  /** The floating panel: opens the plugin's `panel` view, or its first view. */
   'ui.openPanel': {
     permission: 'ui.view',
     params: z.object({}).passthrough()
@@ -198,7 +198,7 @@ export const PLUGIN_HOST_METHODS = {
     permission: null,
     params: z.object({}).strict()
   },
-  /** The open project, as `workspace.get` panel channel. */
+  /** The open project, as the `workspace.get` panel channel. */
   'workspace.get': {
     permission: null,
     params: z.object({}).strict()

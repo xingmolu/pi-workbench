@@ -13,8 +13,8 @@ const artifacts = resolve('artifacts/e2e/pi-compat')
 let app: ElectronApplication, page: Page, root: string, project: string
 
 /**
- * A plugin written against documented plugin interface (manifest.json, its
- * permission names, `execute`, `window.pluginBridge`, `onPanelInvoke`). Written for this test.
+ * A plugin in the common `manifest.json` format (its permission names, `execute`,
+ * `window.pluginBridge`, `onPanelInvoke`). Written for this test.
  */
 async function writeCompatPlugin(plugin: string): Promise<void> {
   await mkdir(join(plugin, 'panel'), { recursive: true })
@@ -222,7 +222,7 @@ test('a manifest.json plugin loads, is granted, runs commands, panels and settin
       workspace: project,
       count: { count: 3, asked: 'all' },
       base: 'string',
-      // manifest.json pages rely on inline scripts; this plugin came from its manifest.
+      // manifest.json pages rely on inline scripts; this plugin came from one.
       inline: 'ran'
     })
   await expect(page.locator('.navigation-toast')).toContainText('from the panel')

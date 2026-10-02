@@ -9,6 +9,7 @@
 - 用户和第三方可以在不修改 Pi Desktop 的前提下扩展：右侧视图、命令、Skill、MCP 服务器、Agent 工具。
 - 内置功能与第三方插件走**同一套公开 API**，不存在私有通道。内置插件是公开 API 的第一个使用者，API 不够用会先在自家功能上暴露。
 - 插件与底层 Agent 解耦：界面、命令、宿主 API 与具体 Agent 无关；与 Agent 相关的部分通过中立契约交付，将来接入 Codex、Claude Code 等运行时时插件无需重写。
+- 除了自己的 `pi-desktop.json`，也能加载通用 `manifest.json` 格式的插件（只要不依赖其宿主的私有 API）。
 
 **非目标（第一阶段不做）**
 
@@ -69,6 +70,7 @@ manifest、RPC 消息和每个 `pi.*` 方法的参数都在 `src/shared/` 中以
 
 - 必填 `schemaVersion`、`id`（小写、带命名空间）、`name`、`version`、`engines.piDesktop`。提供 `commands` 或 `agentTools` 时必须有 `main`。
 - 所有路径相对插件根目录，解析符号链接后必须仍在根目录内。
+- 未知字段报诊断而不是静默忽略；通用 `manifest.json` 格式中我们未实现的字段（如 `services`、`bus`、`themes`）给出"本版本不支持"的明确诊断。
 - **迁移**：现有 `contributes.workbench[].surface.kind = "sandboxed-web"` 继续接受，内部转换为 `contributes.views`，并提示改用新字段。一个大版本后移除。
 - `icon` 为宿主固定图标集中的 token，插件不能提供自己的 SVG（图标画在宿主 chrome 里）。
 - `agentTools[].risk` 取 `read | write | external`，决定默认审批策略（第 7 节）。插件自报的风险只能**提高**审批要求，不能降低：宿主对 `write`、`external` 始终按至少同级处理。
@@ -134,6 +136,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 
 - 所有方法返回 `Promise`，错误带稳定的 `code`（`PERMISSION_DENIED`、`INVALID_ARGUMENT`、`NOT_FOUND`、`CONFLICT`、`TIMEOUT`、`PLUGIN_CRASHED`、`UNSUPPORTED`）。
 - `pi.git` 在 Main 中实现为独立的 git 能力服务，内置 Git 插件与第三方插件共用。现有 Review 面板的只读 diff 逻辑（`src/main/git-review.ts`）迁入该服务。
+- `manifest.json` 插件常用的 `pi.*` 方法保持相同的参数形状；我们未实现的方法抛出 `UNSUPPORTED`，而不是 `undefined is not a function`。
 
 ## 8. Agent 运行时（runtime provider）
 
@@ -197,14 +200,16 @@ interface ToolGate {
 | P2 宿主 API | `pi.fs`、`pi.git`、`pi.storage`、`pi.ui`；视图可直接调用；插件写操作审批（Files 迁移推后，见 §14） | 视图读取项目文件、写入前审批、暂存与提交的 Electron E2E |
 | P3 Git 插件 | 随应用分发的内置插件机制；暂存、丢弃、提交、推送（确认） | 从改动到推送的完整 E2E；推送在"完全访问"下仍确认 |
 | P4 Agent 扩展（已完成，见 §16） | `ToolGate` 抽取、`agentTools`（native）、`skills`、`mcpServers`、假运行时测试 | 插件工具在三个档位下行为正确；假运行时经 MCP 桥调用插件工具 |
+| P5 兼容性（已完成，见 §17） | 支持 `manifest.json` 格式的插件，补齐常用 API | 一个命令类插件与一个视图类插件可加载运行 |
 
+## 11. `manifest.json` 插件格式
 
 - 对齐：manifest 核心字段、`contributes.views/commands/agentTools/skills/mcpServers/settings`、权限名称（通过别名映射）、`pi.*` 中已实现方法的参数形状、视图桥 `window.pluginBridge`、错误码。实现细节见 §17。
 - 不对齐：分发格式与市场、常驻服务与消息总线、主题、pi 会话与 LLM 上下文类 API（第一阶段）。
-- 许可：对方为 LGPL-3.0。我们只参考接口约定与设计，不复制其代码。
 
 ## 12. 待定问题
 
+1. 插件启用范围：全局启用，还是按项目启用？建议第一阶段全局启用、视图按项目激活。
 2. 插件目录：沿用现有 `~/.pi/agent/desktop-plugins/<id>/`，还是改为 Pi Desktop 自己的数据目录？
 3. 内置 Git 插件的提交信息起草：直接调用当前会话模型，还是提供独立的一次性补全 API（`pi.agent.complete`）？
 4. 审计日志的保留期与查看入口。
@@ -213,6 +218,7 @@ interface ToolGate {
 
 已实现：
 
+- manifest（仍为插件根目录下的 `pi-desktop.json`）新增 `main`、`contributes.views`、`contributes.commands`；旧的 `contributes.workbench` 继续可用。`views` 的本地 id 映射为全局视图 id `<pluginId>.<id>`，`{ en, "zh-CN" }` 标题优先显示中文，常见的图标 token 映射到宿主图标集。
 - 授权：含 `main` 或申请 `ui.view` 以外已知权限的插件默认关闭；在设置 → Desktop 插件中打开开关时先展示所请求的权限及风险，确认即授予。之后 manifest 申请了新权限，插件自动暂停，需重新授权。关闭即撤销授权。仅含视图的插件保持原有的默认启用行为。未知权限名照常显示，标注"此版本不支持，不会授予"。
 - 进程：每个启用的插件一个 `utilityProcess`（`out/main/plugin-host.js`），只继承 `PATH`、`HOME`、`USER`、`LANG`、临时目录与 `PI_PLUGIN_ID`。
 - 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次；第三阶段起成功的调用只记高风险方法，见 §15）。
@@ -300,7 +306,7 @@ module.exports = {
 - **顺带修复**：会话会反复重发相同的包根目录，此前每次都会清空注册表、销毁面板并重启所有插件进程（插件工具调用时尤其明显）。现在同一会话身份下重复的根目录被忽略；注册表重载期间插件进程保持运行，重载完成后只重启真正变化的插件。
 - 未做：`pi.agent.onTurnEnd`、插件 MCP 服务器在 MCP 设置页中的展示、接入第二个真实运行时。
 
-
+## 17. 第五阶段实现说明（`manifest.json` 插件）
 
 - **manifest**：插件目录里没有 `pi-desktop.json` 时读取 `manifest.json`；只有带 `schemaVersion` 和 `id` 的 `manifest.json` 才被当作插件（避免误读网页应用等同名文件）。解析前先做归一化（`src/main/manifest-compat.ts`）：
   - 忽略描述性字段：`author`、`homepage`、`repository`、`icon`、`i18n`、`enabledByDefault`、`activationEvents`、`fs`、`net`；`engines` 可省略。
@@ -319,14 +325,18 @@ module.exports = {
   - `pi.bus.publish` / `subscribe`、`pi.services.register` 为空实现，保证使用它们的插件能加载；设置页会说明这些能力被忽略。
   - 导出 `onPanelInvoke(channel, payload)` 的插件：视图调用宿主未实现的通道时转发给它（插件与自己的视图通信，不需要额外权限）。
 - **视图**：除 `window.piPlugin` 外还提供 `window.pluginBridge`（`invoke(channel, payload)`、`on(event, listener)`）。宿主通道新增 `workspace.get`、`app.getAppearance`、`plugin.getSettings`。`on` 目前只发布 `workspace:changed`。
+- **内联脚本**：`manifest.json` 插件的页面普遍使用内联 `<script>`。来自 `manifest.json` 的插件，其面板 CSP 额外允许 `'unsafe-inline'`，并在插件行中以警告标明；其余隔离不变（沙箱、无 Node、禁止网络、只能读取插件目录内文件）。我们自己的 `pi-desktop.json` 插件仍然只允许外部脚本。
+- **验证**：`tests/e2e/pi-compat.spec.ts` 用一个 `manifest.json` 插件覆盖加载、授权、命令、面板（内联脚本，经 `pluginBridge` 调用 `ui.showToast` 与 `app.getAppearance`）、设置、Agent 工具（`execute`）与技能交付。
 - 未做：常驻服务、消息总线、`fs.glob` / `fs.remove`、剪贴板、`net.fetch`、`manifest.fs` 的路径范围（我们的文件接口始终限定在当前项目内）、按项目启用插件、`plugin:settingsChanged` 事件。
 
 ## 18. 主题
 
 - **内置外观**：设置 → 外观提供"跟随系统 / 浅色 / 深色"主题卡片（带缩略预览）和五种强调色（蓝、紫、绿、橙、粉），每种强调色在浅色和深色下分别调过对比度。设置项为 `accent` 与 `pluginTheme`，旧的偏好文件自动取默认值。
+- **插件主题**：`contributes.themes: [{ id, label, path, base: 'light' | 'dark' }]`，需要 `ui.theme` 权限（低风险，启用插件时一并授权）。
   - 主题 CSS（`.css`，≤ 256 KiB，每个插件最多 8 个）在发现时读取，只提取 `--变量: 值` 声明，而且只保留 `src/shared/theme-tokens.ts` 中列出的设计变量（背景、文字、线条、强调色、状态色、阴影等）。值只能是颜色、数字和颜色函数，含 `url`、`var`、`image`、`expression`、`@`、反斜杠或引号的一律丢弃；选择器和其他规则全部忽略。丢弃的条数在插件行中以警告列出。
   - 渲染层把保留下来的变量设为根元素的内联自定义属性，不注入任何样式表，所以主题无法加载资源、添加选择器或改变布局。
   - 选择插件主题时，界面切到它声明的浅色或深色底色，强调色由主题决定；插件被停用或卸载后自动回落到对应的内置底色和用户选的强调色。
+  - 为其他应用写的主题如果用的是别的变量名，只有与我们同名的变量会生效。
 
 ## 19. 宿主视图插件：浏览器与终端
 

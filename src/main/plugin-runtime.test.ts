@@ -73,7 +73,7 @@ function setup(timeouts = {}) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-describe('manifest.json API compatibility', () => {
+describe('manifest.json plugin API compatibility', () => {
   function compatSetup() {
     const opened: string[] = []
     const toasts: string[] = []

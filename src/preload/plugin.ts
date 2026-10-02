@@ -15,5 +15,5 @@ const api = createPluginPanelClient({
 })
 
 contextBridge.exposeInMainWorld('piPlugin', api)
-// Plugins written for the common manifest.json format use this name.
+// `manifest.json` plugins use this name.
 contextBridge.exposeInMainWorld('pluginBridge', createPiDesktopPluginBridge(api))

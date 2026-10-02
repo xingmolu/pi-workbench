@@ -57,7 +57,7 @@ export function isPotentialWorkbenchPanelNavigation(
 }
 
 /**
- * manifest.json plugin pages commonly use inline scripts. Plugins loaded from its manifest get
+ * `manifest.json` plugin pages commonly use inline scripts. Plugins loaded from one get
  * this variant; everything else (no network, files only from the plugin root, no Node)
  * stays the same.
  */

@@ -3,6 +3,10 @@
 Pi Desktop 是一个本地 Electron + React 客户端，直接嵌入
 `@earendil-works/pi-coding-agent`。它不复制 Pi 的会话或凭证。
 
+这是一个社区项目，与 pi-coding-agent、Anthropic、OpenAI 均无官方关联。代码以 [MIT](./LICENSE) 许可发布。
+Claude Code 与 Codex 的命令行程序不随仓库或安装包分发，首次使用时从各自官方的 npm 包下载，
+使用它们需遵守各自的条款。
+
 当前 MVP 覆盖 [DESIGN.md](./DESIGN.md) §9 的步骤 1、2、2b、2c、3 和 3b：
 
 - 文档流对话节点：user、assistant Markdown、think、tool；
@@ -124,8 +128,8 @@ Codex 的端到端测试需要本机的 Codex 程序：`PI_DESKTOP_CODEX_EXECUTA
 
 「设置 › 常规 › 版本与更新」会读取本仓库的 GitHub Releases：带 `-nightly` 的版本跟随测试版通道（预发布），其余跟随正式版。
 Windows 和 AppImage 在应用内下载并「重启并更新」；macOS 构建只是临时签名，系统不允许原地替换，deb 也一样，
-这两种会打开发布页手动下载。仓库是私有的，检查更新需要一个只读的 GitHub 令牌（Fine-grained，Contents: Read-only），
-令牌用系统钥匙串加密保存在本机。
+这两种会打开发布页手动下载。如果发布页所在的仓库是私有的，检查更新需要一个只读的 GitHub 令牌
+（Fine-grained，Contents: Read-only），令牌用系统钥匙串加密保存在本机；公开仓库不需要。
 
 `main` 上每次 CI 全绿，都会自动发一个测试版（GitHub Release 的预发布，版本号 `0.1.0-nightly.<运行号>`）：
 先建草稿，四个平台的安装包和更新清单传完、两个 Mac 架构的 `latest-mac.yml` 合并后才正式发布，只保留最近 10 个测试版。安装包文件名不含空格，`electron-builder.yml` 的 `publish` 配置让打包时生成
@@ -313,7 +317,7 @@ Browser 使用 project 路径的不可逆 hash 生成独立 Electron partition�
 
 ## 架构
 
-运行时接口与存储边界见 [Agent runtime 架构](docs/architecture/agent-runtime-boundary.md)，本次实现及测试结果见 [Runtime 工作台验收](docs/RUNTIME_WORKBENCH_ACCEPTANCE_2026-09-30.md)。
+运行时接口与存储边界见 [Agent runtime 架构](docs/architecture/agent-runtime-boundary.md) 与 [引擎接入](docs/architecture/agent-runtime-providers.md)。
 
 ### Agent runtime 插件接口（v1）
 
@@ -388,3 +392,7 @@ Host 在初始化、项目/会话切换和重新同步时发送完整 snapshot�
 - `src/agent-host/mcp-runtime.ts`：官方 MCP SDK 与 Pi 工具、审批、取消桥
 - `src/agent-host/account-quota.ts`：所选 Codex 身份的真实额度白名单投影
 - `src/renderer/src/components/SandboxedPluginPane.tsx`：plugin view 可见性与 bounds 协调
+
+## 许可
+
+[MIT](./LICENSE)

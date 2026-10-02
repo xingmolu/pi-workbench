@@ -16,7 +16,7 @@ const LABEL = {
   release: '结束协作'
 }
 
-/** child activity stays a single summary line; the transcript lives in a side pane. */
+/** Child activity stays a single summary line; the transcript lives in a side pane. */
 export default function SubagentTool({
   node,
   childrenById,

@@ -128,7 +128,7 @@ export function createPluginPanelClient(transport: PluginPanelTransport): Plugin
   })
 }
 
-/** view bridge (`window.pluginBridge`), mapped onto the same narrow client. */
+/** The `window.pluginBridge` view bridge, mapped onto the same narrow client. */
 export type PiDesktopPluginBridge = {
   invoke(channel: string, payload?: unknown): Promise<unknown>
   on(event: string, listener: (payload: unknown) => void): () => void

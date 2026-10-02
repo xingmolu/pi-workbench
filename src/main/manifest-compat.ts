@@ -1,15 +1,14 @@
 /**
- * Compatibility with manifests written for the common manifest.json format. Only the
- * documented manifest shape is mirrored here; no code is taken from that project.
+ * Plugins written in the common `manifest.json` format.
  *
- * `normalizePiDesktopManifest` rewrites manifest.json fields into this host's manifest shape
- * before schema validation, and reports what it had to drop so settings can show it.
+ * `normalizeManifestJson` rewrites those fields into this host's manifest shape before schema
+ * validation, and reports what it had to drop so settings can show it.
  */
 
-/** file name. Ours (`pi-desktop.json`) wins when a plugin ships both. */
-export const PI_DESKTOP_MANIFEST_FILE = 'manifest.json'
+/** The common file name. Ours (`pi-desktop.json`) wins when a plugin ships both. */
+export const MANIFEST_JSON_FILE = 'manifest.json'
 
-/** manifest.json permission names → ours. Names that already match are left alone. */
+/** `manifest.json` permission names → ours. Names that already match are left alone. */
 export const PERMISSION_ALIASES: Readonly<Record<string, string>> = {
   'agent.tool.register': 'agent.tools',
   'agent.prompt.inject': 'agent.skills',
@@ -35,7 +34,7 @@ const IGNORED_TOP_LEVEL = [
   'net'
 ] as const
 
-/** manifest.json contribution points this host does not implement. */
+/** `manifest.json` contribution points this host does not implement. */
 const UNSUPPORTED_CONTRIBUTIONS: Readonly<Record<string, string>> = {
   scenicThemes: '场景主题',
   windowAppearance: '窗口外观',
@@ -108,7 +107,7 @@ function normalizeMcpServers(servers: unknown): unknown {
   )
 }
 
-export function normalizePiDesktopManifest(
+export function normalizeManifestJson(
   raw: unknown,
   options: { piDesktopFile: boolean } = { piDesktopFile: true }
 ): { value: unknown; warnings: string[] } {
@@ -132,7 +131,7 @@ export function normalizePiDesktopManifest(
     warnings.push(`本版本不支持插件的${label}（contributes.${field}），已忽略。`)
   }
 
-  // A manifest.json floating panel opens here as a view in the work panel.
+  // A `manifest.json` floating panel opens here as a view in the work panel.
   if (isRecord(manifest.ui)) {
     const ui = manifest.ui
     delete manifest.ui
@@ -151,7 +150,7 @@ export function normalizePiDesktopManifest(
     }
   }
 
-  // manifest.json views are offered without an open project; our own default is onProject.
+  // `manifest.json` views are offered without an open project; our own default is onProject.
   if (options.piDesktopFile && Array.isArray(contributes.views))
     contributes.views = contributes.views.map((view) =>
       isRecord(view) && view.activation === undefined ? { ...view, activation: 'onApp' } : view

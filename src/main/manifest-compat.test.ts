@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   normalizePermissions,
-  normalizePiDesktopManifest,
+  normalizeManifestJson,
   resolveSettingPlaceholders
 } from './manifest-compat'
 import { discoverWorkbenchManifests } from './workbench-manifest'
@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-/** A manifest in documented shape, written for this test. */
+/** A plugin manifest in the common `manifest.json` shape. */
 const PI_MANIFEST = {
   schemaVersion: 1,
   id: 'compat.sample',
@@ -64,7 +64,7 @@ const PI_MANIFEST = {
   net: { domains: [] }
 }
 
-describe('manifest.json manifest compatibility', () => {
+describe('manifest.json compatibility', () => {
   it('maps permission names onto ours', () => {
     expect(
       normalizePermissions(['agent.tool.register', 'agent.prompt.inject', 'ui.panel', 'ui.view'])
@@ -72,7 +72,7 @@ describe('manifest.json manifest compatibility', () => {
   })
 
   it('rewrites manifest.json fields and reports what it drops', () => {
-    const { value, warnings } = normalizePiDesktopManifest(PI_MANIFEST)
+    const { value, warnings } = normalizeManifestJson(PI_MANIFEST)
     expect(value).toMatchObject({
       engines: { piDesktop: '*' },
       permissions: ['ui.view', 'agent.tools', 'agent.skills', 'mcp.local', 'bus.publish'],

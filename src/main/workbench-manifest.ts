@@ -7,7 +7,7 @@ import type { WorkbenchContribution, WorkbenchDiagnostic } from '../shared/workb
 import { workbenchActivationSchema, workbenchIconSchema } from '../shared/workbench-schemas'
 import type { PiPackageRoot } from '../shared/workbench-host-contracts'
 import { mcpIdSchema, mcpServerSchema, type McpServer } from '../shared/mcp'
-import { normalizePiDesktopManifest, PI_DESKTOP_MANIFEST_FILE } from './manifest-compat'
+import { normalizeManifestJson, MANIFEST_JSON_FILE } from './manifest-compat'
 import { MAX_THEME_CSS_BYTES, sanitizeThemeCss } from '../shared/theme-tokens'
 
 export const MAX_WORKBENCH_MANIFEST_BYTES = 256 * 1024
@@ -50,7 +50,7 @@ export type ValidatedWorkbenchPlugin = {
   settings: ValidatedPluginSetting[]
   /** Token-only themes, already sanitized. */
   themes: ValidatedPluginTheme[]
-  /** Loaded from a manifest.json `manifest.json`: its pages may run inline scripts. */
+  /** Loaded from a `manifest.json`: its pages may run inline scripts. */
   piDesktopCompat?: boolean
 }
 
@@ -120,7 +120,7 @@ const localIdentifierSchema = z
   .string()
   .regex(/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/, 'Expected a lowercase local identifier')
 
-/** `{ en, "zh-CN" }` titles as in the common manifest.json format manifest; the UI is Chinese-first. */
+/** `{ en, "zh-CN" }` titles as in `manifest.json` plugins; the UI is Chinese-first. */
 const localizedTitleSchema = z.union([
   z.string().trim().min(1).max(256),
   z
@@ -135,7 +135,7 @@ function resolveTitle(title: LocalizedTitle): string {
   return typeof title === 'string' ? title : (title['zh-CN'] ?? title.en)
 }
 
-/** Icon tokens from the manifest.json vocabulary map onto the host's own icon set. */
+/** Common icon tokens map onto the host's own icon set. */
 function resolveIcon(token: string | undefined): WorkbenchContribution['icon'] {
   switch (token) {
     case 'files':
@@ -189,7 +189,7 @@ const manifestViewSchema = z
     message: 'A view declares exactly one of entry or host'
   })
 
-/** Command ids may be dotted (`hello.open`), as in manifest.json. */
+/** Command ids may be dotted (`hello.open`). */
 const commandIdentifierSchema = z
   .string()
   .regex(/^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/, 'Expected a lowercase command identifier')
@@ -474,7 +474,7 @@ export async function discoverWorkbenchManifests({
     let manifestPath: string
     let manifestText: string
     let declaredManifestExists = false
-    // Our own manifest wins; a manifest.json `manifest.json` is read when it is the only one.
+    // Our own manifest wins; a `manifest.json` is read when it is the only one.
     let piDesktopFile = false
     try {
       let declaredManifestPath = join(canonicalRootPath, 'pi-desktop.json')
@@ -482,7 +482,7 @@ export async function discoverWorkbenchManifests({
         await lstat(declaredManifestPath)
       } catch (error) {
         if (!(isRecord(error) && error.code === 'ENOENT')) throw error
-        declaredManifestPath = join(canonicalRootPath, PI_DESKTOP_MANIFEST_FILE)
+        declaredManifestPath = join(canonicalRootPath, MANIFEST_JSON_FILE)
         await lstat(declaredManifestPath)
         piDesktopFile = true
       }
@@ -522,7 +522,7 @@ export async function discoverWorkbenchManifests({
       })
       continue
     }
-    // `manifest.json` is a common name; only a manifest.json-shaped one is a plugin manifest.
+    // `manifest.json` is a common name; only a plugin-shaped one is a plugin manifest.
     if (
       piDesktopFile &&
       !(isRecord(rawManifest) && 'schemaVersion' in rawManifest && 'id' in rawManifest)
@@ -540,7 +540,7 @@ export async function discoverWorkbenchManifests({
       continue
     }
 
-    const compat = normalizePiDesktopManifest(rawManifest, { piDesktopFile })
+    const compat = normalizeManifestJson(rawManifest, { piDesktopFile })
     const parsedManifest = workbenchManifestSchema.safeParse(compat.value)
     if (!parsedManifest.success) {
       diagnostics.push({
