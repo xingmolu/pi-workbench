@@ -273,10 +273,41 @@ jobs:
           retention-days: 14
           path: dist/*
 
+  release-prepare:
+    # Every green main build becomes a nightly prerelease the app can update from. The release
+    # stays a draft until all installers are attached.
+    needs: [e2e-smoke, macos-engines]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Nightly version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version.split('-')[0]")-nightly.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git log -1 --format='%B' > notes.md
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --prerelease \
+            --target "$GITHUB_SHA" --title "Pi Desktop $VERSION（测试版）" --notes-file notes.md
+
   package:
-    needs: e2e-smoke
+    needs: release-prepare
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 30
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -309,6 +340,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Stamp the nightly version
+        shell: bash
+        run: npm version --no-git-tag-version --allow-same-version "${{ needs.release-prepare.outputs.version }}"
+
       - name: Build
         run: npm run build
 
@@ -318,6 +353,18 @@ jobs:
 
       - name: Package installer
         run: ${{ matrix.command }}
+
+      - name: Attach installers to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-prepare.outputs.version }}
+        run: |
+          shopt -s nullglob
+          # Both Mac builds write latest-mac.yml; release-publish merges them.
+          if [ -f dist/latest-mac.yml ]; then mv dist/latest-mac.yml "dist/latest-mac-${{ matrix.name }}.yml"; fi
+          files=(dist/*.dmg dist/*.zip dist/*.exe dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml)
+          gh release upload "v$VERSION" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Report installer size
         shell: bash
@@ -347,3 +394,48 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: dist/*
+
+  release-publish:
+    needs: [release-prepare, package]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Merge the macOS update info and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-prepare.outputs.version }}
+        run: |
+          mkdir -p mac-info
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --dir mac-info --pattern 'latest-mac-*.yml'
+          node scripts/merge-mac-update-info.mjs mac-info/latest-mac-*.yml > latest-mac.yml
+          gh release upload "v$VERSION" latest-mac.yml --repo "$GITHUB_REPOSITORY" --clobber
+          for file in mac-info/latest-mac-*.yml; do
+            gh release delete-asset "v$VERSION" "$(basename "$file")" --repo "$GITHUB_REPOSITORY" --yes
+          done
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+
+      - name: Keep the ten newest nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | contains("-nightly."))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+            while read -r tag; do
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            done

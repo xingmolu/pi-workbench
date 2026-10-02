@@ -125,7 +125,10 @@ Codex 的端到端测试需要本机的 Codex 程序：`PI_DESKTOP_CODEX_EXECUTA
 「设置 › 常规 › 版本与更新」会读取本仓库的 GitHub Releases：带 `-nightly` 的版本跟随测试版通道（预发布），其余跟随正式版。
 Windows 和 AppImage 在应用内下载并「重启并更新」；macOS 构建只是临时签名，系统不允许原地替换，deb 也一样，
 这两种会打开发布页手动下载。仓库是私有的，检查更新需要一个只读的 GitHub 令牌（Fine-grained，Contents: Read-only），
-令牌用系统钥匙串加密保存在本机。安装包文件名不含空格，`electron-builder.yml` 的 `publish` 配置让打包时生成
+令牌用系统钥匙串加密保存在本机。
+
+`main` 上每次 CI 全绿，都会自动发一个测试版（GitHub Release 的预发布，版本号 `0.1.0-nightly.<运行号>`）：
+先建草稿，四个平台的安装包和更新清单传完、两个 Mac 架构的 `latest-mac.yml` 合并后才正式发布，只保留最近 10 个测试版。安装包文件名不含空格，`electron-builder.yml` 的 `publish` 配置让打包时生成
 `latest*.yml` 更新清单。
 
 ### 离线演示（不需要真实账号，也不需要手机）
