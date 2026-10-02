@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { en } from './en'
@@ -36,7 +36,7 @@ function scan(): { keys: Map<string, string>; untranslated: string[] } {
   const untranslated: string[] = []
   for (const file of sourceFiles()) {
     const text = readFileSync(file, 'utf8')
-    if (!HAN.test(text) || text.startsWith('// i18n-ignore-file') || file.endsWith('/en.ts'))
+    if (!HAN.test(text) || text.startsWith('// i18n-ignore-file') || basename(file) === 'en.ts')
       continue
     const lines = text.split('\n')
     const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
