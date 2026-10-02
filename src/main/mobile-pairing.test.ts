@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { PAIRING_TTL_MS } from '../shared/mobile-gateway'
-import { MobilePairingStore } from './mobile-pairing'
+import { MAX_PAIRING_FAILURES, MobilePairingStore } from './mobile-pairing'
 import type { PairedDeviceRecord } from '../shared/mobile-gateway'
 
 function store(now: { value: number }, devices: PairedDeviceRecord[] = []) {
@@ -34,7 +34,9 @@ describe('mobile pairing store', () => {
     expect(grant.deviceToken.startsWith(grant.deviceId + '.')).toBe(true)
     expect(devices).toHaveLength(1)
     expect(devices[0]?.tokenHash).toBe(
-      createHash('sha256').update(grant.deviceToken.slice(grant.deviceId.length + 1), 'utf8').digest('hex')
+      createHash('sha256')
+        .update(grant.deviceToken.slice(grant.deviceId.length + 1), 'utf8')
+        .digest('hex')
     )
     expect(() => pairing.pair(offer.token, 'again')).toThrow('配对码')
     expect(pairing.authenticate(grant.deviceToken)?.deviceId).toBe(grant.deviceId)
@@ -53,5 +55,21 @@ describe('mobile pairing store', () => {
     expect(pairing.revoke(grant.deviceId)).toBe(true)
     expect(pairing.authenticate(grant.deviceToken)).toBeNull()
     expect(pairing.list()).toEqual([])
+  })
+
+  it('withdraws a pairing code after repeated wrong guesses', () => {
+    const now = { value: 1_000 }
+    const pairing = store(now)
+    const offer = pairing.createOffer()
+    for (let attempt = 1; attempt < MAX_PAIRING_FAILURES; attempt++)
+      expect(() => pairing.pair('WRONGXYZ', 'phone')).toThrow()
+    expect(pairing.currentOffer()?.token).toBe(offer.token)
+    expect(() => pairing.pair('WRONGXYZ', 'phone')).toThrow()
+    expect(pairing.currentOffer()).toBeNull()
+    expect(() => pairing.pair(offer.token, 'phone')).toThrow()
+    // A fresh code starts a fresh count.
+    const next = pairing.createOffer()
+    expect(() => pairing.pair('WRONGXYZ', 'phone')).toThrow()
+    expect(pairing.pair(next.token, 'phone').deviceToken).toMatch(/\./)
   })
 })

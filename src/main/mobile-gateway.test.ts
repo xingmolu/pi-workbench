@@ -162,6 +162,43 @@ describe('mobile gateway http', () => {
     await Promise.all(servers.splice(0).map((server) => server.stop()))
   })
 
+  it('takes the device cookie for reads only, never for actions or from the URL', async () => {
+    let devices: PairedDeviceRecord[] = []
+    const pairing = new MobilePairingStore({
+      load: () => devices,
+      save: (next) => {
+        devices = next
+      }
+    })
+    const gateway = new MobileGatewayServer({
+      pairing,
+      sessions: fakeSessions([]),
+      port: 18779,
+      lanAddress: () => null
+    })
+    servers.push(gateway)
+    await gateway.start()
+    const paired = await request(18779, '/api/pair', {
+      method: 'POST',
+      body: { token: pairing.createOffer().token, deviceName: 'test' }
+    })
+    const token: string = paired.data.deviceToken
+    const cookie = `pi_device=${encodeURIComponent(token)}`
+    const send = (method: string, path: string, headers: Record<string, string>) =>
+      fetch(`http://127.0.0.1:18779${path}`, {
+        method,
+        headers: { host: '127.0.0.1:18779', ...headers },
+        // A cross-site form can post plain text without a preflight.
+        body: method === 'GET' ? undefined : JSON.stringify({ cwd: '/tmp' })
+      }).then((response) => response.status)
+    expect(await send('GET', '/api/me', { cookie })).toBe(200)
+    expect(await send('POST', '/api/sessions/new', { cookie, 'content-type': 'text/plain' })).toBe(
+      401
+    )
+    expect(await send('GET', `/api/me?token=${encodeURIComponent(token)}`, {})).toBe(401)
+    expect(await send('GET', '/api/me', { authorization: `Bearer ${token}` })).toBe(200)
+  })
+
   it('delivers the initial snapshot and coalesces a burst into the final SSE snapshot', async () => {
     let devices: PairedDeviceRecord[] = []
     const pairing = new MobilePairingStore({

@@ -310,17 +310,21 @@ export class MobileGatewayServer {
     return hosts
   }
 
-  private deviceToken(request: IncomingMessage, url: URL): string | null {
+  /**
+   * The client sends its token as a Bearer header. The cookie exists only for EventSource,
+   * which cannot send headers, so it counts for reads alone: another page on the same site
+   * (a dev server on another port of this address) gets the cookie attached to its POSTs,
+   * and must not be able to send prompts or answer approvals with it.
+   */
+  private deviceToken(request: IncomingMessage): string | null {
     const header = request.headers.authorization
     if (typeof header === 'string' && header.startsWith('Bearer ')) return header.slice(7).trim()
-    const cookie = cookieValue(request.headers.cookie, COOKIE)
-    if (cookie) return cookie
-    const query = url.searchParams.get('token')
-    return query && query.length > 0 ? query : null
+    if (request.method !== 'GET' && request.method !== 'HEAD') return null
+    return cookieValue(request.headers.cookie, COOKIE)
   }
 
-  private requireDevice(request: IncomingMessage, url: URL) {
-    const token = this.deviceToken(request, url)
+  private requireDevice(request: IncomingMessage) {
+    const token = this.deviceToken(request)
     if (!token) return null
     return this.options.pairing.authenticate(token)
   }
@@ -423,7 +427,7 @@ export class MobileGatewayServer {
         response.end(file ? file.body : t('未找到'))
         return
       }
-      const device = this.requireDevice(request, url)
+      const device = this.requireDevice(request)
       if (!device) {
         json(response, 401, { error: t('尚未配对') })
         return

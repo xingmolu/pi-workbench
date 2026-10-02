@@ -63,8 +63,12 @@ function parseDeviceToken(value: string): { deviceId: string; secret: string } |
   return { deviceId, secret }
 }
 
+/** Wrong codes accepted against one offer before it is withdrawn. */
+export const MAX_PAIRING_FAILURES = 10
+
 export class MobilePairingStore {
   private offer: PairingOffer | null = null
+  private failures = 0
   constructor(private readonly options: PairingStoreOptions) {}
 
   private now(): number {
@@ -84,6 +88,7 @@ export class MobilePairingStore {
       .map((value) => PAIRING_ALPHABET[value! % PAIRING_ALPHABET.length]!)
       .join('')
     this.offer = { token, expiresAt: this.now() + PAIRING_TTL_MS }
+    this.failures = 0
     return { ...this.offer }
   }
 
@@ -101,7 +106,11 @@ export class MobilePairingStore {
 
   pair(token: string, deviceName: string): PairingGrant {
     const offer = this.currentOffer()
-    if (!offer || !equalToken(token, offer.token)) throw new Error(t('配对码无效或已过期'))
+    if (!offer || !equalToken(token, offer.token)) {
+      // Guessing is bounded per code: after a few misses the desktop has to show a new one.
+      if (offer && ++this.failures >= MAX_PAIRING_FAILURES) this.offer = null
+      throw new Error(t('配对码无效或已过期'))
+    }
     const devices = this.options.load()
     if (devices.length >= MAX_PAIRED_DEVICES)
       throw new Error(t('已达到配对设备上限，请先在桌面撤销一台设备'))
