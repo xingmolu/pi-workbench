@@ -31,8 +31,9 @@ async function setup() {
   const fixture = await createResponsesFixture()
   cleanup.push(async () => {
     await fixture.close()
-    await rm(root, { recursive: true, force: true })
-    await rm(cwd, { recursive: true, force: true })
+    // Codex may still be syncing plugins into its home when the test ends.
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    await rm(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   })
   const storage = {
     root,
