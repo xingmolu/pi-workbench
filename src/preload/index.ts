@@ -18,6 +18,7 @@ import {
   desktopSettingsSchema
 } from '../shared/desktop-settings'
 import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
+import { APP_UPDATE_CHANNEL, APP_UPDATE_EVENT_CHANNEL, type AppUpdateStatus } from '../shared/app-updates'
 import { createDesktopControlClient } from './desktop-control-client'
 import {
   MOBILE_GATEWAY_CHANNEL,
@@ -112,6 +113,13 @@ const api: PiDesktopAPI = {
   textAttachments: (command) =>
     ipcRenderer.invoke(TEXT_ATTACHMENT_CHANNEL, attachmentCommandSchema.parse(command)),
   terminal: (command) => ipcRenderer.invoke(TERMINAL_CHANNEL, terminalCommandSchema.parse(command)),
+  appUpdate: (command) => ipcRenderer.invoke(APP_UPDATE_CHANNEL, command),
+  onAppUpdate: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
+      listener(value as AppUpdateStatus)
+    ipcRenderer.on(APP_UPDATE_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(APP_UPDATE_EVENT_CHANNEL, handler)
+  },
   onTerminalEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
       const parsed = terminalEventSchema.safeParse(value)

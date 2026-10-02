@@ -46,6 +46,7 @@ import {
   screen,
   clipboard,
   net,
+  safeStorage,
   shell,
   systemPreferences,
   utilityProcess,
@@ -54,6 +55,12 @@ import {
 } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { MarkdownTableExporter } from './markdown-table-export'
+import { AppUpdates } from './app-updates'
+import {
+  APP_UPDATE_CHANNEL,
+  APP_UPDATE_EVENT_CHANNEL,
+  type AppUpdateCommand
+} from '../shared/app-updates'
 import { MARKDOWN_TABLE_EXPORT_CHANNEL } from '../shared/markdown-table-export'
 import { TextAttachments } from './text-attachments'
 import { AttachmentSubmissions } from './attachment-submissions'
@@ -691,6 +698,8 @@ type Preferences = {
   mobileRemoteViews?: RemoteViewAccess
   /** Engines the user allowed to use a ChatGPT account Pi holds. */
   engineGrants?: import('../shared/engine-credentials').CredentialGrant[]
+  /** Read-only GitHub token for update checks against the private repository (encrypted). */
+  updateToken?: string
 }
 
 function errorMessage(error: unknown): string {
@@ -1515,7 +1524,58 @@ function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
   }
 }
 
+const appUpdates = new AppUpdates({
+  version: app.getVersion(),
+  platform: process.platform,
+  packaged: app.isPackaged && !E2E_MODE,
+  ...(process.env.APPIMAGE ? { appImage: process.env.APPIMAGE } : {}),
+  // Loaded on first use so development runs never touch electron-updater.
+  updater: () =>
+    (require('electron-updater') as typeof import('electron-updater'))
+      .autoUpdater as unknown as import('./app-updates').Updater,
+  token: {
+    read: () => {
+      const stored = preferenceStore().get('updateToken')
+      if (!stored || !safeStorage.isEncryptionAvailable()) return undefined
+      try {
+        return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+      } catch {
+        return undefined
+      }
+    },
+    write: (token) => {
+      if (!token) return preferenceStore().delete('updateToken')
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('这台电脑无法安全保存令牌')
+      preferenceStore().set('updateToken', safeStorage.encryptString(token).toString('base64'))
+    }
+  },
+  openExternal: (url) => void shell.openExternal(url),
+  onChange: (status) => {
+    for (const window of BrowserWindow.getAllWindows())
+      if (!window.isDestroyed()) window.webContents.send(APP_UPDATE_EVENT_CHANNEL, status)
+  }
+})
+
+const APP_UPDATE_COMMANDS = new Set<AppUpdateCommand['type']>([
+  'status',
+  'check',
+  'download',
+  'install',
+  'open-release',
+  'token:set',
+  'token:clear'
+])
+
 function registerIpc(): void {
+  ipcMain.handle(APP_UPDATE_CHANNEL, (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    const value = command as AppUpdateCommand | undefined
+    if (!value || typeof value !== 'object' || !APP_UPDATE_COMMANDS.has(value.type))
+      throw new Error('无效的更新操作')
+    if (value.type === 'token:set' && typeof value.token !== 'string')
+      throw new Error('无效的令牌')
+    return appUpdates.handle(value)
+  })
   ipcMain.handle(NAVIGATION_LIBRARY_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     return navigationLibrary().dispatch(command)
@@ -2535,6 +2595,7 @@ app.whenReady().then(async () => {
   registerIpc()
   startAgentHost()
   createWindow()
+  appUpdates.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

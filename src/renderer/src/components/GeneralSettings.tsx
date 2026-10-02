@@ -10,6 +10,7 @@ import {
   Switch
 } from './SettingsPrimitives'
 import '../assets/desktop-settings.css'
+import AppUpdateSettings from './AppUpdateSettings'
 
 /** Status line and "restore defaults" for a page of desktop preferences. */
 export function PreferencesFooter({
@@ -87,6 +88,7 @@ export default function GeneralSettings(): React.JSX.Element {
           />
         </SettingsRow>
       </SettingsGroup>
+      <AppUpdateSettings />
       <PreferencesFooter resetPatch={generalDefaults} />
     </SettingsPage>
   )

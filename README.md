@@ -120,6 +120,14 @@ Codex 不需要单独登录：它使用在 Pi 里登录的 ChatGPT 账号。某�
 Codex 的 MCP 服务器写在它自己的 config.toml 里，可以在「设置 › MCP」里增删、开关和登录。
 Codex 的端到端测试需要本机的 Codex 程序：`PI_DESKTOP_CODEX_EXECUTABLE=/path/to/codex npx playwright test tests/e2e/codex-runtime.spec.ts`。
 
+### 应用更新
+
+「设置 › 常规 › 版本与更新」会读取本仓库的 GitHub Releases：带 `-nightly` 的版本跟随测试版通道（预发布），其余跟随正式版。
+Windows 和 AppImage 在应用内下载并「重启并更新」；macOS 构建只是临时签名，系统不允许原地替换，deb 也一样，
+这两种会打开发布页手动下载。仓库是私有的，检查更新需要一个只读的 GitHub 令牌（Fine-grained，Contents: Read-only），
+令牌用系统钥匙串加密保存在本机。安装包文件名不含空格，`electron-builder.yml` 的 `publish` 配置让打包时生成
+`latest*.yml` 更新清单。
+
 ### 离线演示（不需要真实账号，也不需要手机）
 
 ```bash

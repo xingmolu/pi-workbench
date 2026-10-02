@@ -460,3 +460,21 @@
   border-radius: 8px;
   font-size: 12.5px;
 }
+
+.sp-inline-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.sp-inline-form input {
+  width: 200px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}

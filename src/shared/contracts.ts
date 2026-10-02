@@ -685,6 +685,11 @@ export type PiDesktopAPI = {
   ) => Promise<import('./markdown-table-export').MarkdownTableResult>
   textAttachments: (command: AttachmentCommand) => Promise<AttachmentResult>
   terminal: (command: TerminalCommand) => Promise<TerminalResult>
+  /** New versions of the app itself, from the repository's GitHub releases. */
+  appUpdate: (
+    command: import('./app-updates').AppUpdateCommand
+  ) => Promise<import('./app-updates').AppUpdateStatus>
+  onAppUpdate: (listener: (status: import('./app-updates').AppUpdateStatus) => void) => () => void
   onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void
   gitReview: (command: GitReviewCommand) => Promise<GitReviewResult>
   workspaceFiles: (command: WorkspaceFilesCommand) => Promise<WorkspaceFilesResult>
