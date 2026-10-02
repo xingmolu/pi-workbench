@@ -119,8 +119,9 @@ test('a PowerShell terminal opens in the project, runs commands and closes', asy
   await expect.poll(output).toContain('PI_42')
   expect(await output()).toContain(project)
   expect(await output()).toContain('Core')
-  // node-pty on Windows only ever names the shell, so a running program is not detected.
-  expect((await list())[0]?.busy).toBe(false)
+  // node-pty on Windows cannot name the foreground program, so busy stays unknown rather
+  // than claiming a program is always running.
+  expect((await list())[0]?.busy).toBeUndefined()
 
   await page.evaluate((identity) => window.pi.terminal({ type: 'close', ...identity }), terminal)
   await expect.poll(async () => (await list())[0]?.exitConfirmed ?? true).toBe(true)

@@ -65,6 +65,10 @@ parent.on('message', ({ data }: { data: unknown }) => {
           ...(process.platform === 'win32' ? {} : { encoding: 'utf8' }),
           handleFlowControl: false
         })
+        if (process.platform === 'win32')
+          // node-pty on Windows reports the terminal type here, not the foreground program,
+          // so whether a program is running stays unknown.
+          Object.defineProperty(pty, 'process', { value: undefined })
         return Object.assign(pty, {
           pendingWriteBytes: () => pendingWriteBytes(pty),
           // Windows has no signals; node-pty rejects one there and ends the console instead.
