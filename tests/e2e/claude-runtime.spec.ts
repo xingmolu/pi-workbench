@@ -6,7 +6,7 @@ import {
   type Page
 } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createClaudeHttpFixture } from '../../src/claude-host/sdk-fixture'
 import type { AgentSnapshot } from '../../src/shared/contracts'
@@ -138,7 +138,7 @@ test('SDK model discovery, native history, rename, fork, engine isolation and re
   ).toBeVisible()
   await expect(page.locator('.assistant-node')).toHaveCount(1)
   const saved = await state()
-  expect(saved.activeSessionPath).toContain('/data/runtimes/claude/sessions/')
+  expect(saved.activeSessionPath).toContain(join('data', 'runtimes', 'claude', 'sessions') + sep)
   const reference = JSON.parse(await readFile(saved.activeSessionPath!, 'utf8'))
   expect(reference.nativeSessionId).toBe(saved.sessionId)
   expect(reference).not.toHaveProperty('messages')

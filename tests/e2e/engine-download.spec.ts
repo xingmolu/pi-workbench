@@ -39,9 +39,10 @@ test.beforeEach(async () => {
     mkdir(artifacts, { recursive: true })
   ])
   // A stand-in CLI, padded so the download takes long enough to watch.
+  const executable = process.platform === 'win32' ? 'claude.exe' : 'claude'
   const archive = gzipSync(
     Buffer.concat([
-      tarEntry('package/claude', Buffer.from('#!/bin/sh\necho stand-in\n'), 0o755),
+      tarEntry(`package/${executable}`, Buffer.from('#!/bin/sh\necho stand-in\n'), 0o755),
       tarEntry('package/padding.bin', Buffer.alloc(24 * 1024, 7), 0o644),
       Buffer.alloc(1024)
     ]),
@@ -67,7 +68,7 @@ test.beforeEach(async () => {
           integrity: `sha512-${createHash('sha512').update(body).digest('base64')}`,
           size: body.length,
           root: 'package/',
-          executable: process.platform === 'win32' ? 'claude.exe' : 'claude'
+          executable
         }
       }
     },

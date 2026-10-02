@@ -113,7 +113,10 @@ test('Codex chats on a ChatGPT account Pi lends it after the user allows it', as
   await page.screenshot({ path: join(screenshots, 'approval.png') })
   await page.getByRole('button', { name: '允许一次', exact: true }).click()
   await expect.poll(async () => (await state()).busy).toBe(false)
-  expect(await readFile(join(project, 'made-by-codex.txt'), 'utf8')).toBe('fixture\n')
+  // The shell Codex runs writes CRLF on Windows.
+  expect((await readFile(join(project, 'made-by-codex.txt'), 'utf8')).replace(/\r\n/g, '\n')).toBe(
+    'fixture\n'
+  )
   await page.screenshot({ path: join(screenshots, 'conversation.png') })
 
   // Settings shows who may use the login, and can take it back.
