@@ -527,6 +527,9 @@ test('mobile controls: permission, model, skills, images, undo and a new session
     .click()
   const input = page.getByRole('textbox', { name: '提出后续要求' })
   await expect(input).toHaveValue('/skill:code-review ')
+  // The skill insert moves the caret on the next frame; typing before that lands mid-text.
+  await expect(input).toBeFocused()
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done(null))))
   await input.fill('/skill:code-review check the screenshot')
 
   // Images: a picked photo becomes a thumbnail and travels with the prompt.

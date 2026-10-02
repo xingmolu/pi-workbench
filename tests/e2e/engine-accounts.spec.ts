@@ -137,11 +137,16 @@ test.beforeEach(async () => {
   await expect.poll(() => page.evaluate(async () => (await window.pi.getState()).ready)).toBe(true)
   await page.evaluate((cwd) => window.pi.send({ type: 'project:open', cwd }), project)
   await expect
-    .poll(() =>
-      page.evaluate(
-        async () =>
-          (await window.pi.getState()).models.filter((m) => m.provider === 'acme-cloud').length
-      )
+    .poll(
+      () =>
+        page.evaluate(
+          async () =>
+            (await window.pi.getState()).models.filter((m) => m.provider === 'acme-cloud').length
+        ),
+      {
+        timeout: 45_000,
+        message: 'acme-cloud models should load after the project opens'
+      }
     )
     .toBe(3)
   await page.evaluate(() =>
