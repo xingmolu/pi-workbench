@@ -93,6 +93,7 @@ describe('tailscale probe', () => {
       exec: exec as never,
       exists: (file) => file === '/opt/homebrew/bin/tailscale',
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(status.available).toBe(true)
@@ -113,6 +114,7 @@ describe('tailscale probe', () => {
       exec: exec as never,
       exists: () => false,
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(status.available).toBe(false)
@@ -148,6 +150,7 @@ describe('tailscale serve', () => {
       exec: exec as never,
       exists: (file: string) => file === '/usr/local/bin/tailscale',
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     }
     const status = await enableTailscaleServe(43124, io)
@@ -166,6 +169,7 @@ describe('tailscale serve', () => {
     const status = await enableTailscaleServe(43124, {
       exists: () => false,
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(status.available).toBe(false)
@@ -173,6 +177,7 @@ describe('tailscale serve', () => {
     const off = await disableTailscaleServe({
       exists: () => false,
       envPath: '/usr/bin',
+      platform: 'darwin',
       which: async () => null
     })
     expect(off.error).toBe(MISSING_TAILSCALE_CLI)

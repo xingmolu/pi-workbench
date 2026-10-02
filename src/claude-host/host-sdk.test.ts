@@ -111,6 +111,20 @@ async function waitFor(check: () => boolean, timeout = 20_000) {
   }
 }
 
+/**
+ * Idle and staying idle. A background child that finishes after the main turn's result makes
+ * Claude Code continue the main conversation on its own, so a single idle reading can fall in
+ * the gap between the two turns.
+ */
+async function waitForSettled(host: ClaudeHost, quietMs = 750): Promise<void> {
+  let idleSince = 0
+  await waitFor(() => {
+    if (host.getState().busy) idleSince = 0
+    else idleSince ||= Date.now()
+    return idleSince > 0 && Date.now() - idleSince >= quietMs
+  })
+}
+
 describe('Claude official SDK runtime', () => {
   it('keeps several API connections and binds each session to its own connection', async () => {
     const { host, fixture, cwd, storage } = await setup()
@@ -331,7 +345,7 @@ describe('Claude official SDK runtime', () => {
     }
     await host.handle({ type: 'permission:set', mode: 'open' })
     await host.handle({ type: 'prompt:send', text: 'spawn fixture', ...identity })
-    await waitFor(() => !host.getState().busy)
+    await waitForSettled(host)
     expect(host.getState().error).toBeUndefined()
     expect(
       host
