@@ -10,10 +10,19 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** `/bin/bash -lc 'npm test'` reads as `npm test`. */
+/**
+ * `/bin/bash -lc 'npm test'` reads as `npm test`, and so does the PowerShell wrapper Codex uses
+ * on Windows: `"C:\\…\\pwsh.exe" -Command 'npm test'`.
+ */
 export function displayCommand(command: string): string {
   const shell = /^(?:\S*\/)?(?:ba|z)?sh -l?c '([\s\S]*)'$/.exec(command)
-  return (shell?.[1] ?? command).replace(/'\\''/g, "'")
+  if (shell) return shell[1].replace(/'\\''/g, "'")
+  const powershell =
+    /^"?(?:[^"]*[\\/])?(?:pwsh|powershell)(?:\.exe)?"?(?:\s+-(?!Command\b)\w+)*\s+-Command\s+(?:'([\s\S]*)'|"([\s\S]*)")$/i.exec(
+      command
+    )
+  if (powershell) return powershell[1]?.replace(/''/g, "'") ?? powershell[2]
+  return command
 }
 
 function status(value: unknown, exitCode?: unknown): ToolStatus {

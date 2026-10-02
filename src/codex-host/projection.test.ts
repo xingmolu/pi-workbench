@@ -5,6 +5,12 @@ it('shows the command a shell wrapper runs', () => {
   expect(displayCommand("/bin/bash -lc 'npm test'")).toBe('npm test')
   expect(displayCommand("/bin/zsh -lc 'echo '\\''hi'\\'''")).toBe("echo 'hi'")
   expect(displayCommand('ls -la')).toBe('ls -la')
+  expect(
+    displayCommand(`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'echo fixture > a.txt'`)
+  ).toBe('echo fixture > a.txt')
+  expect(displayCommand(`powershell.exe -NoProfile -Command 'Write-Output ''hi'''`)).toBe(
+    "Write-Output 'hi'"
+  )
 })
 
 it('folds Codex items and deltas into conversation nodes', () => {

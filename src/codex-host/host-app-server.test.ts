@@ -133,7 +133,8 @@ describe.skipIf(!executable)('Codex app-server runtime', () => {
       allow: true
     })
     await waitFor(() => !host.getState().busy)
-    expect(await readFile(join(cwd, 'made-by-codex.txt'), 'utf8')).toBe('fixture\n')
+    // PowerShell on Windows ends the line with CRLF.
+    expect(await readFile(join(cwd, 'made-by-codex.txt'), 'utf8')).toMatch(/^fixture\r?\n$/)
     const tool = host.getState().nodes.find((node) => node.type === 'tool')
     expect(tool).toMatchObject({ status: 'success', intent: 'terminal' })
 
