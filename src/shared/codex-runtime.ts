@@ -12,11 +12,13 @@ export const CODEX_RUNTIME_MANIFEST: AgentRuntimeManifest = {
   engine: '@openai/codex',
   features: [
     'session-resume',
+    'session-fork',
     'session-rename',
     'project-catalog',
     'model-selection',
     'thinking',
     'images',
+    'skills',
     'auth-login'
   ],
   authentication: ['external'],

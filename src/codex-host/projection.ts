@@ -74,7 +74,9 @@ export class CodexProjection {
   }
 
   /** A whole item from `item/started`, `item/completed` or a loaded transcript. */
-  item(item: CodexItem, done: boolean): void {
+  item(item: CodexItem, done: boolean, turnId?: string): void {
+    // The turn is the unit Codex forks and reverts by.
+    const entry = turnId ? { canonicalEntryId: turnId } : {}
     switch (item.type) {
       case 'userMessage': {
         const content = (item.content as { type: string; text?: string }[] | undefined) ?? []
@@ -86,6 +88,7 @@ export class CodexProjection {
             .filter((part) => part.type === 'text')
             .map((part) => part.text ?? '')
             .join('\n'),
+          ...entry,
           ...(images.length ? { imageCount: images.length } : {})
         })
         return
@@ -97,6 +100,7 @@ export class CodexProjection {
           id: item.id,
           type: 'assistant',
           markdown: text(item.text) || streamed,
+          ...entry,
           ...(done ? {} : { streaming: true })
         })
         return
@@ -202,19 +206,17 @@ export class CodexProjection {
   delta(itemId: string, kind: 'assistant' | 'think', delta: string): void {
     const previous = this.node(itemId)
     if (kind === 'assistant')
-      this.upsert({
-        id: itemId,
-        type: 'assistant',
-        markdown: (previous?.type === 'assistant' ? previous.markdown : '') + delta,
-        streaming: true
-      })
+      this.upsert(
+        previous?.type === 'assistant'
+          ? { ...previous, markdown: previous.markdown + delta, streaming: true }
+          : { id: itemId, type: 'assistant', markdown: delta, streaming: true }
+      )
     else
-      this.upsert({
-        id: itemId,
-        type: 'think',
-        text: (previous?.type === 'think' ? previous.text : '') + delta,
-        streaming: true
-      })
+      this.upsert(
+        previous?.type === 'think'
+          ? { ...previous, text: previous.text + delta, streaming: true }
+          : { id: itemId, type: 'think', text: delta, streaming: true }
+      )
   }
 
   /** Live command output before the item completes. */

@@ -16,7 +16,8 @@ const referenceSchema = z
     created: z.string(),
     title: z.string().max(200).optional(),
     /** The ChatGPT account (Pi provider id) this chat runs on. */
-    account: z.string().max(128).optional()
+    account: z.string().max(128).optional(),
+    parentSessionPath: z.string().optional()
   })
   .strict()
 export type CodexSessionReference = z.infer<typeof referenceSchema>

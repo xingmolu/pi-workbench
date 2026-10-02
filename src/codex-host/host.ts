@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import type {
@@ -13,6 +13,7 @@ import type {
   ThinkingLevel
 } from '../shared/contracts'
 import { CODEX_RUNTIME_MANIFEST } from '../shared/codex-runtime'
+import { MAX_SKILL_BYTES, MAX_SKILLS, safeSkillName, type SkillSummary } from '../shared/skills'
 import {
   credentialResponseSchema,
   type ChatgptAccessToken,
@@ -65,6 +66,12 @@ const POLICY: Record<PermissionMode, { approvalPolicy: string; sandbox: string }
   open: { approvalPolicy: 'never', sandbox: 'danger-full-access' }
 }
 const EFFORTS: readonly ThinkingLevel[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
+
+/** A stable UUID-shaped id for something identified by a path. */
+function uuidFrom(value: string): string {
+  const hex = createHash('sha256').update(value).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
 
 export class CodexHost {
   private readonly commands = new SerialExecutor()
@@ -213,6 +220,61 @@ export class CodexHost {
           this.prefs.account = command.providerId
         }
         return this.transition(this.snapshot.project.path)
+      }
+      case 'session:fork': {
+        this.assertIdle()
+        const source = this.reference
+        if (!source?.threadId || !this.snapshot.activeSessionPath)
+          throw new Error('No Codex session')
+        // Entries are Codex turn ids: the fork keeps every turn up to and including this one.
+        const turnIds = new Set(
+          this.projection.nodes.flatMap((node) =>
+            (node.type === 'user' || node.type === 'assistant') && node.canonicalEntryId
+              ? [node.canonicalEntryId]
+              : []
+          )
+        )
+        if (!turnIds.has(command.entryId)) throw new Error('Fork target is not a Codex turn')
+        const forked = await this.server_().request<{ thread: { id: string } }>('thread/fork', {
+          threadId: source.threadId,
+          lastTurnId: command.entryId,
+          cwd: source.cwd,
+          ...POLICY[this.snapshot.permissionMode]
+        })
+        const reference: CodexSessionReference = {
+          ...this.store.create(source.cwd, source.account),
+          threadId: forked.thread.id,
+          parentSessionPath: this.snapshot.activeSessionPath
+        }
+        await this.transition(source.cwd, reference)
+        return { kind: 'session-fork', cancelled: false, snapshot: this.getState() }
+      }
+      case 'skills:list': {
+        const skills = await this.skills()
+        return {
+          kind: 'skills-list',
+          catalog: {
+            sessionId: command.sessionId,
+            generation: command.generation,
+            skills: skills.slice(0, MAX_SKILLS).map((skill) => skill.summary),
+            total: skills.length,
+            truncated: skills.length > MAX_SKILLS
+          }
+        }
+      }
+      case 'skills:detail': {
+        const skill = (await this.skills()).find((item) => item.summary.id === command.id)
+        if (!skill) throw new Error('这个技能已不存在')
+        const preview = await readFile(skill.path, 'utf8').catch(() => '')
+        return {
+          kind: 'skills-detail',
+          detail: {
+            sessionId: command.sessionId,
+            generation: command.generation,
+            skill: skill.summary,
+            preview: preview.slice(0, MAX_SKILL_BYTES)
+          }
+        }
       }
       case 'session:rename': {
         this.assertIdle()
@@ -464,10 +526,10 @@ export class CodexHost {
         ...POLICY[this.snapshot.permissionMode]
       })
       const read = await server.request<{
-        thread: { turns?: { items: CodexItem[] }[] }
+        thread: { turns?: { id: string; items: CodexItem[] }[] }
       }>('thread/read', { threadId: this.reference.threadId, includeTurns: true })
       for (const turn of read.thread.turns ?? [])
-        for (const item of turn.items) this.projection.item(item, true)
+        for (const item of turn.items) this.projection.item(item, true, turn.id)
     }
     await this.refreshSessions()
     this.publish(true)
@@ -514,6 +576,7 @@ export class CodexHost {
           modified: new Date(thread?.updated ?? Date.parse(ref.created)).toISOString(),
           messageCount: 0,
           active: ref.id === this.snapshot.sessionId,
+          ...(ref.parentSessionPath ? { parentSessionPath: ref.parentSessionPath } : {}),
           status: (ref.id === this.snapshot.sessionId
             ? this.snapshot.status
             : 'idle') as SessionSummary['status']
@@ -561,6 +624,41 @@ export class CodexHost {
     return { projects, totalProjects: visible.length, truncated: visible.length > 100 }
   }
 
+  // ---------------------------------------------------------------- skills
+
+  /** Codex's own skill discovery for the open project, with stable desktop ids. */
+  private async skills(): Promise<{ summary: SkillSummary; path: string }[]> {
+    const cwd = this.snapshot.project?.path
+    if (!cwd) return []
+    const result = await this.server_().request<{
+      data: {
+        skills: {
+          name: string
+          description: string
+          shortDescription?: string
+          path: string
+          scope: string
+          enabled: boolean
+        }[]
+      }[]
+    }>('skills/list', { cwds: [cwd] })
+    return result.data
+      .flatMap((entry) => entry.skills)
+      .filter((skill) => skill.enabled)
+      .map((skill) => ({
+        path: skill.path,
+        summary: {
+          id: uuidFrom(skill.path),
+          name: skill.name.slice(0, 128),
+          description: (skill.shortDescription ?? skill.description).slice(0, 1024),
+          scope: skill.scope === 'repo' ? ('project' as const) : ('user' as const),
+          origin: 'top-level' as const,
+          mode: 'model-and-manual' as const,
+          canInsert: safeSkillName(skill.name)
+        }
+      }))
+  }
+
   // ---------------------------------------------------------------- turns
 
   private async signIn(account: string): Promise<void> {
@@ -602,6 +700,17 @@ export class CodexHost {
       await this.store.save(this.reference)
     }
     const input: Record<string, unknown>[] = [{ type: 'text', text, text_elements: [] }]
+    // `/skill:name` from the composer becomes Codex's own skill input.
+    const named = [...text.matchAll(/(?:^|\s)\/skill:([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g)].map(
+      (match) => match[1]!
+    )
+    if (named.length) {
+      const skills = await this.skills().catch(() => [])
+      for (const name of new Set(named)) {
+        const skill = skills.find((item) => item.summary.name === name)
+        if (skill) input.push({ type: 'skill', name, path: skill.path })
+      }
+    }
     if (images.length) {
       const directory = join(this.options.storage.cache, 'images', this.reference.id)
       await mkdir(directory, { recursive: true })
@@ -650,10 +759,10 @@ export class CodexHost {
     if (threadId && threadId !== this.reference?.threadId) return
     switch (method) {
       case 'item/started':
-        this.projection.item(params.item as CodexItem, false)
+        this.projection.item(params.item as CodexItem, false, params.turnId as string | undefined)
         break
       case 'item/completed':
-        this.projection.item(params.item as CodexItem, true)
+        this.projection.item(params.item as CodexItem, true, params.turnId as string | undefined)
         break
       case 'item/agentMessage/delta':
         this.projection.delta(params.itemId as string, 'assistant', params.delta as string)
@@ -800,7 +909,17 @@ export class CodexHost {
     else if (this.snapshot.status === 'running' || this.snapshot.status === 'awaiting-approval')
       this.snapshot.status = 'idle'
     this.snapshot.nodes = structuredClone(this.projection.nodes)
-    this.snapshot.fork = { entryId: null, reason: 'Codex 会话暂不支持分叉' }
+    const forkPoint = [...this.snapshot.nodes]
+      .reverse()
+      .find((node) => (node.type === 'assistant' || node.type === 'user') && node.canonicalEntryId)
+    const entryId =
+      forkPoint && (forkPoint.type === 'assistant' || forkPoint.type === 'user')
+        ? (forkPoint.canonicalEntryId ?? null)
+        : null
+    this.snapshot.fork = {
+      entryId,
+      reason: this.running ? '请先停止当前回合' : !entryId ? '还没有可以分叉的对话' : null
+    }
     this.snapshot.revision++
     this.snapshot.composeBlockReason = !this.snapshot.project
       ? 'project-required'

@@ -5,6 +5,8 @@
 //   answers every prompt. ChatGPT models are listed but cannot answer offline.
 // - Claude Code: two subscription accounts (fake, emails only) and a 演示网关 API connection
 //   that answers from a local server, so Claude Code chats work offline.
+// - Codex: download it in Settings (about 150 MB, once); it then answers offline through
+//   「Codex 配置的模型服务」, and the fake ChatGPT accounts show the grant dialog.
 // - A small Git project with uncommitted changes for the Git tab, on desktop and in the phone
 //   preview (Settings › 手机 › 打开预览).
 //
@@ -174,6 +176,11 @@ if (!args.has('--no-build')) execFileSync('npm', ['run', 'build'], { cwd: repo, 
 
 const { createClaudeHttpFixture } = await import(join(repo, 'src', 'claude-host', 'sdk-fixture.ts'))
 const fixture = await createClaudeHttpFixture({ cwd: project, streamDelayMs: 15 })
+// Codex (after it is downloaded in Settings) answers from a local Responses API stand-in.
+const { createResponsesFixture } = await import(
+  join(repo, 'src', 'codex-host', 'responses-fixture.ts')
+)
+const codexFixture = await createResponsesFixture()
 await pointClaudeAt(fixture.baseUrl)
 
 const electron = createRequire(import.meta.url)('electron')
@@ -190,7 +197,8 @@ const child = spawn(electron, [...(process.getuid?.() === 0 ? ['--no-sandbox'] :
     PI_DESKTOP_DEMO: '1',
     PI_DESKTOP_E2E_AGENT_DIR: agent,
     PI_DESKTOP_E2E_USER_DATA: userData,
-    PI_DESKTOP_DEMO_PROJECT: project
+    PI_DESKTOP_DEMO_PROJECT: project,
+    PI_DESKTOP_E2E_CODEX_CONFIG: JSON.stringify(codexFixture.config)
   }
 })
 const stop = () => child.kill()
@@ -198,5 +206,6 @@ process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
 child.on('exit', async (code) => {
   await fixture.close()
+  await codexFixture.close()
   process.exit(code ?? 0)
 })
