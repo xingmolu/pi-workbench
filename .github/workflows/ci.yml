@@ -437,11 +437,16 @@ jobs:
         run: |
           # Runs cancelled by a newer push leave drafts behind; those go, and of the published
           # nightlies the ten newest stay.
+          # A draft has no git tag yet, so only published releases take their tag with them.
           gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt,isDraft \
             --jq '[.[] | select(.tagName | contains("-nightly."))] | sort_by(.createdAt) | reverse
-                  | ([.[] | select(.isDraft)] + ([.[] | select(.isDraft | not)] | .[10:])) | .[].tagName' |
-            while read -r tag; do
-              if [ "$tag" != "v$VERSION" ]; then
+                  | ([.[] | select(.isDraft)] + ([.[] | select(.isDraft | not)] | .[10:]))
+                  | .[] | "\(.tagName) \(.isDraft)"' |
+            while read -r tag draft; do
+              [ "$tag" = "v$VERSION" ] && continue
+              if [ "$draft" = "true" ]; then
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+              else
                 gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
               fi
             done
