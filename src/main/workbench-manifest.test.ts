@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { discoverWorkbenchManifests } from './workbench-manifest'
+import { discoverWorkbenchManifests, supportsAppVersion } from './workbench-manifest'
 
 const temporaryDirectories: string[] = []
 
@@ -972,5 +972,15 @@ describe('discoverWorkbenchManifests', () => {
       'manifest-invalid',
       'skill-invalid'
     ])
+  })
+})
+
+describe('app version compatibility', () => {
+  it('counts a prerelease build as the release it leads to', () => {
+    expect(supportsAppVersion('0.1.0-nightly.31', '>=0.1.0')).toBe(true)
+    expect(supportsAppVersion('0.1.0-nightly.31', '^0.1.0')).toBe(true)
+    expect(supportsAppVersion('0.1.0', '>=0.1.0')).toBe(true)
+    expect(supportsAppVersion('0.1.0-nightly.31', '>=0.2.0')).toBe(false)
+    expect(supportsAppVersion('1.0.0-beta.1', '^0.1.0')).toBe(false)
   })
 })

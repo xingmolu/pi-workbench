@@ -452,6 +452,17 @@ async function readBoundedManifest(manifestPath: string): Promise<string> {
   }
 }
 
+/**
+ * Whether a plugin's `engines.piDesktop` range admits this app. A prerelease build such as
+ * the nightly `0.1.0-nightly.31` counts as the release it leads to (`0.1.0`); by semver's own
+ * rules it satisfies no plain range, which turned every plugin away from nightly builds.
+ */
+export function supportsAppVersion(appVersion: string, range: string): boolean {
+  const release = semver.parse(appVersion)
+  const version = release ? `${release.major}.${release.minor}.${release.patch}` : appVersion
+  return semver.satisfies(version, range)
+}
+
 export async function discoverWorkbenchManifests({
   roots,
   appVersion
@@ -589,7 +600,7 @@ export async function discoverWorkbenchManifests({
       continue
     }
 
-    if (!semver.satisfies(appVersion, manifest.engines.piDesktop)) {
+    if (!supportsAppVersion(appVersion, manifest.engines.piDesktop)) {
       diagnostics.push({
         severity: 'error',
         code: 'engine-incompatible',
