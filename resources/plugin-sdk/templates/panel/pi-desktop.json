@@ -1,0 +1,21 @@
+{
+  "$schema": "./types/pi-desktop.schema.json",
+  "schemaVersion": 1,
+  "id": "__PLUGIN_ID__",
+  "name": "__PLUGIN_NAME__",
+  "version": "0.1.0",
+  "description": "A panel that keeps notes for each project.",
+  "engines": { "piDesktop": "__ENGINE__" },
+  "permissions": ["ui.view", "storage"],
+  "contributes": {
+    "views": [
+      {
+        "id": "main",
+        "title": "__PLUGIN_NAME__",
+        "icon": "plugin",
+        "entry": "views/index.html",
+        "activation": "onProject"
+      }
+    ]
+  }
+}

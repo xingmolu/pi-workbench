@@ -138,6 +138,12 @@ export class PluginRuntime {
       if (!wanted.has(pluginId)) this.failures.delete(pluginId)
   }
 
+  /** Stops the plugin and forgets a failure, so the next `sync` starts a fresh process. */
+  reset(pluginId: string): void {
+    this.stop(pluginId)
+    this.failures.delete(pluginId)
+  }
+
   status(pluginId: string): PluginRuntimeStatus {
     return this.running.get(pluginId)?.status ?? this.failures.get(pluginId) ?? 'stopped'
   }

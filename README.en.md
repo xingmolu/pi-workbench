@@ -97,6 +97,9 @@ the terminal and `⌘/Ctrl + N` starts a new session.
   they request. Plugin pages run in a sandbox; a plugin that runs code does so with your account's
   rights (as editor extensions do), so only install plugins from sources you trust. File writes
   through the plugin API follow the current permission level.
+- To write a plugin, use New plugin or Load a plugin under development in the same settings page:
+  it loads from your folder and reloads on save, with typed templates, logs and examples in
+  `examples/plugins/` (see PLUGINS.md §22).
 - Diagnostics stay local; an exported report has keys, tokens and your home directory removed and is
   yours to share or not.
 

@@ -1,4 +1,4 @@
-import { useReducer, useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import { CircleAlert, Puzzle, RefreshCw, ShieldAlert, TriangleAlert } from 'lucide-react'
 import type {
   DesktopPluginSummary,
@@ -20,6 +20,7 @@ import {
 } from '../../../shared/plugin-api'
 import { SettingsPage } from './SettingsPrimitives'
 import { PluginInstallButtons } from './PluginInstall'
+import { PluginDevelopmentTools, PluginLogView } from './PluginDevelopment'
 import { sourceText, usePluginInstall } from '../store/plugin-install'
 import { t } from '../../../shared/i18n'
 import '../assets/plugin-settings.css'
@@ -221,6 +222,13 @@ export default function PluginSettings({
   )
   const [reviewing, setReviewing] = useState<string | null>(null)
   const install = usePluginInstall()
+  const [logsOpen, setLogsOpen] = useState<string | null>(null)
+  // A reload (also after a file of a plugin under development changed) can change what each
+  // development folder holds.
+  const refreshInstalls = install.refresh
+  useEffect(() => {
+    void refreshInstalls()
+  }, [refreshInstalls, snapshot.revision])
   const knownPluginIds = new Set(snapshot.plugins.map(({ pluginId }) => pluginId))
   const registryDiagnostics = snapshot.diagnostics.filter(
     ({ pluginId }) => !pluginId || !knownPluginIds.has(pluginId)
@@ -286,6 +294,7 @@ export default function PluginSettings({
       </div>
 
       <PluginInstallButtons install={install} />
+      <PluginDevelopmentTools install={install} />
 
       {operation.reloadError ? (
         <div className="plugin-operation-error" role="alert">
@@ -304,6 +313,9 @@ export default function PluginSettings({
           snapshot.plugins.map((plugin) => {
             const pending = operation.pendingPluginIds.includes(plugin.pluginId)
             const record = install.installed[plugin.pluginId]
+            const developing = install.development.find(
+              (folder) => folder.pluginId === plugin.pluginId
+            )
             const operationError = operation.pluginErrors[plugin.pluginId]
             const status =
               plugin.runtime?.hasMain && plugin.desktopEnabled
@@ -332,7 +344,9 @@ export default function PluginSettings({
                       <p className="plugin-description">{plugin.description}</p>
                     ) : null}
                     <p className="plugin-meta">
-                      <span title={pluginSourceLabel(plugin)}>{pluginSourceLabel(plugin)}</span>
+                      {developing ? null : (
+                        <span title={pluginSourceLabel(plugin)}>{pluginSourceLabel(plugin)}</span>
+                      )}
                       {plugin.builtin ? <span>{t('固定启用')}</span> : null}
                       {record ? (
                         <span title={sourceText(record.source)}>
@@ -340,7 +354,39 @@ export default function PluginSettings({
                         </span>
                       ) : null}
                     </p>
-                    {plugin.scope === 'user' ? (
+                    {developing ? (
+                      <div className="plugin-row-actions">
+                        <span className="plugin-badge is-development">{t('开发中')}</span>
+                        <span className="plugin-meta" title={developing.path}>
+                          {developing.path}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={install.busy}
+                          onClick={() => void install.reload(plugin.pluginId)}
+                        >
+                          {t('重新加载')}
+                        </button>
+                        <button
+                          type="button"
+                          aria-expanded={logsOpen === plugin.pluginId}
+                          onClick={() =>
+                            setLogsOpen((open) =>
+                              open === plugin.pluginId ? null : plugin.pluginId
+                            )
+                          }
+                        >
+                          {t('日志')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={install.busy}
+                          onClick={() => void install.undevelop(developing.path)}
+                        >
+                          {t('停止开发')}
+                        </button>
+                      </div>
+                    ) : plugin.scope === 'user' ? (
                       <div className="plugin-row-actions">
                         <span className="plugin-badge is-unverified">{t('未验证')}</span>
                         {record ? (
@@ -376,6 +422,8 @@ export default function PluginSettings({
                     <span aria-hidden="true" />
                   </button>
                 </div>
+
+                {logsOpen === plugin.pluginId ? <PluginLogView pluginId={plugin.pluginId} /> : null}
 
                 {plugin.requestedPermissions.length > 0 ? (
                   <div className="plugin-permissions" aria-label={t('请求权限')}>

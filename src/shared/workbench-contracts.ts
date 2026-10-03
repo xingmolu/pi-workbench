@@ -118,6 +118,8 @@ export type PluginThemeSummary = {
 export type WorkbenchCommand =
   | { type: 'state:get' }
   | { type: 'plugins:reload' }
+  /** A fresh process and fresh panels, e.g. after the plugin's code changed. */
+  | { type: 'plugin:restart'; pluginId: string }
   | { type: 'plugin:set-enabled'; pluginId: string; desktopEnabled: boolean }
   | { type: 'view:set'; viewId: string; visible: boolean; bounds?: WorkbenchBounds }
   | { type: 'plugin:command:run'; pluginId: string; commandId: string }

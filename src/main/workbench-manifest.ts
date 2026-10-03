@@ -249,8 +249,19 @@ const manifestThemeSchema = z
   })
   .strict()
 
-const workbenchManifestSchema = z
+/** The first few schema problems, so an author can see what to fix. */
+function schemaProblems(error: z.ZodError): string {
+  const problems = error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+  if (error.issues.length > 5) problems.push(`+${error.issues.length - 5} more`)
+  return problems.join('; ')
+}
+
+export const workbenchManifestSchema = z
   .object({
+    /** Editors read it for completion; see `resources/plugin-sdk`. */
+    $schema: z.string().max(2048).optional(),
     schemaVersion: z.literal(1),
     id: namespacedIdentifierSchema,
     version: z.string().trim().min(1).max(128),
@@ -562,7 +573,7 @@ export async function discoverWorkbenchManifests({
       diagnostics.push({
         severity: 'error',
         code: 'manifest-invalid',
-        message: 'Workbench manifest does not match the supported schema.',
+        message: `Workbench manifest does not match the supported schema: ${schemaProblems(parsedManifest.error)}`,
         ...(pluginId === undefined ? {} : { pluginId })
       })
       continue

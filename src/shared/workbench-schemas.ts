@@ -294,6 +294,7 @@ export const workbenchBoundsSchema = z
 export const workbenchCommandSchema: z.ZodType<WorkbenchCommand> = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state:get') }).strict(),
   z.object({ type: z.literal('plugins:reload') }).strict(),
+  z.object({ type: z.literal('plugin:restart'), pluginId: identifierSchema }).strict(),
   z
     .object({
       type: z.literal('plugin:set-enabled'),

@@ -71,7 +71,7 @@ import {
   attachmentCommandSchema,
   formatTextContext
 } from '../shared/text-attachments'
-import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { homedir, release, userInfo } from 'node:os'
@@ -104,10 +104,14 @@ import { workbenchCommandSchema } from '../shared/workbench-schemas'
 import {
   PLUGIN_INSTALL_CHANNEL,
   pluginInstallCommandSchema,
+  type PluginDevelopmentFolder,
   type PluginInstallCommand,
   type PluginInstallResult
 } from '../shared/plugin-install'
 import { PluginInstaller, type PluginInstallRecord } from './plugin-installer'
+import { PluginDevelopment } from './plugin-development'
+import { PluginLogs } from './plugin-logs'
+import { scaffoldPlugin } from './plugin-scaffold'
 import { discoverWorkbenchManifests } from './workbench-manifest'
 import { WORKSPACE_FILES_CHANNEL, workspaceFilesCommandSchema } from '../shared/workspace-files'
 import { WorkspaceFiles } from './workspace-files'
@@ -741,7 +745,85 @@ function rememberRuntimeSelection(
 }
 
 const PLUGIN_INSTALLS_KEY = 'pluginInstalls'
+const PLUGIN_DEVELOPMENT_KEY = 'pluginDevelopmentFolders'
 let pluginInstaller: PluginInstaller | null = null
+let pluginDevelopment: PluginDevelopment | null = null
+const pluginLogs = new PluginLogs()
+
+/** Templates, types and the manifest schema for new plugins. */
+function pluginSdkDirectory(): string {
+  return join(app.getAppPath(), 'resources', 'plugin-sdk')
+}
+
+/** The plugin a development folder holds, or why it holds none. */
+async function developmentFolder(path: string): Promise<PluginDevelopmentFolder> {
+  const discovery = await discoverWorkbenchManifests({
+    roots: [{ path, source: '', scope: 'user', hasExecutablePiResources: false }],
+    appVersion: app.getVersion()
+  }).catch((error: unknown) => ({
+    plugins: [],
+    diagnostics: [{ message: error instanceof Error ? error.message : String(error) }]
+  }))
+  const plugin = discovery.plugins[0]
+  if (plugin) return { path, pluginId: plugin.pluginId, problem: null }
+  const problem = discovery.diagnostics.map((diagnostic) => diagnostic.message).join(' ')
+  return {
+    path,
+    pluginId: null,
+    problem: problem || t('没有找到 pi-desktop.json 或 manifest.json')
+  }
+}
+
+/** The manifest text of each development folder as last loaded. */
+const developmentManifests = new Map<string, string>()
+
+async function manifestText(folder: string): Promise<string> {
+  for (const name of ['pi-desktop.json', 'manifest.json']) {
+    const text = await readFile(join(folder, name), 'utf8').catch(() => null)
+    if (text !== null) return `${name}\0${text}`
+  }
+  return ''
+}
+
+/**
+ * A file in a development folder changed. Code and page changes restart the plugin's
+ * process and reload its open panels in place; a manifest change also rediscovers plugins,
+ * which closes and reopens every panel.
+ */
+async function developmentChanged(folder: string): Promise<void> {
+  const manifest = await manifestText(folder)
+  const manifestChanged = developmentManifests.get(folder) !== manifest
+  developmentManifests.set(folder, manifest)
+  const { pluginId } = await developmentFolder(folder)
+  await reloadDevelopmentPlugin(pluginId, manifestChanged)
+}
+
+/** Rediscovers (when asked) and restarts the plugin, and notes it in the plugin's log. */
+async function reloadDevelopmentPlugin(pluginId: string | null, rediscover = true): Promise<void> {
+  const host = workbenchHost
+  if (!host) return
+  if (rediscover || !pluginId) await host.dispatch({ type: 'plugins:reload' })
+  if (!pluginId) return
+  if (!host.snapshot().plugins.some((candidate) => candidate.pluginId === pluginId)) return
+  await host.dispatch({ type: 'plugin:restart', pluginId })
+  pluginLogs.append(pluginId, 'info', t('已重新加载'))
+}
+
+/** Loads a development folder and enables its plugin; the author trusts their own code. */
+async function startDevelopment(path: string): Promise<PluginDevelopmentFolder> {
+  const development = pluginDevelopment
+  const host = workbenchHost
+  if (!development || !host) throw new Error(t('Workbench 尚未就绪'))
+  const added = await development.add(path)
+  developmentManifests.set(added, await manifestText(added))
+  const folder = await developmentFolder(added)
+  await host.dispatch({ type: 'plugins:reload' })
+  if (folder.pluginId)
+    await host
+      .dispatch({ type: 'plugin:set-enabled', pluginId: folder.pluginId, desktopEnabled: true })
+      .catch(() => undefined)
+  return folder
+}
 
 /** Ids of the plugins that ship with the app; an installed plugin may not take one. */
 async function bundledPluginIds(): Promise<Set<string>> {
@@ -773,13 +855,15 @@ async function handlePluginInstall(
     case 'pick': {
       const owner = BrowserWindow.fromWebContents(sender)
       const options: Electron.OpenDialogOptions =
-        command.kind === 'folder'
-          ? { title: t('选择插件文件夹'), properties: ['openDirectory'] }
-          : {
-              title: t('选择插件压缩包'),
-              properties: ['openFile'],
-              filters: [{ name: 'Zip', extensions: ['zip'] }]
-            }
+        command.kind === 'parent'
+          ? { title: t('选择新插件的位置'), properties: ['openDirectory', 'createDirectory'] }
+          : command.kind === 'folder'
+            ? { title: t('选择插件文件夹'), properties: ['openDirectory'] }
+            : {
+                title: t('选择插件压缩包'),
+                properties: ['openFile'],
+                filters: [{ name: 'Zip', extensions: ['zip'] }]
+              }
       const picked = owner
         ? await dialog.showOpenDialog(owner, options)
         : await dialog.showOpenDialog(options)
@@ -814,8 +898,44 @@ async function handlePluginInstall(
           (preferenceStore().get(PLUGIN_INSTALLS_KEY as keyof Preferences) as Record<
             string,
             PluginInstallRecord
-          >) ?? {}
+          >) ?? {},
+        development: await Promise.all(
+          (pluginDevelopment?.folders() ?? []).map((path) => developmentFolder(path))
+        )
       }
+    case 'develop':
+      await startDevelopment(command.path)
+      return { type: 'done' }
+    case 'undevelop': {
+      const { pluginId } = await developmentFolder(command.path)
+      if (pluginId)
+        await host
+          .dispatch({ type: 'plugin:set-enabled', pluginId, desktopEnabled: false })
+          .catch(() => undefined)
+      pluginDevelopment?.remove(command.path)
+      await host.dispatch({ type: 'plugins:reload' })
+      return { type: 'done' }
+    }
+    case 'reload':
+      await reloadDevelopmentPlugin(command.pluginId)
+      return { type: 'done' }
+    case 'logs':
+      return { type: 'logs', lines: pluginLogs.get(command.pluginId) }
+    case 'clear-logs':
+      pluginLogs.clear(command.pluginId)
+      return { type: 'done' }
+    case 'scaffold': {
+      const path = await scaffoldPlugin({
+        sdkDirectory: pluginSdkDirectory(),
+        parentPath: command.parentPath,
+        template: command.template,
+        id: command.id,
+        name: command.name,
+        appVersion: app.getVersion()
+      })
+      const folder = await startDevelopment(path)
+      return { type: 'created', path: folder.path, pluginId: command.id }
+    }
   }
 }
 
@@ -2513,6 +2633,26 @@ function createWindow(): void {
     git: hostGit
   })
   void pluginInstaller.clearStaging()
+  pluginDevelopment?.dispose()
+  pluginDevelopment = new PluginDevelopment({
+    folders: {
+      get: () => {
+        const folders = workbenchStore.get(PLUGIN_DEVELOPMENT_KEY)
+        return Array.isArray(folders)
+          ? folders.filter((folder): folder is string => typeof folder === 'string')
+          : []
+      },
+      set: (folders) => workbenchStore.set(PLUGIN_DEVELOPMENT_KEY, folders)
+    },
+    onChange: (folder) => {
+      void developmentChanged(folder).catch((error: unknown) =>
+        console.warn('Plugin reload failed:', errorMessage(error))
+      )
+    }
+  })
+  for (const folder of pluginDevelopment.folders())
+    void manifestText(folder).then((text) => developmentManifests.set(folder, text))
+  pluginDevelopment.start()
   workbenchHost = createWorkbenchHost({
     appVersion: app.getVersion(),
     agentDir: workbenchAgentDir,
@@ -2524,6 +2664,8 @@ function createWindow(): void {
     pluginHostPath: join(__dirname, 'plugin-host.js'),
     permissionMode: () => activePermissionMode,
     bundledPluginDirectory: bundledPluginDirectory(),
+    developmentRoots: () => pluginDevelopment?.roots() ?? Promise.resolve([]),
+    logs: pluginLogs,
     appearance: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
     pluginServices: (() => {
       mkdirSync(app.getPath('sessionData'), { recursive: true })

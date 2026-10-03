@@ -276,7 +276,12 @@ Pi 通过 write / edit 工具修改文件时，对话里的工具行直接显示
 └── panel.js
 ```
 
-开发中直接改这个目录里的文件后，点击「重新加载」即可；E2E 模式下目录在 `PI_DESKTOP_E2E_AGENT_DIR` 中。
+E2E 模式下目录在 `PI_DESKTOP_E2E_AGENT_DIR` 中。
+
+写插件时不要改安装目录，用「开发插件」（PLUGINS.md §22）：「新建插件」从模板生成一个带类型定义的文件夹，「加载开发中的插件」直接从文件夹加载，保存文件就自动重新加载，日志里有插件进程输出和面板控制台。示例在 `examples/plugins/`，模板、类型定义和 manifest JSON Schema 在 `resources/plugin-sdk/`。
+
+- `pi-desktop.schema.json` 由 manifest 校验器生成：改了 `workbenchManifestSchema` 后运行 `UPDATE_PLUGIN_SDK=1 npm test -- plugin-sdk` 重新生成，否则 `plugin-sdk.test.ts` 会失败。
+- `pi-desktop.d.ts` 是手写的；`plugin-sdk.test.ts` 检查每个宿主方法都有类型，并用 TypeScript 检查每个模板生成的插件和 `examples/plugins/`。新增 `pi.*` 方法时同时补上类型。
 设置中的 Desktop 开关只隐藏 contribution 并销毁对应面板，不会卸载、停止或禁用
 Pi Agent Host 已加载的 Skills/Extensions。
 

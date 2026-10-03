@@ -329,3 +329,225 @@
   gap: 6px;
   margin-top: 6px;
 }
+
+.plugin-badge.is-development {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+.plugin-row-actions .plugin-meta {
+  min-width: 0;
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plugin-development {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+
+.plugin-development-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plugin-development-head p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.plugin-create {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-floating);
+}
+
+.plugin-create > label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plugin-create input:not([type='radio']) {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.plugin-create fieldset {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.plugin-create legend {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plugin-template {
+  display: flex;
+  flex: 1 1 160px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.plugin-template:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.plugin-template span {
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.plugin-template small {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.plugin-create .plugin-grant-actions {
+  grid-column: 1 / -1;
+}
+
+.plugin-development-folder {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+}
+
+.plugin-development-folder > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-development-folder code {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plugin-development-folder p {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-development-folder button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.plugin-logs {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.plugin-logs ol {
+  max-height: 220px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.plugin-logs li {
+  display: flex;
+  gap: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plugin-logs time,
+.plugin-log-source {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.plugin-logs li.is-warning .plugin-log-text,
+.plugin-logs li.is-warning .plugin-log-level {
+  color: var(--warning-text);
+}
+
+.plugin-logs li.is-error .plugin-log-text,
+.plugin-logs li.is-error .plugin-log-level {
+  color: var(--danger-text);
+}
+
+.plugin-logs-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.plugin-logs-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.plugin-logs-actions button {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .plugin-create {
+    grid-template-columns: 1fr;
+  }
+}

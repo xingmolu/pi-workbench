@@ -1,0 +1,28 @@
+/* Only `--token: value` pairs from src/shared/theme-tokens.ts are read; everything else is ignored. */
+:root {
+  --canvas: #f6efe3;
+  --raised: #fbf6ec;
+  --composer: #fbf6ec;
+  --chip: #efe5d4;
+  --text: #3b3228;
+  --text-soft: #5c5044;
+  --text-strong: #2a231b;
+  --text-secondary: #74685a;
+  --text-tertiary: #978a7a;
+  --muted: #978a7a;
+  --line: #e2d6c2;
+  --line-soft: #ebe1d0;
+  --accent: #a0522d;
+  --accent-hover: #8b4726;
+  --accent-text: #ffffff;
+  --accent-soft: #f1e0d0;
+  --accent-border: #d9b597;
+  --surface-sunken: #efe6d6;
+  --surface-subtle: #f3ebdd;
+  --surface-floating: #fbf6ec;
+  --surface-selected: #eadcc6;
+  --surface-hover: #f0e6d5;
+  --sidebar-selected: #eadcc6;
+  --border-strong: #cdbda5;
+  --border-focus: #a0522d;
+}

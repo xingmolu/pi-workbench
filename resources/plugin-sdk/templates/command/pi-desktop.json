@@ -1,0 +1,20 @@
+{
+  "$schema": "./types/pi-desktop.schema.json",
+  "schemaVersion": 1,
+  "id": "__PLUGIN_ID__",
+  "name": "__PLUGIN_NAME__",
+  "version": "0.1.0",
+  "description": "Adds a command to the command palette (⌘K).",
+  "engines": { "piDesktop": "__ENGINE__" },
+  "main": "main.js",
+  "permissions": ["ui.command"],
+  "contributes": {
+    "commands": [
+      {
+        "id": "hello",
+        "title": { "en": "__PLUGIN_NAME__: Say hello", "zh-CN": "__PLUGIN_NAME__：打个招呼" },
+        "keywords": ["hello"]
+      }
+    ]
+  }
+}

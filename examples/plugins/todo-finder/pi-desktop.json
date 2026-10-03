@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../resources/plugin-sdk/pi-desktop.schema.json",
+  "schemaVersion": 1,
+  "id": "example.todo-finder",
+  "name": { "en": "TODO Finder", "zh-CN": "TODO 查找" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Lists TODO and FIXME comments in the project, for you and for the agent.",
+    "zh-CN": "列出项目里的 TODO 和 FIXME 注释，给你看，也给 Agent 用。"
+  },
+  "engines": { "piDesktop": ">=0.1.0" },
+  "main": "main.js",
+  "permissions": ["ui.view", "ui.command", "fs.read", "agent.tools"],
+  "contributes": {
+    "views": [
+      {
+        "id": "list",
+        "title": { "en": "TODOs", "zh-CN": "TODO" },
+        "icon": "plugin",
+        "entry": "views/index.html",
+        "activation": "onProject"
+      }
+    ],
+    "commands": [
+      {
+        "id": "open",
+        "title": { "en": "Show TODOs", "zh-CN": "显示 TODO" },
+        "keywords": ["todo", "fixme"]
+      }
+    ],
+    "agentTools": [
+      {
+        "name": "list_todos",
+        "description": "List TODO and FIXME comments in the open project with their file and line.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "tag": { "type": "string", "enum": ["TODO", "FIXME"], "description": "Only this tag." }
+          },
+          "additionalProperties": false
+        },
+        "readOnly": true
+      }
+    ]
+  }
+}

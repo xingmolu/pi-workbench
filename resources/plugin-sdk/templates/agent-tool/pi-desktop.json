@@ -1,0 +1,28 @@
+{
+  "$schema": "./types/pi-desktop.schema.json",
+  "schemaVersion": 1,
+  "id": "__PLUGIN_ID__",
+  "name": "__PLUGIN_NAME__",
+  "version": "0.1.0",
+  "description": "Gives the agent a tool that counts the lines of a project file.",
+  "engines": { "piDesktop": "__ENGINE__" },
+  "main": "main.js",
+  "permissions": ["agent.tools", "fs.read"],
+  "contributes": {
+    "agentTools": [
+      {
+        "name": "count_lines",
+        "description": "Count the lines of a text file in the open project.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Project-relative path, e.g. src/index.ts" }
+          },
+          "required": ["path"],
+          "additionalProperties": false
+        },
+        "readOnly": true
+      }
+    ]
+  }
+}

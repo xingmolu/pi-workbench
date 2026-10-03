@@ -60,6 +60,8 @@ export type WorkbenchPluginRuntime = {
   status(pluginId: string): PluginRuntimeStatus
   commands(): PluginCommandSummary[]
   runCommand(pluginId: string, commandId: string): Promise<void>
+  /** Stops the plugin's process so the next sync starts a fresh one. */
+  reset?(pluginId: string): void
 }
 
 export type WorkbenchHostContext = Pick<
@@ -76,6 +78,8 @@ export type WorkbenchPanelView = {
   setBounds(bounds: WorkbenchBounds): void
   setVisible(visible: boolean): void
   setContext(context: PluginPanelContext): void
+  /** Loads the page again from disk, keeping the view where it is. */
+  reload?(): void
   destroy(): void
 }
 
@@ -845,6 +849,24 @@ export function createWorkbenchHostState(
           break
         case 'plugins:reload':
           return { state: await this.reload() }
+        case 'plugin:restart': {
+          if (!discovered(command.pluginId)) throw new Error('Workbench plugin is unavailable')
+          // A restart is a fresh start: earlier crashes no longer count against the plugin.
+          crashCounts.delete(command.pluginId)
+          crashDiagnostics.delete(command.pluginId)
+          invalidatePendingCreations(command.pluginId)
+          // Open panels reload in place, so the author keeps looking at the same panel.
+          for (const [viewId, record] of views)
+            if (record.pluginId === command.pluginId) {
+              if (record.view.reload) record.view.reload()
+              else destroyView(viewId)
+            }
+          dependencies.runtime?.reset?.(command.pluginId)
+          syncRuntime()
+          revision += 1
+          dependencies.onState?.(snapshot())
+          break
+        }
         case 'plugin:set-enabled': {
           if (command.pluginId === BUILTIN_PLUGIN.pluginId) {
             throw new Error('The built-in Workbench plugin cannot be disabled')

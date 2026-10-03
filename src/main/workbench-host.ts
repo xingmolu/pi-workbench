@@ -56,6 +56,7 @@ import {
   type WorkbenchStateStore
 } from './workbench-host-state'
 import { t } from '../shared/i18n'
+import type { PluginLogs } from './plugin-logs'
 
 export interface WorkbenchHost {
   /** A `pi.*` call from a plugin view, authorized against the view's owning plugin. */
@@ -128,6 +129,10 @@ export type WorkbenchHostDependencies = {
   approvalTimeoutMs?: number
   createView?: (request: WorkbenchPanelViewRequest) => Promise<WorkbenchPanelView>
   panelSenderBinding?: WorkbenchPanelSenderBinding
+  /** Folders of plugins under development; they load ahead of installed plugins. */
+  developmentRoots?: () => Promise<PiPackageRoot[]>
+  /** Receives plugin process output, panel console messages and load failures. */
+  logs?: PluginLogs
 }
 
 const PLUGIN_AUDIT_MAX_BYTES = 1024 * 1024
@@ -171,15 +176,27 @@ export function pluginProcessEnv(pluginId: string, source = process.env): Record
   return env
 }
 
-function electronPluginSpawner(entry: string): PluginRuntimeDependencies['spawn'] {
+function electronPluginSpawner(
+  entry: string,
+  logs?: PluginLogs
+): PluginRuntimeDependencies['spawn'] {
   return (pluginId) => {
     const child = utilityProcess.fork(entry, [], {
       serviceName: `Pi Plugin ${pluginId}`,
       stdio: 'pipe',
       env: pluginProcessEnv(pluginId)
     })
-    child.stdout?.resume()
-    child.stderr?.resume()
+    if (logs) {
+      child.stdout
+        ?.setEncoding('utf8')
+        .on('data', (text: string) => logs.write(pluginId, 'out', text))
+      child.stderr
+        ?.setEncoding('utf8')
+        .on('data', (text: string) => logs.write(pluginId, 'err', text))
+    } else {
+      child.stdout?.resume()
+      child.stderr?.resume()
+    }
     const handle: PluginProcessHandle = {
       postMessage: (message) => child.postMessage(message),
       onMessage: (listener) => child.on('message', listener),
@@ -277,7 +294,8 @@ async function createElectronPanelView(
   preloadPath: string,
   request: WorkbenchPanelViewRequest,
   sessionOwnership: WorkbenchPanelSessionOwnership,
-  bindPanelSender?: (sender: WebContents, viewId: string) => () => void
+  bindPanelSender?: (sender: WebContents, viewId: string) => () => void,
+  logs?: PluginLogs
 ): Promise<WorkbenchPanelView> {
   request.signal.throwIfAborted()
   const { canonicalRootPath, canonicalEntryPath } = await revalidateEntry(request)
@@ -338,6 +356,19 @@ async function createElectronPanelView(
     if (!contents.isDestroyed()) contents.send(WORKBENCH_PANEL_CONTEXT_CHANNEL, currentContext)
   })
   contents.on('render-process-gone', (_event, details) => request.onCrash(details.reason))
+  if (logs)
+    contents.on('console-message', (details) => {
+      if (details.level === 'debug') return
+      const where = details.sourceId
+        ? ` (${details.sourceId.split('/').pop()}:${details.lineNumber})`
+        : ''
+      logs.append(
+        request.entry.contribution.pluginId,
+        details.level,
+        `${details.message}${where}`,
+        'panel'
+      )
+    })
 
   const destroy = (): void => {
     if (destroyed) return
@@ -366,6 +397,9 @@ async function createElectronPanelView(
     setContext: (context) => {
       currentContext = context
       if (!contents.isDestroyed()) contents.send(WORKBENCH_PANEL_CONTEXT_CHANNEL, context)
+    },
+    reload: () => {
+      if (!contents.isDestroyed()) contents.reloadIgnoringCache()
     },
     destroy
   }
@@ -494,7 +528,9 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
   let notifyRuntime = (): void => undefined
   const spawn =
     dependencies.spawnPlugin ??
-    (dependencies.pluginHostPath ? electronPluginSpawner(dependencies.pluginHostPath) : undefined)
+    (dependencies.pluginHostPath
+      ? electronPluginSpawner(dependencies.pluginHostPath, dependencies.logs)
+      : undefined)
   const storageKey = 'workbenchPluginStorage'
   const approvals = new Map<string, (allow: boolean) => void>()
   const approve: PluginRuntimeDependencies['approve'] = (request) =>
@@ -542,8 +578,10 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
             })
           }
         },
-        toast: (pluginId, message) =>
-          dependencies.onEvent?.({ type: 'toast', pluginId, message: message.slice(0, 600) }),
+        toast: (pluginId, message) => {
+          dependencies.logs?.append(pluginId, 'warning', message)
+          dependencies.onEvent?.({ type: 'toast', pluginId, message: message.slice(0, 600) })
+        },
         openView: (viewId) => dependencies.onEvent?.({ type: 'reveal', viewId }),
         audit: pluginAuditWriter(join(dependencies.agentDir, 'pi-desktop', 'plugin-audit.jsonl')),
         settings: {
@@ -562,8 +600,14 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
   const state = createWorkbenchHostState({
     ...(runtime ? { runtime } : {}),
     appVersion: dependencies.appVersion,
-    userRoots: () =>
-      pluginRootsIn(join(dependencies.agentDir, 'desktop-plugins'), t('本机插件'), 'user'),
+    userRoots: async () => [
+      ...((await dependencies.developmentRoots?.()) ?? []),
+      ...(await pluginRootsIn(
+        join(dependencies.agentDir, 'desktop-plugins'),
+        t('本机插件'),
+        'user'
+      ))
+    ],
     ...(dependencies.bundledPluginDirectory
       ? {
           bundledRoots: () =>
@@ -582,7 +626,8 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
           sessionOwnership,
           panelSenderBinding
             ? (sender, viewId) => panelSenderBinding.bind(sender, host, viewId)
-            : undefined
+            : undefined,
+          dependencies.logs
         )),
     nativeViews: { browser: dependencies.browser },
     ...(dependencies.onState === undefined ? {} : { onState: dependencies.onState })

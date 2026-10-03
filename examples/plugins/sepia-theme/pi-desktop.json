@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../resources/plugin-sdk/pi-desktop.schema.json",
+  "schemaVersion": 1,
+  "id": "example.sepia-theme",
+  "name": { "en": "Sepia", "zh-CN": "棕褐" },
+  "version": "1.0.0",
+  "description": {
+    "en": "A warm, low-contrast light theme.",
+    "zh-CN": "温暖、低对比的浅色主题。"
+  },
+  "engines": { "piDesktop": ">=0.1.0" },
+  "permissions": ["ui.theme"],
+  "contributes": {
+    "themes": [
+      {
+        "id": "sepia",
+        "label": { "en": "Sepia", "zh-CN": "棕褐" },
+        "path": "themes/sepia.css",
+        "base": "light"
+      }
+    ]
+  }
+}
