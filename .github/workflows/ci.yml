@@ -173,6 +173,7 @@ jobs:
           tests/e2e/work-summary.spec.ts
           tests/e2e/coding-flow.spec.ts
           tests/e2e/plugin-runtime.spec.ts
+          tests/e2e/plugin-install.spec.ts
           tests/e2e/git-plugin.spec.ts
           tests/e2e/bundled-host-plugins.spec.ts
           tests/e2e/plugin-agent.spec.ts

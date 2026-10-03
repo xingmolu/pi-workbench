@@ -65,6 +65,7 @@ jobs:
           tests/e2e/session-history.spec.ts
           tests/e2e/ui-experience.spec.ts
           tests/e2e/terminal-windows.spec.ts
+          tests/e2e/plugin-install.spec.ts
           --reporter=line
 
       # The page snapshot Playwright saved for each failed spec, since artifacts are awkward to read.

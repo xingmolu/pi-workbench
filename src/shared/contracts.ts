@@ -680,6 +680,10 @@ export type PiDesktopAPI = {
   locale: import('./i18n').Locale
   /** Restarts the app, e.g. to apply a new interface language. */
   relaunch: () => Promise<void>
+  /** Installs, updates and removes user plugins. */
+  pluginInstall: (
+    command: import('./plugin-install').PluginInstallCommand
+  ) => Promise<import('./plugin-install').PluginInstallResult>
   navigationLibrary: (command: import('./navigation-library').NavigationLibraryCommand) => Promise<import('./navigation-library').NavigationLibraryState>
   nativePaletteFocus: (command: import('./native-palette-focus').NativePaletteFocusCommand) => Promise<void>
   desktopSettings: (command: import('./desktop-settings').DesktopSettingsCommand) => Promise<import('./desktop-settings').DesktopSettings>

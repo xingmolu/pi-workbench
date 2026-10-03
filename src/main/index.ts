@@ -71,7 +71,7 @@ import {
   attachmentCommandSchema,
   formatTextContext
 } from '../shared/text-attachments'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { homedir, release, userInfo } from 'node:os'
@@ -101,6 +101,14 @@ import {
 } from '../shared/workbench-contracts'
 import { browserCommandSchema, hostCommandSchema } from '../shared/schemas'
 import { workbenchCommandSchema } from '../shared/workbench-schemas'
+import {
+  PLUGIN_INSTALL_CHANNEL,
+  pluginInstallCommandSchema,
+  type PluginInstallCommand,
+  type PluginInstallResult
+} from '../shared/plugin-install'
+import { PluginInstaller, type PluginInstallRecord } from './plugin-installer'
+import { discoverWorkbenchManifests } from './workbench-manifest'
 import { WORKSPACE_FILES_CHANNEL, workspaceFilesCommandSchema } from '../shared/workspace-files'
 import { WorkspaceFiles } from './workspace-files'
 import { GIT_REVIEW_CHANNEL, gitReviewCommandSchema } from '../shared/git-review'
@@ -730,6 +738,85 @@ function rememberRuntimeSelection(
     preferences.set('lastRuntimeId', runtimeId)
   if (path && preferences.get('lastSessionPath') !== path) preferences.set('lastSessionPath', path)
   else if (!path && preferences.get('lastSessionPath')) preferences.delete('lastSessionPath')
+}
+
+const PLUGIN_INSTALLS_KEY = 'pluginInstalls'
+let pluginInstaller: PluginInstaller | null = null
+
+/** Ids of the plugins that ship with the app; an installed plugin may not take one. */
+async function bundledPluginIds(): Promise<Set<string>> {
+  const directory = bundledPluginDirectory()
+  const children = await readdir(directory, { withFileTypes: true }).catch(() => [])
+  const discovery = await discoverWorkbenchManifests({
+    roots: children
+      .filter((child) => child.isDirectory())
+      .map((child) => ({
+        path: join(directory, child.name),
+        source: 'bundled',
+        scope: 'bundled' as const,
+        hasExecutablePiResources: false
+      })),
+    appVersion: app.getVersion()
+  })
+  return new Set(discovery.plugins.map((plugin) => plugin.pluginId))
+}
+
+/** Install, update and remove user plugins; enabling a confirmed install grants what it asked. */
+async function handlePluginInstall(
+  command: PluginInstallCommand,
+  sender: Electron.WebContents
+): Promise<PluginInstallResult> {
+  const installer = pluginInstaller
+  const host = workbenchHost
+  if (!installer || !host) throw new Error(t('Workbench 尚未就绪'))
+  switch (command.type) {
+    case 'pick': {
+      const owner = BrowserWindow.fromWebContents(sender)
+      const options: Electron.OpenDialogOptions =
+        command.kind === 'folder'
+          ? { title: t('选择插件文件夹'), properties: ['openDirectory'] }
+          : {
+              title: t('选择插件压缩包'),
+              properties: ['openFile'],
+              filters: [{ name: 'Zip', extensions: ['zip'] }]
+            }
+      const picked = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options)
+      return { type: 'picked', path: picked.canceled ? null : (picked.filePaths[0] ?? null) }
+    }
+    case 'inspect':
+      return { type: 'preview', preview: await installer.inspect(command.source) }
+    case 'update':
+      return { type: 'preview', preview: await installer.update(command.pluginId) }
+    case 'cancel':
+      await installer.cancel(command.stagingId)
+      return { type: 'done' }
+    case 'confirm': {
+      const pluginId = await installer.confirm(command.stagingId)
+      await host.dispatch({ type: 'plugins:reload' })
+      // The user reviewed the requested permissions before confirming: enabling grants them.
+      await host.dispatch({ type: 'plugin:set-enabled', pluginId, desktopEnabled: true })
+      return { type: 'done' }
+    }
+    case 'uninstall': {
+      await host
+        .dispatch({ type: 'plugin:set-enabled', pluginId: command.pluginId, desktopEnabled: false })
+        .catch(() => undefined)
+      await installer.uninstall(command.pluginId)
+      await host.dispatch({ type: 'plugins:reload' })
+      return { type: 'done' }
+    }
+    case 'list':
+      return {
+        type: 'installed',
+        plugins:
+          (preferenceStore().get(PLUGIN_INSTALLS_KEY as keyof Preferences) as Record<
+            string,
+            PluginInstallRecord
+          >) ?? {}
+      }
+  }
 }
 
 /** Bundled plugins are unpacked from the asar archive so they are real files on disk. */
@@ -2284,6 +2371,10 @@ function registerIpc(): void {
     nativePaletteFocus.surfaceUpdated()
     return result
   })
+  ipcMain.handle(PLUGIN_INSTALL_CHANNEL, async (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    return handlePluginInstall(pluginInstallCommandSchema.parse(command), event.sender)
+  })
   ipcMain.handle(NATIVE_PALETTE_FOCUS_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
     const parsed = nativePaletteFocusSchema.parse(command)
@@ -2407,9 +2498,24 @@ function createWindow(): void {
       preferenceStore().set(key as keyof Preferences, value)
     }
   }
+  const workbenchAgentDir = e2eAgentDir ?? join(app.getPath('userData'), 'workbench')
+  pluginInstaller = new PluginInstaller({
+    pluginsDirectory: join(workbenchAgentDir, 'desktop-plugins'),
+    stagingDirectory: join(workbenchAgentDir, 'plugin-staging'),
+    appVersion: app.getVersion(),
+    discover: discoverWorkbenchManifests,
+    bundledIds: () => bundledPluginIds(),
+    records: {
+      get: () =>
+        (workbenchStore.get(PLUGIN_INSTALLS_KEY) as Record<string, PluginInstallRecord>) ?? {},
+      set: (records) => workbenchStore.set(PLUGIN_INSTALLS_KEY, records)
+    },
+    git: hostGit
+  })
+  void pluginInstaller.clearStaging()
   workbenchHost = createWorkbenchHost({
     appVersion: app.getVersion(),
-    agentDir: e2eAgentDir ?? join(app.getPath('userData'), 'workbench'),
+    agentDir: workbenchAgentDir,
     preloadPath: join(__dirname, '../preload/plugin.js'),
     store: workbenchStore,
     window: mainWindow,

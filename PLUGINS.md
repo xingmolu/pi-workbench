@@ -210,7 +210,7 @@ interface ToolGate {
 ## 12. 待定问题
 
 1. 插件启用范围：全局启用，还是按项目启用？建议第一阶段全局启用、视图按项目激活。
-2. 插件目录：沿用现有 `~/.pi/agent/desktop-plugins/<id>/`，还是改为 Pi Desktop 自己的数据目录？
+2. ~~插件目录~~：已定为 Pi Desktop 自己的数据目录（见 §21）。
 3. 内置 Git 插件的提交信息起草：直接调用当前会话模型，还是提供独立的一次性补全 API（`pi.agent.complete`）？
 4. 审计日志的保留期与查看入口。
 
@@ -221,7 +221,7 @@ interface ToolGate {
 - manifest（仍为插件根目录下的 `pi-desktop.json`）新增 `main`、`contributes.views`、`contributes.commands`；旧的 `contributes.workbench` 继续可用。`views` 的本地 id 映射为全局视图 id `<pluginId>.<id>`，`{ en, "zh-CN" }` 标题按界面语言显示（`name`、`description` 同样可以这样写），常见的图标 token 映射到宿主图标集。
 - 授权：含 `main` 或申请 `ui.view` 以外已知权限的插件默认关闭；在设置 → Desktop 插件中打开开关时先展示所请求的权限及风险，确认即授予。之后 manifest 申请了新权限，插件自动暂停，需重新授权。关闭即撤销授权。仅含视图的插件保持原有的默认启用行为。未知权限名照常显示，标注"此版本不支持，不会授予"。
 - 进程：每个启用的插件一个 `utilityProcess`（`out/main/plugin-host.js`），只继承 `PATH`、`HOME`、`USER`、`LANG`、临时目录与 `PI_PLUGIN_ID`。
-- 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。调用写入 `~/.pi/agent/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次；第三阶段起成功的调用只记高风险方法，见 §15）。
+- 网关与 API：`pi.commands.register/unregister`（只能注册 manifest 中声明的命令）、`pi.ui.showToast`（`notify`）、`pi.ui.openView`（`ui.view`，只能打开自己声明的视图）、`pi.storage.get/set`（`storage`，按插件与项目隔离，单值 ≤ 32 KiB）、`pi.project.current`。调用写入 `<数据目录>/workbench/pi-desktop/plugin-audit.jsonl`（方法与结果，不含参数，1 MiB 轮转一次；第三阶段起成功的调用只记高风险方法，见 §15）。
 - 命令出现在 ⌘K 的"插件命令"分组中；执行超时 30 秒，加载超时 15 秒。
 - 崩溃隔离：插件进程退出时，挂起的命令以 `PLUGIN_CRASHED` 失败，命令从 ⌘K 移除，界面提示，不自动重启；在设置中关开一次即可重新启动。
 
@@ -257,7 +257,7 @@ module.exports = {
 }
 ```
 
-放到 `~/.pi/agent/desktop-plugins/hello/` 下，在设置 → Desktop 插件中重新加载并授权即可。
+在设置 → Desktop 插件中用「从文件夹安装」选中这个目录，查看权限后确认即可（见 §21）。
 
 ## 14. 第二阶段实现说明
 
@@ -320,7 +320,7 @@ module.exports = {
   - 主题见 §18。不支持的贡献点——场景主题、常驻服务、消息总线、Agent 扩展模块、模型提供方、外部会话来源、全局快捷键——被忽略，并在插件行中逐条以警告列出，不会让整个插件加载失败。
 - **权限别名**：`agent.tool.register` → `agent.tools`，`agent.prompt.inject` → `agent.skills`，`mcp.server.local` / `mcp.server.remote` → `mcp.local` / `mcp.remote`，`ui.panel` → `ui.view`。其余未实现的权限在授权界面标为"此版本不支持，不会授予"。
 - **插件进程 `pi`**：
-  - `pi.plugin.getId()`（同步）、`getSettings()`、`setSettings(values)`（只接受声明过的键和对应类型）、`getDataPath()`（`~/.pi/agent/pi-desktop/plugin-data/<id>`）。
+  - `pi.plugin.getId()`（同步）、`getSettings()`、`setSettings(values)`（只接受声明过的键和对应类型）、`getDataPath()`（`<数据目录>/workbench/pi-desktop/plugin-data/<id>`）。
   - `pi.ui.showToast` / `notify` 接受字符串或 `{ message }`，不再需要 `notify` 权限（提示总带插件名）；`pi.ui.openPanel()`。
   - `pi.agent.registerTool` 接受 `execute(args, context)`（`context.log`），`pi.agent.unregisterTool(name)`。
   - `pi.bus.publish` / `subscribe`、`pi.services.register` 为空实现，保证使用它们的插件能加载；设置页会说明这些能力被忽略。
@@ -359,3 +359,16 @@ module.exports = {
 - 访问级别：沿用「设置 › 手机 › 远程工作台」。关闭时什么都不能调用；「只看」只允许读取类方法（`git.status/diff/log`、`fs.list/stat/readText`、`storage.get`、`project.current`、`workspace.get`、`plugin.getSettings`、`app.getAppearance`）；「可操作」再允许写入类方法（`git.stage/unstage/discard/commit/push`、`fs.writeText`、`storage.set`）。只影响电脑本身的方法（剪贴板、打开视图）以及插件进程自定义通道在手机上不可用。
 - 确认：网关要确认的写操作不会弹到电脑上，而是先返回确认请求（标题和详情与桌面一致），什么都没执行；手机上确认后带一次性令牌重发，令牌绑定设备、视图、方法和参数，两分钟内有效。`ui.showToast` / `ui.notify` 显示在手机上。
 - 上下文：页面看到的项目是电脑当前的项目；电脑切换项目后，手机页面会收到 `onContext`。
+
+## 21. 安装、更新与卸载
+
+插件在「设置 › Desktop 插件」里安装，不需要手动复制文件。
+
+- 来源：本地文件夹、`.zip` 压缩包，或 `https://` 开头的 Git 地址（浅克隆，不取子模块；`ext::`、`file://`、SSH 等会执行命令或读本机文件的传输方式一律拒绝）。压缩包或仓库可以把插件包在一层文件夹里（GitHub 下载的 zip 就是这样）。
+- 先检查再安装：来源先复制到暂存目录，按发现插件的同一套规则校验 manifest 和兼容的 Pi Desktop 版本，然后显示名称、版本、来源和请求的权限。确认前插件目录里什么都不会出现；取消或失败会删掉暂存内容。
+- 安全限制：文件夹和压缩包里不能有符号链接；压缩包拒绝绝对路径和 `..`、加密条目和 Zip64，最多 5000 个文件、解压后 100 MB；有任何一项不合格就整个拒绝，不会写出一部分。不能使用内置插件的 id。
+- 信任方式：和 VS Code 扩展一样，安装就是信任这份代码。会运行代码的插件以你的账户权限运行，manifest 里的权限只约束它调用 Pi Desktop 的接口，不能阻止它直接读写文件或访问网络；安装界面会明确说明。确认安装即授予它请求的权限并启用。用户安装的插件都标为「未验证」——以后的官方插件目录里经过审查的插件才会标为已验证，到那时再限制插件代码本身的能力。
+- 位置：安装到 Pi Desktop 数据目录下的 `workbench/desktop-plugins/<插件 id>/`，安装来源记录在偏好设置里。
+- 更新：「检查更新」从原来的来源（同一文件夹、压缩包路径或 Git 地址）重新取一份，显示新旧版本后再确认；来源换成了另一个插件 id 时拒绝。替换是一次重命名，失败会恢复旧版本。
+- 卸载：先停用插件，再删除它的目录；插件保存的设置和数据目录保留。只能卸载用户安装的插件，内置插件只能关闭。
+

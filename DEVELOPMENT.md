@@ -266,17 +266,18 @@ Pi 通过 write / edit 工具修改文件时，对话里的工具行直接显示
 
 ## Workbench 本地插件
 
-独立的用户级 Desktop 插件采用手工安装布局；每个直接子目录是一项插件：
+用户插件在「设置 → Desktop 插件」中从文件夹、`.zip` 或 `https://` Git 地址安装（见 PLUGINS.md §21），
+装在 Pi Desktop 数据目录下，每个直接子目录是一项插件：
 
 ```text
-~/.pi/agent/desktop-plugins/<id>/
+<userData>/workbench/desktop-plugins/<id>/
 ├── pi-desktop.json
 ├── index.html
 └── panel.js
 ```
 
-复制或修改文件后，到“设置 → 工作台插件”点击“重新加载”。当前没有安装、卸载或更新
-UI。设置中的 Desktop 开关只隐藏 contribution 并销毁对应面板，不会卸载、停止或禁用
+开发中直接改这个目录里的文件后，点击「重新加载」即可；E2E 模式下目录在 `PI_DESKTOP_E2E_AGENT_DIR` 中。
+设置中的 Desktop 开关只隐藏 contribution 并销毁对应面板，不会卸载、停止或禁用
 Pi Agent Host 已加载的 Skills/Extensions。
 
 Pi package 也可以在 package root 并置 `pi-desktop.json`，但 Main 不会遍历任意 Pi 或

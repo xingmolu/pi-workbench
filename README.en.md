@@ -44,7 +44,7 @@ directly and can switch to the Claude Code or Codex engine. Accounts and keys st
 **Workbench**
 - Built-in browser (the agent can drive it), terminal, Git (stage, commit, push) and file browser.
 - MCP servers (including OAuth sign-in for HTTP servers), skills, and plugins (views, commands,
-  agent tools, themes).
+  agent tools, themes), installed and updated from a folder, a zip or a Git URL.
 - Phone companion: pair on the local network with a code, or reach it from anywhere through
   Tailscale; follow progress, approve actions and keep the conversation going.
 
@@ -93,8 +93,10 @@ the terminal and `⌘/Ctrl + N` starts a new session.
   (the engine programs follow their own published policies).
 - When Codex borrows a ChatGPT account it only receives short-lived access tokens; the refresh token
   stays with Pi, and the permission can be revoked at any time.
-- Plugins run in isolated processes and sandboxed pages, use only the capabilities you grant, and
-  their file writes follow the current permission level.
+- Plugins are installed in Settings from a folder, a zip or a Git URL, after showing the permissions
+  they request. Plugin pages run in a sandbox; a plugin that runs code does so with your account's
+  rights (as editor extensions do), so only install plugins from sources you trust. File writes
+  through the plugin API follow the current permission level.
 - Diagnostics stay local; an exported report has keys, tokens and your home directory removed and is
   yours to share or not.
 

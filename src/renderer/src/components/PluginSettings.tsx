@@ -19,6 +19,8 @@ import {
   type PluginPermissionRisk
 } from '../../../shared/plugin-api'
 import { SettingsPage } from './SettingsPrimitives'
+import { PluginInstallButtons } from './PluginInstall'
+import { sourceText, usePluginInstall } from '../store/plugin-install'
 import { t } from '../../../shared/i18n'
 import '../assets/plugin-settings.css'
 
@@ -218,6 +220,7 @@ export default function PluginSettings({
     INITIAL_PLUGIN_SETTINGS_OPERATION_STATE
   )
   const [reviewing, setReviewing] = useState<string | null>(null)
+  const install = usePluginInstall()
   const knownPluginIds = new Set(snapshot.plugins.map(({ pluginId }) => pluginId))
   const registryDiagnostics = snapshot.diagnostics.filter(
     ({ pluginId }) => !pluginId || !knownPluginIds.has(pluginId)
@@ -282,6 +285,8 @@ export default function PluginSettings({
         </button>
       </div>
 
+      <PluginInstallButtons install={install} />
+
       {operation.reloadError ? (
         <div className="plugin-operation-error" role="alert">
           <CircleAlert size={13} />
@@ -298,6 +303,7 @@ export default function PluginSettings({
         ) : (
           snapshot.plugins.map((plugin) => {
             const pending = operation.pendingPluginIds.includes(plugin.pluginId)
+            const record = install.installed[plugin.pluginId]
             const operationError = operation.pluginErrors[plugin.pluginId]
             const status =
               plugin.runtime?.hasMain && plugin.desktopEnabled
@@ -328,7 +334,34 @@ export default function PluginSettings({
                     <p className="plugin-meta">
                       <span title={pluginSourceLabel(plugin)}>{pluginSourceLabel(plugin)}</span>
                       {plugin.builtin ? <span>{t('固定启用')}</span> : null}
+                      {record ? (
+                        <span title={sourceText(record.source)}>
+                          {t('安装自 {source}', { source: sourceText(record.source) })}
+                        </span>
+                      ) : null}
                     </p>
+                    {plugin.scope === 'user' ? (
+                      <div className="plugin-row-actions">
+                        <span className="plugin-badge is-unverified">{t('未验证')}</span>
+                        {record ? (
+                          <button
+                            type="button"
+                            disabled={install.busy || install.preview !== null}
+                            onClick={() => void install.update(plugin.pluginId)}
+                          >
+                            {t('检查更新')}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="is-danger"
+                          disabled={install.busy || install.preview !== null}
+                          onClick={() => void install.uninstall(plugin.pluginId, plugin.name)}
+                        >
+                          {t('卸载')}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     className="desktop-plugin-switch"

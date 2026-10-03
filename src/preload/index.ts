@@ -41,6 +41,7 @@ import type {
   PiDesktopAPI
 } from '../shared/contracts'
 import { WORKBENCH_CHANNEL, WORKBENCH_EVENT_CHANNEL } from '../shared/workbench-contracts'
+import { PLUGIN_INSTALL_CHANNEL } from '../shared/plugin-install'
 import { createBrowserEventSubscriber } from './browser-event-client'
 import { createWorkbenchClient } from './workbench-client'
 import { WORKSPACE_FILES_CHANNEL } from '../shared/workspace-files'
@@ -92,6 +93,7 @@ const acceptSnapshot = (snapshot: AgentSnapshot): AgentSnapshot => {
 const api: PiDesktopAPI = {
   locale: ipcRenderer.sendSync('pi:locale') === 'en' ? 'en' : 'zh-CN',
   relaunch: () => ipcRenderer.invoke('pi:relaunch'),
+  pluginInstall: (command) => ipcRenderer.invoke(PLUGIN_INSTALL_CHANNEL, command),
   navigationLibrary: async (command) => navigationLibrarySchema.parse(
     await ipcRenderer.invoke(NAVIGATION_LIBRARY_CHANNEL, navigationLibraryCommandSchema.parse(command))
   ),
