@@ -38,7 +38,8 @@ describe('plugin SDK', () => {
     const file = join(sdk, 'pi-desktop.schema.json')
     // UPDATE_PLUGIN_SDK=1 npm test -- plugin-sdk regenerates it.
     if (process.env.UPDATE_PLUGIN_SDK) await writeFile(file, schema)
-    expect(await readFile(file, 'utf8')).toBe(schema)
+    // Windows checkouts may turn line endings into CRLF.
+    expect((await readFile(file, 'utf8')).replace(/\r\n/g, '\n')).toBe(schema)
   })
 
   it('types every host method a plugin can call', async () => {
