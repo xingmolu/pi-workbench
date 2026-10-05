@@ -368,6 +368,10 @@ test('narrow layouts retain primary controls; searchable model selection does no
   )
   await page.screenshot({ path: join(artifacts, 'narrow-model-picker.png') })
   await page.keyboard.press('Escape')
+  // Closing hands focus back to the picker's trigger a tick later; wait for that before
+  // focusing anything else, or the arrow key below can land on the trigger.
+  await expect(page.locator('.model-picker')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '选择模型', exact: true })).toBeFocused()
   const geometry = await page.evaluate(() => {
     const composer = document.querySelector('.composer')!.getBoundingClientRect()
     const send = document.querySelector('.send')!.getBoundingClientRect()
@@ -381,6 +385,7 @@ test('narrow layouts retain primary controls; searchable model selection does no
   expect(geometry.within).toBe(true)
   const resize = page.getByRole('separator', { name: '调整侧栏宽度', exact: true })
   await resize.focus()
+  await expect(resize).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect
     .poll(() =>
