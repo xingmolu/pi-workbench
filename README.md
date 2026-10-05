@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/branding/logo.svg" width="128" alt="Pi Desktop logo" />
+
 # Pi Desktop
 
 **编程 Agent 的桌面工作台**：一个应用里使用 Pi、Claude Code 和 Codex。

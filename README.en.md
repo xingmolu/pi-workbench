@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/branding/logo.svg" width="128" alt="Pi Desktop logo" />
+
 # Pi Desktop
 
 **A desktop workbench for coding agents**: Pi, Claude Code and Codex in one app.
