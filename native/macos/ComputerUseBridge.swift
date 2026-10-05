@@ -11,6 +11,14 @@ struct Command: Decodable {
     let prompt: Bool?
     let app: String?
     let key: String?
+    let modifiers: [String]?
+    let toX: Double?
+    let toY: Double?
+    let deltaX: Double?
+    let deltaY: Double?
+    let value: String?
+    let name: String?
+    let window: String?
     let expectedTarget: ExpectedTarget?
     let expiresAt: Double?
 }
@@ -477,22 +485,264 @@ func findApplications(_ query: String) -> [NSRunningApplication] {
 let keyCodes: [String: CGKeyCode] = [
     "Enter": 36, "Escape": 53, "Tab": 48, "Backspace": 51, "Delete": 117, "Space": 49,
     "ArrowLeft": 123, "ArrowRight": 124, "ArrowDown": 125, "ArrowUp": 126,
-    "PageUp": 116, "PageDown": 121, "Home": 115, "End": 119
+    "PageUp": 116, "PageDown": 121, "Home": 115, "End": 119,
+    "F1": 122, "F2": 120, "F3": 99, "F4": 118, "F5": 96, "F6": 97,
+    "F7": 98, "F8": 100, "F9": 101, "F10": 109, "F11": 103, "F12": 111,
+    // ANSI positions; shortcuts name keys by these physical positions.
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+    "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19,
+    "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28,
+    "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37, "j": 38,
+    "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
+    "`": 50
 ]
 
-func pressKey(_ code: CGKeyCode, expectedTarget: ExpectedTarget?, expiresAt: Double?) {
+func modifierFlags(_ names: [String]) -> CGEventFlags {
+    var flags: CGEventFlags = []
+    for name in names {
+        switch name {
+        case "cmd": flags.insert(.maskCommand)
+        case "ctrl": flags.insert(.maskControl)
+        case "alt": flags.insert(.maskAlternate)
+        case "shift": flags.insert(.maskShift)
+        default: Json.fail("invalid-modifier")
+        }
+    }
+    return flags
+}
+
+func pressKey(_ code: CGKeyCode, flags: CGEventFlags = [], expectedTarget: ExpectedTarget?, expiresAt: Double?) {
     guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
           let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
         Json.fail("cannot-create-keyboard-event")
     }
-    down.flags = []
-    up.flags = []
+    down.flags = flags
+    up.flags = flags
     verifyExpiry(expiresAt)
     verifyExpectedTarget(expectedTarget)
     down.post(tap: .cghidEventTap)
     up.post(tap: .cghidEventTap)
     // Same one-shot delivery grace period as clickPointer.
     Thread.sleep(forTimeInterval: 0.1)
+}
+
+func scrollAt(x: Double, y: Double, deltaX: Double, deltaY: Double,
+              expectedTarget: ExpectedTarget?, expiresAt: Double?) {
+    verifyExpiry(expiresAt)
+    verifyExpectedTarget(expectedTarget)
+    verifyUncoveredPoint(x: x, y: y, expected: expectedTarget)
+    movePointer(x: x, y: y)
+    // Line units; positive wheel1 scrolls up and positive wheel2 scrolls left.
+    guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
+                              wheel1: Int32(deltaY), wheel2: Int32(deltaX), wheel3: 0) else {
+        Json.fail("cannot-create-scroll-event")
+    }
+    event.location = CGPoint(x: x, y: y)
+    verifyExpectedTarget(expectedTarget)
+    event.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: 0.15)
+}
+
+func dragPointer(fromX: Double, fromY: Double, toX: Double, toY: Double,
+                 expectedTarget: ExpectedTarget?, expiresAt: Double?) {
+    verifyExpiry(expiresAt)
+    verifyExpectedTarget(expectedTarget)
+    verifyUncoveredPoint(x: fromX, y: fromY, expected: expectedTarget)
+    verifyUncoveredPoint(x: toX, y: toY, expected: expectedTarget)
+    movePointer(x: fromX, y: fromY)
+    mouseEvent(.leftMouseDown, x: fromX, y: fromY, button: .left)
+    // Intermediate positions let apps see a drag rather than a jump.
+    let steps = 12
+    for step in 1...steps {
+        let progress = Double(step) / Double(steps)
+        mouseEvent(.leftMouseDragged, x: fromX + (toX - fromX) * progress,
+                   y: fromY + (toY - fromY) * progress, button: .left)
+        Thread.sleep(forTimeInterval: 0.015)
+    }
+    mouseEvent(.leftMouseUp, x: toX, y: toY, button: .left)
+    Thread.sleep(forTimeInterval: 0.1)
+}
+
+/// Puts the text on the clipboard, presses Command-V, then puts the user's clipboard back.
+func pasteText(_ text: String, expectedTarget: ExpectedTarget?, expiresAt: Double?) {
+    let board = NSPasteboard.general
+    let saved: [[(NSPasteboard.PasteboardType, Data)]] = (board.pasteboardItems ?? []).map { item in
+        item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+    }
+    board.clearContents()
+    guard board.setString(text, forType: .string) else { Json.fail("cannot-write-clipboard") }
+    defer {
+        board.clearContents()
+        let items: [NSPasteboardItem] = saved.map { pairs in
+            let item = NSPasteboardItem()
+            for (type, data) in pairs { item.setData(data, forType: type) }
+            return item
+        }
+        if !items.isEmpty { board.writeObjects(items) }
+    }
+    pressKey(9, flags: .maskCommand, expectedTarget: expectedTarget, expiresAt: expiresAt)
+    // The target reads the clipboard while handling Command-V; wait before restoring it.
+    Thread.sleep(forTimeInterval: 0.4)
+}
+
+/// The accessibility element under a point, which must belong to the target app.
+func elementAt(x: Double, y: Double, expected: ExpectedTarget?) -> AXUIElement {
+    let system = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(system, 0.3)
+    var found: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(system, Float(x), Float(y), &found) == .success,
+          let element = found else { Json.fail("element-missing") }
+    if let expected {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid == expected.pid else {
+            Json.fail("target-changed")
+        }
+    }
+    return element
+}
+
+func setValue(x: Double, y: Double, value: String, expectedTarget: ExpectedTarget?) {
+    verifyExpectedTarget(expectedTarget)
+    verifyUncoveredPoint(x: x, y: y, expected: expectedTarget)
+    let element = elementAt(x: x, y: y, expected: expectedTarget)
+    var settable = DarwinBoolean(false)
+    guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+          settable.boolValue else {
+        Json.write(["ok": false, "error": "not-settable"] as [String: Any])
+    }
+    guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString) == .success else {
+        Json.write(["ok": false, "error": "set-value-failed"] as [String: Any])
+    }
+}
+
+let secondaryActions: [String: String] = [
+    "menu": kAXShowMenuAction as String, "increment": kAXIncrementAction as String,
+    "decrement": kAXDecrementAction as String, "pick": kAXPickAction as String,
+    "confirm": kAXConfirmAction as String, "cancel": kAXCancelAction as String
+]
+
+func performSecondary(x: Double, y: Double, name: String, expectedTarget: ExpectedTarget?,
+                      expiresAt: Double?) {
+    guard let action = secondaryActions[name] else { Json.fail("invalid-action") }
+    verifyExpiry(expiresAt)
+    verifyExpectedTarget(expectedTarget)
+    verifyUncoveredPoint(x: x, y: y, expected: expectedTarget)
+    let element = elementAt(x: x, y: y, expected: expectedTarget)
+    var namesRaw: CFArray?
+    let names = AXUIElementCopyActionNames(element, &namesRaw) == .success
+        ? (namesRaw as? [String] ?? []) : []
+    if names.contains(action), AXUIElementPerformAction(element, action as CFString) == .success {
+        Thread.sleep(forTimeInterval: 0.1)
+        return
+    }
+    // Most controls without AXShowMenu still open their context menu on a secondary click.
+    if name == "menu" {
+        clickPointer(x: x, y: y, right: true, expectedTarget: expectedTarget, expiresAt: expiresAt)
+        return
+    }
+    Json.write([
+        "ok": false,
+        "error": "action-unsupported",
+        "available": names.prefix(12).map { String($0.prefix(40)) }
+    ] as [String: Any])
+}
+
+func listApps() -> [String: Any] {
+    let apps = NSWorkspace.shared.runningApplications.filter {
+        $0.activationPolicy == .regular && !$0.isTerminated &&
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+    }
+    return [
+        "ok": true,
+        "apps": apps.prefix(60).map { app -> [String: Any] in
+            [
+                "pid": Int(app.processIdentifier),
+                "name": String(app.localizedName?.prefix(80) ?? ""),
+                "bundleId": String(app.bundleIdentifier?.prefix(80) ?? ""),
+                "active": app.isActive,
+                "hidden": app.isHidden,
+                "windows": visibleWindows(pid: app.processIdentifier).count
+            ]
+        }
+    ]
+}
+
+func axWindows(_ application: NSRunningApplication) -> [AXUIElement] {
+    let appElement = AXUIElementCreateApplication(application.processIdentifier)
+    AXUIElementSetMessagingTimeout(appElement, 0.3)
+    var windowsRaw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRaw) == .success else {
+        return []
+    }
+    return windowsRaw as? [AXUIElement] ?? []
+}
+
+func singleApplication(_ query: String?) -> NSRunningApplication {
+    guard let query else { Json.fail("invalid-app") }
+    let matches = findApplications(query)
+    guard !matches.isEmpty else { Json.write(["ok": false, "error": "app-not-running"] as [String: Any]) }
+    guard matches.count == 1, let application = matches.first else {
+        Json.write([
+            "ok": false,
+            "error": "app-ambiguous",
+            "candidates": matches.prefix(8).map { String(($0.localizedName ?? $0.bundleIdentifier ?? "").prefix(80)) }
+        ] as [String: Any])
+    }
+    return application
+}
+
+func listWindows(_ application: NSRunningApplication) -> [String: Any] {
+    let appElement = AXUIElementCreateApplication(application.processIdentifier)
+    AXUIElementSetMessagingTimeout(appElement, 0.3)
+    let focused = focusedWindowFrame(appElement)
+    let windows = axWindows(application).prefix(20).map { window -> [String: Any] in
+        let frame = axWindowFrame(window)
+        var entry: [String: Any] = [
+            "title": stringAttribute(window, kAXTitleAttribute as CFString, max: 200),
+            "minimized": boolAttribute(window, kAXMinimizedAttribute as CFString),
+            "focused": frame != nil && focused != nil && sameWindowFrame(frame!, focused!)
+        ]
+        if let frame {
+            entry["frame"] = ["x": Double(frame.minX), "y": Double(frame.minY),
+                              "width": Double(frame.width), "height": Double(frame.height)]
+        }
+        return entry
+    }
+    return [
+        "ok": true,
+        "pid": Int(application.processIdentifier),
+        "app": String(application.localizedName?.prefix(80) ?? ""),
+        "bundleId": String(application.bundleIdentifier?.prefix(80) ?? ""),
+        "windows": windows
+    ]
+}
+
+/// Brings one window of the app to the front, chosen by part of its title.
+func activateWindow(_ application: NSRunningApplication, title query: String) -> [String: Any] {
+    let needle = query.lowercased()
+    let matches = axWindows(application).filter {
+        stringAttribute($0, kAXTitleAttribute as CFString, max: 200).lowercased().contains(needle)
+    }
+    guard !matches.isEmpty else { return ["ok": false, "error": "window-not-found"] }
+    guard matches.count == 1, let window = matches.first else {
+        return [
+            "ok": false,
+            "error": "window-ambiguous",
+            "candidates": matches.prefix(8).map { stringAttribute($0, kAXTitleAttribute as CFString, max: 80) }
+        ]
+    }
+    if boolAttribute(window, kAXMinimizedAttribute as CFString) {
+        _ = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        Thread.sleep(forTimeInterval: 0.3)
+    }
+    let front = activate(application, window: axWindowFrame(window))
+    return [
+        "ok": true,
+        "front": front,
+        "pid": Int(application.processIdentifier),
+        "app": String(application.localizedName?.prefix(80) ?? ""),
+        "bundleId": String(application.bundleIdentifier?.prefix(80) ?? "")
+    ]
 }
 
 let input: Data
@@ -583,16 +833,59 @@ case "activate-app":
     Json.write([
         "ok": true,
         "front": front,
+        "pid": Int(application.processIdentifier),
         "app": String(application.localizedName?.prefix(80) ?? ""),
         "bundleId": String(application.bundleIdentifier?.prefix(80) ?? "")
     ] as [String: Any])
 case "key":
     guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
     guard let name = command.key, let code = keyCodes[name] else { Json.fail("invalid-key") }
+    let flags = modifierFlags(command.modifiers ?? [])
     verifyExpiry(command.expiresAt)
     verifyExpectedTarget(command.expectedTarget)
-    pressKey(code, expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
+    pressKey(code, flags: flags, expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
     Json.write(["ok": true])
+case "scroll":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let x = command.x, let y = command.y else { Json.fail("invalid-target") }
+    scrollAt(x: x, y: y, deltaX: command.deltaX ?? 0, deltaY: command.deltaY ?? 0,
+             expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
+    Json.write(["ok": true])
+case "drag":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let x = command.x, let y = command.y, let toX = command.toX, let toY = command.toY else {
+        Json.fail("invalid-target")
+    }
+    dragPointer(fromX: x, fromY: y, toX: toX, toY: toY,
+                expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
+    Json.write(["ok": true])
+case "paste":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let text = command.text else { Json.fail("invalid-text") }
+    verifyExpiry(command.expiresAt)
+    verifyExpectedTarget(command.expectedTarget)
+    pasteText(text, expectedTarget: command.expectedTarget, expiresAt: command.expiresAt)
+    Json.write(["ok": true])
+case "set-value":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let x = command.x, let y = command.y, let value = command.value else { Json.fail("invalid-target") }
+    setValue(x: x, y: y, value: value, expectedTarget: command.expectedTarget)
+    Json.write(["ok": true])
+case "ax-action":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let x = command.x, let y = command.y, let name = command.name else { Json.fail("invalid-target") }
+    performSecondary(x: x, y: y, name: name, expectedTarget: command.expectedTarget,
+                     expiresAt: command.expiresAt)
+    Json.write(["ok": true])
+case "list-apps":
+    Json.write(listApps())
+case "list-windows":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    Json.write(listWindows(singleApplication(command.app)))
+case "activate-window":
+    guard AXIsProcessTrusted() else { Json.fail("accessibility-not-trusted") }
+    guard let title = command.window else { Json.fail("invalid-window") }
+    Json.write(activateWindow(singleApplication(command.app), title: title))
 default:
     Json.fail("unsupported-action")
 }
