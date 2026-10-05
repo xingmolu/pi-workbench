@@ -656,7 +656,6 @@ export default function App(): React.JSX.Element {
         </button>
       )}
       <ActivityRail
-        snapshot={snapshot}
         sidebarOpen={!layout.sidebarCollapsed}
         sidebarLocked={layout.settingsOpen}
         onToggleSidebar={() => dispatchLayout({ type: 'sidebar:toggle' })}

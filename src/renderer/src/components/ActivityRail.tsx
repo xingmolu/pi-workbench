@@ -1,11 +1,9 @@
 import { Bot, MessagesSquare, Search, Settings2 } from 'lucide-react'
-import type { AgentSnapshot } from '../../../shared/contracts'
 import { shortcutLabel } from './shortcut-label'
 import { t } from '../../../shared/i18n'
 import '../assets/activity-rail.css'
 
 type ActivityRailProps = {
-  snapshot: AgentSnapshot
   sidebarOpen: boolean
   sidebarLocked: boolean
   onToggleSidebar: () => void
@@ -20,7 +18,6 @@ type ActivityRailProps = {
  * app-wide entries (search, subagents, settings). It stays put when the sidebar folds.
  */
 export default function ActivityRail({
-  snapshot,
   sidebarOpen,
   sidebarLocked,
   onToggleSidebar,
@@ -72,18 +69,6 @@ export default function ActivityRail({
         ) : null}
       </div>
       <div className="activity-rail-group">
-        <span
-          className="activity-rail-host"
-          role="img"
-          aria-label={
-            snapshot.ready
-              ? t('{value} 引擎已就绪', { value: snapshot.runtime?.label ?? 'Pi' })
-              : t('{value} 引擎未连接', { value: snapshot.runtime?.label ?? 'Pi' })
-          }
-          title={snapshot.agentDir}
-        >
-          <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
-        </span>
         <button
           type="button"
           className="activity-rail-button"

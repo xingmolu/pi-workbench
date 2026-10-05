@@ -2984,7 +2984,5 @@ export const en: Readonly<Record<string, string>> = {
   活动栏: 'Activity bar',
   '收起项目和会话（⌘B）': 'Hide projects and conversations (⌘B)',
   '展开项目和会话（⌘B）': 'Show projects and conversations (⌘B)',
-  '搜索所有会话（{shortcut}）': 'Search all conversations ({shortcut})',
-  '{value} 引擎已就绪': '{value} engine ready',
-  '{value} 引擎未连接': '{value} engine not connected'
+  '搜索所有会话（{shortcut}）': 'Search all conversations ({shortcut})'
 }
