@@ -60,6 +60,8 @@ function fileChange(change: { path?: unknown; kind?: unknown; diff?: unknown }):
   }
 }
 
+const PENDING_PROMPT = 'pending-prompt'
+
 /** Codex thread items folded into the desktop's conversation nodes, in arrival order. */
 export class CodexProjection {
   nodes: ConversationNode[] = []
@@ -79,6 +81,28 @@ export class CodexProjection {
     } else this.nodes[at] = node
   }
 
+  /**
+   * Shows a sent prompt at once; Codex echoes it as a `userMessage` only after the thread and
+   * turn have started, which on a new session takes seconds.
+   */
+  pending(text: string, imageCount: number): void {
+    this.upsert({
+      id: PENDING_PROMPT,
+      type: 'user',
+      text,
+      ...(imageCount ? { imageCount } : {})
+    })
+  }
+
+  /** Drops the shown prompt when Codex never took it. */
+  dropPending(): void {
+    const at = this.index.get(PENDING_PROMPT)
+    if (at === undefined) return
+    this.nodes.splice(at, 1)
+    this.index.clear()
+    this.nodes.forEach((node, position) => this.index.set(node.id, position))
+  }
+
   node(id: string): ConversationNode | undefined {
     const at = this.index.get(id)
     return at === undefined ? undefined : this.nodes[at]
@@ -92,6 +116,13 @@ export class CodexProjection {
       case 'userMessage': {
         const content = (item.content as { type: string; text?: string }[] | undefined) ?? []
         const images = content.filter((part) => part.type === 'image' || part.type === 'localImage')
+        // The echoed prompt takes the place of the one shown when it was sent.
+        const shown = this.index.get(PENDING_PROMPT)
+        if (shown !== undefined && !this.index.has(item.id)) {
+          this.index.delete(PENDING_PROMPT)
+          this.index.set(item.id, shown)
+          this.nodes[shown] = { ...this.nodes[shown], id: item.id }
+        }
         this.upsert({
           id: item.id,
           type: 'user',

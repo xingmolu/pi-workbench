@@ -81,3 +81,45 @@ it('folds Codex items and deltas into conversation nodes', () => {
   projection.settle()
   expect(projection.node('a1')).not.toHaveProperty('streaming')
 })
+
+it('shows a sent prompt at once and lets the echoed one take its place', () => {
+  const projection = new CodexProjection()
+  projection.pending('first task', 1)
+  expect(projection.nodes).toEqual([
+    { id: 'pending-prompt', type: 'user', text: 'first task', imageCount: 1 }
+  ])
+  projection.item(
+    {
+      type: 'userMessage',
+      id: 'u1',
+      content: [
+        { type: 'text', text: 'first task' },
+        { type: 'localImage', path: '/x.png' }
+      ]
+    },
+    false,
+    'turn-1'
+  )
+  projection.item({ type: 'agentMessage', id: 'a1', text: 'Done.' }, true)
+  expect(projection.nodes.map((node) => [node.id, node.type])).toEqual([
+    ['u1', 'user'],
+    ['a1', 'assistant']
+  ])
+  expect(projection.nodes[0]).toMatchObject({ text: 'first task', canonicalEntryId: 'turn-1' })
+  // A later echo of the same item only updates it.
+  projection.item(
+    { type: 'userMessage', id: 'u1', content: [{ type: 'text', text: 'first task' }] },
+    true
+  )
+  expect(projection.nodes).toHaveLength(2)
+})
+
+it('drops a shown prompt Codex never took', () => {
+  const projection = new CodexProjection()
+  projection.item({ type: 'agentMessage', id: 'a0', text: 'Earlier.' }, true)
+  projection.pending('lost', 0)
+  projection.dropPending()
+  expect(projection.nodes.map((node) => node.id)).toEqual(['a0'])
+  projection.item({ type: 'agentMessage', id: 'a1', text: 'Next.' }, true)
+  expect(projection.node('a1')).toMatchObject({ markdown: 'Next.' })
+})
