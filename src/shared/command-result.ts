@@ -42,6 +42,7 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
     case 'endpoint:list':
       return 'endpoint-list'
     case 'endpoint:save':
+    case 'endpoint:remove':
       return 'endpoint-save'
     case 'bootstrap':
     case 'state:get':

@@ -239,6 +239,7 @@ export type RuntimeConfigCommand = Extract<
       | 'account:quota'
       | 'endpoint:list'
       | 'endpoint:save'
+      | 'endpoint:remove'
       | 'endpoint:discover'
   }
 >
@@ -529,7 +530,8 @@ export type HostCommand =
   | {
       type: 'account:api-key:set'
       providerId: string
-      apiKey: string
+      /** Required except when updating an existing API connection, which keeps its key. */
+      apiKey?: string
       baseUrl?: string
       /** Display name of a new API connection (engines with several connections). */
       label?: string
@@ -546,6 +548,11 @@ export type HostCommand =
   | import('./custom-endpoints').EndpointDiscoverCommand
   | { type: 'endpoint:list' }
   | { type: 'endpoint:save'; context: CustomEndpointContext; request: CustomEndpointSaveRequest }
+  | {
+      type: 'endpoint:remove'
+      context: CustomEndpointContext
+      request: import('./custom-endpoints').CustomEndpointRemoveRequest
+    }
   | { type: 'browser:e2e'; operation: BrowserOperation }
 
 export type HostRequest = HostCommand & { requestId: string; expectedIdentity?: { sessionId: string | null; generation: number } }
@@ -554,7 +561,7 @@ export type SnapshotHostCommand = Extract<
   HostCommand,
   { type: 'bootstrap' | 'state:get' | 'runtime:refresh' | 'runtime:shutdown' | 'project:open' | 'project:navigate' | 'session:new' | 'session:open' }
 >
-export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' | 'endpoint:discover' }>
+export type EndpointHostCommand = Extract<HostCommand, { type: 'endpoint:list' | 'endpoint:save' | 'endpoint:remove' | 'endpoint:discover' }>
 export type AckHostCommand = Exclude<
   HostCommand,
   | SnapshotHostCommand
@@ -636,7 +643,7 @@ export type HostResultFor<Command extends HostCommand> = Command extends { type:
           ? HostEndpointDiscoveryResult
         : Command extends { type: 'endpoint:list' }
           ? HostEndpointListResult
-          : Command extends { type: 'endpoint:save' }
+          : Command extends { type: 'endpoint:save' | 'endpoint:remove' }
             ? HostEndpointSaveResult
             : HostAckResult
 

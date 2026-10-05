@@ -145,6 +145,16 @@ describe('Claude official SDK runtime', () => {
       connected: true,
       endpoint: '127.0.0.1'
     })
+    // Editing a connection without a new key renames it and keeps the key.
+    await host.handle({
+      type: 'account:api-key:set',
+      providerId: added.id,
+      baseUrl: fixture.baseUrl,
+      label: 'Renamed gateway'
+    })
+    expect(host.getState().accounts.find((account) => account.id === added.id)?.name).toBe(
+      'Renamed gateway'
+    )
     // A new connection becomes the default for new sessions; this one keeps its own.
     expect(host.getState().activeProvider).toBe('anthropic')
     const providers = new Set(host.getState().models.map((model) => model.provider))

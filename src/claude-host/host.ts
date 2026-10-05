@@ -889,9 +889,10 @@ export class ClaudeHost {
         this.publish()
         return this.ack()
       }
-      case 'account:api-key:set':
+      case 'account:api-key:set': {
         this.assertIdle()
         if (command.providerId === 'new') {
+          if (!command.apiKey) throw new Error(t('请填写 API Key。'))
           const config = await readConfig(this.options.storage)
           const id = newConnectionId('api')
           config.apis = [
@@ -911,8 +912,29 @@ export class ClaudeHost {
           this.publish()
           return this.ack()
         }
+        const stored = await readConfig(this.options.storage)
+        if (stored.apis?.some((api) => api.id === command.providerId)) {
+          // Editing a connection keeps its key unless a new one is given.
+          stored.apis = stored.apis.map((api) =>
+            api.id === command.providerId
+              ? {
+                  id: api.id,
+                  apiKey: command.apiKey ?? api.apiKey,
+                  ...(command.baseUrl ? { baseUrl: command.baseUrl } : {}),
+                  ...((command.label ?? api.label) ? { label: command.label ?? api.label } : {})
+                }
+              : api
+          )
+          this.config = stored
+          await saveConfig(this.options.storage, stored)
+          await this.stopQuery()
+          await this.initialize()
+          this.publish()
+          return this.ack()
+        }
         if (command.providerId !== DEFAULT_CONNECTION)
           throw new Error('Claude runtime supports the Anthropic account')
+        if (!command.apiKey) throw new Error(t('请填写 API Key。'))
         this.config = {
           ...(await readConfig(this.options.storage)),
           ...(command.apiKey ? { apiKey: command.apiKey } : {})
@@ -925,6 +947,7 @@ export class ClaudeHost {
         await this.initialize()
         this.publish()
         return this.ack()
+      }
       case 'account:login':
         this.assertIdle()
         await this.login(command.providerId, command.method)

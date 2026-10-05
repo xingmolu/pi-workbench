@@ -103,7 +103,9 @@ test.beforeEach(async () => {
     .click()
   const panel = page.getByRole('group', { name: '添加端点' })
   await panel.getByRole('button', { name: /^Anthropic/ }).click()
-  await panel.getByRole('radio', { name: '用于 Claude Code' }).click()
+  // An Anthropic-compatible service serves both engines by default; this one only Claude Code.
+  await expect(panel.getByRole('checkbox', { name: 'Claude Code' })).toBeChecked()
+  await panel.getByRole('checkbox', { name: 'Pi', exact: true }).uncheck()
   await panel.getByLabel('服务地址').fill(fixture.baseUrl)
   await panel.getByLabel('API Key').fill('fixture-key')
   await panel.getByRole('button', { name: '保存端点' }).click()
@@ -226,7 +228,7 @@ test('real SDK write approval can be denied and allowed; native controls hide Pi
   // Settings list every engine's accounts whichever chat is open, so a Claude chat still
   // sees Pi's endpoints; Claude's own connections are managed in the same page.
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  await expect(page.getByRole('region', { name: '自定义端点' })).toContainText('用于 Claude Code')
+  await expect(page.getByRole('region', { name: '自定义端点' })).toContainText('Claude Code')
   await page.screenshot({ path: join(screenshots, 'claude-settings.png') })
   await expect(page.getByText('导入旧 Pi 历史', { exact: true })).toHaveCount(0)
 })

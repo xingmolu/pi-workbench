@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, Server } from 'lucide-react'
+import { RefreshCw, Server, Trash2 } from 'lucide-react'
 import type { AgentSnapshot, RuntimeConfigCommand } from '../../../shared/contracts'
 import {
   endpointDiscoverSchema,
@@ -18,6 +18,9 @@ const protocols: Record<CustomEndpointApi, string> = {
   'openai-responses': 'OpenAI Responses',
   'anthropic-messages': 'Anthropic Messages'
 }
+/** A Claude Code API connection, as Settings lists it. */
+export type ClaudeConnection = { id: string; name: string; endpoint?: string }
+
 function endpointLabel(baseUrl: string): string {
   try {
     return new URL(baseUrl).hostname.slice(0, 80)
@@ -38,9 +41,14 @@ type Form = {
 
 export default function CustomEndpoints({
   snapshot,
-  detached = false
+  detached = false,
+  claude = null,
+  onClaudeChanged
 }: {
   snapshot: AgentSnapshot
+  /** Claude Code's API connections; one on the same host as an Anthropic endpoint is that endpoint. */
+  claude?: ClaudeConnection[] | null
+  onClaudeChanged?: () => void
   /**
    * Manage Pi's endpoints through its configuration host from Settings, whatever chat is
    * open; resident chats pick the change up like any other global setting.
@@ -66,6 +74,18 @@ export default function CustomEndpoints({
   const [confirmedRemoval, setConfirmedRemoval] = useState(false)
   const epoch = useRef(0)
   const mounted = useRef(false)
+  // Each Claude Code connection belongs to at most one Anthropic endpoint, matched by host.
+  const linked = new Map<string, ClaudeConnection>()
+  const claimed = new Set<string>()
+  for (const endpoint of catalog?.endpoints ?? []) {
+    if (endpoint.api !== 'anthropic-messages' || !endpoint.baseUrl) continue
+    const host = endpointLabel(endpoint.baseUrl)
+    const match = claude?.find((item) => item.endpoint === host && !claimed.has(item.id))
+    if (!match) continue
+    linked.set(endpoint.id, match)
+    claimed.add(match.id)
+  }
+  const claudeOnly = (claude ?? []).filter((item) => !claimed.has(item.id))
   const submitting = useRef(false)
   const baseline = useRef<Form | null>(null)
   const context = endpointContext(snapshot)
@@ -239,6 +259,8 @@ export default function CustomEndpoints({
     }
     const operation = ++epoch.current
     const capturedIdentity = identity
+    const companion = linked.get(form.id)
+    const newKey = key
     submitting.current = true
     setPending(true)
     setError('')
@@ -262,6 +284,25 @@ export default function CustomEndpoints({
         return
       setOutcome(response.result)
       if (response.result.snapshot) setCatalog(response.result.snapshot)
+      // The same service in Claude Code follows the new address, name and key.
+      if (companion && response.result.ok) {
+        try {
+          await window.pi.runtimeConfig('claude', {
+            type: 'account:api-key:set',
+            providerId: companion.id,
+            baseUrl: parsed.data.baseUrl,
+            label: parsed.data.label,
+            ...(newKey ? { apiKey: newKey } : {})
+          })
+        } catch (reason) {
+          setError(
+            t('Pi 已保存，但 Claude Code 中的同一端点未更新：{message}', {
+              message: reason instanceof Error ? reason.message : String(reason)
+            })
+          )
+        }
+        onClaudeChanged?.()
+      }
       // Partial writes are durable too. Reopen the saved identity before another edit.
       if (response.result.metadata === 'saved') {
         baseline.current = null
@@ -285,17 +326,62 @@ export default function CustomEndpoints({
     }
   }
 
+  /** Deletes an endpoint from every engine that uses it. */
+  const remove = async (
+    endpoint: CustomEndpointMetadata | null,
+    connection: ClaudeConnection | null
+  ): Promise<void> => {
+    const label = endpoint?.label ?? connection?.name ?? ''
+    const engines = [endpoint ? 'Pi' : null, connection ? 'Claude Code' : null].filter(Boolean)
+    if (
+      !window.confirm(
+        t('删除 {label}？会从 {engines} 中移除，使用它的会话需要重新选择模型。', {
+          label,
+          engines: engines.join(t('和'))
+        })
+      )
+    )
+      return
+    epoch.current += 1
+    setPending(true)
+    setError('')
+    setOutcome(null)
+    try {
+      if (endpoint && catalog) {
+        const response = await send({
+          type: 'endpoint:remove',
+          context,
+          request: { id: endpoint.id, expectedRevision: catalog.revision }
+        })
+        if (!mounted.current) return
+        setOutcome(response.result)
+        if (response.result.snapshot) setCatalog(response.result.snapshot)
+        if (!response.result.ok) return
+      }
+      if (connection) {
+        await window.pi.runtimeConfig('claude', {
+          type: 'account:remove',
+          providerId: connection.id
+        })
+        onClaudeChanged?.()
+      }
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      if (mounted.current) setPending(false)
+    }
+  }
+  const tags = (pi: boolean, claudeCode: boolean): React.JSX.Element => (
+    <span className="acct-engine-tags" aria-label={t('用于')}>
+      {pi ? <span className="acct-engine-tag">Pi</span> : null}
+      {claudeCode ? <span className="acct-engine-tag">Claude Code</span> : null}
+    </span>
+  )
+
   return (
-    <section className="sp-group acct-endpoints" aria-label={t('用于 Pi')}>
-      <div className="sp-group-header acct-group-header">
-        <div>
-          <h3>{t('用于 Pi')}</h3>
-          <p>
-            {t(
-              'OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。'
-            )}
-          </p>
-        </div>
+    <section className="acct-endpoints">
+      <div className="acct-endpoints-toolbar">
+        <p>{t('端点全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。')}</p>
         <button
           type="button"
           className="acct-button"
@@ -350,7 +436,7 @@ export default function CustomEndpoints({
         </div>
       ) : null}
       {!form ? (
-        catalog && catalog.endpoints.length > 0 ? (
+        catalog && (catalog.endpoints.length > 0 || claudeOnly.length > 0) ? (
           <div className="sp-card acct-endpoint-list">
             {catalog.endpoints.map((endpoint) => (
               <div className="acct-endpoint-row" key={endpoint.id}>
@@ -358,7 +444,10 @@ export default function CustomEndpoints({
                   <Server size={15} />
                 </span>
                 <div className="acct-endpoint-meta">
-                  <strong>{endpoint.label}</strong>
+                  <strong>
+                    {endpoint.label}
+                    {tags(true, linked.has(endpoint.id))}
+                  </strong>
                   <small>
                     {endpoint.api ? protocols[endpoint.api] : t('高级配置')}{' '}
                     {t('·{value} {length} 个模型 · {value2}{value3} 个支持图片输入', {
@@ -379,25 +468,63 @@ export default function CustomEndpoints({
                   ) : null}
                 </div>
                 {endpoint.editable ? (
-                  <button
-                    type="button"
-                    className="acct-button"
-                    aria-label={t('编辑 {label}', { label: endpoint.label })}
-                    disabled={disabled}
-                    onClick={() => edit(endpoint)}
-                  >
-                    {t('编辑')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="acct-button"
+                      aria-label={t('编辑 {label}', { label: endpoint.label })}
+                      disabled={disabled}
+                      onClick={() => edit(endpoint)}
+                    >
+                      {t('编辑')}
+                    </button>
+                    <button
+                      type="button"
+                      className="acct-button is-quiet"
+                      aria-label={t('删除 {label}', { label: endpoint.label })}
+                      title={t('删除')}
+                      disabled={disabled}
+                      onClick={() => void remove(endpoint, linked.get(endpoint.id) ?? null)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
                 ) : (
                   <span className="acct-status">{t('只读')}</span>
                 )}
+              </div>
+            ))}
+            {claudeOnly.map((connection) => (
+              <div className="acct-endpoint-row" key={`claude:${connection.id}`}>
+                <span className="acct-endpoint-icon" aria-hidden="true">
+                  <Server size={15} />
+                </span>
+                <div className="acct-endpoint-meta">
+                  <strong>
+                    {connection.name}
+                    {tags(false, true)}
+                  </strong>
+                  <small>
+                    {protocols['anthropic-messages']} · {connection.endpoint ?? 'api.anthropic.com'}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className="acct-button is-quiet"
+                  aria-label={t('删除 {label}', { label: connection.name })}
+                  title={t('删除')}
+                  disabled={pending}
+                  onClick={() => void remove(null, connection)}
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
             ))}
           </div>
         ) : (
           <p className="ea-empty">
             {catalog
-              ? t('还没有用于 Pi 的端点。')
+              ? t('还没有自定义端点。点「添加端点」接入官方服务、网关或本机模型。')
               : loading
                 ? t('正在读取端点…')
                 : t('端点列表暂不可用。')}

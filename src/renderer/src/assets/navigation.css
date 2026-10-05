@@ -348,8 +348,9 @@ body.is-sidebar-resizing * {
   font-size: 13px;
   line-height: 1.65;
 }
-.library-manager {
-  width: min(620px, calc(100vw - 40px));
+/* In Settings the list grows with the page instead of scrolling in a box. */
+.library-settings .library-list {
+  max-height: none;
 }
 .library-tabs {
   display: flex;

@@ -533,6 +533,36 @@
   white-space: nowrap;
 }
 
+.acct-engine-tags {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+
+.acct-engine-tag {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-text, var(--accent));
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.acct-endpoints-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.acct-endpoints-toolbar p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .acct-endpoint-meta small {
   color: var(--text-tertiary);
   font-size: 11.5px;

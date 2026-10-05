@@ -1173,6 +1173,25 @@ export const en: Readonly<Record<string, string>> = {
     'Found {count} models{partial}; all are selected, clear any you do not need.',
   '已选 {count} / {total}': '{count} of {total} selected',
   其他: 'Other',
+  '已添加到 Pi，但添加到 Claude Code 失败：{message}': 'Added to Pi, but adding to Claude Code failed: {message}',
+  用于哪些引擎: 'Which engines use it',
+  用于: 'For',
+  'Pi 已保存，但 Claude Code 中的同一端点未更新：{message}':
+    'Saved for Pi, but the same endpoint in Claude Code was not updated: {message}',
+  '删除 {label}？会从 {engines} 中移除，使用它的会话需要重新选择模型。':
+    'Delete {label}? It is removed from {engines}; sessions using it need to choose another model.',
+  '端点全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。':
+    "Endpoints apply everywhere, including every workspace and the Pi CLI; a new endpoint doesn't become the current model by itself.",
+  '删除 {label}': 'Delete {label}',
+  '还没有自定义端点。点「添加端点」接入官方服务、网关或本机模型。':
+    'No custom endpoints yet. Use Add endpoint to connect an official service, a gateway or a local model.',
+  端点已删除: 'Endpoint deleted',
+  '端点已删除；当前会话使用的模型已移除，请重新选择模型后发送':
+    "Endpoint deleted. This session's model was removed; choose another model before sending",
+  '端点未删除，请检查配置版本及当前会话状态后重试':
+    'Endpoint not deleted. Check the configuration version and the current session, then try again',
+  '端点配置已删除，但凭据或运行时未同步；请重新加载并检查当前模型后再发送':
+    'Endpoint configuration deleted, but its credential or the runtime did not sync. Reload and check the current model before sending',
   返回账号列表: 'Back to accounts',
   搜索此账号的模型: "Search this account's models",
   '搜索 {label} 的模型': "Search {label}'s models",
@@ -1195,9 +1214,6 @@ export const en: Readonly<Record<string, string>> = {
   '添加 {label}': 'Add {label}',
   选择要接入的服务: 'Choose a service to connect',
   关闭: 'Close',
-  用于哪个引擎: 'Use with which engine',
-  '用于 Pi': 'Use with Pi',
-  '用于 Claude Code': 'Use with Claude Code',
   名称: 'Name',
   '例如：公司网关': 'e.g. Company gateway',
   服务地址: 'Service address',
@@ -1468,9 +1484,6 @@ export const en: Readonly<Record<string, string>> = {
     'Confirm the models that will be removed below before saving the endpoint.',
   '保存结果未知，端点可能已写入。请刷新列表核对后再编辑；密钥已清空，不会自动重试。':
     "Save result unknown; the endpoint may have been written. Refresh the list and check before editing; the key was cleared and won't be retried automatically.",
-  '还没有用于 Pi 的端点。': 'No endpoints for Pi yet.',
-  'OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。':
-    "OpenAI / Anthropic compatible APIs. They apply globally to all workspaces and the Pi CLI; a new endpoint doesn't become the current model automatically.",
   刷新列表: 'Refresh list',
   '登录正在进行，完成后才能保存端点。':
     'A sign-in is in progress; endpoints can be saved after it finishes.',
@@ -1673,12 +1686,9 @@ export const en: Readonly<Record<string, string>> = {
     'No subscription accounts yet. ChatGPT or Claude accounts you add appear here by email.',
   '用 API Key 接入官方服务、网关或任意兼容接口，可以添加多个。':
     'Connect official services, gateways or any compatible API with an API key; you can add several.',
-  'Anthropic 兼容接口': 'Anthropic-compatible APIs',
   'Claude Code 现在无法启动，暂时不能管理它的连接':
     "Claude Code can't start right now, so its connections can't be managed",
-  '移除 {name} 这个端点？': 'Remove the endpoint {name}?',
   移除: 'Remove',
-  '还没有用于 Claude Code 的端点。': 'No endpoints for Claude Code yet.',
   '凭据只保存在本机：Pi 的在它的': 'Credentials stay on this computer: Pi keeps them in its',
   '，Claude Code 的每个账号各用一个独立配置目录。桌面端不复制 token。':
     "; Claude Code uses a separate configuration folder for each account. The desktop app doesn't copy tokens.",
@@ -2282,7 +2292,9 @@ export const en: Readonly<Record<string, string>> = {
   展开侧栏: 'Expand sidebar',
   新会话: 'New session',
   添加项目: 'Add project',
-  管理项目与归档: 'Manage projects and archive',
+  项目与归档: 'Projects & archive',
+  '项目 会话 归档 移除 恢复 隐藏 侧栏':
+    'projects sessions archive removed restore hidden sidebar',
   项目和会话: 'Projects and sessions',
   '收起侧栏（⌘B）': 'Collapse sidebar (⌘B)',
   '在当前项目中新建会话（{value}）': 'New session in the current project ({value})',
@@ -2522,7 +2534,6 @@ export const en: Readonly<Record<string, string>> = {
   表格超过上限: 'The table is over the limit',
   // renderer/components/navigation/LibraryManager.tsx
   历史会话: 'Session history',
-  关闭管理: 'Close manager',
   '这里仅管理导航入口。本地项目文件和 Pi 会话记录始终保留。':
     'This only manages navigation entries. Local project files and Pi session records are always kept.',
   选择管理范围: 'Choose what to manage',

@@ -317,32 +317,61 @@ export class CustomEndpointConfig {
             }
           }
         }
-        const bytes = Buffer.from(original.bom + text)
-        if (bytes.length > MAX_BYTES) fail('invalid-config')
-        const providers = parseDocument(text)
-        const revision = createHash('sha256').update(bytes).digest('hex')
-        const temp = join(dirname(this.modelsFilePath), `.pi-models-${randomUUID()}.tmp`)
-        let owned = false
-        try {
-          const handle = await this.io.open(temp, 'wx', 0o600)
-          owned = true
-          try {
-            await handle.writeFile(bytes)
-            await handle.sync()
-          } finally {
-            await handle.close()
-          }
-          if ((await this.document()).revision !== original.revision) fail('conflict')
-          // Rename is atomic for readers, but the last revision check is not cross-process CAS.
-          await this.io.rename(temp, this.modelsFilePath)
-          owned = false
-        } finally {
-          if (owned) await this.io.unlink(temp).catch(() => undefined)
-        }
-        return this.snapshot({ text, bom: original.bom, revision, providers })
+        return this.write(original, text)
       })
     )
     this.queue = operation.catch(() => undefined)
     return operation
+  }
+  /** Removes an editable endpoint's entry; its credential is the caller's to clear. */
+  remove(input: { id: string; expectedRevision: string }): Promise<CustomEndpointConfigSnapshot> {
+    const operation = this.queue.then(() =>
+      this.safe(async () => {
+        if (!isCustomEndpointId(input.id) || typeof input.expectedRevision !== 'string')
+          fail('invalid-input')
+        const original = await this.document()
+        if (original.revision !== input.expectedRevision) fail('conflict')
+        const existing = original.providers[input.id]
+        if (
+          this.protectedIds.has(input.id) ||
+          !existing ||
+          !project(input.id, existing, this.protectedIds).editable
+        )
+          fail('read-only')
+        return this.write(
+          original,
+          applyEdits(original.text, modify(original.text, ['providers', input.id], undefined, {}))
+        )
+      })
+    )
+    this.queue = operation.catch(() => undefined)
+    return operation
+  }
+
+  /** Writes beside the file and renames over it once the revision still matches. */
+  private async write(original: Document, text: string): Promise<CustomEndpointConfigSnapshot> {
+    const bytes = Buffer.from(original.bom + text)
+    if (bytes.length > MAX_BYTES) fail('invalid-config')
+    const providers = parseDocument(text)
+    const revision = createHash('sha256').update(bytes).digest('hex')
+    const temp = join(dirname(this.modelsFilePath), `.pi-models-${randomUUID()}.tmp`)
+    let owned = false
+    try {
+      const handle = await this.io.open(temp, 'wx', 0o600)
+      owned = true
+      try {
+        await handle.writeFile(bytes)
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      if ((await this.document()).revision !== original.revision) fail('conflict')
+      // Rename is atomic for readers, but the last revision check is not cross-process CAS.
+      await this.io.rename(temp, this.modelsFilePath)
+      owned = false
+    } finally {
+      if (owned) await this.io.unlink(temp).catch(() => undefined)
+    }
+    return this.snapshot({ text, bom: original.bom, revision, providers })
   }
 }

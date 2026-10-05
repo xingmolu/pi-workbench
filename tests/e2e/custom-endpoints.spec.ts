@@ -698,7 +698,9 @@ test('edits metadata without credentials, validates input and cancels without wr
   // Subscriptions and both engines' API connections share the page with Pi's endpoints.
   await expect(page.getByRole('region', { name: '订阅账号' })).toBeVisible()
   await expect(page.getByRole('button', { name: /添加订阅账号/ })).toBeEnabled()
-  await expect(page.getByRole('region', { name: '自定义端点' })).toContainText('用于 Claude Code')
+  await expect(
+    page.getByRole('region', { name: '自定义端点' }).getByRole('button', { name: '添加端点' })
+  ).toBeVisible()
 })
 
 test('canonical metadata survives runtime refresh failure and list refresh truthfully only rereads it', async () => {
@@ -822,4 +824,14 @@ test('discovery errors preserve the draft and cancelled discovery cannot overwri
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
   }
+})
+
+test('deletes an endpoint from Settings', async () => {
+  const section = page.getByRole('region', { name: '自定义端点' })
+  page.once('dialog', (dialog) => void dialog.accept())
+  await section.getByRole('button', { name: '删除 未登录端点', exact: true }).click()
+  await expect(section.getByRole('status')).toContainText('端点已删除')
+  await expect(section.getByRole('button', { name: '编辑 未登录端点', exact: true })).toHaveCount(0)
+  const config = JSON.parse(await readFile(join(agentDir, 'models.json'), 'utf8'))
+  expect(config.providers['custom-existing']).toBeUndefined()
 })
