@@ -220,6 +220,12 @@ const clickProjectMenu = async (cwd: string): Promise<void> => {
   await group(cwd).locator('.project-group-head').hover()
   await group(cwd).locator('.project-group-head .navigation-more').click()
 }
+/** Removed projects and archived sessions are restored from Settings › 项目与归档. */
+const openLibrarySettings = async (): Promise<void> => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '项目与归档', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '项目与归档', exact: true })).toBeVisible()
+}
 const closeNotice = async (): Promise<void> => {
   const button = page.getByRole('button', { name: '关闭提示', exact: true })
   if (await button.count()) await button.click()
@@ -286,11 +292,10 @@ test('removing the selected project closes only the foreground and survives a re
   await expect
     .poll(() => page.evaluate(async () => (await window.pi.getState()).project))
     .toBeNull()
-  await page.getByRole('button', { name: '管理项目与归档', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: '管理项目与归档' })).toBeVisible()
+  await openLibrarySettings()
   await page.screenshot({ path: join(artifacts, 'restore-project.png') })
   await page.getByRole('button', { name: '恢复 studio', exact: true }).click()
-  await page.getByRole('button', { name: '关闭管理', exact: true }).click()
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await expect(group(a)).toHaveCount(1)
   await group(a).locator('.project-session-row').filter({ hasText: '导航体验与布局' }).click()
   await expect
@@ -313,11 +318,11 @@ test('session actions rename the original history without navigation and archive
   await renamed.locator('.navigation-more').click()
   await page.getByRole('menuitem', { name: '归档会话', exact: true }).click()
   await expect(group(a).getByText('已重命名的历史', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '管理项目与归档', exact: true }).click()
+  await openLibrarySettings()
   await page.getByRole('button', { name: /已归档的会话/ }).click()
   await expect(page.getByRole('button', { name: '恢复 已重命名的历史', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '恢复 已重命名的历史', exact: true }).click()
-  await page.getByRole('button', { name: '关闭管理', exact: true }).click()
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click()
   await expect(group(a).getByText('已重命名的历史', { exact: true })).toBeVisible()
 })
 

@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import LibraryManager from './navigation/LibraryManager'
 import { useNavigationLibrary } from '../store/navigation-library'
 import { performNavigationAction } from '../store/navigation-feedback'
 import {
   ChevronsLeft,
-  ArchiveRestore,
   FolderOpen,
   MessageSquarePlus,
   PanelLeft,
@@ -52,7 +50,6 @@ export default function Sidebar({
   onOpenSettings,
   onOpenSearch
 }: SidebarProps): React.JSX.Element {
-  const [managerOpen, setManagerOpen] = useState(false)
   const savedWidth = useNavigationLibrary((state) => state.library.layout.sidebarWidth ?? 248)
   const [width, setWidth] = useState(savedWidth)
   const drag = useRef<{ x: number; width: number } | null>(null)
@@ -141,16 +138,6 @@ export default function Sidebar({
           </button>
         </div>
         <div className="rail-spacer" />
-        <button
-          className="icon-btn"
-          type="button"
-          aria-label={t('管理项目与归档')}
-          title={t('管理项目与归档')}
-          onClick={() => setManagerOpen(true)}
-        >
-          <ArchiveRestore size={17} />
-        </button>
-        {managerOpen && <LibraryManager onClose={() => setManagerOpen(false)} />}
         <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} title="Agent Host" />
         <button className="icon-btn" type="button" onClick={onOpenSettings} title={t('设置')}>
           <Settings2 size={17} />
@@ -230,10 +217,6 @@ export default function Sidebar({
       />
 
       <div className="sidebar-foot">
-        <button type="button" onClick={() => setManagerOpen(true)}>
-          <ArchiveRestore size={15} />
-          {t('管理项目与归档')}
-        </button>
         <div className="sidebar-foot-row">
           <button type="button" onClick={onOpenSettings}>
             <Settings2 size={15} />
@@ -248,7 +231,6 @@ export default function Sidebar({
           </span>
         </div>
       </div>
-      {managerOpen && <LibraryManager onClose={() => setManagerOpen(false)} />}
       <div
         className="sidebar-resize-handle"
         role="separator"

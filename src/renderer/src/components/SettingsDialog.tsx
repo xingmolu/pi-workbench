@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
+  ArchiveRestore,
   KeyRound,
   Monitor,
   Palette,
@@ -19,6 +20,7 @@ import DesktopControlSettings from './DesktopControlSettings'
 import type { AgentSnapshot, WorkbenchCommand, WorkbenchSnapshot } from '../../../shared/contracts'
 import EngineAccounts from './EngineAccounts'
 import PluginSettings from './PluginSettings'
+import LibrarySettings from './LibrarySettings'
 import {
   SettingsDraftProvider,
   confirmDiscardSettingsDraft,
@@ -61,6 +63,13 @@ const sections = [
     group: t('基础设置'),
     icon: Palette,
     keywords: t('主题 深色 浅色 系统 字号 代码 换行 动效')
+  },
+  {
+    id: 'library',
+    label: t('项目与归档'),
+    group: t('基础设置'),
+    icon: ArchiveRestore,
+    keywords: t('项目 会话 归档 移除 恢复 隐藏 侧栏')
   },
   {
     id: 'mobile',
@@ -235,6 +244,8 @@ function SettingsDialogContent({
                   <GeneralSettings />
                 ) : section === 'appearance' ? (
                   <AppearanceSettings />
+                ) : section === 'library' ? (
+                  <LibrarySettings />
                 ) : section === 'mobile' ? (
                   <MobileGatewaySettings />
                 ) : section === 'skills' ? (

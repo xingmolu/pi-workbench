@@ -2282,7 +2282,9 @@ export const en: Readonly<Record<string, string>> = {
   展开侧栏: 'Expand sidebar',
   新会话: 'New session',
   添加项目: 'Add project',
-  管理项目与归档: 'Manage projects and archive',
+  项目与归档: 'Projects & archive',
+  '项目 会话 归档 移除 恢复 隐藏 侧栏':
+    'projects sessions archive removed restore hidden sidebar',
   项目和会话: 'Projects and sessions',
   '收起侧栏（⌘B）': 'Collapse sidebar (⌘B)',
   '在当前项目中新建会话（{value}）': 'New session in the current project ({value})',
@@ -2522,7 +2524,6 @@ export const en: Readonly<Record<string, string>> = {
   表格超过上限: 'The table is over the limit',
   // renderer/components/navigation/LibraryManager.tsx
   历史会话: 'Session history',
-  关闭管理: 'Close manager',
   '这里仅管理导航入口。本地项目文件和 Pi 会话记录始终保留。':
     'This only manages navigation entries. Local project files and Pi session records are always kept.',
   选择管理范围: 'Choose what to manage',
