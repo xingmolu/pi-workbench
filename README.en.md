@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/branding/logo.svg" width="128" alt="Pi Desktop logo" />
+
 # Pi Desktop
 
 **One app, three coding agents**: a desktop GUI for Pi, Claude Code and Codex. Switch engines per session.
