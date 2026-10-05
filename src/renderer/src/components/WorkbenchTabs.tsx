@@ -25,6 +25,17 @@ const icons: Record<WorkbenchIcon, LucideIcon> = {
   plugin: Puzzle,
   flask: FlaskConical
 }
+/** The icon a contribution declares, from the host's icon set. */
+export function ContributionIcon({
+  contribution,
+  size = 16
+}: {
+  contribution: WorkbenchContribution
+  size?: number
+}): React.JSX.Element {
+  const Component = icons[contribution.icon] ?? Blocks
+  return <Component size={size} aria-hidden="true" />
+}
 function Icon({ contribution }: { contribution: WorkbenchContribution }): React.JSX.Element {
   const Component = icons[contribution.icon] ?? Blocks
   return <Component size={16} aria-hidden="true" />

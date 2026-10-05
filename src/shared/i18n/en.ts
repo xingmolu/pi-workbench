@@ -2985,6 +2985,8 @@ export const en: Readonly<Record<string, string>> = {
   '收起项目和会话（⌘B）': 'Hide projects and conversations (⌘B)',
   '展开项目和会话（⌘B）': 'Show projects and conversations (⌘B)',
   '搜索所有会话（{shortcut}）': 'Search all conversations ({shortcut})',
+  返回项目和会话: 'Back to projects and conversations',
+  返回对话: 'Back to the conversation',
   '在桌面应用中连续执行 {count} 步操作': 'Run {count} steps in a desktop app',
   '在桌面应用中粘贴 {count} 个字符': 'Paste {count} characters into a desktop app',
   滚动桌面应用: 'Scroll a desktop app',

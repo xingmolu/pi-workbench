@@ -253,6 +253,14 @@
                   "onProject"
                 ]
               },
+              "placement": {
+                "default": "workbench",
+                "type": "string",
+                "enum": [
+                  "workbench",
+                  "page"
+                ]
+              },
               "surfaces": {
                 "minItems": 1,
                 "maxItems": 2,

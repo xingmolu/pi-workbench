@@ -130,6 +130,31 @@ describe('discoverWorkbenchManifests', () => {
     await expect(readFile(executionMarker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('marks page views for the activity rail and keeps host views in the workbench', async () => {
+    const discover = async (views: unknown[]): ReturnType<typeof discoverWorkbenchManifests> => {
+      const root = await temporaryPluginRoot()
+      await writeManifest(root, { contributes: { views } })
+      return discoverWorkbenchManifests({
+        appVersion: '0.1.0',
+        roots: [{ path: root, source: 'test', scope: 'user', hasExecutablePiResources: false }]
+      })
+    }
+    const result = await discover([
+      { id: 'board', title: 'Board', entry: 'web/index.html', placement: 'page' },
+      { id: 'panel', title: 'Panel', entry: 'web/index.html' }
+    ])
+    expect(result.diagnostics).toEqual([])
+    expect(result.plugins[0].workbench.map(({ contribution }) => contribution)).toEqual([
+      expect.objectContaining({ viewId: 'acme.notes.board', placement: 'page' }),
+      expect.not.objectContaining({ placement: expect.anything() })
+    ])
+    const host = await discover([
+      { id: 'web', title: 'Browser', host: 'browser', placement: 'page' }
+    ])
+    expect(host.plugins).toEqual([])
+    expect(host.diagnostics).toEqual([expect.objectContaining({ code: 'manifest-invalid' })])
+  })
+
   it('accepts both activation values and defaults a missing activation to onProject', async () => {
     const root = await temporaryPluginRoot()
     await writeManifest(root, {

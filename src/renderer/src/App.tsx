@@ -11,7 +11,15 @@ import NavigationFeedback from './components/navigation/NavigationFeedback'
 import PluginApprovalDialog, { type PluginApproval } from './components/PluginApprovalDialog'
 import CredentialGrantDialog from './components/CredentialGrantDialog'
 import './assets/navigation.css'
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
 import { applyThemeOverrides, usePluginThemes } from './store/plugin-themes'
 import { PanelRight } from 'lucide-react'
@@ -25,6 +33,7 @@ import type {
   WorkbenchSnapshot
 } from '../../shared/contracts'
 import ActivityRail from './components/ActivityRail'
+import PluginPage from './components/PluginPage'
 import Sidebar from './components/Sidebar'
 import { shortcutLabel } from './components/shortcut-label'
 import Conversation from './components/Conversation'
@@ -154,6 +163,9 @@ export default function App(): React.JSX.Element {
   )
   const workbenchRevision = useRef(-1)
   const availableWorkbenchViews = useRef<readonly string[]>([])
+  const pageViews = useRef<readonly string[]>([])
+  /** A plugin page opened from the activity rail; it covers everything right of the rail. */
+  const [pageViewId, setPageViewId] = useState<string | null>(null)
   const pluginNames = useRef(new Map<string, string>())
   const [pluginCommands, setPluginCommands] = useState<PluginCommandSummary[]>([])
   const [pluginApprovals, setPluginApprovals] = useState<PluginApproval[]>([])
@@ -175,6 +187,7 @@ export default function App(): React.JSX.Element {
   const subagentOpenerChild = useRef<string | null>(null)
   const subagentRestoreWorkbench = useRef(false)
   const selectWorkbenchView = useCallback((viewId: string): void => {
+    setPageViewId(null)
     setSubagentPreview(null)
     setSubagentDirectoryOpen(false)
     dispatchWorkbenchSelection({ type: 'select', viewId })
@@ -235,12 +248,17 @@ export default function App(): React.JSX.Element {
   const acceptWorkbenchSnapshot = useCallback((state: WorkbenchSnapshot): void => {
     if (state.revision <= workbenchRevision.current) return
     workbenchRevision.current = state.revision
-    availableWorkbenchViews.current = state.contributions.map(({ viewId }) => viewId)
+    const panels = state.contributions.filter(({ placement }) => placement !== 'page')
+    availableWorkbenchViews.current = panels.map(({ viewId }) => viewId)
+    pageViews.current = state.contributions
+      .filter(({ placement }) => placement === 'page')
+      .map(({ viewId }) => viewId)
+    setPageViewId((current) => (current && pageViews.current.includes(current) ? current : null))
     pluginNames.current = new Map(state.plugins.map((plugin) => [plugin.pluginId, plugin.name]))
     setPluginCommands(state.commands ?? [])
     usePluginThemes.getState().setThemes(state.themes ?? [])
     dispatchWorkbenchStatus({ type: 'snapshot', snapshot: state })
-    dispatchWorkbenchSelection({ type: 'snapshot', contributions: state.contributions })
+    dispatchWorkbenchSelection({ type: 'snapshot', contributions: panels })
   }, [])
 
   const reportWorkbenchError = useCallback((message: string): void => {
@@ -300,6 +318,7 @@ export default function App(): React.JSX.Element {
         onReveal: (viewId) => {
           // Background reveals must not replace the user's panel while settings are open.
           if (settingsOpenRef.current || useOverlayState.getState().active) return
+          if (pageViews.current.includes(viewId)) return setPageViewId(viewId)
           if (!availableWorkbenchViews.current.includes(viewId)) return
           dispatchWorkbenchSelection({ type: 'reveal', viewId })
           setWorkbenchOpen(true)
@@ -641,9 +660,23 @@ export default function App(): React.JSX.Element {
     setWorkbenchOpen(true)
   }
 
+  const pageContributions = workbenchStatus.snapshot.contributions.filter(
+    ({ placement }) => placement === 'page'
+  )
+  const page = pageContributions.find(({ viewId }) => viewId === pageViewId)
+  const panelSnapshot = useMemo(
+    () => ({
+      ...workbenchStatus.snapshot,
+      contributions: workbenchStatus.snapshot.contributions.filter(
+        ({ placement }) => placement !== 'page'
+      )
+    }),
+    [workbenchStatus.snapshot]
+  )
+
   return (
     <div className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}`}>
-      {!subagentPreview && !subagentDirectoryOpen && (
+      {!subagentPreview && !subagentDirectoryOpen && !page && (
         <button
           className="icon-btn workbench-toggle"
           aria-label={workbenchOpen ? t('折叠工作台') : t('展开工作台')}
@@ -658,7 +691,14 @@ export default function App(): React.JSX.Element {
       <ActivityRail
         sidebarOpen={!layout.sidebarCollapsed}
         sidebarLocked={layout.settingsOpen}
-        onToggleSidebar={() => dispatchLayout({ type: 'sidebar:toggle' })}
+        sessionsActive={!page}
+        onToggleSidebar={() => {
+          // From a plugin page, the sessions entry returns to the conversation.
+          if (page) {
+            setPageViewId(null)
+            if (layout.sidebarCollapsed) dispatchLayout({ type: 'sidebar:toggle' })
+          } else dispatchLayout({ type: 'sidebar:toggle' })
+        }}
         onOpenSearch={() => openPalette()}
         subagents={
           snapshot.project && !subagentPreview
@@ -675,119 +715,134 @@ export default function App(): React.JSX.Element {
               }
             : undefined
         }
+        pages={pageContributions}
+        activePageId={page?.viewId ?? null}
+        onOpenPage={(viewId) => setPageViewId((current) => (current === viewId ? null : viewId))}
         onOpenSettings={openSettings}
       />
-      <Sidebar
-        collapsed={layout.sidebarCollapsed}
-        snapshot={snapshot}
-        runtimePicker={
-          runtimeCount > 1 ? (
-            <RuntimePicker
-              variant="split"
-              disabled={Boolean(navigationDisabledReason)}
-              onNewSession={() => {
-                if (snapshot.project) void navigateProject(snapshot.project.path)
-              }}
-            />
-          ) : null
-        }
-        onChooseProject={() => void chooseProject()}
-        onNewSession={() => {
-          if (snapshot.project) void navigateProject(snapshot.project.path)
-        }}
-        onNavigate={(cwd, path, workerId, runtimeId) =>
-          void navigateProject(cwd, path, workerId, runtimeId)
-        }
-        onCatalog={acceptCatalog}
-        navigationFailures={navigationFailures}
-        pending={navigating}
-        disabledReason={navigationDisabledReason}
-      />
-
-      <WorkspacePanels
-        collapsed={!workbenchOpen}
-        conversation={
-          <Conversation
-            snapshot={snapshot}
-            onInspectSubagent={inspectChild}
-            approvals={snapshot.approvals}
-            loading={loading}
-            error={clientError ?? snapshot.error}
-            onChooseProject={() => void chooseProject()}
-            recentProject={recentProject}
-            onContinueProject={(path, sessionPath) => void navigateProject(path, sessionPath)}
-            projectNavigationPending={navigating}
-            onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
-            onOpenSession={(path) => void send({ type: 'session:open', path })}
-            onReconnect={() => void reconnect()}
-            reconnecting={reconnecting}
-            onAbort={() => void send({ type: 'prompt:abort' })}
-            onClearQueue={() => void send({ type: 'queue:clear' })}
-            onPermissionChange={(permission) =>
-              void send({ type: 'permission:set', mode: permission })
-            }
-            onChooseModel={(providerId, modelId) =>
-              void send(modelSelectionCommand(providerId, modelId))
-            }
-            onLogin={() => {
-              openSettings()
-              login(snapshot.runtime?.id === 'claude' ? 'anthropic' : 'openai-codex', 'browser')
-            }}
-            onOpenSettings={openSettings}
-            onConnect={(choice) => {
-              if (choice === 'api') useSettingsIntent.getState().request('add-api')
-              openSettings()
-              const runtime = snapshot.runtime?.id ?? 'pi'
-              if (choice === 'chatgpt' && runtime === 'pi') login('openai-codex', 'browser')
-              if (choice === 'claude' && runtime === 'claude') login('anthropic', 'browser')
-            }}
-            onApproval={respondToApproval}
-          />
-        }
-        workbench={
-          <div className="subagent-workbench-slot">
-            <div
-              className="subagent-existing-workbench"
-              hidden={Boolean(subagentPreview) || subagentDirectoryOpen}
-            >
-              <Workbench
-                collapsed={!workbenchOpen}
-                selectedViewId={workbenchSelection.selectedViewId}
-                openedViewIds={workbenchSelection.openedViewIds}
-                onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
-                settingsOpen={
-                  layout.settingsOpen ||
-                  activeOverlay !== null ||
-                  Boolean(subagentPreview) ||
-                  subagentDirectoryOpen
-                }
-                agentSnapshot={snapshot}
-                workbenchSnapshot={workbenchStatus.snapshot}
-                workbenchError={workbenchStatus.error}
-                onSelectView={selectWorkbenchView}
-                onWorkbenchCommand={sendWorkbench}
-                onWorkbenchError={reportWorkbenchError}
-              />
-            </div>
-            {subagentDirectoryOpen && !subagentPreview ? (
-              <SubagentDirectory onInspect={inspectChild} onClose={closeDirectory} />
-            ) : null}
-            {subagentPreview ? (
-              <SubagentInspector
-                key={subagentPreview.child.id}
-                child={subagentPreview.child}
-                owner={subagentPreview.owner}
-                parentNodes={snapshot.nodes}
-                onClose={closeSubagentPreview}
-                onOpen={(path) => {
-                  closeSubagentPreview()
-                  void send({ type: 'session:open', path })
+      {page ? (
+        <PluginPage
+          contribution={page}
+          visible={!layout.settingsOpen && activeOverlay === null}
+          onClose={() => setPageViewId(null)}
+          onWorkbenchCommand={sendWorkbench}
+          onWorkbenchError={reportWorkbenchError}
+        />
+      ) : null}
+      <div className="shell-content" hidden={Boolean(page)}>
+        <Sidebar
+          collapsed={layout.sidebarCollapsed}
+          snapshot={snapshot}
+          runtimePicker={
+            runtimeCount > 1 ? (
+              <RuntimePicker
+                variant="split"
+                disabled={Boolean(navigationDisabledReason)}
+                onNewSession={() => {
+                  if (snapshot.project) void navigateProject(snapshot.project.path)
                 }}
               />
-            ) : null}
-          </div>
-        }
-      />
+            ) : null
+          }
+          onChooseProject={() => void chooseProject()}
+          onNewSession={() => {
+            if (snapshot.project) void navigateProject(snapshot.project.path)
+          }}
+          onNavigate={(cwd, path, workerId, runtimeId) =>
+            void navigateProject(cwd, path, workerId, runtimeId)
+          }
+          onCatalog={acceptCatalog}
+          navigationFailures={navigationFailures}
+          pending={navigating}
+          disabledReason={navigationDisabledReason}
+        />
+
+        <WorkspacePanels
+          collapsed={!workbenchOpen}
+          conversation={
+            <Conversation
+              snapshot={snapshot}
+              onInspectSubagent={inspectChild}
+              approvals={snapshot.approvals}
+              loading={loading}
+              error={clientError ?? snapshot.error}
+              onChooseProject={() => void chooseProject()}
+              recentProject={recentProject}
+              onContinueProject={(path, sessionPath) => void navigateProject(path, sessionPath)}
+              projectNavigationPending={navigating}
+              onSend={(text, identity) => send({ type: 'prompt:send', text, ...identity })}
+              onOpenSession={(path) => void send({ type: 'session:open', path })}
+              onReconnect={() => void reconnect()}
+              reconnecting={reconnecting}
+              onAbort={() => void send({ type: 'prompt:abort' })}
+              onClearQueue={() => void send({ type: 'queue:clear' })}
+              onPermissionChange={(permission) =>
+                void send({ type: 'permission:set', mode: permission })
+              }
+              onChooseModel={(providerId, modelId) =>
+                void send(modelSelectionCommand(providerId, modelId))
+              }
+              onLogin={() => {
+                openSettings()
+                login(snapshot.runtime?.id === 'claude' ? 'anthropic' : 'openai-codex', 'browser')
+              }}
+              onOpenSettings={openSettings}
+              onConnect={(choice) => {
+                if (choice === 'api') useSettingsIntent.getState().request('add-api')
+                openSettings()
+                const runtime = snapshot.runtime?.id ?? 'pi'
+                if (choice === 'chatgpt' && runtime === 'pi') login('openai-codex', 'browser')
+                if (choice === 'claude' && runtime === 'claude') login('anthropic', 'browser')
+              }}
+              onApproval={respondToApproval}
+            />
+          }
+          workbench={
+            <div className="subagent-workbench-slot">
+              <div
+                className="subagent-existing-workbench"
+                hidden={Boolean(subagentPreview) || subagentDirectoryOpen}
+              >
+                <Workbench
+                  collapsed={!workbenchOpen}
+                  selectedViewId={workbenchSelection.selectedViewId}
+                  openedViewIds={workbenchSelection.openedViewIds}
+                  onCloseView={(viewId) => dispatchWorkbenchSelection({ type: 'close', viewId })}
+                  settingsOpen={
+                    layout.settingsOpen ||
+                    activeOverlay !== null ||
+                    Boolean(subagentPreview) ||
+                    subagentDirectoryOpen ||
+                    Boolean(page)
+                  }
+                  agentSnapshot={snapshot}
+                  workbenchSnapshot={panelSnapshot}
+                  workbenchError={workbenchStatus.error}
+                  onSelectView={selectWorkbenchView}
+                  onWorkbenchCommand={sendWorkbench}
+                  onWorkbenchError={reportWorkbenchError}
+                />
+              </div>
+              {subagentDirectoryOpen && !subagentPreview ? (
+                <SubagentDirectory onInspect={inspectChild} onClose={closeDirectory} />
+              ) : null}
+              {subagentPreview ? (
+                <SubagentInspector
+                  key={subagentPreview.child.id}
+                  child={subagentPreview.child}
+                  owner={subagentPreview.owner}
+                  parentNodes={snapshot.nodes}
+                  onClose={closeSubagentPreview}
+                  onOpen={(path) => {
+                    closeSubagentPreview()
+                    void send({ type: 'session:open', path })
+                  }}
+                />
+              ) : null}
+            </div>
+          }
+        />
+      </div>
       {activeOverlay === 'command' && (
         <GlobalCommandPalette
           snapshot={snapshot}
