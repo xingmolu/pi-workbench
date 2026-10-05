@@ -73,6 +73,15 @@ const PROTOCOLS: Record<CustomEndpointApi, string> = {
 
 type Engine = 'pi' | 'claude'
 
+/** A custom service without a name is called by its host, as in the endpoint list. */
+function hostname(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname.slice(0, 80)
+  } catch {
+    return ''
+  }
+}
+
 /**
  * One way to add an API connection for any engine: pick a service, give the key, and
  * (for Pi) fetch and choose models. Claude Code takes Anthropic-compatible services only.
@@ -139,14 +148,13 @@ export default function AddApiConnection({
     try {
       const response = await window.pi.runtimeConfig('pi', command.data)
       setModels(response.result.modelIds)
-      setChosen(response.result.modelIds.slice(0, 20))
+      setChosen(response.result.modelIds)
       setBaseUrl(response.result.baseUrl)
       setNote(
         response.result.modelIds.length
-          ? t('找到 {count} 个模型{partial}，已勾选前 {chosen} 个。', {
+          ? t('找到 {count} 个模型{partial}，已全部选中，可取消不需要的。', {
               count: response.result.modelIds.length,
-              partial: response.result.truncated ? t('（未完整返回）') : '',
-              chosen: Math.min(20, response.result.modelIds.length)
+              partial: response.result.truncated ? t('（未完整返回）') : ''
             })
           : t('服务没有返回模型列表，请在下面手动填写模型 ID。')
       )
@@ -188,7 +196,10 @@ export default function AddApiConnection({
       return
     }
     const endpoint = createCustomEndpointSchema.safeParse({
-      label: label.trim() || preset?.label || t('自定义端点'),
+      label:
+        label.trim() ||
+        (preset?.id === 'custom' ? hostname(baseUrl.trim()) : preset?.label) ||
+        t('自定义端点'),
       api,
       baseUrl: baseUrl.trim(),
       modelIds,
@@ -223,7 +234,7 @@ export default function AddApiConnection({
   }
 
   return (
-    <div className="ea-panel" role="group" aria-label={t('添加 API 连接')}>
+    <div className="ea-panel" role="group" aria-label={t('添加端点')}>
       <div className="ea-panel-head">
         {preset ? (
           <button
@@ -345,6 +356,20 @@ export default function AddApiConnection({
                 </button>
               </div>
               {models?.length ? (
+                <div className="ea-models-head">
+                  <span>
+                    {t('已选 {count} / {total}', { count: chosen.length, total: models.length })}
+                  </span>
+                  <button
+                    type="button"
+                    className="acct-button is-quiet"
+                    onClick={() => setChosen(chosen.length === models.length ? [] : models)}
+                  >
+                    {chosen.length === models.length ? t('全部取消') : t('全选')}
+                  </button>
+                </div>
+              ) : null}
+              {models?.length ? (
                 <div className="ea-model-list" role="group" aria-label={t('选择模型')}>
                   {models.map((id) => (
                     <label key={id} className="ea-check">
@@ -402,7 +427,7 @@ export default function AddApiConnection({
             >
               {busy === 'save' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
 
-              {t('保存连接')}
+              {t('保存端点')}
             </button>
           </div>
         </form>

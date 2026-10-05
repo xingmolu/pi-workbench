@@ -517,5 +517,5 @@ test('a new user without accounts is offered ways to connect a model', async () 
   await page.screenshot({ path: resolve('artifacts/e2e/home-connect.png') })
   // "API Key" lands on the add-API panel in Settings.
   await connect.getByRole('button', { name: /API Key/ }).click()
-  await expect(page.getByRole('group', { name: '添加 API 连接' })).toBeVisible()
+  await expect(page.getByRole('group', { name: '添加端点' })).toBeVisible()
 })

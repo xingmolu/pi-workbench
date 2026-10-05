@@ -449,7 +449,9 @@ export default function EngineAccounts({
   return (
     <SettingsPage
       title={t('引擎与账号')}
-      description={t('新会话默认用哪个引擎，以及可以使用的订阅账号和 API 连接。凭据只保存在本机。')}
+      description={t(
+        '新会话默认用哪个引擎，以及可以使用的订阅账号和自定义端点。凭据只保存在本机。'
+      )}
     >
       {error ? (
         <p className="acct-notice is-error" role="alert">
@@ -593,23 +595,28 @@ export default function EngineAccounts({
         )}
       </section>
 
-      <section className="sp-group" aria-label={t('API 连接')}>
+      <section className="sp-group" aria-label={t('自定义端点')}>
         <div className="sp-group-header">
           <div className="ea-group-header">
             <div>
-              <h3>{t('API 连接')}</h3>
-              <p>{t('用 API Key 接入官方或兼容服务，可以添加多个。')}</p>
+              <h3>{t('自定义端点')}</h3>
+              <p>{t('用 API Key 接入官方服务、网关或任意兼容接口，可以添加多个。')}</p>
             </div>
             {!addingApi ? (
               <button
                 type="button"
                 className="acct-button"
-                disabled={Boolean(pending)}
+                // Endpoint writes wait for an open Pi chat to finish running or signing in.
+                disabled={
+                  Boolean(pending) ||
+                  (snapshot.runtime?.id === 'pi' &&
+                    (snapshot.busy || !['idle', 'success', 'error'].includes(snapshot.login.phase)))
+                }
                 onClick={() => setAddingApi(true)}
               >
                 <Plus size={14} />
 
-                {t('添加 API 连接')}
+                {t('添加端点')}
               </button>
             ) : null}
           </div>
@@ -631,8 +638,8 @@ export default function EngineAccounts({
           <div className="ea-subgroup">
             <div className="ea-subgroup-head">
               <span>
-                <strong>Claude Code API</strong>
-                <small>{t('Anthropic 兼容接口，可以添加多个')}</small>
+                <strong>{t('用于 Claude Code')}</strong>
+                <small>{t('Anthropic 兼容接口')}</small>
               </span>
             </div>
             {claude.error ? (
@@ -659,9 +666,7 @@ export default function EngineAccounts({
                         disabled={Boolean(pending)}
                         onClick={() => {
                           if (
-                            window.confirm(
-                              t('移除 {name} 这个 API 连接？', { name: row.account.name })
-                            )
+                            window.confirm(t('移除 {name} 这个端点？', { name: row.account.name }))
                           )
                             void run('claude', {
                               type: 'account:remove',
@@ -676,7 +681,7 @@ export default function EngineAccounts({
                 ))}
               </ul>
             ) : !claude.error ? (
-              <p className="ea-empty">{t('还没有 Claude Code 的 API 连接。')}</p>
+              <p className="ea-empty">{t('还没有用于 Claude Code 的端点。')}</p>
             ) : null}
           </div>
         ) : null}
