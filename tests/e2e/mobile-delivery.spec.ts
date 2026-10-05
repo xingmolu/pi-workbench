@@ -506,15 +506,19 @@ test('mobile controls: permission, model, skills, images, undo and a new session
   // Model: unavailable models are listed but cannot be picked.
   await page.getByRole('button', { name: '模型：Text Only' }).click()
   const models = page.getByRole('dialog', { name: '选择模型' })
-  await expect(models.getByText('Fixture Cloud')).toBeVisible()
   await models.getByRole('radio', { name: '高', exact: true }).click()
   await expect(models.getByRole('radio', { name: '高', exact: true })).toHaveAttribute(
     'aria-checked',
     'true'
   )
-  await expect(models.getByRole('button', { name: /Gone/ })).toBeDisabled()
+  // Accounts come first; the current one names its current model.
+  await expect(models.getByRole('button', { name: /Fixture Cloud/ })).toContainText('Text Only')
   await page.waitForTimeout(300)
   await page.screenshot({ path: resolve('artifacts/e2e/mobile-model-sheet.png') })
+  await models.getByRole('button', { name: /Other Lab/ }).click()
+  await expect(models.getByRole('button', { name: /Gone/ })).toBeDisabled()
+  await models.getByRole('button', { name: /返回账号列表/ }).click()
+  await models.getByRole('button', { name: /Fixture Cloud/ }).click()
   await models.getByRole('button', { name: /Vision Pro/ }).click()
   await expect(page.getByRole('button', { name: '模型：Vision Pro' })).toBeVisible()
   await expect(page.getByRole('button', { name: '模型：Vision Pro' })).toContainText('高')

@@ -109,7 +109,8 @@ export function toMobileSnapshot(
     composeBlockReason: snapshot.composeBlockReason,
     model: snapshot.activeModel,
     provider: snapshot.activeProvider,
-    models: snapshot.models.slice(0, 100).map((model) => ({
+    // Gateways can serve well over a hundred models; the phone groups them like the desktop.
+    models: snapshot.models.slice(0, 2000).map((model) => ({
       provider: model.provider,
       id: model.id,
       name: model.name,
