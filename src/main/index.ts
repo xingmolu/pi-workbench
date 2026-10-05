@@ -514,6 +514,8 @@ const runtimeDirectory = new RuntimeDirectory({
   registry: runtimeProviders,
   cwd: app.getPath('home'),
   onEvent: (runtimeId, event) => {
+    // Settings sign in through any engine's configuration host, even while a chat is open.
+    if (event.event === 'open-external') return openSignInPage(event.data)
     if (runtimeId !== lobbyRuntimeId) return
     lobbySnapshot = runtimeDirectory.snapshot(runtimeId)
     foregroundCapabilities.invalidate()
@@ -1005,6 +1007,24 @@ function updateWorkbenchContext(): void {
   }
 }
 
+/** Opens a sign-in page a host asked for, whichever host and window state it came from. */
+function openSignInPage(data: { url: string; mcp?: true }): void {
+  try {
+    const target = new URL(data.url)
+    // MCP authorization pages belong to servers the user trusted and asked to sign in to.
+    const allowed = data.mcp
+      ? !target.username &&
+        !target.password &&
+        (target.protocol === 'https:' ||
+          (target.protocol === 'http:' &&
+            ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)))
+      : target.protocol === 'https:' && AUTH_EXTERNAL_HOSTS.has(target.hostname)
+    if (allowed) void shell.openExternal(target.toString())
+  } catch {
+    // Ignore malformed provider URLs rather than handing them to the OS.
+  }
+}
+
 function forwardEvent(event: DesktopEvent): void {
   if (!sessionWorkers.hasSelection) {
     if (event.event === 'snapshot')
@@ -1053,22 +1073,7 @@ function forwardEvent(event: DesktopEvent): void {
       if (roots) packageRootsLifecycle.handleMessage(roots)
     }
   }
-  if (event.event === 'open-external') {
-    try {
-      const target = new URL(event.data.url)
-      // MCP authorization pages belong to servers the user trusted and asked to sign in to.
-      const allowed = event.data.mcp
-        ? !target.username &&
-          !target.password &&
-          (target.protocol === 'https:' ||
-            (target.protocol === 'http:' &&
-              ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)))
-        : target.protocol === 'https:' && AUTH_EXTERNAL_HOSTS.has(target.hostname)
-      if (allowed) void shell.openExternal(target.toString())
-    } catch {
-      // Ignore malformed provider URLs rather than handing them to the OS.
-    }
-  }
+  if (event.event === 'open-external') openSignInPage(event.data)
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send('pi:event', event)

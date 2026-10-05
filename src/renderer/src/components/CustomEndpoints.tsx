@@ -234,7 +234,7 @@ export default function CustomEndpoints({
               'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。'
             )
           : field === 'modelIds'
-            ? t('模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。')
+            ? t('模型 ID 每行一个，不能重复；请填写 1–1000 个，每个不超过 200 个字符。')
             : field === 'imageModelIds'
               ? t('支持图片输入的模型必须出现在模型 ID 列表中。')
               : field === 'key'

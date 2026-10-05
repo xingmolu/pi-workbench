@@ -70,6 +70,38 @@ describe('Claude native conversation projection', () => {
     } as unknown as SDKMessage)
     expect(projection.nodes[2]).toMatchObject({ status: 'success', output: 'Read output' })
   })
+  it('does not duplicate text when each block arrives as its own assistant message', () => {
+    const projection = new ClaudeProjection()
+    projection.accept(event({ type: 'message_start', message: { id: 'msg_1' } }))
+    projection.accept(
+      event({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: 'Plan' }
+      })
+    )
+    projection.accept(
+      event({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } })
+    )
+    projection.accept(
+      event({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Hi' } })
+    )
+    for (const [uuid, block] of [
+      ['uuid-think', { type: 'thinking', thinking: 'Plan' }],
+      ['uuid-text', { type: 'text', text: 'Hi' }]
+    ] as const)
+      projection.accept({
+        type: 'assistant',
+        uuid,
+        session_id: session,
+        parent_tool_use_id: null,
+        message: { id: 'msg_1', content: [block] }
+      } as unknown as SDKMessage)
+    expect(projection.nodes.map((node) => [node.type, node.id])).toEqual([
+      ['think', 'uuid-think:0'],
+      ['assistant', 'uuid-text:0']
+    ])
+  })
   it('does not duplicate optimistically admitted image/text user messages on replay', () => {
     const projection = new ClaudeProjection()
     projection.upsert({ id: 'user-uuid', type: 'user', text: 'Hello', imageCount: 1 })

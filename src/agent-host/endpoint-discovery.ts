@@ -1,4 +1,5 @@
 import {
+  MAX_ENDPOINT_MODELS,
   endpointDiscoverSchema,
   type EndpointDiscoverCommand,
   type EndpointDiscovery
@@ -83,7 +84,8 @@ export async function discoverEndpointModels(
   if (!ids.length) throw new Error(t('未发现可用模型，请检查此密钥的模型权限，或手动填写。'))
   return {
     baseUrl: modelsUrl(request.baseUrl).replace(/\/models$/, ''),
-    modelIds: ids.slice(0, 100),
-    truncated: ids.length > 100 || (data as { has_more?: boolean }).has_more === true
+    modelIds: ids.slice(0, MAX_ENDPOINT_MODELS),
+    truncated:
+      ids.length > MAX_ENDPOINT_MODELS || (data as { has_more?: boolean }).has_more === true
   }
 }

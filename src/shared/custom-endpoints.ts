@@ -10,6 +10,9 @@ const boundedText = (max: number) =>
     .transform((value) => value.trim())
     .refine((value) => [...value].length >= 1 && [...value].length <= max)
 
+/** Gateways often serve well over a hundred models; this only bounds a hostile list. */
+export const MAX_ENDPOINT_MODELS = 1000
+
 export const customEndpointApiSchema = z.enum([
   'openai-completions',
   'openai-responses',
@@ -62,11 +65,11 @@ export const customEndpointMetadataInputSchema = z
     modelIds: z
       .array(boundedText(200))
       .min(1)
-      .max(100)
+      .max(MAX_ENDPOINT_MODELS)
       .refine((ids) => new Set(ids).size === ids.length),
     imageModelIds: z
       .array(boundedText(200))
-      .max(100)
+      .max(MAX_ENDPOINT_MODELS)
       .refine((ids) => new Set(ids).size === ids.length)
       .optional()
   })
@@ -190,7 +193,7 @@ export type EndpointDiscoverCommand = z.infer<typeof endpointDiscoverSchema>
 export const endpointDiscoverySchema = z
   .object({
     baseUrl: customEndpointUrlSchema,
-    modelIds: z.array(boundedText(200)).max(100),
+    modelIds: z.array(boundedText(200)).max(MAX_ENDPOINT_MODELS),
     truncated: z.boolean()
   })
   .strict()

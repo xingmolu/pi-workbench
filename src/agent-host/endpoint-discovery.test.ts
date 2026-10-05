@@ -45,14 +45,24 @@ describe('endpoint model discovery', () => {
       'anthropic-version': '2023-06-01'
     })
   })
+  it('keeps a gateway catalog of more than a hundred models', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        Response.json({ data: Array.from({ length: 140 }, (_, i) => ({ id: `model-${i}` })) })
+      )
+    const result = await discoverEndpointModels(command, fetcher)
+    expect(result.modelIds).toHaveLength(140)
+    expect(result.truncated).toBe(false)
+  })
   it('bounds the returned catalog', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
-        Response.json({ data: Array.from({ length: 110 }, (_, i) => ({ id: `model-${i}` })) })
+        Response.json({ data: Array.from({ length: 1010 }, (_, i) => ({ id: `model-${i}` })) })
       )
     const result = await discoverEndpointModels(command, fetcher)
-    expect(result.modelIds).toHaveLength(100)
+    expect(result.modelIds).toHaveLength(1000)
     expect(result.truncated).toBe(true)
   })
   it('does not echo service errors or credentials', async () => {

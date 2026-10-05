@@ -1448,8 +1448,8 @@ export const en: Readonly<Record<string, string>> = {
   '拉取失败，请重试或手动填写模型。': 'Fetching failed. Try again or enter models manually.',
   'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。':
     "The base URL must be HTTPS, or http://localhost, 127.0.0.1 or [::1]; it can't include credentials, query parameters or a fragment.",
-  '模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。':
-    'One model ID per line, no duplicates; enter 1–100, each up to 200 characters.',
+  '模型 ID 每行一个，不能重复；请填写 1–1000 个，每个不超过 200 个字符。':
+    'One model ID per line, no duplicates; enter 1–1000, each up to 200 characters.',
   '支持图片输入的模型必须出现在模型 ID 列表中。':
     'Models that support image input must be in the model ID list.',
   '新端点必须填写 API Key；本地服务也需明确填写占位值。':
