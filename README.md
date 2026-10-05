@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="resources/branding/logo.svg" width="128" alt="Pi Desktop logo" />
+
 # Pi Desktop
 
 **一个应用，三个编程 Agent**：Pi、Claude Code、Codex 的桌面图形界面，按会话随时切换。

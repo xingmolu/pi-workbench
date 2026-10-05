@@ -43,6 +43,17 @@ export function approvalSummary(approval: ApprovalRequest): string {
         if (input.intent === 'key' && typeof input.key === 'string')
           return t('在桌面应用中按 {key}', { key: input.key })
         if (input.intent === 'move') return t('移动桌面指针')
+        if (Array.isArray(input.steps))
+          return t('在桌面应用中连续执行 {count} 步操作', { count: input.steps.length })
+        if (input.intent === 'paste' && typeof input.text === 'string')
+          return t('在桌面应用中粘贴 {count} 个字符', { count: input.text.length })
+        if (input.intent === 'scroll') return t('滚动桌面应用')
+        if (input.intent === 'drag') return t('在桌面应用中拖拽')
+        if (input.intent === 'set_value' && typeof input.value === 'string')
+          return t('把桌面控件的值设为「{value}」', {
+            value: input.value.length > 40 ? `${input.value.slice(0, 40)}…` : input.value
+          })
+        if (input.intent === 'secondary') return t('对桌面控件执行次级操作')
         return t('点击桌面应用中的控件')
       }
       const actions: Record<string, string> = {

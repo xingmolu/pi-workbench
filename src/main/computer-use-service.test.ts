@@ -90,8 +90,99 @@ function harness(
         })
       }
     }
-    if (command.action === 'key') {
+    if (['key', 'scroll', 'drag', 'paste'].includes(String(command.action))) {
       return { stdout: JSON.stringify({ ok: true }) }
+    }
+    if (command.action === 'set-value') {
+      if (command.value === 'locked')
+        return { stdout: JSON.stringify({ ok: false, error: 'not-settable' }) }
+      windowValue = String(command.value)
+      return { stdout: JSON.stringify({ ok: true }) }
+    }
+    if (command.action === 'ax-action') {
+      if (command.name !== 'menu')
+        return {
+          stdout: JSON.stringify({ ok: false, error: 'action-unsupported', available: ['AXPress'] })
+        }
+      return { stdout: JSON.stringify({ ok: true }) }
+    }
+    if (command.action === 'list-apps') {
+      return {
+        stdout: JSON.stringify({
+          ok: true,
+          apps: [
+            {
+              pid: 42,
+              name: 'Finder',
+              bundleId: 'com.apple.finder',
+              active: true,
+              hidden: false,
+              windows: 2
+            },
+            {
+              pid: 4242,
+              name: 'Pi Desktop',
+              bundleId: 'works.pi.desktop',
+              active: false,
+              hidden: false,
+              windows: 1
+            }
+          ]
+        })
+      }
+    }
+    if (command.action === 'list-windows') {
+      if (command.app === 'Pi Desktop')
+        return {
+          stdout: JSON.stringify({
+            ok: true,
+            pid: 4242,
+            app: 'Pi Desktop',
+            bundleId: 'works.pi.desktop',
+            windows: []
+          })
+        }
+      if (command.app === 'Nope')
+        return { stdout: JSON.stringify({ ok: false, error: 'app-not-running' }) }
+      return {
+        stdout: JSON.stringify({
+          ok: true,
+          pid: 42,
+          app: 'Finder',
+          bundleId: 'com.apple.finder',
+          windows: [
+            {
+              title: 'Desktop',
+              focused: true,
+              minimized: false,
+              frame: { x: 100, y: 50, width: 400, height: 200 }
+            },
+            { title: 'Downloads', focused: false, minimized: true }
+          ]
+        })
+      }
+    }
+    if (command.action === 'activate-window') {
+      if (command.window === 'Nothing')
+        return { stdout: JSON.stringify({ ok: false, error: 'window-not-found' }) }
+      if (command.window === 'D')
+        return {
+          stdout: JSON.stringify({
+            ok: false,
+            error: 'window-ambiguous',
+            candidates: ['Desktop', 'Downloads']
+          })
+        }
+      front = 'target'
+      return {
+        stdout: JSON.stringify({
+          ok: true,
+          front: true,
+          pid: 42,
+          app: 'Finder',
+          bundleId: 'com.apple.finder'
+        })
+      }
     }
     if (
       front === 'pi' &&
@@ -843,5 +934,235 @@ describe('Computer Use owner retirement', () => {
     ).rejects.toThrow('过期')
     await api.execute({ action: 'observe', mode: 'semantic' })
     expect(service.stateCount).toBe(1)
+  })
+})
+
+describe('Computer Use actions', () => {
+  const sent = (
+    exec: ReturnType<typeof harness>['exec'],
+    action: string
+  ): Record<string, unknown>[] =>
+    exec.mock.calls
+      .map((call) => JSON.parse(String(call[1]?.[0] ?? '{}')) as Record<string, unknown>)
+      .filter((command) => command.action === action)
+
+  async function observed(h: ReturnType<typeof harness>): Promise<string> {
+    const observation = await h.api.execute({ action: 'observe', mode: 'semantic' })
+    if (observation.kind !== 'observation') throw new Error('expected observation')
+    return observation.stateId
+  }
+
+  it('presses shortcuts with modifiers and refuses ones that leave the window', async () => {
+    const h = harness()
+    const stateId = await observed(h)
+    await h.api.execute({ action: 'act', stateId, intent: 'key', key: 'Command+Shift+Z' })
+    expect(sent(h.exec, 'key')[0]).toMatchObject({ key: 'z', modifiers: ['cmd', 'shift'] })
+    const next = await observed(h)
+    for (const key of ['cmd+Tab', 'cmd+q', 'cmd+space', 'ctrl+ArrowRight', 'hyper+x', 'cmd+é'])
+      await expect(
+        h.api.execute({ action: 'act', stateId: next, intent: 'key', key })
+      ).rejects.toThrow()
+    expect(sent(h.exec, 'key')).toHaveLength(1)
+  })
+
+  it('scrolls at the window centre or at a ref, in wheel lines', async () => {
+    const h = harness()
+    let stateId = await observed(h)
+    await h.api.execute({ action: 'act', stateId, intent: 'scroll', direction: 'down' })
+    stateId = await observed(h)
+    await h.api.execute({
+      action: 'act',
+      stateId,
+      intent: 'scroll',
+      direction: 'left',
+      amount: 2,
+      target: { kind: 'ref', ref: '@e2' }
+    })
+    expect(sent(h.exec, 'scroll')).toEqual([
+      expect.objectContaining({ x: 300, y: 150, deltaX: 0, deltaY: -9 }),
+      expect.objectContaining({ x: 130, y: 70, deltaX: 6, deltaY: 0 })
+    ])
+    await expect(
+      h.api.execute({ action: 'act', stateId: await observed(h), intent: 'scroll' })
+    ).rejects.toThrow('scroll 操作需要 direction')
+  })
+
+  it('drags between two refs of the observed window', async () => {
+    const h = harness()
+    const stateId = await observed(h)
+    await h.api.execute({
+      action: 'act',
+      stateId,
+      intent: 'drag',
+      target: { kind: 'ref', ref: '@e2' },
+      to: { kind: 'ref', ref: '@e1' }
+    })
+    expect(sent(h.exec, 'drag')[0]).toMatchObject({
+      x: 130,
+      y: 70,
+      toX: 300,
+      toY: 150,
+      expectedTarget: { windowId: 77 }
+    })
+  })
+
+  it('pastes long text, focusing the target first when given', async () => {
+    const h = harness()
+    const text = 'x'.repeat(5000)
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: await observed(h),
+        intent: 'type',
+        text,
+        target: { kind: 'ref', ref: '@e2' }
+      })
+    ).rejects.toThrow('paste')
+    await h.api.execute({
+      action: 'act',
+      stateId: await observed(h),
+      intent: 'paste',
+      text,
+      target: { kind: 'ref', ref: '@e2' }
+    })
+    expect(sent(h.exec, 'click')).toHaveLength(1)
+    expect(sent(h.exec, 'paste')[0]).toMatchObject({ text, expectedTarget: { windowId: 77 } })
+  })
+
+  it('sets values directly and reports controls that cannot take one', async () => {
+    const h = harness()
+    const result = await h.api.execute({
+      action: 'act',
+      stateId: await observed(h),
+      intent: 'set_value',
+      target: { kind: 'ref', ref: '@e2' },
+      value: '42'
+    })
+    expect(result).toMatchObject({ kind: 'action', action: 'set_value', changed: true })
+    expect(sent(h.exec, 'set-value')[0]).toMatchObject({ x: 130, y: 70, value: '42' })
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: await observed(h),
+        intent: 'set_value',
+        target: { kind: 'ref', ref: '@e2' },
+        value: 'locked'
+      })
+    ).rejects.toThrow('不能直接设置')
+  })
+
+  it('performs secondary accessibility actions and lists the supported ones otherwise', async () => {
+    const h = harness()
+    await h.api.execute({
+      action: 'act',
+      stateId: await observed(h),
+      intent: 'secondary',
+      name: 'menu',
+      target: { kind: 'ref', ref: '@e2' }
+    })
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: await observed(h),
+        intent: 'secondary',
+        name: 'increment',
+        target: { kind: 'ref', ref: '@e2' }
+      })
+    ).rejects.toThrow('AXPress')
+  })
+
+  // A click renames the button in this harness, so the last step presses the window itself.
+  it('runs several steps in one call with a single observation afterwards', async () => {
+    const h = harness()
+    const stateId = await observed(h)
+    const dumps = sent(h.exec, 'ax-dump').length
+    const result = await h.api.execute({
+      action: 'act',
+      stateId,
+      steps: [
+        { intent: 'type', target: { kind: 'ref', ref: '@e2' }, text: 'hello' },
+        { intent: 'key', key: 'Enter' },
+        { intent: 'press', target: { kind: 'ref', ref: '@e1' } }
+      ]
+    })
+    expect(result).toMatchObject({ kind: 'action', action: 'press', steps: 3, changed: true })
+    expect(sent(h.exec, 'type')).toHaveLength(1)
+    expect(sent(h.exec, 'key')).toHaveLength(1)
+    expect(sent(h.exec, 'click')).toHaveLength(2)
+    // One AX read per ref step plus the closing observation.
+    expect(sent(h.exec, 'ax-dump').length - dumps).toBe(3)
+  })
+
+  it('validates every step before sending any input and stops at the first failure', async () => {
+    const h = harness()
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: await observed(h),
+        steps: [{ intent: 'key', key: 'Enter' }, { intent: 'press' }]
+      })
+    ).rejects.toThrow('第 2 步无效')
+    expect(sent(h.exec, 'key')).toHaveLength(0)
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId: await observed(h),
+        intent: 'key',
+        key: 'Enter',
+        steps: [{ intent: 'key', key: 'Tab' }]
+      })
+    ).rejects.toThrow()
+    const stateId = await observed(h)
+    await expect(
+      h.api.execute({
+        action: 'act',
+        stateId,
+        steps: [
+          { intent: 'key', key: 'Enter' },
+          { intent: 'press', target: { kind: 'ref', ref: '@e9' } },
+          { intent: 'key', key: 'Tab' }
+        ]
+      })
+    ).rejects.toThrow(/第 2 步失败（前 1 步已执行/)
+    expect(sent(h.exec, 'key').map((command) => command.key)).toEqual(['Enter'])
+    await expect(
+      h.api.execute({ action: 'act', stateId, intent: 'key', key: 'Enter' })
+    ).rejects.toThrow('状态已过期')
+  })
+
+  it('lists running apps and windows without exposing Pi Desktop', async () => {
+    const h = harness({ selfPid: 4242 })
+    await expect(h.api.execute({ action: 'apps' })).resolves.toEqual({
+      kind: 'apps',
+      apps: [
+        { name: 'Finder', bundleId: 'com.apple.finder', active: true, hidden: false, windows: 2 }
+      ]
+    })
+    await expect(h.api.execute({ action: 'windows', app: 'Finder' })).resolves.toMatchObject({
+      kind: 'windows',
+      app: 'Finder',
+      windows: [
+        { title: 'Desktop', focused: true, minimized: false },
+        { title: 'Downloads', focused: false, minimized: true }
+      ]
+    })
+    await expect(h.api.execute({ action: 'windows', app: 'Pi Desktop' })).rejects.toThrow(
+      'Pi Desktop 本身'
+    )
+    await expect(h.api.execute({ action: 'windows', app: 'Nope' })).rejects.toThrow('没有找到')
+  })
+
+  it('switches to a window by title and observes it', async () => {
+    const h = harness()
+    await expect(
+      h.api.execute({ action: 'activate', app: 'Finder', window: 'Desk', mode: 'semantic' })
+    ).resolves.toMatchObject({ kind: 'observation', app: 'Finder' })
+    expect(sent(h.exec, 'activate-window')[0]).toMatchObject({ app: 'Finder', window: 'Desk' })
+    await expect(
+      h.api.execute({ action: 'activate', app: 'Finder', window: 'Nothing' })
+    ).rejects.toThrow('没有标题包含')
+    await expect(h.api.execute({ action: 'activate', app: 'Finder', window: 'D' })).rejects.toThrow(
+      'Desktop、Downloads'
+    )
   })
 })
