@@ -36,9 +36,11 @@ import {
 import {
   app,
   BrowserWindow,
+  Notification,
   WebContentsView,
   desktopCapturer,
   dialog,
+  globalShortcut,
   ipcMain,
   nativeTheme,
   powerSaveBlocker,
@@ -54,6 +56,7 @@ import {
   type IpcMainInvokeEvent
 } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { ComputerUseIndicator } from './computer-use-indicator'
 import { MarkdownTableExporter } from './markdown-table-export'
 import { AppUpdates } from './app-updates'
 import { Diagnostics } from './diagnostics'
@@ -210,6 +213,25 @@ function browserPluginEnabled(): boolean {
   return bundledPluginEnabled(BROWSER_PLUGIN_ID)
 }
 
+const computerUseIndicator = new ComputerUseIndicator({
+  registerShortcut: (accelerator, callback) => {
+    try {
+      return globalShortcut.register(accelerator, callback)
+    } catch {
+      return false
+    }
+  },
+  unregisterShortcut: (accelerator) => globalShortcut.unregister(accelerator),
+  setBadge: (text) => app.dock?.setBadge(text),
+  notify: (title, body) => {
+    if (Notification.isSupported()) new Notification({ title, body, silent: true }).show()
+  },
+  stop: (owner) => {
+    foregroundCapabilities.cancelOwner(owner)
+    void sessionWorkers.requestWorker(owner, { type: 'prompt:abort' }).catch(() => {})
+  }
+})
+
 const foregroundCapabilities = new ForegroundCapabilityRouter({
   authority: (owner) => {
     const identity = owner === lobbyOwnerId ? lobbySnapshot : sessionWorkers.tryGetSnapshot(owner)
@@ -252,6 +274,14 @@ const foregroundCapabilities = new ForegroundCapabilityRouter({
       }
       case 'computer-use':
         if (!computerUse) throw new Error(t('Computer Use 尚未就绪'))
+        if (sessionWorkers.isTaskWorker(ownerId))
+          throw new Error(
+            t(
+              '后台子任务不能使用 Computer Use：桌面操作需要用户在场确认。请把这一步交回主会话完成。'
+            )
+          )
+        if (request.operation.action === 'act' || request.operation.action === 'activate')
+          computerUseIndicator.begin(ownerId)
         return computerUse.execute(
           request.operation,
           { ownerId, sessionId: request.sessionId, generation: request.generation },
@@ -261,6 +291,7 @@ const foregroundCapabilities = new ForegroundCapabilityRouter({
   },
   abortBrowser: (executionId) => browserManager?.abortAgent(executionId),
   releaseOwner: (owner) => {
+    computerUseIndicator.end(owner)
     computerUse?.releaseOwner(owner)
     const browserScopeOwner = browserScopeOwners.get(owner)
     if (browserScopeOwner) browserManager?.invalidateAgentScope(browserScopeOwner)
@@ -574,10 +605,13 @@ const sessionWorkers = new SessionWorkerSupervisor({
     void sessionWorkers.resyncWorker(workerId).catch(() => {})
   },
   onWorkerEvent: (workerId, snapshot) => {
+    if (snapshot && snapshot.status !== 'running' && snapshot.status !== 'awaiting-approval')
+      computerUseIndicator.end(workerId)
     foregroundCapabilities.invalidate()
     publishMobileWorker(workerId, snapshot)
   },
   onExit: (workerId, error) => {
+    computerUseIndicator.end(workerId)
     foregroundCapabilities.cancelOwner(workerId)
     mutationCapabilities.exit(workerId)
     pluginAgentBridge.cancelOwner(workerId)

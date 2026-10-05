@@ -140,6 +140,11 @@ export class SessionWorkerSupervisor {
     return bridge.handle(workerId, this.tryGetSnapshot(workerId), message, reply)
   }
 
+  /** Background task workers never drive the desktop; only conversations the user watches do. */
+  isTaskWorker(workerId: string): boolean {
+    return this.sessionTaskBridge?.isTaskWorker(workerId) ?? false
+  }
+
   inspectSessionTask(taskId: string, origin: DesktopCommandOrigin): AgentSnapshot {
     const scope = this.capture(origin)
     if (!scope || !origin.sessionId || !this.sessionTaskBridge) throw new Error(t('子会话已不可用'))

@@ -18,6 +18,15 @@ function alwaysAllow(
   rules: PermissionRules
 ): { label: string; next: PermissionRules } | null {
   if (!projectPath) return null
+  if (request.grant) {
+    const { app, bundleId } = request.grant
+    const saved = rules.computerApps ?? []
+    if (saved.some((item) => item.bundleId === bundleId)) return null
+    return {
+      label: t('总是允许操作 {app}', { app }),
+      next: { ...rules, computerApps: [...saved, { bundleId, app }] }
+    }
+  }
   if (request.toolName === 'bash' || request.toolName === 'powershell') {
     let command: unknown
     try {

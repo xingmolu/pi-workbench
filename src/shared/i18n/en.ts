@@ -3013,5 +3013,14 @@ export const en: Readonly<Record<string, string>> = {
   '{intent} 操作需要 {field}': '{intent} needs {field}',
   'type 最多 {max} 个字符，更长的文本请用 paste':
     'type accepts up to {max} characters; use paste for longer text',
-  'set_value 需要语义元素 ref 作为 target': 'set_value needs a semantic element ref as target'
+  'set_value 需要语义元素 ref 作为 target': 'set_value needs a semantic element ref as target',
+  '总是允许操作 {app}': 'Always allow operating {app}',
+  'Computer Use 始终允许的应用': 'Apps Computer Use may always operate',
+  '不再始终允许 {app}': 'Stop always allowing {app}',
+  'Pi 正在操作你的电脑': 'Pi is controlling your computer',
+  '按 {shortcut} 或在 Pi Desktop 中点停止即可中止。':
+    'Press {shortcut} or click Stop in Pi Desktop to end it.',
+  '在 Pi Desktop 中点停止即可中止。': 'Click Stop in Pi Desktop to end it.',
+  '后台子任务不能使用 Computer Use：桌面操作需要用户在场确认。请把这一步交回主会话完成。':
+    'Background subtasks cannot use Computer Use: desktop control needs the user present to approve it. Hand this step back to the main conversation.'
 }

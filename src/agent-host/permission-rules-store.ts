@@ -43,13 +43,15 @@ export class PermissionRulesStore {
 
   set(projectPath: string, rules: PermissionRules): PermissionRules {
     const parsed = permissionRulesSchema.parse(rules)
-    const next = {
+    const apps = new Map((parsed.computerApps ?? []).map((app) => [app.bundleId, app]))
+    const next: PermissionRules = {
       commands: [...new Set(parsed.commands.map((rule) => rule.trim()))],
-      projectEdits: parsed.projectEdits
+      projectEdits: parsed.projectEdits,
+      ...(apps.size ? { computerApps: [...apps.values()] } : {})
     }
     const stored = this.read()
     const all = { ...stored.rules }
-    if (!next.commands.length && !next.projectEdits) delete all[projectPath]
+    if (!next.commands.length && !next.projectEdits && !apps.size) delete all[projectPath]
     else all[projectPath] = next
     this.write(all, stored.modes)
     return next
@@ -71,6 +73,13 @@ export class PermissionRulesStore {
       rmSync(temporary, { force: true })
     }
     this.cache = null
+  }
+
+  /** Whether the user always allows Computer Use to operate this app in the project. */
+  allowsComputerApp(projectPath: string, bundleId: string): boolean {
+    return Boolean(
+      bundleId && this.get(projectPath).computerApps?.some((app) => app.bundleId === bundleId)
+    )
   }
 
   /** Whether a tool call may skip confirmation under the project's rules, or under the

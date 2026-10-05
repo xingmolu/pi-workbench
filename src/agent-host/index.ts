@@ -11,7 +11,12 @@ import { COMPUTER_USE_TOOL_PARAMETERS } from './computer-use-tool'
 import { appliedToolChange } from './tool-change'
 import { CheckpointStore, resolveToolPath } from './checkpoints'
 import { PermissionRulesStore } from './permission-rules-store'
-import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import {
+  computerToolTitle,
+  textFromContent,
+  toolIntent,
+  toolPresentation
+} from './message-presentation'
 import { piToolCategory, ToolGate, type GatedToolCall } from './tool-gate'
 import { PluginAgentClient, pluginToolsExtension } from './plugin-agent-client'
 import {
@@ -1067,6 +1072,12 @@ class PiDesktopHost {
     if (call.tool === 'computer' && this.computerGrants.allows(call.input))
       return Promise.resolve(true)
     const grant = call.tool === 'computer' ? this.computerGrants.offer(call.input) : undefined
+    if (
+      grant &&
+      this.projectPath &&
+      this.permissionRules.allowsComputerApp(this.projectPath, grant.bundleId)
+    )
+      return Promise.resolve(true)
     const plugin = this.pluginTools.get(call.tool)
     const presentation = plugin
       ? {
@@ -1823,6 +1834,14 @@ class PiDesktopHost {
               event.toolName,
               isRecord(event.result) ? event.result.details : undefined
             )
+        const title =
+          tool?.type === 'tool' && !event.isError
+            ? computerToolTitle(
+                event.toolName,
+                tool.title,
+                isRecord(event.result) ? event.result.details : undefined
+              )
+            : undefined
         this.updateToolNode(event.toolCallId, {
           ...this.toolOutputFields(
             textFromContent(isRecord(event.result) ? event.result.content : event.result),
@@ -1830,7 +1849,8 @@ class PiDesktopHost {
             state.durationMs
           ),
           ...(change ? { change } : {}),
-          ...(subagent ? { subagent } : {})
+          ...(subagent ? { subagent } : {}),
+          ...(title ? { title } : {})
         })
         break
       }

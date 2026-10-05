@@ -41,7 +41,7 @@ const LEVELS = [
 ] as const
 
 /** How much Pi may do without asking, remembered per project, plus the project's custom
- * allow rules. Computer Use keeps asking at every level. */
+ * allow rules. Computer Use keeps asking at every level unless an app is always allowed. */
 export default function PermissionControl({
   snapshot,
   onPermissionChange
@@ -53,7 +53,8 @@ export default function PermissionControl({
   const project = snapshot.project
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const ruleCount = rules.commands.length + (rules.projectEdits ? 1 : 0)
+  const computerApps = rules.computerApps ?? []
+  const ruleCount = rules.commands.length + (rules.projectEdits ? 1 : 0) + computerApps.length
   const level = LEVELS.find((item) => item.mode === snapshot.permissionMode) ?? LEVELS[0]
   const LevelIcon = level.icon
 
@@ -211,6 +212,33 @@ export default function PermissionControl({
                   {t('按开头的词匹配；含 ; && | 重定向或 $() 的组合命令始终需要确认。')}
                 </small>
               </div>
+              {computerApps.length ? (
+                <div className="permission-commands">
+                  <span className="permission-subtitle">{t('Computer Use 始终允许的应用')}</span>
+                  <ul>
+                    {computerApps.map((app) => (
+                      <li key={app.bundleId} title={app.bundleId}>
+                        <code>{app.app || app.bundleId}</code>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={t('不再始终允许 {app}', { app: app.app || app.bundleId })}
+                          onClick={() =>
+                            void update({
+                              ...rules,
+                              computerApps: computerApps.filter(
+                                (item) => item.bundleId !== app.bundleId
+                              )
+                            })
+                          }
+                        >
+                          <X size={13} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {error ? (
                 <p className="permission-error" role="alert">
                   {error}
