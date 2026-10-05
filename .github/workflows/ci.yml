@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+    # A version tag such as v0.2.0 publishes a stable release (v0.2.0-beta.1 a prerelease).
+    tags:
+      - 'v*'
+      - '!v*-nightly.*'
 
 permissions:
   contents: read
@@ -277,37 +281,79 @@ jobs:
           path: dist/*
 
   release-prepare:
-    # Every green main build becomes a nightly prerelease the app can update from. The release
-    # stays a draft until all installers are attached.
+    # Every green main build becomes a nightly prerelease the app can update from, and every
+    # green version tag a stable release. The release stays a draft until all installers are
+    # attached.
     needs: [e2e-smoke, macos-engines]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
+      stable: ${{ steps.version.outputs.stable }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Stable release notes list the commits since the previous stable tag.
+          fetch-depth: 0
 
-      - name: Nightly version
+      - name: Release version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version.split('-')[0]")-nightly.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          package="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$package" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $package"
+              exit 1
+            fi
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          else
+            base="${package%%-*}"
+            # A nightly sorts below the release of the same version, so the app would never
+            # offer it once that release exists; nightlies then build the next patch version.
+            if gh release view "v$base" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              IFS=. read -r major minor patch <<< "$base"
+              base="$major.$minor.$((patch + 1))"
+              echo "::warning::v${package%%-*} is released; nightlies use $base until package.json is raised"
+            fi
+            version="$base-nightly.${{ github.run_number }}"
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
+          STABLE: ${{ steps.version.outputs.stable }}
         run: |
-          git log -1 --format='%B' > notes.md
-          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --prerelease \
-            --target "$GITHUB_SHA" --title "Pi Desktop $VERSION（测试版）" --notes-file notes.md
+          if [ "$STABLE" = true ]; then
+            previous="$(git tag --list 'v*' --sort=-v:refname | grep -v -- '-nightly\.' | grep -vx "v$VERSION" | head -1)"
+            {
+              echo "## 更新内容"
+              echo
+              git log --no-merges --format='- %s' ${previous:+"$previous"..}"$GITHUB_SHA"
+            } > notes.md
+            # A tag with a suffix, such as v0.2.0-beta.1, is published as a prerelease.
+            prerelease=$([[ "$VERSION" == *-* ]] && echo --prerelease || true)
+            gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft $prerelease \
+              --verify-tag --title "Pi Desktop $VERSION" --notes-file notes.md
+          else
+            git log -1 --format='%B' > notes.md
+            gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --prerelease \
+              --target "$GITHUB_SHA" --title "Pi Desktop $VERSION（测试版）" --notes-file notes.md
+          fi
 
   package:
     needs: release-prepare
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     timeout-minutes: 30
     permissions:
       contents: write
@@ -343,7 +389,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Stamp the nightly version
+      - name: Stamp the release version
         shell: bash
         run: npm version --no-git-tag-version --allow-same-version "${{ needs.release-prepare.outputs.version }}"
 
@@ -468,7 +514,7 @@ jobs:
 
   release-publish:
     needs: [release-prepare, package]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -491,6 +537,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.release-prepare.outputs.version }}
+          STABLE: ${{ needs.release-prepare.outputs.stable }}
         run: |
           mkdir -p mac-info
           gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --dir mac-info --pattern 'latest-mac-*.yml'
@@ -499,9 +546,14 @@ jobs:
           for file in mac-info/latest-mac-*.yml; do
             gh release delete-asset "v$VERSION" "$(basename "$file")" --repo "$GITHUB_REPOSITORY" --yes
           done
-          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          if [ "$STABLE" = true ] && [[ "$VERSION" != *-* ]]; then
+            gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          else
+            gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
+          fi
 
       - name: Keep the ten newest nightlies
+        if: needs.release-prepare.outputs.stable != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.release-prepare.outputs.version }}
