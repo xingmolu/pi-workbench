@@ -2,7 +2,12 @@
 
 # Pi Desktop
 
-**A desktop workbench for coding agents**: Pi, Claude Code and Codex in one app.
+**One app, three coding agents**: a desktop GUI for Pi, Claude Code and Codex. Switch engines per session.
+
+[![Release](https://img.shields.io/github/v/release/xingmolu/pi-workbench?include_prereleases&label=download)](https://github.com/xingmolu/pi-workbench/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![Stars](https://img.shields.io/github/stars/xingmolu/pi-workbench?style=flat)](https://github.com/xingmolu/pi-workbench/stargazers)
+![macOS · Windows · Linux](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey)
 
 [Download](https://github.com/xingmolu/pi-workbench/releases) · [Features](#features) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [中文](./README.md)
 
@@ -10,15 +15,24 @@
 
 ![A conversation: work steps, code changes and undo](.github/screenshots/conversation.png)
 
-Pi Desktop is a local desktop app (Electron + React) that gives command-line coding agents a
-friendlier home: run several sessions per project, see every step and every changed file, approve
-changes before they happen and undo a whole turn with one click.
+## Why Pi Desktop
 
-It embeds the [Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
-directly and can switch to the Claude Code or Codex engine. Accounts and keys stay on your computer.
+- **No more juggling three terminals**: in one project, run Pi on DeepSeek in one session, Claude
+  Code in another and Codex in a third, each on its own.
+- **One ChatGPT subscription, two engines**: sign in once in Pi and Codex borrows the account.
+- **Bring any gateway**: any OpenAI / Anthropic compatible API works with a URL and a key, and its
+  model list is fetched for you.
+- **See it, approve it, undo it**: every read, edit and command is laid out; approve file changes
+  before they happen and undo a whole turn with one click.
+- **Local and private**: accounts and keys stay on your computer. Open source, MIT licensed.
+
+Pi Desktop is a local desktop app (Electron + React). It embeds the
+[Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) directly; the
+Claude Code and Codex programs are downloaded from their official npm packages on first use.
 
 > A community project, not affiliated with the Pi project, Anthropic or OpenAI. It is in early
-> testing; feedback is very welcome. The interface is available in English and Chinese.
+> testing and feedback is very welcome. If you find it useful, a ⭐ helps others find it. The
+> interface is available in English and Chinese.
 
 ## Features
 
@@ -79,7 +93,7 @@ Open the app and pick a project folder. Without an account yet, the home page li
 ![Connect a model](.github/screenshots/connect.png)
 
 - **ChatGPT account**: sign in to a Plus / Pro subscription in the browser; Pi and Codex can both use it.
-- **API key**: Settings › Engines & accounts › Add API connection, pick the provider and paste the key.
+- **API key**: add one in Settings › Engines & accounts, pick the provider and paste the key.
 - **Claude account**: switch to the Claude Code engine, let it download, then sign in.
 
 ### 3. Work
