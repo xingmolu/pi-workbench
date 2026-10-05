@@ -167,16 +167,121 @@ export class DesktopInput {
     key: string,
     signal?: AbortSignal,
     expectedTarget?: DesktopWindowTarget,
-    expiresAt?: number
+    expiresAt?: number,
+    modifiers: readonly string[] = []
   ): Promise<void> {
     await this.deps.bridge.call(
       {
         action: 'key',
         key,
+        ...(modifiers.length ? { modifiers: [...modifiers] } : {}),
         ...(expectedTarget ? { expectedTarget } : {}),
         ...(expiresAt ? { expiresAt } : {})
       },
       signal
     )
   }
+
+  /** Wheel scroll in lines at a point; positive deltaY scrolls up, positive deltaX left. */
+  async scroll(
+    input: { x: number; y: number; deltaX: number; deltaY: number },
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'scroll',
+        ...input,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
+  }
+
+  async drag(
+    input: { x: number; y: number; toX: number; toY: number },
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'drag',
+        ...input,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
+  }
+
+  /** Pastes through the clipboard, which the helper restores afterwards. */
+  async paste(
+    text: string,
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    await this.deps.bridge.call(
+      {
+        action: 'paste',
+        text,
+        ...(expectedTarget ? { expectedTarget } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      signal
+    )
+  }
+
+  async setValue(
+    input: { x: number; y: number; value: string },
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget
+  ): Promise<void> {
+    const raw = asRecord(
+      await this.deps.bridge.call(
+        { action: 'set-value', ...input, ...(expectedTarget ? { expectedTarget } : {}) },
+        signal
+      )
+    )
+    if (raw?.ok === true) return
+    throw new Error(
+      raw?.error === 'not-settable'
+        ? t('这个元素的值不能直接设置，请改用 type 或 paste')
+        : t('无法设置元素的值')
+    )
+  }
+
+  async secondary(
+    input: { x: number; y: number; name: string },
+    signal?: AbortSignal,
+    expectedTarget?: DesktopWindowTarget,
+    expiresAt?: number
+  ): Promise<void> {
+    const raw = asRecord(
+      await this.deps.bridge.call(
+        {
+          action: 'ax-action',
+          ...input,
+          ...(expectedTarget ? { expectedTarget } : {}),
+          ...(expiresAt ? { expiresAt } : {})
+        },
+        signal
+      )
+    )
+    if (raw?.ok === true) return
+    const available = Array.isArray(raw?.available) ? raw.available.join(', ') : ''
+    throw new Error(
+      t('这个元素不支持「{name}」操作{value}', {
+        name: input.name,
+        value: available ? t('（可用：{available}）', { available }) : ''
+      })
+    )
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 }

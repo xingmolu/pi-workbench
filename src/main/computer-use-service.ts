@@ -5,12 +5,15 @@ import {
   computerUseOperationSchema,
   computerUseResultSchema,
   COMPUTER_USE_LIMITS,
+  computerUseStepProblem,
+  parseComputerUseKey,
   type ComputerUseActionTarget,
   type ComputerUseElement,
   type ComputerUseFrameRect,
   type ComputerUseObservation,
   type ComputerUseOperation,
   type ComputerUseResult,
+  type ComputerUseStep,
   type ComputerUseVisualFrame
 } from '../shared/computer-use'
 import {
@@ -130,6 +133,11 @@ function rectsOverlap(left: ComputerUseFrameRect, right: ComputerUseFrameRect): 
 
 class TargetIntegrityError extends Error {}
 
+/** Lets the interface react to one step before the next is resolved. */
+const STEP_PAUSE_MS = 120
+/** Wheel lines per scroll amount, so "amount: 1" moves a visible distance. */
+const SCROLL_LINES_PER_STEP = 3
+
 const SELF_TARGET = t(
   '当前前台窗口是 Pi Desktop 本身，Computer Use 不会读取或操作它。请先用 {"action":"activate","app":"应用名"} 切换到目标应用。'
 )
@@ -222,17 +230,38 @@ export class ComputerUseService {
         case 'observe':
           return await this.observe(scope, request.mode ?? 'fused', executionSignal)
         case 'activate':
-          return await this.activate(scope, request.app, request.mode ?? 'fused', executionSignal)
+          return await this.activate(
+            scope,
+            request.app,
+            request.window,
+            request.mode ?? 'fused',
+            executionSignal
+          )
+        case 'apps':
+          return await this.apps(executionSignal)
+        case 'windows':
+          return await this.windows(request.app, executionSignal)
         case 'search':
           return this.search(scope, request.stateId, request.query)
         case 'inspect':
           return this.inspect(scope, request.stateId, request.ref)
-        case 'act':
-          if (request.intent === 'type' && !request.text) throw new Error(t('type 操作需要 text'))
-          if (request.intent === 'key' && !request.key) throw new Error(t('key 操作需要 key'))
-          if (request.intent !== 'key' && !request.target)
-            throw new Error(t('{intent} 操作需要 target', { intent: request.intent }))
-          return await this.act(scope, request, executionSignal)
+        case 'act': {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { action, stateId, steps: requested, ...single } = request
+          const steps: ComputerUseStep[] = requested ?? [
+            { ...single, intent: single.intent! } as ComputerUseStep
+          ]
+          steps.forEach((step, index) => {
+            const problem = computerUseStepProblem(step)
+            if (problem)
+              throw new Error(
+                steps.length > 1
+                  ? t('第 {index} 步无效：{problem}', { index: index + 1, problem })
+                  : problem
+              )
+          })
+          return await this.act(scope, stateId, steps, executionSignal)
+        }
       }
       throw new Error(t('未知 Computer Use 操作'))
     } finally {
@@ -450,10 +479,13 @@ export class ComputerUseService {
   private async activate(
     scope: ComputerUseExecutionScope,
     app: string,
+    window: string | undefined,
     mode: RequestedMode,
     signal?: AbortSignal
   ): Promise<ComputerUseObservation> {
-    const activated = await this.desktop.accessibility.activateApp(app, signal)
+    const activated = window
+      ? await this.desktop.accessibility.activateWindow(app, window, signal)
+      : await this.desktop.accessibility.activateApp(app, signal)
     let failure: unknown
     // Focus moves asynchronously; give the window server a moment before giving up.
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -465,6 +497,7 @@ export class ComputerUseService {
         failure = new Error(t('前台仍是「{app}」', { app: observation.app }))
       } catch (error) {
         if (signal?.aborted) throw error
+        if (error instanceof Error && error.message === SELF_TARGET) throw error
         failure = error
       }
     }
@@ -472,6 +505,34 @@ export class ComputerUseService {
     throw new Error(
       t('已切换到「{app}」，但无法观察它的窗口：{reason}', { app: activated.app, reason })
     )
+  }
+
+  private async apps(signal?: AbortSignal): Promise<ComputerUseResult> {
+    const apps = await this.desktop.accessibility.listApps(signal)
+    return computerUseResultSchema.parse({
+      kind: 'apps',
+      apps: apps
+        .filter((app) => !this.options.selfPid || app.pid !== this.options.selfPid)
+        .slice(0, COMPUTER_USE_LIMITS.maxApps)
+        .map(({ name, bundleId, active, hidden, windows }) => ({
+          name,
+          bundleId,
+          active,
+          hidden,
+          windows
+        }))
+    })
+  }
+
+  private async windows(app: string, signal?: AbortSignal): Promise<ComputerUseResult> {
+    const listed = await this.desktop.accessibility.listWindows(app, signal)
+    if (this.options.selfPid && listed.pid === this.options.selfPid) throw new Error(SELF_TARGET)
+    return computerUseResultSchema.parse({
+      kind: 'windows',
+      app: listed.app,
+      bundleId: listed.bundleId,
+      windows: listed.windows.slice(0, COMPUTER_USE_LIMITS.maxWindows)
+    })
   }
 
   /**
@@ -519,20 +580,75 @@ export class ComputerUseService {
 
   private async act(
     scope: ComputerUseExecutionScope,
-    request: Extract<ComputerUseOperation, { action: 'act' }>,
+    stateId: string,
+    steps: ComputerUseStep[],
     signal?: AbortSignal
   ): Promise<ComputerUseResult> {
-    const state = this.requireState(scope, request.stateId)
+    const state = this.requireState(scope, stateId)
     if (state.target) await this.restoreTarget(state.target, signal)
     signal?.throwIfAborted()
-    if (request.intent === 'key' || !request.target)
-      return this.pressKey(scope, state, request, signal)
-    let point: { x: number; y: number }
-    let inputContext: InputContext
+    for (const [index, step] of steps.entries()) {
+      if (index) await new Promise((resolve) => setTimeout(resolve, STEP_PAUSE_MS))
+      signal?.throwIfAborted()
+      try {
+        await this.runStep(scope, state, step, index === 0, signal)
+      } catch (error) {
+        if (signal?.aborted || steps.length === 1 || !(error instanceof Error)) throw error
+        const message = t('第 {index} 步失败（前 {done} 步已执行，请重新 observe）：{reason}', {
+          index: index + 1,
+          done: index,
+          reason: error.message
+        })
+        if (index) this.states.delete(this.scopeKey(scope))
+        throw new Error(message, { cause: error })
+      }
+    }
+    const last = steps[steps.length - 1]!
+    return this.settle(
+      scope,
+      state,
+      {
+        stateId,
+        target: steps.length === 1 ? last.target : undefined,
+        intent: last.intent,
+        steps: steps.length > 1 ? steps.length : undefined
+      },
+      signal
+    )
+  }
 
-    if (request.target.kind === 'ref') {
+  private visualExpiry(state: ComputerUseState): number | undefined {
+    const visual = state.observation.visual
+    if (!visual) return undefined
+    if (Date.now() - visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs)
+      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
+    return visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
+  }
+
+  /** The approved window is still the one in front; required before any input. */
+  private async requireForeground(state: ComputerUseState, signal?: AbortSignal): Promise<void> {
+    if (!state.target) throw new Error(t('无法确认操作所属窗口，请重新 observe'))
+    const current = await this.desktop.accessibility.foregroundWindow(signal)
+    if (!sameTarget(state.target, current)) throw new Error(t('目标窗口已变化，请重新 observe'))
+  }
+
+  /**
+   * Resolves a target to a screen point inside the approved window. The first step holds
+   * the observed state exactly; later steps expect the earlier ones to have changed it, so a
+   * visual point is checked against the window rather than the whole interface.
+   */
+  private async resolvePoint(
+    scope: ComputerUseExecutionScope,
+    state: ComputerUseState,
+    target: ComputerUseActionTarget,
+    first: boolean,
+    signal?: AbortSignal
+  ): Promise<{ point: { x: number; y: number }; context: InputContext }> {
+    let point: { x: number; y: number }
+    let context: InputContext
+    if (target.kind === 'ref') {
       if (!state.target) throw new Error(t('无法确认语义元素所属窗口，请重新 observe'))
-      const element = state.elements.get(request.target.ref)
+      const element = state.elements.get(target.ref)
       if (!element || !state.semanticFingerprint) {
         throw new Error(t('当前 stateId 不包含这个语义元素，请重新 semantic/fused observe'))
       }
@@ -549,111 +665,172 @@ export class ComputerUseService {
         throw new Error(t('目标窗口已变化，请重新 observe'))
       }
       point = elementCenter(element)
-      inputContext = {
+      context = {
         permission: current.permission,
         sessionUnlocked: current.sessionUnlocked,
         dump: current.dump
       }
     } else {
-      point = await this.validateVisualTarget(state, request.target, signal)
-      if (state.semanticFingerprint) {
+      point = await this.validateVisualTarget(state, target, signal)
+      if (state.semanticFingerprint && first) {
         const current = await this.readCurrentSemantic(signal)
         if (fingerprint(current.dump) !== state.semanticFingerprint) {
           this.states.delete(this.scopeKey(scope))
           throw new Error(t('Computer Use 状态已变化，请重新 observe 后再操作'))
         }
-        inputContext = {
+        context = {
           permission: current.permission,
           sessionUnlocked: current.sessionUnlocked,
           dump: current.dump
         }
       } else {
-        inputContext = await this.readInputContext(signal)
+        context = await this.readInputContext(signal)
       }
     }
-
     signal?.throwIfAborted()
-    if (
-      state.observation.visual &&
-      Date.now() - state.observation.visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs
-    ) {
-      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
-    }
+    this.visualExpiry(state)
     if (state.target && !pointInsideTarget(point, state.target)) {
       throw new Error(t('操作坐标不在目标窗口内，请重新 observe'))
     }
-    if (state.target) {
-      const currentTarget = await this.desktop.accessibility.foregroundWindow(signal)
-      if (!sameTarget(state.target, currentTarget))
-        throw new Error(t('目标窗口已变化，请重新 observe'))
-    }
-    const expiresAt = state.observation.visual
-      ? state.observation.visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
-      : undefined
-    const screen = this.desktop.capture.readPermission()
-    if (request.intent === 'press') {
-      const result = await this.desktop.input.click({
-        x: point.x,
-        y: point.y,
-        confirmed: true,
-        screen,
-        accessibility: inputContext.permission,
-        sessionUnlocked: inputContext.sessionUnlocked,
-        dump: inputContext.dump,
-        expectedTarget: state.target,
-        expiresAt,
-        signal
-      })
-      if (!result.executed) throw new Error(result.message ?? t('无法执行桌面点击'))
-    } else if (request.intent === 'move') {
-      await this.desktop.input.move(point.x, point.y, signal, state.target, expiresAt)
-    } else {
-      const focused = await this.desktop.input.click({
-        x: point.x,
-        y: point.y,
-        confirmed: true,
-        screen,
-        accessibility: inputContext.permission,
-        sessionUnlocked: inputContext.sessionUnlocked,
-        dump: inputContext.dump,
-        expectedTarget: state.target,
-        expiresAt,
-        signal
-      })
-      if (!focused.executed) throw new Error(focused.message ?? t('无法聚焦输入目标'))
-      signal?.throwIfAborted()
-      await this.desktop.input.typeText(request.text!, signal, state.target, expiresAt)
-    }
-
-    return this.settle(scope, state, request, signal)
+    if (state.target) await this.requireForeground(state, signal)
+    return { point, context }
   }
 
-  private async pressKey(
+  private async clickAt(
+    state: ComputerUseState,
+    point: { x: number; y: number },
+    context: InputContext,
+    signal?: AbortSignal,
+    button: 'left' | 'right' = 'left'
+  ): Promise<void> {
+    const result = await this.desktop.input.click({
+      x: point.x,
+      y: point.y,
+      button,
+      confirmed: true,
+      screen: this.desktop.capture.readPermission(),
+      accessibility: context.permission,
+      sessionUnlocked: context.sessionUnlocked,
+      dump: context.dump,
+      expectedTarget: state.target,
+      expiresAt: this.visualExpiry(state),
+      signal
+    })
+    if (!result.executed) throw new Error(result.message ?? t('无法执行桌面点击'))
+  }
+
+  private async runStep(
     scope: ComputerUseExecutionScope,
     state: ComputerUseState,
-    request: Extract<ComputerUseOperation, { action: 'act' }>,
+    step: ComputerUseStep,
+    first: boolean,
     signal?: AbortSignal
-  ): Promise<ComputerUseResult> {
-    if (!state.target) throw new Error(t('无法确认按键所属窗口，请重新 observe'))
-    if (
-      state.observation.visual &&
-      Date.now() - state.observation.visual.capturedAt > COMPUTER_USE_LIMITS.maxVisualStateAgeMs
-    ) {
-      throw new Error(t('视觉 Computer Use 状态已过期，请重新 observe'))
+  ): Promise<void> {
+    const input = this.desktop.input
+    const resolve = (
+      target: ComputerUseActionTarget
+    ): Promise<{ point: { x: number; y: number }; context: InputContext }> =>
+      this.resolvePoint(scope, state, target, first, signal)
+    switch (step.intent) {
+      case 'press': {
+        const { point, context } = await resolve(step.target!)
+        await this.clickAt(state, point, context, signal)
+        return
+      }
+      case 'move': {
+        const { point } = await resolve(step.target!)
+        await input.move(point.x, point.y, signal, state.target, this.visualExpiry(state))
+        return
+      }
+      case 'type':
+      case 'paste': {
+        if (step.target) {
+          const { point, context } = await resolve(step.target)
+          await this.clickAt(state, point, context, signal)
+          signal?.throwIfAborted()
+        } else {
+          await this.requireForeground(state, signal)
+        }
+        const expiresAt = this.visualExpiry(state)
+        if (step.intent === 'type')
+          await input.typeText(step.text!, signal, state.target, expiresAt)
+        else await input.paste(step.text!, signal, state.target, expiresAt)
+        return
+      }
+      case 'key': {
+        const chord = parseComputerUseKey(step.key!)
+        if (!chord) throw new Error(t('不支持的按键'))
+        await this.requireForeground(state, signal)
+        await input.pressKey(
+          chord.key,
+          signal,
+          state.target,
+          this.visualExpiry(state),
+          chord.modifiers
+        )
+        return
+      }
+      case 'scroll': {
+        let point: { x: number; y: number }
+        if (step.target) point = (await resolve(step.target)).point
+        else {
+          await this.requireForeground(state, signal)
+          const frame = state.target!.frame
+          point = {
+            x: Math.round(frame.x + frame.width / 2),
+            y: Math.round(frame.y + frame.height / 2)
+          }
+        }
+        const lines = (step.amount ?? 3) * SCROLL_LINES_PER_STEP
+        const vertical = step.direction === 'up' ? lines : step.direction === 'down' ? -lines : 0
+        const horizontal =
+          step.direction === 'left' ? lines : step.direction === 'right' ? -lines : 0
+        await input.scroll(
+          { ...point, deltaX: horizontal, deltaY: vertical },
+          signal,
+          state.target,
+          this.visualExpiry(state)
+        )
+        return
+      }
+      case 'drag': {
+        const from = (await resolve(step.target!)).point
+        const to = (await resolve(step.to!)).point
+        await input.drag(
+          { x: from.x, y: from.y, toX: to.x, toY: to.y },
+          signal,
+          state.target,
+          this.visualExpiry(state)
+        )
+        return
+      }
+      case 'set_value': {
+        const { point } = await resolve(step.target!)
+        await input.setValue({ ...point, value: step.value! }, signal, state.target)
+        return
+      }
+      case 'secondary': {
+        const { point } = await resolve(step.target!)
+        await input.secondary(
+          { ...point, name: step.name! },
+          signal,
+          state.target,
+          this.visualExpiry(state)
+        )
+        return
+      }
     }
-    const current = await this.desktop.accessibility.foregroundWindow(signal)
-    if (!sameTarget(state.target, current)) throw new Error(t('目标窗口已变化，请重新 observe'))
-    const expiresAt = state.observation.visual
-      ? state.observation.visual.capturedAt + COMPUTER_USE_LIMITS.maxVisualStateAgeMs
-      : undefined
-    await this.desktop.input.pressKey(request.key!, signal, state.target, expiresAt)
-    return this.settle(scope, state, request, signal)
   }
 
   private async settle(
     scope: ComputerUseExecutionScope,
     state: ComputerUseState,
-    request: Extract<ComputerUseOperation, { action: 'act' }>,
+    request: {
+      stateId: string
+      target?: ComputerUseActionTarget
+      intent: ComputerUseStep['intent']
+      steps?: number
+    },
     signal?: AbortSignal
   ): Promise<ComputerUseResult> {
     signal?.throwIfAborted()
@@ -680,6 +857,7 @@ export class ComputerUseService {
       previousStateId: request.stateId,
       ...(request.target ? { target: request.target } : {}),
       action: request.intent,
+      ...(request.steps ? { steps: request.steps } : {}),
       delivered: true,
       changed,
       verification,

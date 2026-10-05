@@ -23,6 +23,25 @@ export type DesktopAccessibilityDeps = {
 }
 
 export type ActivatedApp = { app: string; bundleId: string }
+export type ListedApp = {
+  pid: number
+  name: string
+  bundleId: string
+  active: boolean
+  hidden: boolean
+  windows: number
+}
+export type ListedWindows = {
+  pid: number
+  app: string
+  bundleId: string
+  windows: {
+    title: string
+    focused: boolean
+    minimized: boolean
+    frame?: { x: number; y: number; width: number; height: number }
+  }[]
+}
 
 const BUNDLE_ID = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
 
@@ -37,6 +56,26 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function validAppName(query: string): string {
+  const app = query.trim()
+  if (!app || app.length > 80 || app.startsWith('-') || /[\0/\n]/.test(app))
+    throw new Error(t('应用名称无效'))
+  return app
+}
+
+function throwAppLookup(raw: Record<string, unknown> | null, app: string): void {
+  if (raw?.error === 'app-not-running') throw new Error(t('没有找到正在运行的「{app}」', { app }))
+  if (raw?.error === 'app-ambiguous') {
+    const candidates = Array.isArray(raw.candidates) ? raw.candidates.join('、') : ''
+    throw new Error(
+      t('「{app}」匹配到多个应用{value}，请使用完整名称', {
+        app,
+        value: candidates ? `：${candidates}` : ''
+      })
+    )
+  }
 }
 
 export class DesktopAccessibility {
@@ -160,6 +199,94 @@ export class DesktopAccessibility {
       )
     }
     if (raw?.ok !== true) throw new Error(t('没有找到正在运行的「{app}」', { app }))
+    return {
+      app: typeof raw.app === 'string' ? raw.app : app,
+      bundleId: typeof raw.bundleId === 'string' ? raw.bundleId : ''
+    }
+  }
+
+  /** Regular apps with their window counts; Pi itself is left out by the helper. */
+  async listApps(signal?: AbortSignal): Promise<ListedApp[]> {
+    if (this.deps.platform !== 'darwin') throw new Error(t('列出应用仅支持 macOS'))
+    const raw = asRecord(await this.deps.bridge.call({ action: 'list-apps' }, signal))
+    if (raw?.ok !== true || !Array.isArray(raw.apps))
+      throw new Error(t('Computer Use 原生助手返回了无效的应用列表。'))
+    return raw.apps.flatMap((entry) => {
+      const app = asRecord(entry)
+      if (!app || typeof app.name !== 'string') return []
+      return [
+        {
+          pid: typeof app.pid === 'number' ? app.pid : 0,
+          name: app.name,
+          bundleId: typeof app.bundleId === 'string' ? app.bundleId : '',
+          active: app.active === true,
+          hidden: app.hidden === true,
+          windows: typeof app.windows === 'number' ? app.windows : 0
+        }
+      ]
+    })
+  }
+
+  async listWindows(app: string, signal?: AbortSignal): Promise<ListedWindows> {
+    if (this.deps.platform !== 'darwin') throw new Error(t('列出窗口仅支持 macOS'))
+    const raw = asRecord(
+      await this.deps.bridge.call({ action: 'list-windows', app: validAppName(app) }, signal)
+    )
+    throwAppLookup(raw, app)
+    if (raw?.ok !== true || !Array.isArray(raw.windows))
+      throw new Error(t('Computer Use 原生助手返回了无效的窗口列表。'))
+    return {
+      pid: typeof raw.pid === 'number' ? raw.pid : 0,
+      app: typeof raw.app === 'string' ? raw.app : app,
+      bundleId: typeof raw.bundleId === 'string' ? raw.bundleId : '',
+      windows: raw.windows.flatMap((entry) => {
+        const window = asRecord(entry)
+        if (!window) return []
+        const frame = asRecord(window.frame)
+        return [
+          {
+            title: typeof window.title === 'string' ? window.title : '',
+            focused: window.focused === true,
+            minimized: window.minimized === true,
+            ...(frame &&
+            [frame.x, frame.y, frame.width, frame.height].every((item) => typeof item === 'number')
+              ? {
+                  frame: {
+                    x: frame.x as number,
+                    y: frame.y as number,
+                    width: frame.width as number,
+                    height: frame.height as number
+                  }
+                }
+              : {})
+          }
+        ]
+      })
+    }
+  }
+
+  /** Raises one window of a running app, chosen by part of its title. */
+  async activateWindow(app: string, window: string, signal?: AbortSignal): Promise<ActivatedApp> {
+    if (this.deps.platform !== 'darwin') throw new Error(t('切换窗口仅支持 macOS'))
+    const raw = asRecord(
+      await this.deps.bridge.call(
+        { action: 'activate-window', app: validAppName(app), window },
+        signal
+      )
+    )
+    throwAppLookup(raw, app)
+    if (raw?.error === 'window-not-found')
+      throw new Error(t('「{app}」没有标题包含「{window}」的窗口', { app, window }))
+    if (raw?.error === 'window-ambiguous') {
+      const candidates = Array.isArray(raw.candidates) ? raw.candidates.join('、') : ''
+      throw new Error(
+        t('「{window}」匹配到多个窗口{value}，请提供更完整的标题', {
+          window,
+          value: candidates ? `：${candidates}` : ''
+        })
+      )
+    }
+    if (raw?.ok !== true) throw new Error(t('无法切换到「{app}」的窗口', { app }))
     return {
       app: typeof raw.app === 'string' ? raw.app : app,
       bundleId: typeof raw.bundleId === 'string' ? raw.bundleId : ''

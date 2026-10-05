@@ -125,8 +125,8 @@ export const en: Readonly<Record<string, string>> = {
   '读取和操作 Pi Desktop 右侧共享浏览器':
     'Read and operate the shared browser on the right of Pi Desktop',
   '已截取 {url}': 'Captured {url}',
-  '宿主级 Computer Use。activate 按名称打开或切换到某个应用并返回观察结果；observe 读取当前前台窗口（默认 fused：不可变 stateId、可访问性 @e refs，可用时附带截图）。优先用 ref 操作语义控件；Canvas/WebGL 等无语义目标时，可用当前截图像素 point；intent=key 在目标窗口按 Enter/Escape/Tab/方向键等。所有 act 都会审批，旧 state、显示器变化或过期视觉状态会被拒绝。Pi Desktop 自身窗口不可观察或操作。':
-    "Host-level Computer Use. activate opens or switches to an app by name and returns an observation; observe reads the current foreground window (fused by default: an immutable stateId, accessibility @e refs, and a screenshot when available). Prefer acting on semantic controls by ref; for targets without semantics such as Canvas/WebGL, use a pixel point in the current screenshot; intent=key presses Enter/Escape/Tab/arrow keys and so on in the target window. Every act is approved; an old state, a display change or a stale visual state is rejected. Pi Desktop's own windows can't be observed or operated.",
+  '宿主级 Computer Use。activate 按名称打开或切换到某个应用并返回观察结果；observe 读取当前前台窗口（默认 fused：不可变 stateId、可访问性 @e refs，可用时附带截图）。优先用 ref 操作语义控件；Canvas/WebGL 等无语义目标时，可用当前截图像素 point。act 支持 press、type、paste（长文本）、key（含 cmd+s 等快捷键）、scroll、drag、set_value、secondary（菜单/增减/确认/取消），也可用 steps 一次执行多步；apps/windows 列出运行中的应用和窗口，activate 可带 window 切换到指定窗口。所有 act 都会审批，旧 state、显示器变化或过期视觉状态会被拒绝。Pi Desktop 自身窗口不可观察或操作。':
+    "Host-level Computer Use. activate opens or switches to an app by name and returns an observation; observe reads the current foreground window (fused by default: an immutable stateId, accessibility @e refs, and a screenshot when available). Prefer acting on semantic controls by ref; for targets without semantics such as Canvas/WebGL, use pixel points from the current screenshot. act supports press, type, paste (long text), key (including shortcuts such as cmd+s), scroll, drag, set_value and secondary (menu, increment/decrement, confirm, cancel), and steps runs several in one call; apps/windows list running apps and their windows, and activate takes window to switch to a specific window. Every act needs approval; stale state, display changes or expired visual state are rejected. Pi Desktop's own windows cannot be observed or operated.",
   '通过 stateId、语义 refs 和绑定截图安全读取与操作桌面 UI':
     'Safely read and operate desktop UI through stateId, semantic refs and a bound screenshot',
   浏览器操作已停止: 'Browser action stopped',
@@ -2980,5 +2980,38 @@ export const en: Readonly<Record<string, string>> = {
   停止开发: 'Stop developing',
   已重新加载: 'Reloaded',
   选择新插件的位置: 'Choose where to create the plugin',
-  '文件夹 {path} 已存在': 'The folder {path} already exists'
+  '文件夹 {path} 已存在': 'The folder {path} already exists',
+  '在桌面应用中连续执行 {count} 步操作': 'Run {count} steps in a desktop app',
+  '在桌面应用中粘贴 {count} 个字符': 'Paste {count} characters into a desktop app',
+  滚动桌面应用: 'Scroll a desktop app',
+  在桌面应用中拖拽: 'Drag in a desktop app',
+  '把桌面控件的值设为「{value}」': 'Set a desktop control\'s value to "{value}"',
+  对桌面控件执行次级操作: 'Perform a secondary action on a desktop control',
+  '第 {index} 步无效：{problem}': 'Step {index} is invalid: {problem}',
+  '第 {index} 步失败（前 {done} 步已执行，请重新 observe）：{reason}':
+    'Step {index} failed (the first {done} steps ran; observe again): {reason}',
+  '无法确认操作所属窗口，请重新 observe':
+    'Cannot confirm which window this action belongs to; observe again',
+  不支持的按键: 'Unsupported key',
+  '列出应用仅支持 macOS': 'Listing apps is only supported on macOS',
+  'Computer Use 原生助手返回了无效的应用列表。':
+    'The Computer Use native helper returned an invalid app list.',
+  '列出窗口仅支持 macOS': 'Listing windows is only supported on macOS',
+  'Computer Use 原生助手返回了无效的窗口列表。':
+    'The Computer Use native helper returned an invalid window list.',
+  '切换窗口仅支持 macOS': 'Switching windows is only supported on macOS',
+  '「{app}」没有标题包含「{window}」的窗口':
+    '"{app}" has no window whose title contains "{window}"',
+  '「{window}」匹配到多个窗口{value}，请提供更完整的标题':
+    '"{window}" matches several windows{value}; give more of the title',
+  '无法切换到「{app}」的窗口': 'Cannot switch to the window of "{app}"',
+  '这个元素的值不能直接设置，请改用 type 或 paste':
+    "This element's value cannot be set directly; use type or paste instead",
+  无法设置元素的值: "Cannot set the element's value",
+  '这个元素不支持「{name}」操作{value}': 'This element does not support "{name}"{value}',
+  '（可用：{available}）': ' (available: {available})',
+  '{intent} 操作需要 {field}': '{intent} needs {field}',
+  'type 最多 {max} 个字符，更长的文本请用 paste':
+    'type accepts up to {max} characters; use paste for longer text',
+  'set_value 需要语义元素 ref 作为 target': 'set_value needs a semantic element ref as target'
 }
