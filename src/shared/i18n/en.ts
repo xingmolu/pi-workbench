@@ -1169,8 +1169,11 @@ export const en: Readonly<Record<string, string>> = {
   任意兼容接口: 'Any compatible API',
   '请填写有效的服务地址（HTTPS，或本机 http://localhost）和 API Key。':
     'Enter a valid service address (HTTPS, or local http://localhost) and an API key.',
-  '找到 {count} 个模型{partial}，已勾选前 {chosen} 个。':
-    'Found {count} models{partial}; the first {chosen} are selected.',
+  '找到 {count} 个模型{partial}，已全部选中，可取消不需要的。':
+    'Found {count} models{partial}; all are selected, clear any you do not need.',
+  '已选 {count} / {total}': '{count} of {total} selected',
+  全选: 'Select all',
+  全部取消: 'Clear all',
   '（未完整返回）': ' (list incomplete)',
   '服务没有返回模型列表，请在下面手动填写模型 ID。':
     'The service returned no model list. Enter model IDs manually below.',
@@ -1182,7 +1185,6 @@ export const en: Readonly<Record<string, string>> = {
   '请检查服务地址和 API Key。': 'Check the service address and API key.',
   '至少需要一个模型：先拉取模型，或手动填写模型 ID。':
     'At least one model is needed: fetch models first, or enter model IDs manually.',
-  '添加 API 连接': 'Add API connection',
   返回选择服务: 'Back to services',
   '添加 {label}': 'Add {label}',
   选择要接入的服务: 'Choose a service to connect',
@@ -1203,7 +1205,7 @@ export const en: Readonly<Record<string, string>> = {
   'Claude Code 会自动列出这个服务可用的模型。':
     'Claude Code lists the models this service offers automatically.',
   取消: 'Cancel',
-  保存连接: 'Save connection',
+
   // renderer/components/AppUpdateSettings.tsx
   '正在检查…': 'Checking…',
   已是最新版本: 'Up to date',
@@ -1448,8 +1450,8 @@ export const en: Readonly<Record<string, string>> = {
   '拉取失败，请重试或手动填写模型。': 'Fetching failed. Try again or enter models manually.',
   'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。':
     "The base URL must be HTTPS, or http://localhost, 127.0.0.1 or [::1]; it can't include credentials, query parameters or a fragment.",
-  '模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。':
-    'One model ID per line, no duplicates; enter 1–100, each up to 200 characters.',
+  '模型 ID 每行一个，不能重复；请填写 1–1000 个，每个不超过 200 个字符。':
+    'One model ID per line, no duplicates; enter 1–1000, each up to 200 characters.',
   '支持图片输入的模型必须出现在模型 ID 列表中。':
     'Models that support image input must be in the model ID list.',
   '新端点必须填写 API Key；本地服务也需明确填写占位值。':
@@ -1460,7 +1462,7 @@ export const en: Readonly<Record<string, string>> = {
     'Confirm the models that will be removed below before saving the endpoint.',
   '保存结果未知，端点可能已写入。请刷新列表核对后再编辑；密钥已清空，不会自动重试。':
     "Save result unknown; the endpoint may have been written. Refresh the list and check before editing; the key was cleared and won't be retried automatically.",
-  'Pi 自定义端点': 'Pi custom endpoints',
+  '还没有用于 Pi 的端点。': 'No endpoints for Pi yet.',
   'OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。':
     "OpenAI / Anthropic compatible APIs. They apply globally to all workspaces and the Pi CLI; a new endpoint doesn't become the current model automatically.",
   刷新列表: 'Refresh list',
@@ -1486,20 +1488,15 @@ export const en: Readonly<Record<string, string>> = {
   '编辑 {label}': 'Edit {label}',
   只读: 'Read-only',
   添加端点: 'Add endpoint',
-  '尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。':
-    'No custom endpoints yet. Add a service address and model IDs, then choose them explicitly in the model menu.',
   '正在读取端点…': 'Reading endpoints…',
   '端点列表暂不可用。': "The endpoint list isn't available right now.",
   编辑端点: 'Edit endpoint',
-  新增端点: 'New endpoint',
   '填写服务地址和密钥，拉取模型后即可保存。':
     'Enter the service address and key; fetch models, then save.',
   '例如 https://api.example.com/v1，也支持本机服务地址。':
     'For example https://api.example.com/v1; local service addresses work too.',
   '留空保留现有凭据；不会回显旧密钥。':
     "Leave empty to keep the existing credential; the old key isn't shown.",
-  '仅用于此服务的认证；本地免认证服务可填任意占位值。':
-    'Only used to authenticate with this service; local services without authentication accept any placeholder.',
   '提交或关闭时清空。': 'Cleared when you submit or close.',
   '正在拉取模型…': 'Fetching models…',
   拉取模型: 'Fetch models',
@@ -1653,8 +1650,8 @@ export const en: Readonly<Record<string, string>> = {
     'Imported {imported}; skipped {skipped} existing or invalid files.',
   导入历史: 'Import history',
   引擎与账号: 'Engines & accounts',
-  '新会话默认用哪个引擎，以及可以使用的订阅账号和 API 连接。凭据只保存在本机。':
-    'Which engine new sessions use by default, and the subscription accounts and API connections available. Credentials are only stored on this computer.',
+  '新会话默认用哪个引擎，以及可以使用的订阅账号和自定义端点。凭据只保存在本机。':
+    'Which engine new sessions use by default, and the subscription accounts and custom endpoints available. Credentials are only stored on this computer.',
   '已有会话保留各自的引擎；侧栏「新会话」旁的箭头可以临时换一个引擎。':
     'Existing sessions keep their own engine; the arrow next to New session in the sidebar picks a different engine once.',
   订阅账号: 'Subscription accounts',
@@ -1668,15 +1665,14 @@ export const en: Readonly<Record<string, string>> = {
   '正在读取账号…': 'Reading accounts…',
   '还没有订阅账号。添加 ChatGPT 或 Claude 账号后会按邮箱显示在这里。':
     'No subscription accounts yet. ChatGPT or Claude accounts you add appear here by email.',
-  'API 连接': 'API connections',
-  '用 API Key 接入官方或兼容服务，可以添加多个。':
-    'Connect official or compatible services with an API key; you can add several.',
-  'Anthropic 兼容接口，可以添加多个': 'Anthropic-compatible APIs; you can add several',
+  '用 API Key 接入官方服务、网关或任意兼容接口，可以添加多个。':
+    'Connect official services, gateways or any compatible API with an API key; you can add several.',
+  'Anthropic 兼容接口': 'Anthropic-compatible APIs',
   'Claude Code 现在无法启动，暂时不能管理它的连接':
     "Claude Code can't start right now, so its connections can't be managed",
-  '移除 {name} 这个 API 连接？': 'Remove the API connection {name}?',
+  '移除 {name} 这个端点？': 'Remove the endpoint {name}?',
   移除: 'Remove',
-  '还没有 Claude Code 的 API 连接。': 'No Claude Code API connections yet.',
+  '还没有用于 Claude Code 的端点。': 'No endpoints for Claude Code yet.',
   '凭据只保存在本机：Pi 的在它的': 'Credentials stay on this computer: Pi keeps them in its',
   '，Claude Code 的每个账号各用一个独立配置目录。桌面端不复制 token。':
     "; Claude Code uses a separate configuration folder for each account. The desktop app doesn't copy tokens.",
@@ -2944,26 +2940,28 @@ export const en: Readonly<Record<string, string>> = {
   '不支持 {name} 的压缩方式': 'The compression used for {name} is not supported',
   '{name} 的大小不一致': 'The size of {name} does not match',
   '压缩包里的路径不安全：{name}': 'Unsafe path in the archive: {name}',
-  '面板': 'Panel',
-  '右侧工作台里的一个页面': 'A page in the workbench on the right',
+  面板: 'Panel',
+  右侧工作台里的一个页面: 'A page in the workbench on the right',
   '出现在 ⌘K 里，由插件进程执行': 'Shows up in ⌘K and runs in the plugin process',
   'Agent 工具': 'Agent tool',
   '给 Agent 用的工具': 'A tool for the agent',
-  '开发插件': 'Develop plugins',
-  '直接从文件夹加载，文件一改就自动重新加载。日志里能看到插件进程的输出和面板的控制台。': 'Load a plugin straight from its folder; it reloads whenever a file changes. Logs show the plugin process output and the panel console.',
-  '新建插件': 'New plugin',
-  '加载开发中的插件': 'Load a plugin under development',
+  开发插件: 'Develop plugins',
+  '直接从文件夹加载，文件一改就自动重新加载。日志里能看到插件进程的输出和面板的控制台。':
+    'Load a plugin straight from its folder; it reloads whenever a file changes. Logs show the plugin process output and the panel console.',
+  新建插件: 'New plugin',
+  加载开发中的插件: 'Load a plugin under development',
   '插件 id': 'Plugin id',
-  '模板': 'Template',
-  '选择位置并创建': 'Choose a location and create',
+  模板: 'Template',
+  选择位置并创建: 'Choose a location and create',
   '未能加载：{reason}': 'Did not load: {reason}',
-  '插件日志': 'Plugin log',
-  '还没有输出。console.log 和面板的控制台消息会显示在这里。': 'No output yet. console.log and panel console messages appear here.',
-  '清空': 'Clear',
-  '开发中': 'In development',
-  '日志': 'Logs',
-  '停止开发': 'Stop developing',
-  '已重新加载': 'Reloaded',
-  '选择新插件的位置': 'Choose where to create the plugin',
+  插件日志: 'Plugin log',
+  '还没有输出。console.log 和面板的控制台消息会显示在这里。':
+    'No output yet. console.log and panel console messages appear here.',
+  清空: 'Clear',
+  开发中: 'In development',
+  日志: 'Logs',
+  停止开发: 'Stop developing',
+  已重新加载: 'Reloaded',
+  选择新插件的位置: 'Choose where to create the plugin',
   '文件夹 {path} 已存在': 'The folder {path} already exists'
 }

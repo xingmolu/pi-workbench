@@ -211,9 +211,9 @@ test('the composer model picker titles subscription groups with the account emai
 
 test('adds an API connection from a service preset', async () => {
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  const apis = page.getByRole('region', { name: 'API 连接' })
-  await apis.getByRole('button', { name: '添加 API 连接', exact: true }).click()
-  const panel = page.getByRole('group', { name: '添加 API 连接' })
+  const apis = page.getByRole('region', { name: '自定义端点' })
+  await apis.getByRole('button', { name: '添加端点', exact: true }).click()
+  const panel = page.getByRole('group', { name: '添加端点' })
   await expect(panel.getByRole('button', { name: /OpenRouter/ })).toBeVisible()
   await panel.screenshot({ path: join(artifacts, 'add-api-presets.png') })
 
@@ -236,7 +236,7 @@ test('adds an API connection from a service preset', async () => {
   await panel.getByLabel('API Key').fill('gateway-secret')
   await panel.getByLabel('手动填写模型 ID').fill('gw-large\ngw-small')
   await panel.screenshot({ path: join(artifacts, 'add-api-form.png') })
-  await panel.getByRole('button', { name: '保存连接' }).click()
+  await panel.getByRole('button', { name: '保存端点' }).click()
   await expect(panel).toHaveCount(0)
   await expect(apis).toContainText('公司网关')
   await expect

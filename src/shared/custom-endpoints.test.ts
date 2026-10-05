@@ -95,7 +95,7 @@ describe('custom endpoint contracts', () => {
       { modelIds: ['a', ' a '] },
       { modelIds: ['x'.repeat(201)] },
       { modelIds: ['a\tb'] },
-      { modelIds: Array.from({ length: 101 }, (_, i) => `m${i}`) },
+      { modelIds: Array.from({ length: 1001 }, (_, i) => `m${i}`) },
       { api: 'unknown' },
       { key: '😀'.repeat(4097) },
       { key: '   ' },

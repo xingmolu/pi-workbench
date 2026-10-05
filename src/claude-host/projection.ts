@@ -249,12 +249,20 @@ export class ClaudeProjection {
       }
       const id = `${message.uuid}:${index}`
       if (message.type === 'assistant') {
-        const streamingId = typeof payload.id === 'string' ? `${payload.id}:${index}` : undefined
-        const previous = this.nodes.find(
-          (node) =>
-            node.id === streamingId ||
-            (value.type === 'tool_use' && node.type === 'tool' && node.toolCallId === value.id)
-        )
+        const streamPrefix = typeof payload.id === 'string' ? `${payload.id}:` : undefined
+        const nodeType =
+          value.type === 'text' ? 'assistant' : value.type === 'thinking' ? 'think' : undefined
+        // The CLI may deliver each block as its own message, so its index restarts at 0;
+        // fall back to the first still-streamed block of the same kind in that API message.
+        const previous =
+          this.nodes.find(
+            (node) =>
+              (node.id === `${streamPrefix}${index}` && node.type === nodeType) ||
+              (value.type === 'tool_use' && node.type === 'tool' && node.toolCallId === value.id)
+          ) ??
+          (streamPrefix && nodeType
+            ? this.nodes.find((node) => node.id.startsWith(streamPrefix) && node.type === nodeType)
+            : undefined)
         const position = previous ? this.nodes.indexOf(previous) : -1
         if (previous) this.nodes.splice(position, 1)
         this.block(id, value, false, message.uuid, previous?.presentationIdentity ?? previous?.id)

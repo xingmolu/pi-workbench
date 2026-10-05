@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, RefreshCw, Server } from 'lucide-react'
+import { RefreshCw, Server } from 'lucide-react'
 import type { AgentSnapshot, RuntimeConfigCommand } from '../../../shared/contracts'
 import {
   endpointDiscoverSchema,
-  createCustomEndpointSchema,
   customEndpointSchema,
   type CustomEndpointApi,
   type CustomEndpointConfigSnapshot,
@@ -28,7 +27,7 @@ function endpointLabel(baseUrl: string): string {
 }
 
 type Form = {
-  id?: string
+  id: string
   label: string
   api: CustomEndpointApi
   baseUrl: string
@@ -36,14 +35,6 @@ type Form = {
   imageModelIds: string[]
   originalIds: string[]
 }
-const emptyForm = (): Form => ({
-  label: '',
-  api: 'openai-completions',
-  baseUrl: '',
-  modelIds: '',
-  imageModelIds: [],
-  originalIds: []
-})
 
 export default function CustomEndpoints({
   snapshot,
@@ -122,7 +113,8 @@ export default function CustomEndpoints({
     }
   }, [identity])
 
-  const edit = (endpoint?: CustomEndpointMetadata): void => {
+  /** New endpoints come from the add wizard; this list only edits saved ones. */
+  const edit = (endpoint: CustomEndpointMetadata): void => {
     epoch.current += 1
     setDiscovering(false)
     setKey('')
@@ -131,17 +123,15 @@ export default function CustomEndpoints({
     setOutcome(null)
     setConfirmedRemoval(false)
     setDiscoveryNote('')
-    const next = endpoint
-      ? {
-          id: endpoint.id,
-          label: endpoint.label,
-          api: endpoint.api!,
-          baseUrl: endpoint.baseUrl!,
-          modelIds: endpoint.modelIds.join('\n'),
-          imageModelIds: endpoint.imageModelIds ?? [],
-          originalIds: endpoint.modelIds
-        }
-      : emptyForm()
+    const next = {
+      id: endpoint.id,
+      label: endpoint.label,
+      api: endpoint.api!,
+      baseUrl: endpoint.baseUrl!,
+      modelIds: endpoint.modelIds.join('\n'),
+      imageModelIds: endpoint.imageModelIds ?? [],
+      originalIds: endpoint.modelIds
+    }
     baseline.current = next
     setForm(next)
   }
@@ -224,7 +214,7 @@ export default function CustomEndpoints({
       imageModelIds: form.imageModelIds,
       ...(key !== '' ? { key } : {})
     }
-    const parsed = (form.id ? customEndpointSchema : createCustomEndpointSchema).safeParse(input)
+    const parsed = customEndpointSchema.safeParse(input)
     if (!parsed.success) {
       const field = parsed.error.issues[0]?.path[0]
       setErrorField(String(field))
@@ -234,7 +224,7 @@ export default function CustomEndpoints({
               'Base URL 必须为 HTTPS，或 http://localhost、127.0.0.1、[::1]；不能含账号、查询参数或片段。'
             )
           : field === 'modelIds'
-            ? t('模型 ID 每行一个，不能重复；请填写 1–100 个，每个不超过 200 个字符。')
+            ? t('模型 ID 每行一个，不能重复；请填写 1–1000 个，每个不超过 200 个字符。')
             : field === 'imageModelIds'
               ? t('支持图片输入的模型必须出现在模型 ID 列表中。')
               : field === 'key'
@@ -259,7 +249,7 @@ export default function CustomEndpoints({
         type: 'endpoint:save',
         context,
         request: {
-          ...(form.id ? { id: form.id } : {}),
+          id: form.id,
           expectedRevision: catalog.revision,
           endpoint: parsed.data
         }
@@ -296,10 +286,10 @@ export default function CustomEndpoints({
   }
 
   return (
-    <section className="sp-group acct-endpoints" aria-label={t('自定义端点')}>
+    <section className="sp-group acct-endpoints" aria-label={t('用于 Pi')}>
       <div className="sp-group-header acct-group-header">
         <div>
-          <h3>{t('Pi 自定义端点')}</h3>
+          <h3>{t('用于 Pi')}</h3>
           <p>
             {t(
               'OpenAI / Anthropic 兼容接口。全局生效，影响所有工作区及 Pi CLI；新端点不会自动成为当前模型。'
@@ -403,39 +393,15 @@ export default function CustomEndpoints({
                 )}
               </div>
             ))}
-            <div className="acct-card-footer">
-              <button
-                type="button"
-                className="acct-button"
-                disabled={disabled || loading || !catalog}
-                onClick={() => edit()}
-              >
-                <Plus size={14} />
-
-                {t('添加端点')}
-              </button>
-            </div>
           </div>
         ) : (
-          <div className="acct-empty is-action">
-            <p>
-              {catalog
-                ? t('尚无自定义端点。添加服务地址与模型 ID 后，在模型菜单中明确选择。')
-                : loading
-                  ? t('正在读取端点…')
-                  : t('端点列表暂不可用。')}
-            </p>
-            <button
-              type="button"
-              className="acct-button is-primary"
-              disabled={disabled || loading || !catalog}
-              onClick={() => edit()}
-            >
-              <Plus size={14} />
-
-              {t('添加端点')}
-            </button>
-          </div>
+          <p className="ea-empty">
+            {catalog
+              ? t('还没有用于 Pi 的端点。')
+              : loading
+                ? t('正在读取端点…')
+                : t('端点列表暂不可用。')}
+          </p>
         )
       ) : (
         <form
@@ -447,7 +413,7 @@ export default function CustomEndpoints({
           }}
         >
           <div className="acct-form-head">
-            <h3>{form.id ? t('编辑端点') : t('新增端点')}</h3>
+            <h3>{t('编辑端点')}</h3>
             <p>{t('填写服务地址和密钥，拉取模型后即可保存。')}</p>
           </div>
           <label htmlFor="endpoint-url">Base URL</label>
@@ -483,9 +449,7 @@ export default function CustomEndpoints({
             }}
           />
           <small id="endpoint-key-help">
-            {form.id
-              ? t('留空保留现有凭据；不会回显旧密钥。')
-              : t('仅用于此服务的认证；本地免认证服务可填任意占位值。')}
+            {t('留空保留现有凭据；不会回显旧密钥。')}
 
             {t('提交或关闭时清空。')}
           </small>
@@ -506,14 +470,7 @@ export default function CustomEndpoints({
               {discoveryNote}
             </p>
           ) : null}
-          <details
-            className="endpoint-advanced"
-            open={
-              form.id || ['label', 'modelIds', 'imageModelIds', 'api'].includes(errorField ?? '')
-                ? true
-                : undefined
-            }
-          >
+          <details className="endpoint-advanced" open>
             <summary>
               {t('高级设置与模型列表')}
               {ids.length ? t('（{length} 个）', { length: ids.length }) : ''}
