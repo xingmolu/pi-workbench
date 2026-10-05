@@ -224,13 +224,13 @@ test('adds an API connection from a service preset', async () => {
     )
   )
   await panel.getByRole('button', { name: /^Anthropic/ }).click()
-  await expect(panel.getByRole('radiogroup', { name: '用于哪个引擎' })).toHaveCount(
+  await expect(panel.getByRole('group', { name: '用于哪些引擎' })).toHaveCount(
     claudeReady ? 1 : 0
   )
   await panel.getByRole('button', { name: '返回选择服务' }).click()
 
   await panel.getByRole('button', { name: /^自定义/ }).click()
-  await expect(panel.getByRole('radiogroup', { name: '用于哪个引擎' })).toHaveCount(0)
+  await expect(panel.getByRole('group', { name: '用于哪些引擎' })).toHaveCount(0)
   await panel.getByLabel('名称').fill('公司网关')
   await panel.getByLabel('服务地址').fill('https://llm.example.test/v1')
   await panel.getByLabel('API Key').fill('gateway-secret')

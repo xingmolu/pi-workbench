@@ -107,6 +107,7 @@ export type CustomEndpointSaveRequest = {
   expectedRevision: string
   endpoint: CustomEndpointInput
 }
+export type CustomEndpointRemoveRequest = { id: string; expectedRevision: string }
 export type CustomEndpointSaveResult = {
   ok: boolean
   providerId: string | null
@@ -134,6 +135,12 @@ export const customEndpointSaveRequestSchema = z
       .optional(),
     expectedRevision: z.string().max(128),
     endpoint: customEndpointSchema
+  })
+  .strict()
+export const customEndpointRemoveRequestSchema = z
+  .object({
+    id: z.string().regex(/^custom-[a-z0-9][a-z0-9-]{0,99}$/),
+    expectedRevision: z.string().max(128)
   })
   .strict()
 export const customEndpointMetadataSchema: z.ZodType<CustomEndpointMetadata> = z

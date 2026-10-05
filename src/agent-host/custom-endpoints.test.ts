@@ -21,6 +21,8 @@ function fixture() {
     loginActive: false
   }
   const writes: unknown[] = []
+  const removals: string[] = []
+  const logouts: string[] = []
   let blocked = false
   const original = { provider: 'custom-existing', id: 'm', baseUrl: 'https://old.example' }
   const session = {
@@ -45,6 +47,10 @@ function fixture() {
       update: async (input) => {
         writes.push(input)
         return snapshot
+      },
+      remove: async (input) => {
+        removals.push(input.id)
+        return { ...snapshot, endpoints: [] }
       }
     },
     runtime: {
@@ -57,6 +63,9 @@ function fixture() {
       refresh: async () => ({ errors: new Map(), aborted: false }),
       login: async () => {
         throw new Error('secret-fixture')
+      },
+      logout: async (id: string) => {
+        logouts.push(id)
       }
     },
     readSafety: () => ({ ...state }),
@@ -73,6 +82,8 @@ function fixture() {
     session,
     original,
     blocked: () => blocked,
+    removals,
+    logouts,
     request: { id: original.provider, expectedRevision: 'r', endpoint }
   }
 }
@@ -89,6 +100,9 @@ describe('custom endpoint saves', () => {
           return { revision: 'r2', endpoints: [] }
         },
         update: async () => {
+          throw new Error('unused')
+        },
+        remove: async () => {
           throw new Error('unused')
         }
       },
@@ -111,6 +125,9 @@ describe('custom endpoint saves', () => {
           })) as string
           events.push('credential')
           return { key: 'secret-return' }
+        },
+        logout: async () => {
+          throw new Error('unused')
         }
       },
       readSafety: () => ({
@@ -567,5 +584,37 @@ describe('custom endpoint saves', () => {
     expect(result).toMatchObject({ ok: false, metadata: 'saved', runtime: 'failed' })
     expect(f.session.model).toBe(f.original)
     expect(f.blocked()).toBe(false)
+  })
+})
+
+describe('custom endpoint removal', () => {
+  it('deletes the entry and its credential and asks a session using it to choose again', async () => {
+    const f = fixture()
+    const result = await new CustomEndpointService(f.d).remove({
+      id: f.original.provider,
+      expectedRevision: 'r'
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      metadata: 'saved',
+      credential: 'saved',
+      runtime: 'synchronized',
+      selection: 'model-missing'
+    })
+    expect(f.removals).toEqual([f.original.provider])
+    expect(f.logouts).toEqual([f.original.provider])
+    expect(f.blocked()).toBe(true)
+  })
+
+  it('refuses while the session is busy and writes nothing', async () => {
+    const f = fixture()
+    f.state.busy = true
+    const result = await new CustomEndpointService(f.d).remove({
+      id: f.original.provider,
+      expectedRevision: 'r'
+    })
+    expect(result).toMatchObject({ ok: false, metadata: 'unchanged' })
+    expect(f.removals).toEqual([])
+    expect(f.logouts).toEqual([])
   })
 })

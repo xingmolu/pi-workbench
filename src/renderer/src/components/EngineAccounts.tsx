@@ -9,8 +9,7 @@ import {
   LoaderCircle,
   LogIn,
   MoreHorizontal,
-  Plus,
-  Server
+  Plus
 } from 'lucide-react'
 import type {
   AccountSummary,
@@ -634,56 +633,11 @@ export default function EngineAccounts({
           />
         ) : null}
 
-        {claude ? (
-          <div className="ea-subgroup">
-            <div className="ea-subgroup-head">
-              <span>
-                <strong>{t('用于 Claude Code')}</strong>
-                <small>{t('Anthropic 兼容接口')}</small>
-              </span>
-            </div>
-            {claude.error ? (
-              <details className="acct-notice is-warning ea-error">
-                <summary>{t('Claude Code 现在无法启动，暂时不能管理它的连接')}</summary>
-                <p>{claude.error}</p>
-              </details>
-            ) : null}
-            {claudeApis.length ? (
-              <ul className="sp-card ea-list">
-                {claudeApis.map((row) => (
-                  <li className="ea-row" key={row.account.id}>
-                    <div className="ea-row-main">
-                      <span className="ea-avatar is-api" aria-hidden="true">
-                        <Server size={14} />
-                      </span>
-                      <div className="ea-row-text">
-                        <strong>{row.account.name}</strong>
-                        <small>{row.account.endpoint ?? 'api.anthropic.com'}</small>
-                      </div>
-                      <button
-                        type="button"
-                        className="acct-button is-quiet"
-                        disabled={Boolean(pending)}
-                        onClick={() => {
-                          if (
-                            window.confirm(t('移除 {name} 这个端点？', { name: row.account.name }))
-                          )
-                            void run('claude', {
-                              type: 'account:remove',
-                              providerId: row.account.id
-                            })
-                        }}
-                      >
-                        {t('移除')}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : !claude.error ? (
-              <p className="ea-empty">{t('还没有用于 Claude Code 的端点。')}</p>
-            ) : null}
-          </div>
+        {claude?.error ? (
+          <details className="acct-notice is-warning ea-error">
+            <summary>{t('Claude Code 现在无法启动，暂时不能管理它的连接')}</summary>
+            <p>{claude.error}</p>
+          </details>
         ) : null}
 
         {runtimes.some((runtime) => runtime.id === 'pi') ? (
@@ -692,6 +646,16 @@ export default function EngineAccounts({
               key={endpointsKey}
               snapshot={snapshot}
               detached={snapshot.runtime?.id !== 'pi'}
+              claude={
+                claude && !claude.error
+                  ? claudeApis.map((row) => ({
+                      id: row.account.id,
+                      name: row.account.name,
+                      endpoint: row.account.endpoint
+                    }))
+                  : null
+              }
+              onClaudeChanged={() => void reload()}
             />
           </div>
         ) : null}

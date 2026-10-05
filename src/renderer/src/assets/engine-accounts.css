@@ -458,31 +458,21 @@
   outline: none;
 }
 
-.ea-segment {
-  display: inline-flex;
-  justify-self: start;
-  gap: 2px;
+.ea-engines {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 4px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--surface-subtle);
-}
-
-.ea-segment button {
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
   color: var(--text-secondary);
   font-size: 12px;
-  cursor: pointer;
 }
 
-.ea-segment button[aria-checked='true'] {
-  background: var(--surface-floating);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
-  color: var(--text-strong);
-  font-weight: 500;
+.ea-engines > span {
+  margin-right: 4px;
+}
+
+.ea-form .ea-engines .ea-check {
+  font-family: inherit;
 }
 
 .ea-models {

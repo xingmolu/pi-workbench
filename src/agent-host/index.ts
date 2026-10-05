@@ -529,7 +529,8 @@ class PiDesktopHost {
         config: {
           read: () => this.endpointConfig().read(),
           create: (input) => this.endpointConfig().create(input),
-          update: (input) => this.endpointConfig().update(input)
+          update: (input) => this.endpointConfig().update(input),
+          remove: (input) => this.endpointConfig().remove(input)
         },
         runtime: this.modelRuntime,
         readSafety: () => this.readEndpointSafety(),
@@ -739,6 +740,15 @@ class PiDesktopHost {
         this.emitPatch()
         return { kind: 'endpoint-save', result }
       }
+      case 'endpoint:remove': {
+        assertEndpointContext(request.context, {
+          ...this.readEndpointSafety(),
+          projectPath: this.projectPath
+        })
+        const result = await this.endpointService!.remove(request.request)
+        this.emitPatch()
+        return { kind: 'endpoint-save', result }
+      }
       case 'bootstrap':
         break
       case 'state:get':
@@ -847,8 +857,9 @@ class PiDesktopHost {
       case 'account:api-key:set':
         if (!this.modelRuntime) throw new Error(t('模型运行时尚未就绪'))
         if (request.baseUrl) throw new Error(t('自定义 URL 请使用添加端点'))
+        if (!request.apiKey) throw new Error(t('请填写 API Key。'))
         await this.modelRuntime.login(request.providerId, 'api_key', {
-          prompt: async () => request.apiKey,
+          prompt: async () => request.apiKey!,
           notify: () => {}
         })
         await this.refreshAuthProjection()

@@ -5,6 +5,7 @@ import {
   createCustomEndpointSchema,
   customEndpointSchema,
   isCustomEndpointId,
+  type CustomEndpointRemoveRequest,
   type CustomEndpointSaveRequest,
   type CustomEndpointSaveResult,
   type CustomEndpointConfigSnapshot
@@ -34,6 +35,7 @@ export type CustomEndpointDependencies<M extends RuntimeModel> = {
     read(): Promise<CustomEndpointConfigSnapshot>
     create(input: CustomEndpointConfigWrite): Promise<CustomEndpointConfigSnapshot>
     update(input: CustomEndpointConfigWrite): Promise<CustomEndpointConfigSnapshot>
+    remove(input: { id: string; expectedRevision: string }): Promise<CustomEndpointConfigSnapshot>
   }
   runtime: {
     getProviders(): readonly { id: string }[]
@@ -46,6 +48,7 @@ export type CustomEndpointDependencies<M extends RuntimeModel> = {
       allowNetwork: false
     }): Promise<{ aborted: boolean; errors: ReadonlyMap<string, Error> }>
     login(id: string, type: 'api_key', interaction: AuthInteraction): Promise<unknown>
+    logout(id: string): Promise<unknown>
   }
   readSafety(): EndpointSafety
   getSession?(): EndpointSession<M> | null
@@ -75,6 +78,100 @@ export class CustomEndpointService<M extends RuntimeModel> {
     const operation = this.queue.then(() => this.perform(request, captured))
     this.queue = operation.catch(() => undefined)
     return operation
+  }
+
+  /** Deletes an endpoint and its credential; a session using it must choose another model. */
+  remove(request: CustomEndpointRemoveRequest): Promise<CustomEndpointSaveResult> {
+    let captured: EndpointSafety | undefined
+    try {
+      captured = { ...this.dependencies.readSafety() }
+    } catch {
+      /* Fail closed below. */
+    }
+    const operation = this.queue.then(() => this.performRemove(request, captured))
+    this.queue = operation.catch(() => undefined)
+    return operation
+  }
+
+  private async performRemove(
+    request: CustomEndpointRemoveRequest,
+    target: EndpointSafety | undefined
+  ): Promise<CustomEndpointSaveResult> {
+    const d = this.dependencies
+    const result: CustomEndpointSaveResult = {
+      ok: false,
+      providerId: request.id,
+      metadata: 'unchanged',
+      credential: 'unchanged',
+      runtime: 'failed',
+      selection: 'unchanged',
+      message: '',
+      snapshot: null
+    }
+    const safe = (): void => {
+      const now = d.readSafety()
+      if (
+        now.busy ||
+        now.promptPending ||
+        now.loginActive ||
+        (target && (now.generation !== target.generation || now.sessionId !== target.sessionId))
+      )
+        throw new Error('unsafe')
+    }
+    try {
+      if (!target || target.busy || target.promptPending || target.loginActive)
+        throw new Error('unsafe')
+      safe()
+      const id = request.id
+      if (
+        !isCustomEndpointId(id) ||
+        id.startsWith('openai-codex') ||
+        d.runtime.getRegisteredProviderIds().includes(id) ||
+        !!d.runtime.getRegisteredNativeProvider(id) ||
+        d.runtime.isUsingOAuth(id)
+      )
+        throw new Error('protected')
+      result.snapshot = await d.config.remove({ id, expectedRevision: request.expectedRevision })
+      result.metadata = 'saved'
+      result.credential = 'unknown'
+      await d.runtime.logout(id)
+      result.credential = 'saved'
+      const refreshed = await d.runtime.refresh({ allowNetwork: false })
+      if (refreshed.aborted || refreshed.errors.size || d.runtime.getError())
+        throw new Error('refresh')
+      await d.rebuildProjections()
+      const session = d.getSession?.()
+      if (session?.model?.provider === id) {
+        result.selection = 'model-missing'
+        d.invalidateSelection?.(target, 'model-missing')
+        d.setSessionBlocked?.(target, true)
+      }
+      result.runtime = 'synchronized'
+      result.ok = true
+      result.message =
+        result.selection === 'model-missing'
+          ? t('端点已删除；当前会话使用的模型已移除，请重新选择模型后发送')
+          : t('端点已删除')
+    } catch (error) {
+      if (error instanceof SessionRuntimeUnsafeError) throw error
+      result.message =
+        error instanceof CustomEndpointConfigError
+          ? error.message
+          : result.metadata === 'unchanged'
+            ? t('端点未删除，请检查配置版本及当前会话状态后重试')
+            : t('端点配置已删除，但凭据或运行时未同步；请重新加载并检查当前模型后再发送')
+      try {
+        result.snapshot = await d.config.read()
+      } catch {
+        result.snapshot = null
+      }
+      try {
+        await d.rebuildProjections()
+      } catch {
+        /* Preserve the fixed, factual result. */
+      }
+    }
+    return result
   }
 
   private async perform(

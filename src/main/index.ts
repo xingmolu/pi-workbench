@@ -1365,6 +1365,7 @@ const RUNTIME_CONFIG_COMMANDS = new Set<RuntimeConfigCommand['type']>([
   'account:quota',
   'endpoint:list',
   'endpoint:save',
+  'endpoint:remove',
   'endpoint:discover'
 ])
 
@@ -1420,7 +1421,7 @@ async function runtimeConfig(runtimeId: string, input: RuntimeConfigCommand): Pr
   if (!runtimeProviders.manifests().some((runtime) => runtime.id === runtimeId))
     throw new Error(t('未知的 Agent 引擎'))
   let command: HostCommand = input
-  if (command.type === 'endpoint:save') {
+  if (command.type === 'endpoint:save' || command.type === 'endpoint:remove') {
     // The configuration host has no chat; its own identity is the safe save context.
     const host = runtimeDirectory.snapshot(runtimeId)
     command = {
@@ -1472,6 +1473,7 @@ const globalMutations = new Set([
   'account:add',
   'account:remove',
   'endpoint:save',
+  'endpoint:remove',
   'mcp:save',
   'mcp:toggle',
   'mcp:reload'

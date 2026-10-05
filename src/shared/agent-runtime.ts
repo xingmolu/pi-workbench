@@ -121,6 +121,7 @@ const COMMAND_FEATURE: Record<HostCommand['type'], RuntimeFeature | null> = {
   'account:token': 'account-aliases',
   'endpoint:list': 'custom-endpoints',
   'endpoint:save': 'custom-endpoints',
+  'endpoint:remove': 'custom-endpoints',
   'endpoint:discover': 'custom-endpoints',
   'mcp:list': 'mcp',
   'mcp:save': 'mcp',

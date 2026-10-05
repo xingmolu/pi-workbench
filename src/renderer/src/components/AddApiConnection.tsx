@@ -100,7 +100,9 @@ export default function AddApiConnection({
   const [baseUrl, setBaseUrl] = useState('')
   const [api, setApi] = useState<CustomEndpointApi>('openai-completions')
   const [key, setKey] = useState('')
-  const [engine, setEngine] = useState<Engine>('pi')
+  // Which engines get the service; an Anthropic-compatible one serves both by default.
+  const [forPi, setForPi] = useState(true)
+  const [forClaude, setForClaude] = useState(false)
   const [models, setModels] = useState<string[] | null>(null)
   const [chosen, setChosen] = useState<string[]>([])
   const [manual, setManual] = useState('')
@@ -114,7 +116,8 @@ export default function AddApiConnection({
     setLabel(next.id === 'custom' ? '' : next.label)
     setBaseUrl(next.baseUrl)
     setApi(next.api)
-    setEngine('pi')
+    setForPi(true)
+    setForClaude(claudeAvailable && next.api === 'anthropic-messages')
     setModels(null)
     setChosen([])
     setManual('')
@@ -122,6 +125,8 @@ export default function AddApiConnection({
     setNote('')
   }
   const claudeAllowed = claudeAvailable && api === 'anthropic-messages'
+  const toClaude = claudeAllowed && forClaude
+  const toPi = forPi || !claudeAllowed
   const effectiveKey = key.trim() || (preset?.keyOptional ? 'ollama' : '')
   const modelIds = [
     ...chosen,
@@ -168,8 +173,27 @@ export default function AddApiConnection({
 
   const save = async (): Promise<void> => {
     setError('')
-    if (engine === 'claude') {
-      const url = baseUrl.trim()
+    const url = baseUrl.trim()
+    const name =
+      label.trim() || (preset?.id === 'custom' ? hostname(url) : preset?.label) || t('自定义端点')
+    const endpoint = toPi
+      ? createCustomEndpointSchema.safeParse({
+          label: name,
+          api,
+          baseUrl: url,
+          modelIds,
+          key: effectiveKey
+        })
+      : null
+    if (endpoint && !endpoint.success) {
+      setError(
+        modelIds.length
+          ? t('请检查服务地址和 API Key。')
+          : t('至少需要一个模型：先拉取模型，或手动填写模型 ID。')
+      )
+      return
+    }
+    if (toClaude) {
       if (!key.trim()) {
         setError(t('请填写 API Key。'))
         return
@@ -178,56 +202,38 @@ export default function AddApiConnection({
         setError(t('服务地址必须是 HTTPS，或本机 http://localhost。'))
         return
       }
-      setBusy('save')
-      try {
+    }
+    setBusy('save')
+    let piSaved = false
+    try {
+      if (endpoint?.success) {
+        const list = await window.pi.runtimeConfig('pi', { type: 'endpoint:list' })
+        const response = await window.pi.runtimeConfig('pi', {
+          type: 'endpoint:save',
+          context: { projectPath: null, sessionId: null, generation: 0 },
+          request: { expectedRevision: list.snapshot.revision, endpoint: endpoint.data }
+        })
+        if (!response.result.ok) {
+          setError(response.result.message)
+          return
+        }
+        piSaved = true
+      }
+      if (toClaude)
         await window.pi.runtimeConfig('claude', {
           type: 'account:api-key:set',
           providerId: 'new',
           apiKey: key.trim(),
           ...(url && url !== 'https://api.anthropic.com' ? { baseUrl: url } : {}),
-          ...(label.trim() ? { label: label.trim() } : {})
+          label: name
         })
-        onSaved('claude')
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason))
-      } finally {
-        setBusy(null)
-      }
-      return
-    }
-    const endpoint = createCustomEndpointSchema.safeParse({
-      label:
-        label.trim() ||
-        (preset?.id === 'custom' ? hostname(baseUrl.trim()) : preset?.label) ||
-        t('自定义端点'),
-      api,
-      baseUrl: baseUrl.trim(),
-      modelIds,
-      key: effectiveKey
-    })
-    if (!endpoint.success) {
-      setError(
-        modelIds.length
-          ? t('请检查服务地址和 API Key。')
-          : t('至少需要一个模型：先拉取模型，或手动填写模型 ID。')
-      )
-      return
-    }
-    setBusy('save')
-    try {
-      const list = await window.pi.runtimeConfig('pi', { type: 'endpoint:list' })
-      const response = await window.pi.runtimeConfig('pi', {
-        type: 'endpoint:save',
-        context: { projectPath: null, sessionId: null, generation: 0 },
-        request: { expectedRevision: list.snapshot.revision, endpoint: endpoint.data }
-      })
-      if (!response.result.ok) {
-        setError(response.result.message)
-        return
-      }
-      onSaved('pi')
+      onSaved(toPi ? 'pi' : 'claude')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setError(
+        piSaved ? t('已添加到 Pi，但添加到 Claude Code 失败：{message}', { message }) : message
+      )
+      if (piSaved) onSaved('pi')
     } finally {
       setBusy(null)
     }
@@ -272,18 +278,24 @@ export default function AddApiConnection({
           }}
         >
           {claudeAllowed ? (
-            <div className="ea-segment" role="radiogroup" aria-label={t('用于哪个引擎')}>
-              {(['pi', 'claude'] as const).map((value) => (
-                <button
-                  type="button"
-                  role="radio"
-                  key={value}
-                  aria-checked={engine === value}
-                  onClick={() => setEngine(value)}
-                >
-                  {value === 'pi' ? t('用于 Pi') : t('用于 Claude Code')}
-                </button>
-              ))}
+            <div className="ea-engines" role="group" aria-label={t('用于哪些引擎')}>
+              <span>{t('用于')}</span>
+              <label className="ea-check">
+                <input
+                  type="checkbox"
+                  checked={forPi}
+                  onChange={(event) => setForPi(event.target.checked)}
+                />
+                <span>Pi</span>
+              </label>
+              <label className="ea-check">
+                <input
+                  type="checkbox"
+                  checked={forClaude}
+                  onChange={(event) => setForClaude(event.target.checked)}
+                />
+                <span>Claude Code</span>
+              </label>
             </div>
           ) : null}
           <label htmlFor="api-label">{t('名称')}</label>
@@ -313,7 +325,7 @@ export default function AddApiConnection({
                 onChange={(event) => {
                   setApi(event.target.value as CustomEndpointApi)
                   setModels(null)
-                  if (event.target.value !== 'anthropic-messages') setEngine('pi')
+                  setForClaude(claudeAvailable && event.target.value === 'anthropic-messages')
                 }}
               >
                 {Object.entries(PROTOCOLS).map(([value, name]) => (
@@ -336,7 +348,7 @@ export default function AddApiConnection({
             onChange={(event) => setKey(event.target.value)}
           />
 
-          {engine === 'pi' ? (
+          {toPi ? (
             <div className="ea-models">
               <div className="ea-models-head">
                 <span>{t('模型')}</span>
@@ -423,7 +435,9 @@ export default function AddApiConnection({
             <button
               type="submit"
               className="acct-button is-primary"
-              disabled={busy !== null || (engine === 'pi' ? !modelIds.length : !key.trim())}
+              disabled={
+                busy !== null || (!toPi && !toClaude) || (toPi ? !modelIds.length : !key.trim())
+              }
             >
               {busy === 'save' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}
 
