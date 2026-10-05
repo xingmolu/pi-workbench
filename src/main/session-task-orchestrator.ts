@@ -353,6 +353,11 @@ export class SessionTaskOrchestrator {
       .map((task) => this.view(task))
   }
 
+  /** Whether this worker runs a background task rather than a conversation the user drives. */
+  isTaskWorker(workerId: string): boolean {
+    return [...this.tasks.values()].some((task) => task.workerId === workerId)
+  }
+
   relationships(): SessionTaskRelationship[] {
     return [...this.tasks.values()]
       .sort((left, right) => left.createdAt - right.createdAt)

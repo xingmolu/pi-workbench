@@ -2,7 +2,12 @@ import { sessionTaskPresentation, sessionTaskResultPresentation } from './sessio
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent'
 import type { ConversationNode, ToolStatus } from '../shared/contracts'
 import { assistantTerminalNode } from './assistant-outcome'
-import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import {
+  computerToolTitle,
+  textFromContent,
+  toolIntent,
+  toolPresentation
+} from './message-presentation'
 import { appliedToolChange, proposedToolChange } from './tool-change'
 import { MESSAGE_FEEDBACK_TYPE, messageFeedbackDataSchema, type MessageFeedbackValue } from '../shared/message-actions'
 
@@ -129,6 +134,10 @@ export function projectSessionHistory(
           ? undefined
           : appliedToolChange(tool.name, message.details, tool.change?.path)
         if (applied) tool.change = applied
+        const title = message.isError
+          ? undefined
+          : computerToolTitle(tool.name, tool.title, message.details)
+        if (title) tool.title = title
       }
       return
     }

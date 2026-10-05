@@ -16,7 +16,19 @@ export const permissionRulesSchema = z
     /** Command prefixes Pi may run without asking, matched on whole words. */
     commands: z.array(ruleSchema).max(100),
     /** write/edit inside the project run without asking; each turn stays undoable. */
-    projectEdits: z.boolean()
+    projectEdits: z.boolean(),
+    /** Apps Computer Use may operate in this project without asking, by bundle id. */
+    computerApps: z
+      .array(
+        z
+          .object({
+            bundleId: z.string().trim().min(1).max(80),
+            app: z.string().trim().max(80)
+          })
+          .strict()
+      )
+      .max(50)
+      .optional()
   })
   .strict()
 export type PermissionRules = z.infer<typeof permissionRulesSchema>

@@ -34,6 +34,19 @@ function stringArg(args: Record<string, unknown>, ...keys: string[]): string | u
   return undefined
 }
 
+/** The app a Computer Use result worked in, so the tool card names it. */
+export function computerToolTitle(
+  toolName: string,
+  title: string,
+  details: unknown
+): string | undefined {
+  if (toolName !== 'computer' || !isRecord(details)) return undefined
+  const observation = details.kind === 'action' ? details.observation : details
+  const app =
+    isRecord(observation) && typeof observation.app === 'string' ? observation.app.trim() : ''
+  return app && !title.endsWith(` · ${app}`) ? `${title} · ${app}` : undefined
+}
+
 export function toolPresentation(
   name: string,
   rawArgs: unknown

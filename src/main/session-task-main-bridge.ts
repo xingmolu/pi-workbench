@@ -44,6 +44,10 @@ export class SessionTaskMainBridge {
     )
   }
 
+  isTaskWorker(workerId: string): boolean {
+    return this.orchestrator.isTaskWorker(workerId)
+  }
+
   decorateSummaries(summaries: LiveSessionSummary[]): LiveSessionSummary[] {
     const relations = new Map(
       this.orchestrator.relationships().map((relation) => [relation.workerId, relation])

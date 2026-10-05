@@ -47,6 +47,13 @@ it('offers allowing the whole task for the app a Computer Use action targets', (
     <ApprovalCard request={computer} onApproval={async () => true} />
   )
   expect(html).toContain('本轮允许操作 HoYowave')
+  // Saving a rule needs a project to keep it in.
+  expect(html).not.toContain('总是允许操作')
+  expect(
+    renderToStaticMarkup(
+      <ApprovalCard request={computer} projectPath="/test" onApproval={async () => true} />
+    )
+  ).toContain('总是允许操作 HoYowave')
   expect(
     renderToStaticMarkup(<ApprovalCard request={request} onApproval={async () => true} />)
   ).not.toContain('本轮允许')
