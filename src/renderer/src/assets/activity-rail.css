@@ -62,3 +62,48 @@
     height: 44px;
   }
 }
+.activity-rail-divider {
+  width: 20px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
+/* Covers sessions, conversation and workbench; they stay mounted underneath. */
+.shell-content {
+  display: contents;
+}
+.shell-content[hidden] {
+  display: none;
+}
+.plugin-page {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.plugin-page-head {
+  display: flex;
+  height: 48px;
+  flex: 0 0 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text-soft);
+  -webkit-app-region: drag;
+}
+.plugin-page-head h1 {
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-page .sandboxed-plugin-pane {
+  flex: 1;
+  min-height: 0;
+}

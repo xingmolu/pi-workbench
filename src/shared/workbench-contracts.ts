@@ -41,6 +41,8 @@ export type WorkbenchContribution = {
   icon: WorkbenchIcon
   activation: WorkbenchActivation
   surface: WorkbenchSurface
+  /** A full-window page opened from the activity rail rather than a workbench panel. */
+  placement?: 'page'
 }
 
 export type WorkbenchDiagnostic = {

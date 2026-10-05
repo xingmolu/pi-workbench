@@ -257,6 +257,26 @@ test('native browser and sandbox views suspend during drag and keep identity, st
         return { id: view.webContents.id, visible: view.getVisible(), bounds: view.getBounds() }
       }, kind === 'plugin')
     await expect.poll(async () => (await info())?.visible).toBe(true)
+    const viewport = page.locator(
+      kind === 'browser' ? '.browser-viewport' : '.sandboxed-plugin-pane'
+    )
+    const rendererBounds = () =>
+      viewport.evaluate((element) => {
+        const r = element.getBoundingClientRect()
+        return {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        }
+      })
+    // Home resizes the panel first; the native view follows a frame later.
+    await expect
+      .poll(
+        async () =>
+          JSON.stringify((await info())?.bounds) === JSON.stringify(await rendererBounds())
+      )
+      .toBe(true)
     const original = (await info())!
     await page.getByRole('button', { name: '打开工具', exact: true }).click()
     await expect.poll(async () => (await info())?.visible).toBe(false)
@@ -283,19 +303,6 @@ test('native browser and sandbox views suspend during drag and keep identity, st
     await expect.poll(async () => (await info())?.visible).toBe(false)
     await page.mouse.up()
     await expect.poll(async () => (await info())?.visible).toBe(true)
-    const viewport = page.locator(
-      kind === 'browser' ? '.browser-viewport' : '.sandboxed-plugin-pane'
-    )
-    const rendererBounds = () =>
-      viewport.evaluate((element) => {
-        const r = element.getBoundingClientRect()
-        return {
-          x: Math.round(r.x),
-          y: Math.round(r.y),
-          width: Math.round(r.width),
-          height: Math.round(r.height)
-        }
-      })
     await expect
       .poll(
         async () =>

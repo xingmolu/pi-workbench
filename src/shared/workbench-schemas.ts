@@ -155,7 +155,8 @@ export const workbenchContributionSchema: z.ZodType<WorkbenchContribution> = z
     title: z.string().trim().min(1).max(256),
     icon: workbenchIconSchema,
     activation: workbenchActivationSchema,
-    surface: workbenchSurfaceSchema
+    surface: workbenchSurfaceSchema,
+    placement: z.literal('page').optional()
   })
   .strict()
 

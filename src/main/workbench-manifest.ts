@@ -180,6 +180,11 @@ const manifestViewSchema = z
     order: z.number().int().min(0).max(10_000).optional(),
     activation: workbenchActivationSchema.default('onProject'),
     /**
+     * `workbench` (the default) opens the page beside the conversation; `page` gives it an
+     * entry in the activity rail and the whole window to the right of the rail.
+     */
+    placement: z.enum(['workbench', 'page']).default('workbench'),
+    /**
      * Where the page can be shown. `mobile` opts a page into the paired phone, where it runs
      * in a sandboxed frame with the same `window.piPlugin` API; host views ignore it.
      */
@@ -192,6 +197,9 @@ const manifestViewSchema = z
   .strict()
   .refine((view) => (view.entry === undefined) !== (view.host === undefined), {
     message: 'A view declares exactly one of entry or host'
+  })
+  .refine((view) => view.host === undefined || view.placement === 'workbench', {
+    message: 'Host views open in the workbench'
   })
 
 /** Command ids may be dotted (`hello.open`). */
@@ -716,7 +724,8 @@ export async function discoverWorkbenchManifests({
           title: resolveTitle(view.title),
           icon: resolveIcon(view.icon),
           activation: view.activation,
-          surface: { kind: 'sandboxed-web' }
+          surface: { kind: 'sandboxed-web' },
+          ...(view.placement === 'page' ? { placement: 'page' as const } : {})
         },
         canonicalEntryPath,
         ...(view.surfaces?.includes('mobile') ? { mobile: true } : {})
