@@ -2985,8 +2985,6 @@ export const en: Readonly<Record<string, string>> = {
   '收起项目和会话（⌘B）': 'Hide projects and conversations (⌘B)',
   '展开项目和会话（⌘B）': 'Show projects and conversations (⌘B)',
   '搜索所有会话（{shortcut}）': 'Search all conversations ({shortcut})',
-  '{value} 引擎已就绪': '{value} engine ready',
-  '{value} 引擎未连接': '{value} engine not connected',
   返回项目和会话: 'Back to projects and conversations',
   返回对话: 'Back to the conversation'
 }
