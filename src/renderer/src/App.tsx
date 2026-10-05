@@ -1,6 +1,5 @@
 import { useSettingsIntent } from './store/settings-intent'
 import SubagentDirectory from './components/SubagentDirectory'
-import { Bot } from 'lucide-react'
 import RuntimePicker from './components/RuntimePicker'
 import { useRuntimeCatalog } from './store/runtime-catalog'
 import './assets/runtime-workbench.css'
@@ -25,6 +24,7 @@ import type {
   WorkbenchCommand,
   WorkbenchSnapshot
 } from '../../shared/contracts'
+import ActivityRail from './components/ActivityRail'
 import Sidebar from './components/Sidebar'
 import { shortcutLabel } from './components/shortcut-label'
 import Conversation from './components/Conversation'
@@ -164,7 +164,7 @@ export default function App(): React.JSX.Element {
     setSubagentDirectoryOpen(false)
     setWorkbenchOpen(directoryPreviousWorkbench.current)
     requestAnimationFrame(() =>
-      document.querySelector<HTMLElement>('.subagent-directory-toggle')?.focus()
+      document.querySelector<HTMLElement>('[data-rail="subagents"]')?.focus()
     )
   }, [])
   const [subagentPreview, setSubagentPreview] = useState<{
@@ -643,25 +643,6 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}`}>
-      {snapshot.project && !subagentPreview && !subagentDirectoryOpen ? (
-        <button
-          type="button"
-          className="icon-btn subagent-directory-toggle"
-          aria-label={t('子 Agent 列表')}
-          title={t('子 Agent 列表')}
-          aria-expanded={subagentDirectoryOpen}
-          onClick={() => {
-            if (subagentDirectoryOpen) closeDirectory()
-            else {
-              directoryPreviousWorkbench.current = workbenchOpen
-              setSubagentDirectoryOpen(true)
-              setWorkbenchOpen(true)
-            }
-          }}
-        >
-          <Bot size={17} />
-        </button>
-      ) : null}
       {!subagentPreview && !subagentDirectoryOpen && (
         <button
           className="icon-btn workbench-toggle"
@@ -674,9 +655,30 @@ export default function App(): React.JSX.Element {
           <PanelRight size={18} />
         </button>
       )}
+      <ActivityRail
+        sidebarOpen={!layout.sidebarCollapsed}
+        sidebarLocked={layout.settingsOpen}
+        onToggleSidebar={() => dispatchLayout({ type: 'sidebar:toggle' })}
+        onOpenSearch={() => openPalette()}
+        subagents={
+          snapshot.project && !subagentPreview
+            ? {
+                open: subagentDirectoryOpen,
+                onToggle: () => {
+                  if (subagentDirectoryOpen) closeDirectory()
+                  else {
+                    directoryPreviousWorkbench.current = workbenchOpen
+                    setSubagentDirectoryOpen(true)
+                    setWorkbenchOpen(true)
+                  }
+                }
+              }
+            : undefined
+        }
+        onOpenSettings={openSettings}
+      />
       <Sidebar
         collapsed={layout.sidebarCollapsed}
-        collapseLocked={layout.settingsOpen}
         snapshot={snapshot}
         runtimePicker={
           runtimeCount > 1 ? (
@@ -689,7 +691,6 @@ export default function App(): React.JSX.Element {
             />
           ) : null
         }
-        onToggle={() => dispatchLayout({ type: 'sidebar:toggle' })}
         onChooseProject={() => void chooseProject()}
         onNewSession={() => {
           if (snapshot.project) void navigateProject(snapshot.project.path)
@@ -701,8 +702,6 @@ export default function App(): React.JSX.Element {
         navigationFailures={navigationFailures}
         pending={navigating}
         disabledReason={navigationDisabledReason}
-        onOpenSettings={openSettings}
-        onOpenSearch={() => openPalette()}
       />
 
       <WorkspacePanels

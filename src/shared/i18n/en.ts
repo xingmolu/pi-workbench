@@ -1173,7 +1173,8 @@ export const en: Readonly<Record<string, string>> = {
     'Found {count} models{partial}; all are selected, clear any you do not need.',
   '已选 {count} / {total}': '{count} of {total} selected',
   其他: 'Other',
-  '已添加到 Pi，但添加到 Claude Code 失败：{message}': 'Added to Pi, but adding to Claude Code failed: {message}',
+  '已添加到 Pi，但添加到 Claude Code 失败：{message}':
+    'Added to Pi, but adding to Claude Code failed: {message}',
   用于哪些引擎: 'Which engines use it',
   用于: 'For',
   'Pi 已保存，但 Claude Code 中的同一端点未更新：{message}':
@@ -2293,8 +2294,7 @@ export const en: Readonly<Record<string, string>> = {
   新会话: 'New session',
   添加项目: 'Add project',
   项目与归档: 'Projects & archive',
-  '项目 会话 归档 移除 恢复 隐藏 侧栏':
-    'projects sessions archive removed restore hidden sidebar',
+  '项目 会话 归档 移除 恢复 隐藏 侧栏': 'projects sessions archive removed restore hidden sidebar',
   项目和会话: 'Projects and sessions',
   '收起侧栏（⌘B）': 'Collapse sidebar (⌘B)',
   '在当前项目中新建会话（{value}）': 'New session in the current project ({value})',
@@ -2981,6 +2981,10 @@ export const en: Readonly<Record<string, string>> = {
   已重新加载: 'Reloaded',
   选择新插件的位置: 'Choose where to create the plugin',
   '文件夹 {path} 已存在': 'The folder {path} already exists',
+  活动栏: 'Activity bar',
+  '收起项目和会话（⌘B）': 'Hide projects and conversations (⌘B)',
+  '展开项目和会话（⌘B）': 'Show projects and conversations (⌘B)',
+  '搜索所有会话（{shortcut}）': 'Search all conversations ({shortcut})',
   '在桌面应用中连续执行 {count} 步操作': 'Run {count} steps in a desktop app',
   '在桌面应用中粘贴 {count} 个字符': 'Paste {count} characters into a desktop app',
   滚动桌面应用: 'Scroll a desktop app',

@@ -198,9 +198,9 @@
   -webkit-app-region: no-drag;
 }
 .shell .conversation-head {
-  /* Reserve both floating controls outside the native drag rectangle. */
+  /* Reserve the floating workbench toggle outside the native drag rectangle. */
   position: relative;
-  margin-right: 84px;
+  margin-right: 44px;
   padding-right: 0;
   height: 48px;
   min-height: 48px;
@@ -212,7 +212,7 @@
   position: absolute;
   left: 100%;
   bottom: -1px;
-  width: 84px;
+  width: 44px;
   border-bottom: 1px solid var(--line-soft);
   content: '';
   pointer-events: none;
@@ -275,13 +275,11 @@
   overflow: hidden;
 }
 .native-mac .sidebar-head {
-  padding-left: 82px;
+  /* The traffic lights reach past the activity rail into this header. */
+  padding-left: calc(82px - var(--activity-rail));
   min-height: 48px;
 }
-.native-mac .sidebar.is-collapsed {
-  padding-top: 48px;
-}
-.native-mac:has(.sidebar.is-collapsed) .conversation-head {
+.native-mac:not(:has(.sidebar)) .conversation-head {
   padding-left: 38px;
 }
 button,

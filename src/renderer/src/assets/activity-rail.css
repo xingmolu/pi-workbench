@@ -1,0 +1,58 @@
+/* Leftmost column: navigation switches and app-wide entries. It never folds. */
+.activity-rail {
+  display: flex;
+  width: var(--activity-rail);
+  flex: 0 0 var(--activity-rail);
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 12px;
+  border-right: 1px solid var(--line-soft);
+  background: var(--raised);
+  -webkit-app-region: drag;
+}
+.native-mac .activity-rail {
+  /* Below the traffic lights. */
+  padding-top: 46px;
+}
+.activity-rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.activity-rail-button {
+  position: relative;
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.activity-rail-button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  color: var(--text-soft);
+}
+.activity-rail-button.is-active {
+  background: var(--sidebar-selected);
+  color: var(--text);
+}
+.activity-rail-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.activity-rail-button:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent), transparent 20%);
+}
+@media (pointer: coarse) {
+  .activity-rail-button {
+    width: 44px;
+    height: 44px;
+  }
+}

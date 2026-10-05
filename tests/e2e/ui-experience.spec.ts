@@ -492,7 +492,7 @@ test('header owns the divider and initial model metadata does not produce a fals
   await expect(page.locator('.history-note')).toHaveCSS('border-top-width', '0px')
   await page.screenshot({ path: join(artifacts, 'header-and-model-event.png') })
   expect(await readFile(pa, 'utf8')).toContain(original.trim())
-  await page.getByRole('button', { name: '收起侧栏（⌘B）', exact: true }).click()
+  await page.getByRole('button', { name: '项目和会话', exact: true }).click()
   await page.screenshot({ path: join(artifacts, 'header-collapsed-sidebar.png') })
 })
 

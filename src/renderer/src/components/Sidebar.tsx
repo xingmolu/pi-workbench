@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigationLibrary } from '../store/navigation-library'
 import { performNavigationAction } from '../store/navigation-feedback'
-import {
-  ChevronsLeft,
-  FolderOpen,
-  MessageSquarePlus,
-  PanelLeft,
-  Search,
-  Settings2
-} from 'lucide-react'
+import { FolderOpen, MessageSquarePlus } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import { canCreateSession } from '../../../shared/session-presentation'
 import ProjectSessionList from './ProjectSessionList'
@@ -20,9 +13,7 @@ import { t } from '../../../shared/i18n'
 type SidebarProps = {
   runtimePicker?: ReactNode
   collapsed: boolean
-  collapseLocked?: boolean
   snapshot: AgentSnapshot
-  onToggle: () => void
   onChooseProject: () => void
   onNewSession: () => void
   onNavigate: (cwd: string, sessionPath?: string, workerId?: string, runtimeId?: string) => void
@@ -30,26 +21,20 @@ type SidebarProps = {
   navigationFailures?: ProjectNavigationFailures
   pending?: boolean
   disabledReason?: string | null
-  onOpenSettings: () => void
-  onOpenSearch: () => void
 }
 
 export default function Sidebar({
   runtimePicker,
   collapsed,
-  collapseLocked = false,
   snapshot,
-  onToggle,
   onChooseProject,
   onNewSession,
   onNavigate,
   onCatalog,
   navigationFailures,
   pending = false,
-  disabledReason,
-  onOpenSettings,
-  onOpenSearch
-}: SidebarProps): React.JSX.Element {
+  disabledReason
+}: SidebarProps): React.JSX.Element | null {
   const savedWidth = useNavigationLibrary((state) => state.library.layout.sidebarWidth ?? 248)
   const [width, setWidth] = useState(savedWidth)
   const drag = useRef<{ x: number; width: number } | null>(null)
@@ -92,59 +77,8 @@ export default function Sidebar({
   const reason = blockReason ?? (pending ? t('正在切换会话，请稍候') : null)
   const pendingOnly = (pending && !blockReason) || undefined
   const newSessionEnabled = snapshot.ready && canCreateSession(snapshot.project) && !reason
-  if (collapsed) {
-    return (
-      <aside className="sidebar is-collapsed" aria-label={t('折叠的侧栏')}>
-        <div className="rail-top">
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={onOpenSearch}
-            aria-label={t('搜索所有会话')}
-            title={t('搜索所有会话（⌘K）')}
-          >
-            <Search size={17} />
-          </button>
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={onToggle}
-            title={collapseLocked ? t('设置打开时侧栏保持折叠') : t('展开侧栏')}
-            disabled={collapseLocked}
-          >
-            <PanelLeft size={17} />
-          </button>
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={onNewSession}
-            title={reason ?? t('新会话')}
-            aria-label={t('新会话')}
-            data-navigation-pending={snapshot.project ? pendingOnly : undefined}
-            disabled={!newSessionEnabled}
-          >
-            <MessageSquarePlus size={17} />
-          </button>
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={onChooseProject}
-            title={reason ?? t('添加项目')}
-            aria-label={t('添加项目')}
-            data-navigation-pending={pendingOnly}
-            disabled={Boolean(reason)}
-          >
-            <FolderOpen size={17} />
-          </button>
-        </div>
-        <div className="rail-spacer" />
-        <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} title="Agent Host" />
-        <button className="icon-btn" type="button" onClick={onOpenSettings} title={t('设置')}>
-          <Settings2 size={17} />
-        </button>
-      </aside>
-    )
-  }
+  // Folded, the activity rail alone stays; it keeps search, subagents and settings.
+  if (collapsed) return null
 
   return (
     <aside className="sidebar" aria-label={t('项目和会话')} style={{ width, flexBasis: width }}>
@@ -153,15 +87,6 @@ export default function Sidebar({
           <span className="brand-mark">π</span>
           <span className="brand-name">Pi Desktop</span>
         </div>
-        <button
-          className="icon-btn"
-          type="button"
-          onClick={onToggle}
-          title={t('收起侧栏（⌘B）')}
-          data-shortcut="⌘B"
-        >
-          <ChevronsLeft size={16} />
-        </button>
       </div>
 
       <div className="sidebar-project-actions">
@@ -196,17 +121,6 @@ export default function Sidebar({
           <FolderOpen size={15} />
         </button>
       </div>
-      <button
-        className="sidebar-global-search"
-        type="button"
-        onClick={onOpenSearch}
-        aria-label={t('搜索所有会话')}
-      >
-        <Search size={14} />
-
-        {t('搜索所有会话')}
-        <kbd>⌘K</kbd>
-      </button>
       <ProjectSessionList
         snapshot={snapshot}
         onNavigate={onNavigate}
@@ -218,11 +132,6 @@ export default function Sidebar({
 
       <div className="sidebar-foot">
         <div className="sidebar-foot-row">
-          <button type="button" onClick={onOpenSettings}>
-            <Settings2 size={15} />
-
-            {t('设置')}
-          </button>
           <span className="sidebar-host" title={snapshot.agentDir}>
             <span className={`host-dot${snapshot.ready ? ' is-on' : ''}`} />
             <span>
