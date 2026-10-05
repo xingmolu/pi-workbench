@@ -38,6 +38,27 @@ describe('permission rules store', () => {
     expect(store.allows(project, 'bash', { command: 'ls' }, project)).toBe(false)
   })
 
+  it('always allows only the Computer Use apps saved for the project, once each', () => {
+    const store = new PermissionRulesStore(file)
+    store.set(project, {
+      commands: [],
+      projectEdits: false,
+      computerApps: [
+        { bundleId: 'com.apple.finder', app: 'Finder' },
+        { bundleId: 'com.apple.finder', app: 'Finder' }
+      ]
+    })
+    expect(store.get(project).computerApps).toEqual([
+      { bundleId: 'com.apple.finder', app: 'Finder' }
+    ])
+    expect(store.allowsComputerApp(project, 'com.apple.finder')).toBe(true)
+    expect(store.allowsComputerApp(project, 'com.apple.Terminal')).toBe(false)
+    expect(store.allowsComputerApp(join(root, 'other'), 'com.apple.finder')).toBe(false)
+    expect(store.allowsComputerApp(project, '')).toBe(false)
+    store.set(project, { commands: [], projectEdits: false, computerApps: [] })
+    expect(store.allowsComputerApp(project, 'com.apple.finder')).toBe(false)
+  })
+
   it('shares changes between stores and ignores malformed entries', () => {
     const a = new PermissionRulesStore(file)
     const b = new PermissionRulesStore(file)

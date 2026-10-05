@@ -815,6 +815,7 @@ export class CodexHost {
     this.running = true
     this.snapshot.status = 'running'
     this.snapshot.error = undefined
+    this.projection.pending(text, images.length)
     this.publish()
     try {
       const started = await server.request<{ turn: { id: string } }>('turn/start', {
@@ -836,6 +837,7 @@ export class CodexHost {
       })
       this.turn = { threadId, turnId: started.turn.id }
     } catch (error) {
+      this.projection.dropPending()
       this.running = false
       this.snapshot.status = 'error'
       this.projection.error(randomUUID(), explain(error))

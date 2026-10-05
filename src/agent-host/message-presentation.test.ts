@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest'
-import { textFromContent, toolIntent, toolPresentation } from './message-presentation'
+import {
+  computerToolTitle,
+  textFromContent,
+  toolIntent,
+  toolPresentation
+} from './message-presentation'
 
 it('extracts only text from supported and legacy content', () => {
   expect(textFromContent('plain')).toBe('plain')
@@ -37,4 +42,19 @@ it.each([
     title,
     detail: JSON.stringify(args, null, 2)
   })
+})
+
+it('names the app a Computer Use result worked in on its tool card', () => {
+  const title = 'Computer Use · act'
+  expect(
+    computerToolTitle('computer', title, { kind: 'action', observation: { app: 'Finder' } })
+  ).toBe('Computer Use · act · Finder')
+  expect(
+    computerToolTitle('computer', 'Computer Use · windows', { kind: 'windows', app: 'Mail' })
+  ).toBe('Computer Use · windows · Mail')
+  expect(
+    computerToolTitle('computer', 'Computer Use · act · Finder', { app: 'Finder' })
+  ).toBeUndefined()
+  expect(computerToolTitle('computer', title, { kind: 'apps', apps: [] })).toBeUndefined()
+  expect(computerToolTitle('browser', title, { app: 'Finder' })).toBeUndefined()
 })

@@ -17,6 +17,14 @@ function semanticOnly(observation: ComputerUseObservation): ComputerUseObservati
   return { ...rest, mode: 'semantic' }
 }
 
+/** A point target is screenshot pixels, so it needs a model that saw the screenshot. */
+function usesScreenshotPoints(operation: ComputerUseOperation): boolean {
+  if (operation.action !== 'act') return false
+  return [operation, ...(operation.steps ?? [])].some(
+    (step) => step.target?.kind === 'point' || step.to?.kind === 'point'
+  )
+}
+
 export async function executeComputerUse(
   operation: ComputerUseOperation,
   modelInput: readonly string[] | undefined,
@@ -29,7 +37,7 @@ export async function executeComputerUse(
   if (!canSeeImages) {
     if (
       (operation.action === 'observe' && operation.mode === 'visual') ||
-      (operation.action === 'act' && operation.target?.kind === 'point')
+      usesScreenshotPoints(operation)
     ) {
       onAvailability?.(imageUnavailable)
       throw new Error(imageUnavailable)

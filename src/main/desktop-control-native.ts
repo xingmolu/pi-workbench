@@ -33,7 +33,50 @@ export type NativeComputerUseCommand =
       expiresAt?: number
     }
   | { action: 'type'; text: string; expectedTarget?: DesktopWindowTarget; expiresAt?: number }
-  | { action: 'key'; key: string; expectedTarget?: DesktopWindowTarget; expiresAt?: number }
+  | {
+      action: 'key'
+      key: string
+      modifiers?: string[]
+      expectedTarget?: DesktopWindowTarget
+      expiresAt?: number
+    }
+  | {
+      action: 'scroll'
+      x: number
+      y: number
+      deltaX: number
+      deltaY: number
+      expectedTarget?: DesktopWindowTarget
+      expiresAt?: number
+    }
+  | {
+      action: 'drag'
+      x: number
+      y: number
+      toX: number
+      toY: number
+      expectedTarget?: DesktopWindowTarget
+      expiresAt?: number
+    }
+  | { action: 'paste'; text: string; expectedTarget?: DesktopWindowTarget; expiresAt?: number }
+  | {
+      action: 'set-value'
+      x: number
+      y: number
+      value: string
+      expectedTarget?: DesktopWindowTarget
+    }
+  | {
+      action: 'ax-action'
+      x: number
+      y: number
+      name: string
+      expectedTarget?: DesktopWindowTarget
+      expiresAt?: number
+    }
+  | { action: 'list-apps' }
+  | { action: 'list-windows'; app: string }
+  | { action: 'activate-window'; app: string; window: string }
   | { action: 'activate-target'; expectedTarget: DesktopWindowTarget }
   | { action: 'activate-app'; app: string }
 

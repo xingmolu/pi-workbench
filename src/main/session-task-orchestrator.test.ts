@@ -111,6 +111,8 @@ describe('session task orchestrator', () => {
       busy: true
     })
     expect(task).not.toHaveProperty('prompt')
+    expect(orchestrator.isTaskWorker('worker-1')).toBe(true)
+    expect(orchestrator.isTaskWorker(parentA.workerId)).toBe(false)
   })
 
   it('does not transfer task authority when the same parent worker changes session identity', async () => {
