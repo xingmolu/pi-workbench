@@ -2,7 +2,12 @@
 
 # Pi Desktop
 
-**编程 Agent 的桌面工作台**：一个应用里使用 Pi、Claude Code 和 Codex。
+**一个应用，三个编程 Agent**：Pi、Claude Code、Codex 的桌面图形界面，按会话随时切换。
+
+[![Release](https://img.shields.io/github/v/release/xingmolu/pi-workbench?include_prereleases&label=下载)](https://github.com/xingmolu/pi-workbench/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![Stars](https://img.shields.io/github/stars/xingmolu/pi-workbench?style=flat)](https://github.com/xingmolu/pi-workbench/stargazers)
+![macOS · Windows · Linux](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey)
 
 [下载](https://github.com/xingmolu/pi-workbench/releases) · [功能](#功能) · [开始使用](#开始使用) · [从源码构建](#从源码构建) · [English](./README.en.md)
 
@@ -10,13 +15,19 @@
 
 ![对话：工作过程、代码改动与撤销](.github/screenshots/conversation.png)
 
-Pi Desktop 是一个本地运行的桌面应用（Electron + React），把命令行里的编程 Agent 搬进一个更顺手的界面：
-在项目里同时开多个会话，每一步做了什么、改了哪些文件都看得见，改动前可以先审批、改完可以一键撤销。
+## 为什么用它
 
-它直接嵌入 [Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)，
-也可以切换到 Claude Code 或 Codex 引擎。账号和密钥只保存在你的电脑上。
+- **不用在三个终端之间来回切**：同一个项目里，这个会话用 Pi 接 DeepSeek，那个会话用 Claude Code，再开一个用 Codex，各跑各的。
+- **一个 ChatGPT 订阅，两个引擎都能用**：在 Pi 里登录一次，Codex 直接借用，不用再登录。
+- **接任何网关**：OpenAI / Anthropic 兼容的接口填上地址和 Key 就能用，自动拉取模型列表。
+- **看得见、能撤销**：每一步读了什么、改了什么都摊开给你看，改文件前可以先审批，整轮改动一键撤销。
+- **本地运行，不收集数据**：账号和密钥只存在你的电脑上。开源，MIT 许可。
 
-> 这是一个社区项目，与 Pi 项目、Anthropic、OpenAI 均无官方关联。目前处于早期测试阶段，欢迎试用和反馈。
+Pi Desktop 是一个本地运行的桌面应用（Electron + React）。它直接嵌入
+[Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)，
+Claude Code 和 Codex 则在第一次使用时从官方 npm 包下载。
+
+> 这是一个社区项目，与 Pi 项目、Anthropic、OpenAI 均无官方关联。目前处于早期测试阶段，欢迎试用和反馈；觉得有用的话，点个 ⭐ 能让更多人看到它。
 
 ## 功能
 
@@ -67,7 +78,7 @@ Windows 和 AppImage 可以在应用内直接更新；macOS 和 deb 会打开下
 ![连接模型](.github/screenshots/connect.png)
 
 - **ChatGPT 账号**：在浏览器里登录 Plus / Pro 订阅，Pi 和 Codex 都能用。
-- **API Key**：在「设置 › 引擎与账号 › 添加 API 连接」里选服务商、填 Key。
+- **API Key**：在「设置 › 引擎与账号」里添加，选服务商、填 Key。
 - **Claude 账号**：切换到 Claude Code 引擎，下载后登录。
 
 ### 3. 开始工作
