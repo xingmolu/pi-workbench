@@ -2119,3 +2119,53 @@ code {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+
+.m-model-scope,
+.m-model-family {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.m-model-scope {
+  min-height: 44px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+
+.m-model-scope strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-model-scope small,
+.m-model-family small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-model-family {
+  min-height: 40px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.m-model-family svg {
+  transition: transform 120ms ease;
+}
+
+.m-model-family[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}

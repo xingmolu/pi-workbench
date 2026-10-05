@@ -55,6 +55,30 @@ const PROVIDERS = {
       input: ['text'],
       contextWindow: 32768
     }
+  ],
+  // A gateway serving many vendors' models, long enough to be grouped by family.
+  'big-gateway': [
+    ...['opus-5', 'sonnet-5', 'haiku-4', 'sonnet-4', 'opus-4'].map((id) => ({
+      id: `anthropic/claude-${id}`,
+      name: `claude-${id}`,
+      reasoning: true,
+      input: ['text'],
+      contextWindow: 200000
+    })),
+    ...['5.5', '5', '4.1', '4o', '4o-mini'].map((id) => ({
+      id: `openai/gpt-${id}`,
+      name: `gpt-${id}`,
+      reasoning: false,
+      input: ['text'],
+      contextWindow: 128000
+    })),
+    ...['alpha', 'beta', 'gamma', 'delta'].map((id) => ({
+      id: `misc/${id}`,
+      name: `misc-${id}`,
+      reasoning: false,
+      input: ['text'],
+      contextWindow: 32768
+    }))
   ]
 }
 
@@ -143,9 +167,18 @@ test('the model picker fits the window, shows capabilities, remembers recents an
   expect(box.y).toBeGreaterThanOrEqual(0)
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
   await expect(page.getByRole('combobox', { name: '搜索账号与模型' })).toBeInViewport()
+  // The first level lists the accounts; the current one names its current model.
+  const accounts = picker.locator('[cmdk-item].model-account')
+  await expect(accounts).toHaveCount(4)
+  await expect(accounts.filter({ hasText: 'acme-cloud' })).toContainText('Acme Pro 2')
+  await accounts.filter({ hasText: 'north-ai' }).click()
+  await expect(picker.locator('.model-picker-scope')).toContainText('north-ai')
   const row = picker.locator('[cmdk-item]').filter({ hasText: 'North Large' })
   await expect(row.locator('.model-context')).toHaveText('1M')
   await expect(row.locator('.model-tag')).toHaveText(['推理', '图片'])
+  // Escape steps back to the accounts before it closes the picker.
+  await page.keyboard.press('Escape')
+  await expect(accounts).toHaveCount(4)
   // Codex is not signed in here, so the picker offers it.
   await expect(picker.getByRole('button', { name: '登录 Codex' })).toHaveCount(1)
   await page.screenshot({ path: join(artifacts, 'open.png') })
@@ -178,10 +211,35 @@ test('the model picker fits the window, shows capabilities, remembers recents an
 
   // Two choices later, recents lead the list.
   await chip.click()
+  await accounts.filter({ hasText: 'north-ai' }).click()
   await picker.locator('[cmdk-item]').filter({ hasText: 'North Coder' }).first().click()
   await chip.click()
   const recent = picker.locator('[cmdk-group]').filter({ hasText: '最近使用' })
   await expect(recent.locator('[cmdk-item]')).toHaveCount(2)
   await expect(picker.getByRole('radiogroup', { name: '思考强度' })).toHaveCount(0)
   await page.screenshot({ path: join(artifacts, 'recents.png') })
+  await page.keyboard.press('Escape')
+})
+
+test('a long gateway list is grouped by model family and searchable inside the account', async () => {
+  const chip = page.getByRole('button', { name: '选择模型' })
+  await chip.click()
+  const picker = page.locator('.model-picker')
+  await picker.locator('[cmdk-item].model-account').filter({ hasText: 'big-gateway' }).click()
+  const families = picker.locator('[cmdk-item].model-family')
+  await expect(families).toHaveText([/Claude\s*5/, /GPT\s*5/, /其他\s*4/])
+  // Only the first family starts open.
+  await expect(families.first()).toHaveAttribute('aria-expanded', 'true')
+  await expect(picker.locator('[cmdk-item]').filter({ hasText: 'claude-opus-5' })).toBeVisible()
+  await expect(picker.locator('[cmdk-item]').filter({ hasText: 'gpt-4o-mini' })).toHaveCount(0)
+  await families.filter({ hasText: 'GPT' }).click()
+  await expect(picker.locator('[cmdk-item]').filter({ hasText: 'gpt-4o-mini' })).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'gateway-families.png') })
+  // Searching inside the account looks through collapsed families too.
+  await page.getByRole('combobox', { name: '搜索账号与模型' }).fill('delta')
+  await expect(picker.locator('[cmdk-item]').filter({ hasText: 'misc-delta' })).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect
+    .poll(() => page.evaluate(async () => (await window.pi.getState()).activeModel))
+    .toBe('misc/delta')
 })

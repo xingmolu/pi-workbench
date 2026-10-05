@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight } from 'lucide-react'
 import { PERMISSION_LEVELS } from './permissions'
 import type { PermissionMode, ThinkingLevel } from '../../../shared/contracts'
 import {
   THINKING_LABEL,
   contextLabel,
+  groupModelsByFamily,
+  modelFamily,
   recentModels,
   rememberModel
 } from '../store/model-presentation'
@@ -73,18 +75,38 @@ export function ModelSheet({
   onClose: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
-  const needle = query.trim().toLowerCase()
-  const matches = (option: MobileModelOption): boolean =>
-    !needle ||
-    option.name.toLowerCase().includes(needle) ||
-    option.id.toLowerCase().includes(needle) ||
-    (providers?.[option.provider] ?? option.provider).toLowerCase().includes(needle)
   const groups = useMemo(() => {
     const byProvider = new Map<string, MobileModelOption[]>()
     for (const option of models)
       byProvider.set(option.provider, [...(byProvider.get(option.provider) ?? []), option])
     return [...byProvider]
   }, [models])
+  // With one account the sheet opens inside it; otherwise accounts come first.
+  const only = groups.length === 1 ? groups[0][0] : null
+  const [scope, setScope] = useState<string | null>(null)
+  const browsing = scope ?? only
+  const familyOf = (id: string | null): string => {
+    const options = groups.find(([key]) => key === id)?.[1] ?? []
+    const active = options.find((option) => option.provider === provider && option.id === model)
+    return active ? modelFamily(active).id : (groupModelsByFamily(options)[0]?.id ?? '')
+  }
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([familyOf(only)]))
+  const enter = (id: string | null): void => {
+    setQuery('')
+    setScope(id)
+    setExpanded(new Set([familyOf(id ?? only)]))
+  }
+  const label = (id: string): string => providers?.[id] ?? id
+  const needle = query.trim().toLowerCase()
+  const matches = (option: MobileModelOption): boolean =>
+    needle
+      .split(/\s+/)
+      .every(
+        (word) =>
+          option.name.toLowerCase().includes(word) ||
+          option.id.toLowerCase().includes(word) ||
+          label(option.provider).toLowerCase().includes(word)
+      )
   const recent = useMemo(
     () =>
       recentModels()
@@ -101,9 +123,17 @@ export function ModelSheet({
     rememberModel(option.provider, option.id)
     onPick(option)
   }
+  const row = (
+    option: MobileModelOption,
+    key = `${option.provider}/${option.id}`
+  ): React.JSX.Element => (
+    <ModelOptionRow key={key} option={option} active={isActive(option)} onPick={pick} />
+  )
+  const scoped = groups.find(([id]) => id === browsing)?.[1] ?? []
   const visible = groups
     .map(([id, options]) => [id, options.filter(matches)] as const)
     .filter(([, options]) => options.length)
+  const searchable = (browsing ? scoped.length : models.length) > 6
   return (
     <Sheet title={t('选择模型')} onClose={onClose}>
       {thinking && thinking.available.length > 1 ? (
@@ -124,11 +154,23 @@ export function ModelSheet({
           </div>
         </div>
       ) : null}
-      {models.length > 6 ? (
+      {browsing && !only ? (
+        <button type="button" className="m-model-scope" onClick={() => enter(null)}>
+          <ArrowLeft size={16} aria-hidden="true" />
+          <strong>{label(browsing)}</strong>
+          <small>{scoped.length}</small>
+          <span className="sr-only">{t('返回账号列表')}</span>
+        </button>
+      ) : null}
+      {searchable ? (
         <input
           className="m-sheet-search"
           type="search"
-          placeholder={t('搜索模型或账号')}
+          placeholder={
+            browsing && !only
+              ? t('搜索 {label} 的模型', { label: label(browsing) })
+              : t('搜索模型或账号')
+          }
           aria-label={t('搜索模型')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -136,35 +178,80 @@ export function ModelSheet({
       ) : null}
       {models.length === 0 ? (
         <p className="m-empty">{t('没有可用的模型，请在电脑上登录或配置账号。')}</p>
-      ) : visible.length === 0 ? (
+      ) : (browsing ? !scoped.some(matches) : visible.length === 0) ? (
         <p className="m-empty">{t('没有匹配的模型')}</p>
       ) : null}
-      {!needle && recent.length > 1 ? (
-        <div className="m-sheet-group">
-          <p className="m-sheet-label">{t('最近使用')}</p>
-          {recent.map((option) => (
-            <ModelOptionRow
-              key={`recent:${option.provider}/${option.id}`}
-              option={option}
-              active={isActive(option)}
-              onPick={pick}
-            />
-          ))}
-        </div>
-      ) : null}
-      {visible.map(([id, options]) => (
-        <div className="m-sheet-group" key={id}>
-          <p className="m-sheet-label">{providers?.[id] ?? id}</p>
-          {options.map((option) => (
-            <ModelOptionRow
-              key={`${option.provider}/${option.id}`}
-              option={option}
-              active={isActive(option)}
-              onPick={pick}
-            />
-          ))}
-        </div>
-      ))}
+      {browsing ? (
+        groupModelsByFamily(scoped).map((family) => {
+          const options = family.models.filter(matches)
+          if (!options.length) return null
+          if (!family.label)
+            return <div key={family.id}>{options.map((option) => row(option))}</div>
+          const open = Boolean(needle) || expanded.has(family.id)
+          return (
+            <div className="m-sheet-group" key={family.id}>
+              <button
+                type="button"
+                className="m-model-family"
+                aria-expanded={open}
+                onClick={() =>
+                  setExpanded((current) => {
+                    const next = new Set(current)
+                    if (next.has(family.id)) next.delete(family.id)
+                    else next.add(family.id)
+                    return next
+                  })
+                }
+              >
+                <ChevronRight size={14} aria-hidden="true" />
+                <span>{family.label}</span>
+                <small>{options.length}</small>
+              </button>
+              {open ? options.map((option) => row(option)) : null}
+            </div>
+          )
+        })
+      ) : needle ? (
+        // Searching from the account list looks through every account's models.
+        visible.map(([id, options]) => (
+          <div className="m-sheet-group" key={id}>
+            <p className="m-sheet-label">{label(id)}</p>
+            {options.map((option) => row(option))}
+          </div>
+        ))
+      ) : (
+        <>
+          {recent.length > 1 ? (
+            <div className="m-sheet-group">
+              <p className="m-sheet-label">{t('最近使用')}</p>
+              {recent.map((option) => row(option, `recent:${option.provider}/${option.id}`))}
+            </div>
+          ) : null}
+          <div className="m-sheet-group">
+            <p className="m-sheet-label">{t('账号')}</p>
+            {groups.map(([id, options]) => {
+              const active = options.find(isActive)
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  className={`m-option m-model${active ? ' is-on' : ''}`}
+                  onClick={() => enter(id)}
+                >
+                  <span className="m-option-text">
+                    <strong>{label(id)}</strong>
+                    <small>{active ? active.name || active.id : ''}</small>
+                  </span>
+                  <span className="m-model-meta">
+                    <span className="m-model-context">{options.length}</span>
+                  </span>
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </Sheet>
   )
 }

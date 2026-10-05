@@ -1172,6 +1172,8 @@ export const en: Readonly<Record<string, string>> = {
   '找到 {count} 个模型{partial}，已全部选中，可取消不需要的。':
     'Found {count} models{partial}; all are selected, clear any you do not need.',
   '已选 {count} / {total}': '{count} of {total} selected',
+  其他: 'Other',
+  豆包: 'Doubao',
   全选: 'Select all',
   全部取消: 'Clear all',
   '（未完整返回）': ' (list incomplete)',

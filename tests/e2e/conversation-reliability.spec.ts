@@ -456,7 +456,7 @@ test('narrow composer keeps account and model readable with the workbench and qu
     }
     await model.focus()
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('group', { name: /工作 Codex/ })).toBeVisible()
+    await expect(page.locator('.model-picker-scope')).toContainText('工作 Codex')
     await expect(page.getByRole('option').filter({ hasText: 'GPT-5.6 Sol' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(model).toBeFocused()

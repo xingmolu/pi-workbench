@@ -862,6 +862,64 @@ body.is-sidebar-resizing * {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+.model-picker-scope {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 8px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+.model-picker-scope strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-scope em,
+.model-account-plan {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-text, var(--accent));
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 500;
+}
+.model-picker-scope em {
+  margin-left: 0;
+}
+.model-picker-scope small {
+  margin-left: auto;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.model-picker [cmdk-item].model-family {
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.model-picker [cmdk-item].model-family small {
+  margin-left: auto;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.model-family-chevron {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+.model-family[aria-expanded='true'] .model-family-chevron {
+  transform: rotate(90deg);
+}
+.model-picker [cmdk-item].model-account .model-row-meta {
+  color: var(--text-tertiary, var(--text-secondary));
+}
 .model-picker [cmdk-item] {
   display: flex;
   align-items: center;
