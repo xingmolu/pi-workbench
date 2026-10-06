@@ -225,7 +225,7 @@ async function shot(name: string): Promise<void> {
   if (png) await writeFile(join(artifacts, name), Buffer.from(png, 'base64'))
 }
 
-test('the code review page shows local changes and pull requests, merges and hands a review to Pi', async () => {
+test('the code review page shows local changes and pull requests, merges and hands reviews and questions to Pi', async () => {
   const entry = page
     .getByRole('navigation', { name: '活动栏' })
     .getByRole('button', { name: '代码审查', exact: true })
@@ -285,6 +285,28 @@ test('the code review page shows local changes and pull requests, merges and han
     /请审查拉取请求 #7「Add cart totals」/
   )
   await page.screenshot({ path: join(artifacts, 'review-draft.png') })
+
+  // The ask box at the bottom sends a question about the open pull request to Pi.
+  await entry.click()
+  await expect(page.getByRole('main', { name: '代码审查' })).toBeVisible()
+  await expect
+    .poll(() => review<string>(`document.querySelector('.ask textarea')?.placeholder ?? ''`))
+    .toBe('就这些未提交的改动提问')
+  await clickItem('Add cart totals')
+  await expect
+    .poll(() => review<string>(`document.querySelector('.ask textarea')?.placeholder ?? ''`))
+    .toBe('就此 Pull Request 提问')
+  await capture('ask.png')
+  await review(`(() => {
+    const input = document.querySelector('.ask textarea')
+    input.value = '为什么税率放在常量里？'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  })()`)
+  await expect(page.getByRole('main', { name: '代码审查' })).toHaveCount(0)
+  const composer = page.getByRole('textbox', { name: '任务输入' })
+  await expect(composer).toHaveValue(/关于拉取请求 #7「Add cart totals」/)
+  await expect(composer).toHaveValue(/为什么税率放在常量里？/)
 
   // Settings shows where the GitHub token comes from.
   await page.getByRole('button', { name: '设置', exact: true }).click()

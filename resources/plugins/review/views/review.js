@@ -17,6 +17,7 @@ const ICONS = {
   search: '<circle cx="7" cy="7" r="4.25"/><path d="m10.25 10.25 3 3"/>',
   open: '<path d="M8.5 3.5h4v4M12.5 3.5 7 9M11 9.5v3H3.5V5h3"/>',
   link: '<path d="M6.75 9.25 9.25 6.75M7.5 4.5l.9-.9a2.5 2.5 0 0 1 3.54 3.54l-.9.9M8.5 11.5l-.9.9a2.5 2.5 0 0 1-3.54-3.54l.9-.9"/>',
+  send: '<path d="M8 13V3.5M4 7.25 8 3.25l4 4"/>',
   sparkle: '<path d="M8 2.5 9.2 6.8 13.5 8 9.2 9.2 8 13.5 6.8 9.2 2.5 8l4.3-1.2Z"/>',
   chevron: '<path d="m4.5 6.25 3.5 3.5 3.5-3.5"/>',
   chevronRight: '<path d="m6.25 4.5 3.5 3.5-3.5 3.5"/>',
@@ -1494,9 +1495,113 @@ function pullDetail(number) {
   ]
 }
 
+// ---------------------------------------------------------------------------------------------
+// Ask box: a question about whatever is open, answered by Pi in a new conversation
+
+const askDrafts = new Map()
+
+function askTarget() {
+  const selection = state.selection
+  if (selection.kind === 'working')
+    return state.status && state.status.files.length
+      ? {
+          key: 'working',
+          placeholder: tr('就这些未提交的改动提问', 'Ask about these uncommitted changes'),
+          context: tr(
+            '关于当前项目里未提交的改动（用 git status、git diff 和 git diff --cached 查看）：',
+            'About the uncommitted changes in this project (see git status, git diff and git diff --cached):'
+          )
+        }
+      : null
+  if (selection.kind === 'outgoing') {
+    const outgoing = state.outgoing
+    return outgoing && outgoing.commits.length
+      ? {
+          key: 'outgoing',
+          placeholder: tr('就这些未推送的提交提问', 'Ask about these unpushed commits'),
+          context: tr(
+            `关于分支 ${outgoing.branch} 上还没推送的提交（git log ${outgoing.base}..HEAD，git diff ${outgoing.base}...HEAD）：`,
+            `About the unpushed commits on ${outgoing.branch} (git log ${outgoing.base}..HEAD, git diff ${outgoing.base}...HEAD):`
+          )
+        }
+      : null
+  }
+  const loaded = state.detail && state.detail.number === selection.number ? state.detail : null
+  if (!loaded || loaded.error) return null
+  const pull = loaded.data
+  return {
+    key: `pull:${pull.number}`,
+    placeholder: tr('就此 Pull Request 提问', 'Ask about this pull request'),
+    context: tr(
+      `关于拉取请求 #${pull.number}「${pull.title}」（${pull.headRef} → ${pull.baseRef}，${pull.url}）。可以用 git fetch origin pull/${pull.number}/head 取到它的提交，再用 git diff origin/${pull.baseRef}...FETCH_HEAD 查看改动：`,
+      `About pull request #${pull.number} "${pull.title}" (${pull.headRef} → ${pull.baseRef}, ${pull.url}). Fetch it with git fetch origin pull/${pull.number}/head and read git diff origin/${pull.baseRef}...FETCH_HEAD:`
+    )
+  }
+}
+
+function askBox() {
+  const target = askTarget()
+  if (!target) return null
+  const input = el('textarea', {
+    rows: 1,
+    placeholder: target.placeholder,
+    'aria-label': target.placeholder,
+    text: askDrafts.get(target.key) || ''
+  })
+  const send = el(
+    'button',
+    {
+      type: 'submit',
+      class: 'ask-send',
+      'aria-label': tr('发送', 'Send'),
+      title: tr('发送（Enter）', 'Send (Enter)'),
+      disabled: !input.value.trim()
+    },
+    icon('send', 15)
+  )
+  const grow = () => {
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`
+  }
+  input.addEventListener('input', () => {
+    askDrafts.set(target.key, input.value)
+    send.disabled = !input.value.trim()
+    grow()
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault()
+      form.requestSubmit()
+    }
+  })
+  const form = el(
+    'form',
+    {
+      class: 'ask',
+      onsubmit: (event) => {
+        event.preventDefault()
+        const question = input.value.trim()
+        if (!question) return
+        reviewWithPi(`${target.context}\n\n${question}`).then((result) => {
+          if (result === undefined) return
+          askDrafts.delete(target.key)
+          renderDetail()
+        })
+      }
+    },
+    el('span', { class: 'ask-icon', 'aria-hidden': 'true' }, icon('sparkle', 15)),
+    input,
+    send
+  )
+  requestAnimationFrame(grow)
+  return el('div', { class: 'ask-dock' }, form)
+}
+
 function renderDetail() {
   const detail = $('detail')
   const scroll = detail.scrollTop
+  const focused = document.activeElement && detail.contains(document.activeElement)
+  const asking = focused && document.activeElement.closest('.ask')
   const selection = state.selection
   const content =
     selection.kind === 'working'
@@ -1504,8 +1609,9 @@ function renderDetail() {
       : selection.kind === 'outgoing'
         ? outgoingDetail()
         : pullDetail(selection.number)
-  fill(detail, content)
+  fill(detail, content, askBox())
   detail.scrollTop = scroll
+  if (asking) detail.querySelector('.ask textarea')?.focus()
 }
 
 // ---------------------------------------------------------------------------------------------

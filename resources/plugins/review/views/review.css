@@ -354,9 +354,21 @@ button:disabled {
 /* ------------------------------------------------------------------ detail */
 
 .detail {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: auto;
   scroll-padding-top: 64px;
+  scroll-padding-bottom: 96px;
+}
+
+.detail > .toolbar {
+  flex: none;
+}
+
+.detail > .page {
+  flex: 1 0 auto;
+  width: 100%;
 }
 
 .toolbar {
@@ -1403,6 +1415,80 @@ button:disabled {
     opacity: 0;
     transform: translate(-50%, 6px);
   }
+}
+
+/* --------------------------------------------------------------------- ask */
+
+.ask-dock {
+  position: sticky;
+  z-index: 4;
+  bottom: 0;
+  flex: none;
+  padding: 24px 24px 18px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 22px);
+  pointer-events: none;
+}
+
+.ask {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 7px 7px 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.ask:focus-within {
+  border-color: color-mix(in srgb, var(--text), transparent 60%);
+}
+
+.ask-icon {
+  display: flex;
+  flex: none;
+  align-self: center;
+  color: var(--muted);
+}
+
+.ask textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 160px;
+  padding: 6px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: 20px;
+}
+
+.ask textarea::placeholder {
+  color: var(--muted);
+}
+
+.ask-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  cursor: pointer;
+}
+
+.ask-send:disabled {
+  background: var(--sunken);
+  color: var(--faint);
+  cursor: default;
 }
 
 @media (max-width: 1100px) {
