@@ -535,6 +535,10 @@ export type HostCommand =
       baseUrl?: string
       /** Display name of a new API connection (engines with several connections). */
       label?: string
+      /** Claude Code: send the key as `Authorization: Bearer` rather than `x-api-key`. */
+      bearer?: boolean
+      /** Codex: the gateway models this connection offers. */
+      modelIds?: string[]
     }
   | { type: 'account:quota'; providerId: string }
   /** Main-only: a fresh ChatGPT access token for another engine; never routed from a renderer. */
@@ -708,6 +712,10 @@ export type PiDesktopAPI = {
   forgeAccounts: (
     command: import('./forge').ForgeAccountsCommand
   ) => Promise<import('./forge').ForgeAccount[]>
+  /** Which protocols a gateway speaks, from one address and key; nothing is saved. */
+  gatewayProbe: (
+    input: import('./gateway').GatewayProbeInput
+  ) => Promise<import('./gateway').GatewayProbe>
   /** Local logs and crash records; export writes a redacted report the user chooses to share. */
   diagnostics: <Command extends import('./diagnostics').DiagnosticsCommand>(
     command: Command

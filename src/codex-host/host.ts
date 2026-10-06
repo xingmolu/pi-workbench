@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import type {
   AccountSummary,
@@ -36,6 +36,7 @@ import { CodexMcp } from './mcp'
 import { CodexProjection, displayCommand, type CodexItem } from './projection'
 import { CodexSessionStore, type CodexSessionReference, type CodexStorage } from './storage'
 import { t } from '../shared/i18n'
+import { z } from 'zod'
 
 export type CodexHostOptions = {
   storage: CodexStorage
@@ -60,6 +61,33 @@ type CodexModel = {
 }
 
 type Preferences = { model?: string; effort?: string; account?: string }
+
+/**
+ * An OpenAI-compatible gateway Codex reaches through its Responses API. Codex reads it as a
+ * model provider given on the command line; the key travels in that provider's environment
+ * variable, never in its configuration or the session files.
+ */
+const gatewaySchema = z
+  .object({
+    id: z.string().regex(/^codex-api-[a-z0-9]{8}$/),
+    label: z.string().min(1).max(80),
+    baseUrl: z.string().url(),
+    apiKey: z.string().min(1).max(16_384),
+    models: z.array(z.string().min(1).max(200)).min(1).max(1000)
+  })
+  .strict()
+type CodexGateway = z.infer<typeof gatewaySchema>
+const GATEWAYS_FILE = 'desktop-gateways.json'
+
+const gatewayEnv = (id: string): string => `PI_DESKTOP_${id.replace(/-/g, '_').toUpperCase()}_KEY`
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
 
 /** Codex reads a custom model provider from its own config; no ChatGPT account is involved. */
 export const CONFIGURED_CONNECTION = 'codex-config'
@@ -102,6 +130,9 @@ export class CodexHost {
   private running = false
   private disposed = false
   private prefs: Preferences = {}
+  private gateways: CodexGateway[] = []
+  /** The gateways the running app-server was started with. */
+  private gatewaysStarted = '[]'
   private readonly credentialRequests = new Map<
     string,
     { resolve(value: unknown): void; reject(error: Error): void }
@@ -202,6 +233,7 @@ export class CodexHost {
         return this.result()
       case 'runtime:refresh':
         this.assertIdle()
+        await this.syncGateways()
         await this.refreshAccounts()
         this.publish()
         return this.result()
@@ -250,6 +282,7 @@ export class CodexHost {
           threadId: source.threadId,
           lastTurnId: command.entryId,
           cwd: source.cwd,
+          ...this.threadProvider(source.account),
           ...POLICY[this.snapshot.permissionMode]
         })
         const reference: CodexSessionReference = {
@@ -325,6 +358,12 @@ export class CodexHost {
       case 'model:set':
         this.assertIdle()
         this.validateModel(command.providerId, command.modelId)
+        if (
+          this.reference?.threadId &&
+          this.providerOf(command.providerId) !==
+            this.providerOf(this.reference.account ?? this.snapshot.activeProvider)
+        )
+          throw new Error(t('这段对话已经在另一个服务上开始，换用这个服务请新建会话'))
         this.snapshot.activeModel = command.modelId
         this.prefs.model = command.modelId
         if (command.providerId !== this.snapshot.activeProvider) {
@@ -354,8 +393,43 @@ export class CodexHost {
         throw new Error(
           t('Codex 使用 Pi 里的 ChatGPT 账号：请在「设置 › 引擎与账号」添加 ChatGPT 账号')
         )
-      case 'account:remove':
-        throw new Error(t('ChatGPT 账号由 Pi 管理，请在「设置 › 引擎与账号」中移除'))
+      case 'account:api-key:set': {
+        this.assertIdle()
+        const existing = this.gateways.find((gateway) => gateway.id === command.providerId)
+        if (command.providerId !== 'new' && !existing)
+          throw new Error(t('Codex 只能用 API Key 连接网关'))
+        const baseUrl = command.baseUrl ?? existing?.baseUrl
+        const apiKey = command.apiKey ?? existing?.apiKey
+        const models = command.modelIds ?? existing?.models
+        if (!baseUrl || !apiKey || !models?.length)
+          throw new Error(t('Codex 连接网关需要服务地址、API Key 和至少一个模型'))
+        const gateway = gatewaySchema.parse({
+          id: existing?.id ?? `codex-api-${randomUUID().replace(/-/g, '').slice(0, 8)}`,
+          label: command.label ?? existing?.label ?? hostOf(baseUrl),
+          baseUrl,
+          apiKey,
+          models
+        })
+        await this.saveGateways(
+          existing
+            ? this.gateways.map((item) => (item.id === gateway.id ? gateway : item))
+            : [...this.gateways, gateway]
+        )
+        await this.syncGateways()
+        await this.refreshAccounts()
+        this.publish()
+        return this.ack()
+      }
+      case 'account:remove': {
+        if (!this.gateways.some((gateway) => gateway.id === command.providerId))
+          throw new Error(t('ChatGPT 账号由 Pi 管理，请在「设置 › 引擎与账号」中移除'))
+        this.assertIdle()
+        await this.saveGateways(this.gateways.filter((item) => item.id !== command.providerId))
+        await this.syncGateways()
+        await this.refreshAccounts()
+        this.publish()
+        return this.ack()
+      }
       case 'mcp:list':
       case 'mcp:shutdown':
       case 'mcp:reload':
@@ -383,10 +457,21 @@ export class CodexHost {
         throw new Error(t('Codex 尚未下载：在「设置 › 引擎与账号」里下载后即可使用'))
       await mkdir(this.options.storage.config, { recursive: true })
       this.prefs = await this.readPrefs()
+      this.gateways = await this.readGateways()
+      this.gatewaysStarted = JSON.stringify(this.gateways)
       const server = new AppServerClient({
         executable: this.options.executable,
         codexHome: this.options.storage.config,
-        ...(this.options.config ? { config: this.options.config } : {}),
+        config: [
+          ...(this.options.config ?? []),
+          ...this.gateways.map(
+            (gateway) =>
+              `model_providers.${gateway.id}={ name = ${JSON.stringify(gateway.label)}, base_url = ${JSON.stringify(gateway.baseUrl)}, env_key = "${gatewayEnv(gateway.id)}", wire_api = "responses" }`
+          )
+        ],
+        env: Object.fromEntries(
+          this.gateways.map((gateway) => [gatewayEnv(gateway.id), gateway.apiKey])
+        ),
         onNotification: (message) => this.notification(message),
         onRequest: (message) => this.serverRequest(message),
         onExit: (error) => {
@@ -453,6 +538,7 @@ export class CodexHost {
       await this.server_().request('thread/resume', {
         threadId: this.reference.threadId,
         cwd: this.snapshot.project.path,
+        ...this.threadProvider(this.reference.account),
         ...POLICY[this.snapshot.permissionMode]
       })
     this.projection.notice(t('Codex 意外退出，已自动重启并接上当前对话'))
@@ -509,9 +595,19 @@ export class CodexHost {
         alias: false,
         endpoint: 'config.toml'
       })
+    for (const gateway of this.gateways)
+      accounts.push({
+        id: gateway.id,
+        name: gateway.label,
+        authType: 'api_key',
+        connected: true,
+        subscription: false,
+        alias: false,
+        endpoint: hostOf(gateway.baseUrl)
+      })
     this.snapshot.accounts = accounts
     this.snapshot.models = accounts.flatMap((account) =>
-      this.models.map((model): ModelSummary => ({
+      this.modelsFor(account.id).map((model): ModelSummary => ({
         provider: account.id,
         id: model.id,
         name: model.displayName,
@@ -523,18 +619,50 @@ export class CodexHost {
     const preferred = this.reference?.account ?? this.prefs.account
     this.snapshot.activeProvider =
       accounts.find((account) => account.id === preferred)?.id ?? accounts[0]?.id ?? null
+    const pool = this.modelsFor(this.snapshot.activeProvider)
     this.snapshot.activeModel =
-      (this.prefs.model && this.models.some((model) => model.id === this.prefs.model)
+      (this.prefs.model && pool.some((model) => model.id === this.prefs.model)
         ? this.prefs.model
         : undefined) ??
-      this.models.find((model) => model.isDefault)?.id ??
-      this.models[0]?.id ??
+      pool.find((model) => model.isDefault)?.id ??
+      pool[0]?.id ??
       null
     this.updateModelState()
   }
 
+  /** Codex's own models for ChatGPT accounts and config.toml; a gateway's for a gateway. */
+  private modelsFor(account: string | null | undefined): CodexModel[] {
+    const gateway = this.gateways.find((item) => item.id === account)
+    if (!gateway) return this.models
+    return gateway.models.map((id, index) => ({
+      id,
+      displayName: id,
+      hidden: false,
+      isDefault: index === 0,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: 'medium'
+    }))
+  }
+
+  /**
+   * The model provider a connection runs on: a gateway's own, or Codex's default, which
+   * ChatGPT accounts and config.toml share (a thread moves between those freely).
+   */
+  private providerOf(account: string | null | undefined): string {
+    return this.gateways.some((gateway) => gateway.id === account) ? account! : 'default'
+  }
+
+  /** `modelProvider` for thread requests on a gateway; nothing for Codex's own providers. */
+  private threadProvider(account: string | null | undefined): { modelProvider?: string } {
+    return this.gateways.some((gateway) => gateway.id === account)
+      ? { modelProvider: account! }
+      : {}
+  }
+
   private updateModelState(): void {
-    const model = this.models.find((item) => item.id === this.snapshot.activeModel)
+    const model = this.modelsFor(this.snapshot.activeProvider).find(
+      (item) => item.id === this.snapshot.activeModel
+    )
     this.snapshot.modelAvailability = !this.snapshot.activeModel
       ? 'unselected'
       : model
@@ -592,6 +720,7 @@ export class CodexHost {
       await server.request('thread/resume', {
         threadId: this.reference.threadId,
         cwd: project,
+        ...this.threadProvider(this.reference.account),
         ...POLICY[this.snapshot.permissionMode]
       })
       const read = await server.request<{
@@ -744,7 +873,12 @@ export class CodexHost {
   // ---------------------------------------------------------------- turns
 
   private async signIn(account: string): Promise<void> {
-    if (account === CONFIGURED_CONNECTION || this.signedInAs === account) return
+    if (
+      account === CONFIGURED_CONNECTION ||
+      this.signedInAs === account ||
+      this.gateways.some((gateway) => gateway.id === account)
+    )
+      return
     const token = await this.credential<ChatgptAccessToken>({
       kind: 'chatgpt-token',
       accountId: account,
@@ -784,6 +918,7 @@ export class CodexHost {
       const started = await server.request<{ thread: { id: string } }>('thread/start', {
         cwd: this.snapshot.project.path,
         model: this.snapshot.activeModel,
+        ...this.threadProvider(account),
         ...policy
       })
       this.reference.threadId = started.thread.id
@@ -988,6 +1123,50 @@ export class CodexHost {
     } catch {
       return {}
     }
+  }
+
+  private async readGateways(): Promise<CodexGateway[]> {
+    try {
+      const raw: unknown = JSON.parse(
+        await readFile(join(this.options.storage.config, GATEWAYS_FILE), 'utf8')
+      )
+      return z.array(gatewaySchema).max(32).parse(raw)
+    } catch {
+      return []
+    }
+  }
+
+  private async saveGateways(gateways: CodexGateway[]): Promise<void> {
+    await mkdir(this.options.storage.config, { recursive: true })
+    const path = join(this.options.storage.config, GATEWAYS_FILE)
+    const temporary = `${path}.${randomUUID()}.tmp`
+    await writeFile(temporary, JSON.stringify(gateways, null, 2), { mode: 0o600 })
+    await rename(temporary, path)
+    this.gateways = gateways
+  }
+
+  /**
+   * Gateways are command-line providers, so a changed list means a new app-server. Settings and
+   * every open chat share the file; each restarts its own server when it next refreshes, and
+   * an open thread carries on on the new one.
+   */
+  private async syncGateways(): Promise<void> {
+    const gateways = await this.readGateways()
+    this.gateways = gateways
+    if (!this.server || JSON.stringify(gateways) === this.gatewaysStarted) return
+    const old = this.server
+    this.server = undefined
+    this.signedInAs = undefined
+    old.dispose()
+    await old.exited()
+    await this.start()
+    if (this.reference?.threadId && this.snapshot.project)
+      await this.server_().request('thread/resume', {
+        threadId: this.reference.threadId,
+        cwd: this.snapshot.project.path,
+        ...this.threadProvider(this.reference.account),
+        ...POLICY[this.snapshot.permissionMode]
+      })
   }
 
   private async savePrefs(): Promise<void> {

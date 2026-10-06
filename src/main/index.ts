@@ -123,6 +123,8 @@ import { GitReview } from './git-review'
 import { GitReviewProcess } from './git-review-process'
 import { ForgeService } from './forge/service'
 import { FORGE_ACCOUNTS_CHANNEL, FORGE_HOSTS, type ForgeAccountsCommand } from '../shared/forge'
+import { GATEWAY_PROBE_CHANNEL, gatewayProbeInputSchema } from '../shared/gateway'
+import { probeGateway } from './gateway-probe'
 import { createUserGitPushRunner, PluginFileService, PluginGitService } from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
@@ -1939,6 +1941,13 @@ function registerIpc(): void {
     if (value.type === 'token:set' && typeof value.token !== 'string')
       throw new Error(t('无效的令牌'))
     return appUpdates.handle(value)
+  })
+  ipcMain.handle(GATEWAY_PROBE_CHANNEL, async (event, input: unknown) => {
+    assertTrustedRenderer(event)
+    const parsed = gatewayProbeInputSchema.safeParse(input)
+    if (!parsed.success)
+      throw new Error(t('请填写有效的服务地址（HTTPS，或本机 http://localhost）和 API Key。'))
+    return probeGateway(parsed.data, (url, init) => net.fetch(url as string, init))
   })
   ipcMain.handle(FORGE_ACCOUNTS_CHANNEL, async (event, command: unknown) => {
     assertTrustedRenderer(event)

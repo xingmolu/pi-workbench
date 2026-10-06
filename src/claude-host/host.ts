@@ -901,7 +901,8 @@ export class ClaudeHost {
               id,
               apiKey: command.apiKey,
               ...(command.baseUrl ? { baseUrl: command.baseUrl } : {}),
-              ...(command.label ? { label: command.label } : {})
+              ...(command.label ? { label: command.label } : {}),
+              ...(command.bearer ? { bearer: true } : {})
             }
           ]
           config.active = id
@@ -921,7 +922,8 @@ export class ClaudeHost {
                   id: api.id,
                   apiKey: command.apiKey ?? api.apiKey,
                   ...(command.baseUrl ? { baseUrl: command.baseUrl } : {}),
-                  ...((command.label ?? api.label) ? { label: command.label ?? api.label } : {})
+                  ...((command.label ?? api.label) ? { label: command.label ?? api.label } : {}),
+                  ...((command.bearer ?? api.bearer) ? { bearer: true } : {})
                 }
               : api
           )

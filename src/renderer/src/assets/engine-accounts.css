@@ -589,3 +589,53 @@
   background: var(--accent);
   transition: width 200ms ease;
 }
+
+/* What a probed gateway speaks: one row per protocol, the missing ones muted. */
+.ea-detected {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ea-detected ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ea-detected li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-tertiary);
+}
+
+.ea-detected li.is-ok {
+  color: var(--text);
+}
+
+.ea-detected li.is-ok > svg {
+  color: var(--success, #2f9e5b);
+}
+
+.ea-detected li small {
+  color: var(--text-tertiary);
+}
+
+.ea-field-hint {
+  margin-top: -2px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.ea-form .ea-bearer {
+  font-family: inherit;
+  font-size: 12px;
+}

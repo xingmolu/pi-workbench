@@ -443,6 +443,11 @@ export default function EngineAccounts({
   )
   const claude = engines?.find((engine) => engine.runtimeId === 'claude')
   const claudeApis = engines ? apiRows(engines, 'claude') : []
+  const codex = engines?.find((engine) => engine.runtimeId === 'codex')
+  // Codex's own config.toml provider is not a desktop connection; gateways are.
+  const codexApis = engines
+    ? apiRows(engines, 'codex').filter((row) => row.account.id.startsWith('codex-api-'))
+    : []
   const signingIn = engines?.filter((engine) => engine.login.phase !== 'idle') ?? []
 
   return (
@@ -624,6 +629,7 @@ export default function EngineAccounts({
         {addingApi ? (
           <AddApiConnection
             claudeAvailable={Boolean(claude && !claude.error)}
+            codexAvailable={Boolean(codex && !codex.error)}
             onClose={() => setAddingApi(false)}
             onSaved={() => {
               setAddingApi(false)
@@ -646,16 +652,25 @@ export default function EngineAccounts({
               key={endpointsKey}
               snapshot={snapshot}
               detached={snapshot.runtime?.id !== 'pi'}
-              claude={
-                claude && !claude.error
+              connections={[
+                ...(claude && !claude.error
                   ? claudeApis.map((row) => ({
+                      runtimeId: 'claude' as const,
                       id: row.account.id,
                       name: row.account.name,
                       endpoint: row.account.endpoint
                     }))
-                  : null
-              }
-              onClaudeChanged={() => void reload()}
+                  : []),
+                ...(codex && !codex.error
+                  ? codexApis.map((row) => ({
+                      runtimeId: 'codex' as const,
+                      id: row.account.id,
+                      name: row.account.name,
+                      endpoint: row.account.endpoint
+                    }))
+                  : [])
+              ]}
+              onConnectionsChanged={() => void reload()}
             />
           </div>
         ) : null}
@@ -667,7 +682,9 @@ export default function EngineAccounts({
         <KeyRound size={13} aria-hidden="true" />
         <span>
           {t('凭据只保存在本机：Pi 的在它的')} <code>auth.json</code>
-          {t('，Claude Code 的每个账号各用一个独立配置目录。桌面端不复制 token。')}
+          {t(
+            '，Claude Code 的每个账号各用一个独立配置目录，Codex 的网关密钥在它自己的配置目录里。桌面端不复制 token。'
+          )}
         </span>
       </p>
     </SettingsPage>

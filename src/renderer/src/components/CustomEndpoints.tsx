@@ -18,8 +18,17 @@ const protocols: Record<CustomEndpointApi, string> = {
   'openai-responses': 'OpenAI Responses',
   'anthropic-messages': 'Anthropic Messages'
 }
-/** A Claude Code API connection, as Settings lists it. */
-export type ClaudeConnection = { id: string; name: string; endpoint?: string }
+/** Another engine's API connection (Claude Code or Codex), as Settings lists it. */
+export type EngineConnection = {
+  runtimeId: 'claude' | 'codex'
+  id: string
+  name: string
+  endpoint?: string
+}
+const ENGINE_NAMES: Record<EngineConnection['runtimeId'], string> = {
+  claude: 'Claude Code',
+  codex: 'Codex'
+}
 
 function endpointLabel(baseUrl: string): string {
   try {
@@ -42,13 +51,16 @@ type Form = {
 export default function CustomEndpoints({
   snapshot,
   detached = false,
-  claude = null,
-  onClaudeChanged
+  connections = null,
+  onConnectionsChanged
 }: {
   snapshot: AgentSnapshot
-  /** Claude Code's API connections; one on the same host as an Anthropic endpoint is that endpoint. */
-  claude?: ClaudeConnection[] | null
-  onClaudeChanged?: () => void
+  /**
+   * Claude Code's and Codex's API connections. One on the same host as a Pi endpoint is the
+   * same service added for several engines, and the list shows them as one.
+   */
+  connections?: EngineConnection[] | null
+  onConnectionsChanged?: () => void
   /**
    * Manage Pi's endpoints through its configuration host from Settings, whatever chat is
    * open; resident chats pick the change up like any other global setting.
@@ -74,18 +86,31 @@ export default function CustomEndpoints({
   const [confirmedRemoval, setConfirmedRemoval] = useState(false)
   const epoch = useRef(0)
   const mounted = useRef(false)
-  // Each Claude Code connection belongs to at most one Anthropic endpoint, matched by host.
-  const linked = new Map<string, ClaudeConnection>()
+  // Each engine's connection belongs to at most one Pi endpoint, matched by host.
+  const linked = new Map<string, EngineConnection[]>()
   const claimed = new Set<string>()
   for (const endpoint of catalog?.endpoints ?? []) {
-    if (endpoint.api !== 'anthropic-messages' || !endpoint.baseUrl) continue
+    if (!endpoint.baseUrl) continue
     const host = endpointLabel(endpoint.baseUrl)
-    const match = claude?.find((item) => item.endpoint === host && !claimed.has(item.id))
-    if (!match) continue
-    linked.set(endpoint.id, match)
-    claimed.add(match.id)
+    for (const runtimeId of ['claude', 'codex'] as const) {
+      const match = connections?.find(
+        (item) =>
+          item.runtimeId === runtimeId &&
+          item.endpoint === host &&
+          !claimed.has(`${runtimeId}:${item.id}`)
+      )
+      if (!match) continue
+      linked.set(endpoint.id, [...(linked.get(endpoint.id) ?? []), match])
+      claimed.add(`${runtimeId}:${match.id}`)
+    }
   }
-  const claudeOnly = (claude ?? []).filter((item) => !claimed.has(item.id))
+  // Connections without a Pi endpoint, the same host's shown as one service.
+  const unlinked = new Map<string, EngineConnection[]>()
+  for (const connection of connections ?? []) {
+    if (claimed.has(`${connection.runtimeId}:${connection.id}`)) continue
+    const host = connection.endpoint ?? connection.id
+    unlinked.set(host, [...(unlinked.get(host) ?? []), connection])
+  }
   const submitting = useRef(false)
   const baseline = useRef<Form | null>(null)
   const context = endpointContext(snapshot)
@@ -259,7 +284,7 @@ export default function CustomEndpoints({
     }
     const operation = ++epoch.current
     const capturedIdentity = identity
-    const companion = linked.get(form.id)
+    const companions = linked.get(form.id) ?? []
     const newKey = key
     submitting.current = true
     setPending(true)
@@ -284,24 +309,33 @@ export default function CustomEndpoints({
         return
       setOutcome(response.result)
       if (response.result.snapshot) setCatalog(response.result.snapshot)
-      // The same service in Claude Code follows the new address, name and key.
-      if (companion && response.result.ok) {
-        try {
-          await window.pi.runtimeConfig('claude', {
-            type: 'account:api-key:set',
-            providerId: companion.id,
-            baseUrl: parsed.data.baseUrl,
-            label: parsed.data.label,
-            ...(newKey ? { apiKey: newKey } : {})
-          })
-        } catch (reason) {
-          setError(
-            t('Pi 已保存，但 Claude Code 中的同一端点未更新：{message}', {
-              message: reason instanceof Error ? reason.message : String(reason)
+      // The same service in the other engines follows the new name and key, and the new
+      // address where it speaks the same protocol as Pi's (Claude Code's has no /v1).
+      if (companions.length && response.result.ok) {
+        for (const companion of companions) {
+          const sameApi =
+            companion.runtimeId === 'claude'
+              ? parsed.data.api === 'anthropic-messages'
+              : parsed.data.api !== 'anthropic-messages'
+          try {
+            await window.pi.runtimeConfig(companion.runtimeId, {
+              type: 'account:api-key:set',
+              providerId: companion.id,
+              ...(sameApi ? { baseUrl: parsed.data.baseUrl } : {}),
+              label: parsed.data.label,
+              ...(companion.runtimeId === 'codex' ? { modelIds: parsed.data.modelIds } : {}),
+              ...(newKey ? { apiKey: newKey } : {})
             })
-          )
+          } catch (reason) {
+            setError(
+              t('Pi 已保存，但 {engine} 中的同一端点未更新：{message}', {
+                engine: ENGINE_NAMES[companion.runtimeId],
+                message: reason instanceof Error ? reason.message : String(reason)
+              })
+            )
+          }
         }
-        onClaudeChanged?.()
+        onConnectionsChanged?.()
       }
       // Partial writes are durable too. Reopen the saved identity before another edit.
       if (response.result.metadata === 'saved') {
@@ -329,10 +363,13 @@ export default function CustomEndpoints({
   /** Deletes an endpoint from every engine that uses it. */
   const remove = async (
     endpoint: CustomEndpointMetadata | null,
-    connection: ClaudeConnection | null
+    others: EngineConnection[]
   ): Promise<void> => {
-    const label = endpoint?.label ?? connection?.name ?? ''
-    const engines = [endpoint ? 'Pi' : null, connection ? 'Claude Code' : null].filter(Boolean)
+    const label = endpoint?.label ?? others[0]?.name ?? ''
+    const engines = [
+      ...(endpoint ? ['Pi'] : []),
+      ...others.map((item) => ENGINE_NAMES[item.runtimeId])
+    ]
     if (
       !window.confirm(
         t('删除 {label}？会从 {engines} 中移除，使用它的会话需要重新选择模型。', {
@@ -358,23 +395,26 @@ export default function CustomEndpoints({
         if (response.result.snapshot) setCatalog(response.result.snapshot)
         if (!response.result.ok) return
       }
-      if (connection) {
-        await window.pi.runtimeConfig('claude', {
+      for (const connection of others)
+        await window.pi.runtimeConfig(connection.runtimeId, {
           type: 'account:remove',
           providerId: connection.id
         })
-        onClaudeChanged?.()
-      }
+      if (others.length) onConnectionsChanged?.()
     } catch (reason) {
       if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       if (mounted.current) setPending(false)
     }
   }
-  const tags = (pi: boolean, claudeCode: boolean): React.JSX.Element => (
+  const tags = (pi: boolean, others: EngineConnection[]): React.JSX.Element => (
     <span className="acct-engine-tags" aria-label={t('用于')}>
       {pi ? <span className="acct-engine-tag">Pi</span> : null}
-      {claudeCode ? <span className="acct-engine-tag">Claude Code</span> : null}
+      {others.map((item) => (
+        <span className="acct-engine-tag" key={item.runtimeId}>
+          {ENGINE_NAMES[item.runtimeId]}
+        </span>
+      ))}
     </span>
   )
 
@@ -436,7 +476,7 @@ export default function CustomEndpoints({
         </div>
       ) : null}
       {!form ? (
-        catalog && (catalog.endpoints.length > 0 || claudeOnly.length > 0) ? (
+        catalog && (catalog.endpoints.length > 0 || unlinked.size > 0) ? (
           <div className="sp-card acct-endpoint-list">
             {catalog.endpoints.map((endpoint) => (
               <div className="acct-endpoint-row" key={endpoint.id}>
@@ -446,7 +486,7 @@ export default function CustomEndpoints({
                 <div className="acct-endpoint-meta">
                   <strong>
                     {endpoint.label}
-                    {tags(true, linked.has(endpoint.id))}
+                    {tags(true, linked.get(endpoint.id) ?? [])}
                   </strong>
                   <small>
                     {endpoint.api ? protocols[endpoint.api] : t('高级配置')}{' '}
@@ -484,7 +524,7 @@ export default function CustomEndpoints({
                       aria-label={t('删除 {label}', { label: endpoint.label })}
                       title={t('删除')}
                       disabled={disabled}
-                      onClick={() => void remove(endpoint, linked.get(endpoint.id) ?? null)}
+                      onClick={() => void remove(endpoint, linked.get(endpoint.id) ?? [])}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -494,27 +534,34 @@ export default function CustomEndpoints({
                 )}
               </div>
             ))}
-            {claudeOnly.map((connection) => (
-              <div className="acct-endpoint-row" key={`claude:${connection.id}`}>
+            {[...unlinked].map(([host, group]) => (
+              <div className="acct-endpoint-row" key={`others:${host}`}>
                 <span className="acct-endpoint-icon" aria-hidden="true">
                   <Server size={15} />
                 </span>
                 <div className="acct-endpoint-meta">
                   <strong>
-                    {connection.name}
-                    {tags(false, true)}
+                    {group[0]!.name}
+                    {tags(false, group)}
                   </strong>
                   <small>
-                    {protocols['anthropic-messages']} · {connection.endpoint ?? 'api.anthropic.com'}
+                    {group
+                      .map((item) =>
+                        item.runtimeId === 'claude'
+                          ? protocols['anthropic-messages']
+                          : protocols['openai-responses']
+                      )
+                      .join(' / ')}{' '}
+                    · {group[0]!.endpoint ?? 'api.anthropic.com'}
                   </small>
                 </div>
                 <button
                   type="button"
                   className="acct-button is-quiet"
-                  aria-label={t('删除 {label}', { label: connection.name })}
+                  aria-label={t('删除 {label}', { label: group[0]!.name })}
                   title={t('删除')}
                   disabled={pending}
-                  onClick={() => void remove(null, connection)}
+                  onClick={() => void remove(null, group)}
                 >
                   <Trash2 size={14} />
                 </button>

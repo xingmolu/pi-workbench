@@ -73,3 +73,14 @@ it('persists public references with metadata only and fences paths across runtim
     } as never)
   ).rejects.toThrow()
 })
+it('gives a bearer-token service its key as ANTHROPIC_AUTH_TOKEN only', async () => {
+  const paths = await storage()
+  const env = claudeEnvironment(
+    paths,
+    { apiKey: 'gw-key', baseUrl: 'https://gw.example.com', bearer: true },
+    { PATH: '/bin', ANTHROPIC_API_KEY: 'home-key' }
+  )
+  expect(env.ANTHROPIC_AUTH_TOKEN).toBe('gw-key')
+  expect(env.ANTHROPIC_API_KEY).toBeUndefined()
+  expect(env.ANTHROPIC_BASE_URL).toBe('https://gw.example.com')
+})

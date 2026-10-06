@@ -22,10 +22,11 @@ export const CODEX_RUNTIME_MANIFEST: AgentRuntimeManifest = {
     'mcp',
     'auth-login'
   ],
-  authentication: ['external'],
+  authentication: ['external', 'api_key'],
   subagents: 'native',
   toolDelivery: 'native',
   skills: 'native',
   storage: 'desktop',
-  credentials: { accounts: ['chatgpt'], apis: [] }
+  // Gateways that speak the Responses API; Codex no longer supports Chat Completions.
+  credentials: { accounts: ['chatgpt'], apis: ['openai-responses'] }
 }

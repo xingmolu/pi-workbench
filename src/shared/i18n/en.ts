@@ -2801,7 +2801,7 @@ export const en: Readonly<Record<string, string>> = {
   桌面: 'Desktop',
   工具: 'Tools',
   // renderer/store/engine-presentation.ts
-  'OpenAI Codex，用 Pi 的 ChatGPT 账号': "OpenAI Codex, using Pi's ChatGPT account",
+  'OpenAI Codex，用 ChatGPT 账号或网关': 'OpenAI Codex, with a ChatGPT account or a gateway',
   'Claude 原生能力，原生子 Agent': "Claude's native capabilities and native subagents",
   '多家模型与 API，桌面子 Agent': 'Many models and APIs, desktop subagents',
   // renderer/store/live-projects.ts
@@ -3086,5 +3086,33 @@ export const en: Readonly<Record<string, string>> = {
   此环境不能打开链接: "Can't open links here",
   推荐: 'Suggested',
   '从推荐中移除 {title}': 'Remove {title} from suggestions',
-  从推荐中移除: 'Remove from suggestions'
+  从推荐中移除: 'Remove from suggestions',
+  '{engine}：{message}': '{engine}: {message}',
+  '已添加到 {done}，但 {failed}': 'Added to {done}, but {failed}',
+  'Pi 用这个协议连接；其它引擎按检测结果各用各的。':
+    'Pi connects with this protocol; the other engines each use what was detected.',
+  '不确定就先「测试并拉取模型」，会自动识别服务支持的协议。':
+    'Not sure? Use "Test and fetch models" first; it detects the protocols the service supports.',
+  检测结果: 'Detected protocols',
+  这个服务支持: 'This service supports',
+  'Bearer 认证': 'Bearer authentication',
+  'Claude Code 只支持 Anthropic Messages 协议，这个服务没有提供，所以不能用于 Claude Code。':
+    "Claude Code only speaks the Anthropic Messages protocol, which this service doesn't offer, so it can't be used with Claude Code.",
+  'Codex 只支持 OpenAI Responses 协议，这个服务没有提供，所以不能用于 Codex。':
+    "Codex only speaks the OpenAI Responses protocol, which this service doesn't offer, so it can't be used with Codex.",
+  'Claude Code 只支持 Anthropic Messages 协议。':
+    'Claude Code only speaks the Anthropic Messages protocol.',
+  '以 Bearer 方式发送密钥（网关只认 Authorization 头时勾选）':
+    'Send the key as a Bearer token (check this when the gateway only accepts the Authorization header)',
+  'Pi 已保存，但 {engine} 中的同一端点未更新：{message}':
+    'Saved in Pi, but the same endpoint in {engine} was not updated: {message}',
+  '，Claude Code 的每个账号各用一个独立配置目录，Codex 的网关密钥在它自己的配置目录里。桌面端不复制 token。':
+    ", each Claude Code account has its own configuration directory, and Codex keeps gateway keys in its own. The desktop app doesn't copy tokens.",
+  '没有识别出这个服务的接口，请检查地址和 API Key。':
+    "Couldn't recognize this service's API; check the address and API key.",
+  '这段对话已经在另一个服务上开始，换用这个服务请新建会话':
+    'This conversation started on another service; start a new conversation to use this one',
+  'Codex 只能用 API Key 连接网关': 'Codex connects to gateways with an API key only',
+  'Codex 连接网关需要服务地址、API Key 和至少一个模型':
+    'Connecting Codex to a gateway needs an address, an API key and at least one model'
 }

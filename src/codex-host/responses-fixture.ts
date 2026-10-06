@@ -6,22 +6,34 @@ import { createServer, type Server } from 'node:http'
  * makes the model call `exec_command` first; every prompt ends with a short reply.
  */
 export async function createResponsesFixture(options: { command?: string } = {}) {
-  const requests: { authorization?: string; input: unknown[] }[] = []
+  const requests: { authorization?: string; model?: string; input: unknown[] }[] = []
   let sequence = 0
   const server: Server = createServer(async (request, response) => {
     let body = ''
     for await (const chunk of request) body += chunk
+    // Like a gateway, it lists its models and refuses an empty request with a JSON error.
+    if (request.method === 'GET' && request.url?.endsWith('/v1/models')) {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ data: [{ id: 'fixture-model' }] }))
+      return
+    }
     if (!request.url?.endsWith('/responses')) {
       response.writeHead(404)
       response.end()
       return
     }
-    const payload = JSON.parse(body || '{}') as { input?: unknown[] }
+    const payload = JSON.parse(body || '{}') as { input?: unknown[]; model?: string }
+    if (!payload.model) {
+      response.writeHead(400, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ error: { message: 'model is required' } }))
+      return
+    }
     const input = payload.input ?? []
     requests.push({
       ...(typeof request.headers.authorization === 'string'
         ? { authorization: request.headers.authorization }
         : {}),
+      ...(payload.model ? { model: payload.model } : {}),
       input
     })
     const id = `resp_${++sequence}`
@@ -87,6 +99,8 @@ export async function createResponsesFixture(options: { command?: string } = {})
   const port = (server.address() as { port: number }).port
   return {
     requests,
+    /** The OpenAI-compatible base, as a gateway connection names it. */
+    baseUrl: `http://127.0.0.1:${port}/v1`,
     /** `-c` overrides that make Codex use this server for every turn. */
     config: [
       'model_provider="fixture"',

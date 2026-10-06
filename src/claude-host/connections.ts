@@ -87,7 +87,11 @@ export function connectionEnvironment(
   if (api)
     return claudeEnvironment(
       storage,
-      { apiKey: api.apiKey, ...(api.baseUrl ? { baseUrl: api.baseUrl } : {}) },
+      {
+        apiKey: api.apiKey,
+        ...(api.baseUrl ? { baseUrl: api.baseUrl } : {}),
+        ...(api.bearer ? { bearer: true } : {})
+      },
       parent
     )
   if (config.accounts?.some((item) => item.id === id))
