@@ -10,11 +10,17 @@ export const PLUGIN_PERMISSIONS = {
   storage: 'low',
   'fs.read': 'medium',
   'git.read': 'medium',
+  /** Read pull requests on the project's code host (GitHub, Gitee) with the user's account. */
+  'forge.read': 'medium',
+  /** Pre-fill a new conversation in the open project; the user still sends it. */
+  'chat.draft': 'medium',
   'clipboard.write': 'medium',
   'shell.openExternal': 'medium',
   'fs.write': 'high',
   'git.write': 'high',
   'git.push': 'high',
+  /** Merge and comment on pull requests as the user; always confirmed. */
+  'forge.write': 'high',
   'agent.tools': 'high',
   'agent.skills': 'high',
   'mcp.local': 'high',
@@ -175,6 +181,69 @@ export const PLUGIN_HOST_METHODS = {
   'git.push': {
     permission: 'git.push',
     params: z.object({}).strict()
+  },
+  /** Commits on the current branch that are not on its upstream (or the remote's default
+   * branch), with their combined patch. */
+  'git.outgoing': {
+    permission: 'git.read',
+    params: z.object({}).strict()
+  },
+  /** Which code host the project's remote is on, and whether the user is signed in there. */
+  'forge.repository': {
+    permission: 'forge.read',
+    params: z.object({}).strict()
+  },
+  'forge.pulls': {
+    permission: 'forge.read',
+    params: z.object({}).strict()
+  },
+  'forge.pull': {
+    permission: 'forge.read',
+    params: z.object({ number: z.number().int().positive() }).strict()
+  },
+  'forge.pullFiles': {
+    permission: 'forge.read',
+    params: z.object({ number: z.number().int().positive() }).strict()
+  },
+  /** Always confirmed; merges only the head the user saw (`headSha`). */
+  'forge.merge': {
+    permission: 'forge.write',
+    params: z
+      .object({
+        number: z.number().int().positive(),
+        method: z.enum(['merge', 'squash', 'rebase']),
+        headSha: z.string().regex(/^[0-9a-f]{40}$/)
+      })
+      .strict()
+  },
+  /** Always confirmed. */
+  'forge.comment': {
+    permission: 'forge.write',
+    params: z
+      .object({ number: z.number().int().positive(), body: z.string().trim().min(1).max(60_000) })
+      .strict()
+  },
+  /** Starts a new conversation in the open project with this text in its composer. */
+  'chat.draft': {
+    permission: 'chat.draft',
+    params: z.object({ text: z.string().trim().min(1).max(20_000) }).strict()
+  },
+  /** Opens an https link in the user's browser. */
+  'shell.openExternal': {
+    permission: 'shell.openExternal',
+    params: z
+      .object({
+        url: z
+          .string()
+          .max(2048)
+          .refine((value) => /^https:\/\/[^\s/]+/i.test(value), 'Expected an https URL')
+      })
+      .strict()
+  },
+  /** Opens a section of the app's Settings; only sections plugins may point to. */
+  'ui.openSettings': {
+    permission: null,
+    params: z.object({ section: z.enum(['forges']) }).strict()
   },
   /** Binds a handler to a tool declared in `contributes.agentTools`. Process only. */
   'agent.registerTool': {

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code review</title>
+    <link rel="stylesheet" href="./review.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="list" id="list-pane" aria-label="审查列表">
+        <header class="list-head">
+          <h1 id="list-title">代码审查</h1>
+          <button
+            type="button"
+            class="icon-button"
+            id="refresh"
+            aria-label="刷新"
+            title="刷新"
+          ></button>
+        </header>
+        <label class="search">
+          <span class="search-icon" id="search-icon" aria-hidden="true"></span>
+          <input
+            id="search"
+            type="search"
+            placeholder="搜索或粘贴 PR 链接"
+            aria-label="搜索或粘贴 PR 链接"
+            spellcheck="false"
+            autocomplete="off"
+          />
+        </label>
+        <div class="repo-line" id="repo"></div>
+        <div class="account" id="account" hidden></div>
+        <nav class="sections" id="sections" aria-label="审查项"></nav>
+      </aside>
+      <main class="detail" id="detail"></main>
+    </div>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <script src="./review.js"></script>
+  </body>
+</html>

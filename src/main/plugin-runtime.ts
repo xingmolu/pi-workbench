@@ -15,6 +15,7 @@ import type { PluginCommandSummary, PluginRuntimeStatus } from '../shared/workbe
 import type { PermissionMode } from '../shared/contracts'
 import { isViewCallable } from '../shared/plugin-api'
 import type { PluginFileService, PluginGitService } from './plugin-services'
+import type { ForgeService } from './forge/service'
 import type { ValidatedPluginCommand } from './workbench-manifest'
 import { t } from '../shared/i18n'
 
@@ -61,9 +62,24 @@ export type PluginRuntimeDependencies = {
     fs: Pick<PluginFileService, 'list' | 'stat' | 'readText' | 'writeText'>
     git: Pick<
       PluginGitService,
-      'status' | 'diff' | 'log' | 'stage' | 'unstage' | 'discard' | 'commit' | 'pushPlan' | 'push'
+      | 'status'
+      | 'diff'
+      | 'log'
+      | 'stage'
+      | 'unstage'
+      | 'discard'
+      | 'commit'
+      | 'pushPlan'
+      | 'push'
+      | 'outgoing'
     >
+    forge?: Pick<ForgeService, 'repository' | 'client'>
   }
+  /** Opens a new conversation in the open project with this text in its composer. */
+  chatDraft?(pluginId: string, text: string): void
+  openSettings?(section: 'forges'): void
+  /** Opens an https URL in the user's browser. */
+  openExternal?(url: string): void
   /** Asks the user in the main window; resolves false when declined or timed out. */
   approve?(request: PluginApprovalRequest): Promise<boolean>
   storage: { get(key: string): unknown; set(key: string, value: unknown): void }
@@ -486,6 +502,12 @@ export class PluginRuntime {
       throw new PluginApiError('CONFLICT', t('项目已切换，操作已取消'))
   }
 
+  private forge(): NonNullable<NonNullable<PluginRuntimeDependencies['services']>['forge']> {
+    const forge = this.services().forge
+    if (!forge) throw new PluginApiError('UNSUPPORTED', t('此环境未提供代码托管服务'))
+    return forge
+  }
+
   private services(): NonNullable<PluginRuntimeDependencies['services']> {
     const services = this.dependencies.services
     if (!services) throw new PluginApiError('UNSUPPORTED', t('此环境未提供文件与 Git 服务'))
@@ -635,6 +657,74 @@ export class PluginRuntime {
         this.assertProject(project)
         return this.services().git.push(plan)
       }
+      case 'git.outgoing':
+        return this.services().git.outgoing(this.project())
+      case 'forge.repository':
+        return this.forge().repository(this.project())
+      case 'forge.pulls':
+        return (await this.forge().client(this.project())).pulls()
+      case 'forge.pull':
+        return (await this.forge().client(this.project())).pull(args.number as number)
+      case 'forge.pullFiles':
+        return (await this.forge().client(this.project())).files(args.number as number)
+      case 'forge.merge': {
+        const project = this.project()
+        const client = await this.forge().client(project)
+        const number = args.number as number
+        const pull = await client.pull(number)
+        if (pull.headSha !== args.headSha)
+          throw new PluginApiError('CONFLICT', t('拉取请求有了新的提交，请刷新后再合并'))
+        const method = args.method as 'merge' | 'squash' | 'rebase'
+        await this.confirm(
+          plugin,
+          t('合并拉取请求 #{number}', { number }),
+          [
+            pull.title,
+            t('{head} → {base}', { head: pull.headRef, base: pull.baseRef }),
+            t('方式：{method}', {
+              method:
+                method === 'squash'
+                  ? t('压缩合并')
+                  : method === 'rebase'
+                    ? t('变基合并')
+                    : t('合并提交')
+            }),
+            pull.url
+          ].join('\n'),
+          'always'
+        )
+        this.assertProject(project)
+        await client.merge(number, method, pull.headSha)
+        return undefined
+      }
+      case 'forge.comment': {
+        const project = this.project()
+        const client = await this.forge().client(project)
+        const number = args.number as number
+        await this.confirm(
+          plugin,
+          t('在拉取请求 #{number} 上发表评论', { number }),
+          args.body as string,
+          'always'
+        )
+        this.assertProject(project)
+        return client.comment(number, args.body as string)
+      }
+      case 'chat.draft': {
+        this.project()
+        if (!this.dependencies.chatDraft)
+          throw new PluginApiError('UNSUPPORTED', t('此环境不能新建会话'))
+        this.dependencies.chatDraft(plugin.pluginId, args.text as string)
+        return undefined
+      }
+      case 'shell.openExternal':
+        if (!this.dependencies.openExternal)
+          throw new PluginApiError('UNSUPPORTED', t('此环境不能打开链接'))
+        this.dependencies.openExternal(args.url as string)
+        return undefined
+      case 'ui.openSettings':
+        this.dependencies.openSettings?.(args.section as 'forges')
+        return undefined
       case 'ui.showToast':
       case 'ui.notify':
         this.dependencies.toast(plugin.pluginId, args.message as string)

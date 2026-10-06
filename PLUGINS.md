@@ -101,8 +101,8 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | 风险 | 权限 |
 |---|---|
 | 低 | `ui.view`、`ui.command`、`ui.theme`、`notify`、`storage` |
-| 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`clipboard.write`、`shell.openExternal` |
-| 高 | `fs.write`、`git.write`、`git.push`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
+| 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`forge.read`、`chat.draft`、`clipboard.write`、`shell.openExternal` |
+| 高 | `fs.write`、`git.write`、`git.push`、`forge.write`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
 
 - `fs` 与 `net` 范围默认拒绝：未声明即无访问。`project` 表示当前项目根目录，按解析符号链接后的真实路径判断。
 - 插件发起的写操作（`fs.write`、`git.write`）与 Agent 的写操作适用同一套项目档位（请求批准 / 帮我批准 / 完全访问）与自定义规则；`git.push` 这类对外操作在任何档位都需要用户确认。
@@ -130,6 +130,10 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | `pi.project` | `current()`、`onDidChange` | 无 |
 | `pi.fs` | `readText`、`list`、`stat`；`writeText`（经工具闸门，可撤销） | `fs.read` / `fs.write` |
 | `pi.git` | `status`、`diff`、`log`；`stage`、`unstage`、`discard`（可撤销）、`commit`；`push`（始终确认） | `git.read` / `git.write` / `git.push` |
+| `pi.git`（续） | `outgoing`：当前分支相对上游（没有上游时相对远程默认分支）还没推送的提交和合并后的补丁 | `git.read` |
+| `pi.forge` | `repository`、`pulls`、`pull`、`pullFiles`；`merge`、`comment`（始终确认），见第 24 节 | `forge.read` / `forge.write` |
+| `pi.chat` | `draft`：在当前项目新建会话并把文字放进输入框，由用户决定是否发送 | `chat.draft` |
+| `pi.ui`（续） | `openSettings`（目前只有 `forges`）；`shell.openExternal` 打开 https 链接 | 无 / `shell.openExternal` |
 | `pi.agent` | `registerTool`（与 manifest 声明对应，已实现）、`onTurnEnd`（只读：本轮改动摘要，未实现） | `agent.tools` |
 
 约定：
@@ -402,4 +406,15 @@ module.exports = {
 - 同一时刻只显示一个插件原生视图：页面打开期间，工作台里的插件面板和浏览器会暂时收起，关闭页面后恢复。设置、命令面板等对话框打开时页面也会暂时隐藏，避免盖住对话框。
 - `surfaces: ["desktop", "mobile"]` 同样适用：手机端把页面视图和其他插件页面一起列在「打开标签页」里。
 - 尚未支持：替换会话列表那一栏的侧栏型视图（需要同时显示两个插件原生视图），以后单独加。
+
+## 24. 代码托管与代码审查
+
+内置插件「代码审查」（`works.pi.review`，`resources/plugins/review`）是一个活动栏整页，把本地改动和项目的拉取请求放在一起看。
+
+- **本地**：未提交的改动（暂存区和工作区的 diff，可暂存全部、提交）和未推送的提交（`git.outgoing`，可推送）。
+- **拉取请求**：我创建的、待我审查的、其他打开的。概要页显示描述、能否合并、叠加的拉取请求（按 head/base 分支串起来）、审查和检查；改动页是文件列表加逐文件 diff。可以合并（合并提交 / 压缩 / 变基）、发表评论、在 GitHub 打开。
+- **用 Pi 审查**：调用 `chat.draft`，在当前项目新开一个会话，输入框里放好审查请求（拉取请求会带上 `git fetch origin pull/N/head` 和对比命令），用户确认后发送。审查结论可以粘贴到评论框发到拉取请求上。
+- 代码托管（forge）由 Main 实现（`src/main/forge`）：根据远程地址判断平台（`github.com` → GitHub，`gitee.com` → Gitee，其余暂不支持），GitHub 先实现，Gitee 留了同样的接口。令牌按优先级取「设置 › 代码托管」里保存的令牌（safeStorage 加密）、`GH_TOKEN` / `GITHUB_TOKEN`、`gh auth token`。令牌只在 Main 使用，插件页面只拿到整理过的数据。
+- 合并会先重新读取拉取请求，只合并用户看到的那个 head（`headSha`）；评论和合并在任何档位都需要用户确认。
+- 第三方插件同样可以申请 `forge.read` / `forge.write` / `chat.draft`，启用时逐项授权。
 

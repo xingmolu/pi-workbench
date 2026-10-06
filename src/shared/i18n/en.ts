@@ -3028,5 +3028,50 @@ export const en: Readonly<Record<string, string>> = {
     'Press {shortcut} or click Stop in Pi Desktop to end it.',
   '在 Pi Desktop 中点停止即可中止。': 'Click Stop in Pi Desktop to end it.',
   '后台子任务不能使用 Computer Use：桌面操作需要用户在场确认。请把这一步交回主会话完成。':
-    'Background subtasks cannot use Computer Use: desktop control needs the user present to approve it. Hand this step back to the main conversation.'
+    'Background subtasks cannot use Computer Use: desktop control needs the user present to approve it. Hand this step back to the main conversation.',
+  已保存的令牌: 'Saved token',
+  '环境变量 GH_TOKEN / GITHUB_TOKEN': 'GH_TOKEN / GITHUB_TOKEN environment variable',
+  'GitHub CLI（gh auth login）': 'GitHub CLI (gh auth login)',
+  '操作失败，请重试': 'Something went wrong; try again',
+  代码托管: 'Code hosting',
+  '代码审查页面用这些账号读取拉取请求、合并和发表评论。令牌只保存在本机，插件页面拿不到。':
+    'The code review page uses these accounts to read pull requests, merge and comment. Tokens stay on this computer; plugin pages never see them.',
+  '已登录为 {viewer}': 'Signed in as {viewer}',
+  令牌无法验证: 'The token could not be verified',
+  未登录: 'Not signed in',
+  '来源：{source}': 'From: {source}',
+  '安装 GitHub CLI 并运行 gh auth login，或在下面保存一个令牌（需要 repo 权限）。':
+    'Install the GitHub CLI and run gh auth login, or save a token below (with repo access).',
+  '保存的令牌优先于 GitHub CLI 和环境变量。':
+    'A saved token takes precedence over the GitHub CLI and environment variables.',
+  验证并保存: 'Verify and save',
+  即将支持: 'Coming soon',
+  '包括私有部署的 Gitee 企业版。': 'Including self-hosted Gitee Enterprise.',
+  'github gitee 代码审查 拉取请求 pull request 令牌 token gh':
+    'github gitee code review pull request token gh',
+  '无法连接 GitHub，请检查网络': "Can't reach GitHub; check the network",
+  'GitHub 令牌无效或已过期，请重新登录': 'The GitHub token is invalid or expired; sign in again',
+  'GitHub 拒绝了请求：{message}': 'GitHub refused the request: {message}',
+  'GitHub 无法完成这个操作（{status}）': "GitHub couldn't do that ({status})",
+  'GitHub 请求失败（{status}）': 'The GitHub request failed ({status})',
+  项目没有可识别的远程仓库: 'The project has no recognizable remote repository',
+  'Gitee 将在后续版本支持': 'Gitee support is coming in a later version',
+  '暂不支持 {host} 上的仓库': 'Repositories on {host} are not supported yet',
+  '还没有登录 {host}': 'Not signed in to {host}',
+  '无法验证 GitHub 令牌': "Can't verify the GitHub token",
+  '暂不支持 {host}': '{host} is not supported yet',
+  代码托管服务尚未就绪: 'Code hosting is not ready yet',
+  无效的操作: 'Invalid action',
+  此环境未提供代码托管服务: 'Code hosting is not available here',
+  '拉取请求有了新的提交，请刷新后再合并':
+    'The pull request has new commits; refresh before merging',
+  '合并拉取请求 #{number}': 'Merge pull request #{number}',
+  '{head} → {base}': '{head} → {base}',
+  '方式：{method}': 'Method: {method}',
+  压缩合并: 'Squash and merge',
+  变基合并: 'Rebase and merge',
+  合并提交: 'Create a merge commit',
+  '在拉取请求 #{number} 上发表评论': 'Comment on pull request #{number}',
+  此环境不能新建会话: "Can't start a conversation here",
+  此环境不能打开链接: "Can't open links here"
 }
