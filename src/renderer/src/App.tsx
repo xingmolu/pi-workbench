@@ -380,12 +380,14 @@ export default function App(): React.JSX.Element {
   const shortcuts = useRef<{
     newSession: () => void
     openTerminal: () => void
+    searchFiles: () => void
     back: () => void
     forward: () => void
     selectTab: (index: number) => void
   }>({
     newSession: () => {},
     openTerminal: () => {},
+    searchFiles: () => {},
     back: () => {},
     forward: () => {},
     selectTab: () => {}
@@ -447,6 +449,9 @@ export default function App(): React.JSX.Element {
       } else if (key === 'j') {
         event.preventDefault()
         shortcuts.current.openTerminal()
+      } else if (key === 'p') {
+        event.preventDefault()
+        shortcuts.current.searchFiles()
       } else if (key === '[' || key === ']') {
         event.preventDefault()
         if (key === '[') shortcuts.current.back()
@@ -684,6 +689,14 @@ export default function App(): React.JSX.Element {
     },
     newSession: () => {
       if (snapshot.ready && snapshot.project) void navigateProject(snapshot.project.path)
+    },
+    searchFiles: () => {
+      const files = workbenchStatus.snapshot.contributions.find(
+        (item) => item.surface.kind === 'first-party' && item.surface.adapter === 'files'
+      )
+      if (!files || !snapshot.project) return
+      selectWorkbenchView(files.viewId)
+      useOverlayState.getState().requestFileSearch(snapshot.project.path)
     },
     openTerminal: () => {
       const terminal = workbenchStatus.snapshot.contributions.find(

@@ -3083,5 +3083,8 @@ export const en: Readonly<Record<string, string>> = {
   合并提交: 'Create a merge commit',
   '在拉取请求 #{number} 上发表评论': 'Comment on pull request #{number}',
   此环境不能新建会话: "Can't start a conversation here",
-  此环境不能打开链接: "Can't open links here"
+  此环境不能打开链接: "Can't open links here",
+  推荐: 'Suggested',
+  '从推荐中移除 {title}': 'Remove {title} from suggestions',
+  从推荐中移除: 'Remove from suggestions'
 }

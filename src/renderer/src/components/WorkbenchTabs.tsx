@@ -16,7 +16,13 @@ import {
 } from 'lucide-react'
 import type { WorkbenchContribution, WorkbenchIcon } from '../../../shared/contracts'
 import { shortcutLabel } from './shortcut-label'
-import { browserOperate, followBrowserState, useBrowserState } from '../store/browser-state'
+import {
+  browserOperate,
+  followBrowserState,
+  forgetSite,
+  useBrowserState,
+  useRecentSites
+} from '../store/browser-state'
 import {
   isActiveTab,
   isBrowserContribution,
@@ -59,48 +65,94 @@ type Props = {
   menuOpen: boolean
   onMenuOpenChange: (open: boolean) => void
 }
-const DESCRIPTIONS: Partial<Record<WorkbenchIcon, string>> = {
-  files: t('浏览和预览项目文件'),
-  'git-review': t('审查未提交的改动'),
-  'git-branch': t('分支、提交与历史'),
-  terminal: t('在项目目录里运行命令'),
-  browser: t('预览网页和本地服务')
+/** Keyboard shortcuts the app binds to opening a tool. */
+function toolShortcut(contribution: WorkbenchContribution): string | null {
+  if (contribution.surface.kind !== 'first-party') return null
+  if (contribution.surface.adapter === 'terminal') return shortcutLabel('J')
+  if (contribution.surface.adapter === 'files') return shortcutLabel('P')
+  return null
 }
+
+function siteHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** The workbench's start page: its tools, then the sites visited recently in its browser. */
 export function WorkbenchLauncher({
   contributions,
-  onSelect
-}: Pick<Props, 'contributions' | 'onSelect'>): React.JSX.Element {
+  onSelect,
+  onOpenSite
+}: Pick<Props, 'contributions' | 'onSelect'> & {
+  onOpenSite?: (url: string) => void
+}): React.JSX.Element {
+  const sites = useRecentSites((store) => store.sites)
+  const browserAvailable = contributions.some(isBrowserContribution)
   return (
     <nav className="workbench-launcher" aria-label={t('打开工作台工具')}>
       {contributions.length ? (
         <>
-          <div className="workbench-launcher-head" aria-hidden="true">
-            <strong>{t('工作台')}</strong>
-            <span>{t('在对话旁边打开工具，改动、文件和命令都在这里。')}</span>
-          </div>
-          <div className="workbench-launcher-grid">
-            {contributions.map((contribution) => (
-              <button
-                key={contribution.viewId}
-                title={contribution.title}
-                aria-label={contribution.title}
-                onClick={() => onSelect(contribution.viewId)}
-              >
-                <span className="workbench-launcher-icon">
-                  <Icon contribution={contribution} />
-                </span>
-                <span className="workbench-launcher-text">
-                  <strong>{contribution.title}</strong>
-                  <small>
-                    {DESCRIPTIONS[contribution.icon] ??
-                      (contribution.pluginId.startsWith('works.pi.')
-                        ? t('内置工具')
-                        : t('插件提供'))}
-                  </small>
-                </span>
-              </button>
-            ))}
-          </div>
+          <section className="workbench-launcher-section" aria-labelledby="launcher-tools">
+            <h2 id="launcher-tools">{t('工具')}</h2>
+            <div className="workbench-launcher-grid">
+              {contributions.map((contribution) => {
+                const shortcut = toolShortcut(contribution)
+                return (
+                  <button
+                    key={contribution.viewId}
+                    className="workbench-launcher-tool"
+                    title={contribution.title}
+                    aria-label={contribution.title}
+                    onClick={() => onSelect(contribution.viewId)}
+                  >
+                    <Icon contribution={contribution} />
+                    <span className="workbench-launcher-title">{contribution.title}</span>
+                    {shortcut ? <kbd aria-hidden="true">{shortcut}</kbd> : null}
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+          {browserAvailable && onOpenSite && sites.length ? (
+            <section className="workbench-launcher-section" aria-labelledby="launcher-sites">
+              <h2 id="launcher-sites">{t('推荐')}</h2>
+              <div className="workbench-launcher-sites">
+                {sites.map((site) => {
+                  const host = siteHost(site.url)
+                  return (
+                    <div className="workbench-launcher-site" key={site.url}>
+                      <button
+                        className="workbench-launcher-site-open"
+                        title={site.url}
+                        onClick={() => onOpenSite(site.url)}
+                      >
+                        <span
+                          className="workbench-launcher-site-mark"
+                          style={{ '--site-hue': hueOf(host) } as React.CSSProperties}
+                          aria-hidden="true"
+                        >
+                          {(site.title.trim() || host).charAt(0).toUpperCase()}
+                        </span>
+                        <span className="workbench-launcher-site-title">{site.title}</span>
+                        <small>{host}</small>
+                      </button>
+                      <button
+                        className="workbench-launcher-site-forget"
+                        aria-label={t('从推荐中移除 {title}', { title: site.title })}
+                        title={t('从推荐中移除')}
+                        onClick={() => forgetSite(site.url)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
         </>
       ) : (
         <p>{t('暂无可用面板')}</p>
@@ -108,6 +160,13 @@ export function WorkbenchLauncher({
     </nav>
   )
 }
+
+function hueOf(text: string): number {
+  let hash = 0
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) % 360
+  return hash
+}
+
 export default function WorkbenchTabs({
   contributions,
   openedViewIds,
@@ -145,10 +204,10 @@ export default function WorkbenchTabs({
   }
   const close = (item: WorkbenchTabItem): void => {
     restoreFocus.current = true
-    // A browser page closes on its own; the last one closes the browser.
-    if (item.pageId && browser.pages.length > 1)
-      void browserOperate({ action: 'close_tab', pageId: item.pageId })
-    else onClose(item.viewId)
+    // A browser page closes on its own; the last one closes the browser too, leaving only
+    // the blank page the browser keeps for next time.
+    if (item.pageId) void browserOperate({ action: 'close_tab', pageId: item.pageId })
+    if (!item.pageId || browser.pages.length <= 1) onClose(item.viewId)
   }
   const open = (contribution: WorkbenchContribution): void => {
     onSelect(contribution.viewId)
