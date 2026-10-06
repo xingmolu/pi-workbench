@@ -14,6 +14,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import type { WorkbenchContribution, WorkbenchIcon } from '../../../shared/contracts'
+import { shortcutLabel } from './shortcut-label'
 import { t } from '../../../shared/i18n'
 import '../assets/workbench-tabs.css'
 const icons: Record<WorkbenchIcon, LucideIcon> = {
@@ -140,7 +141,7 @@ export default function WorkbenchTabs({
       }}
     >
       <div className="workbench-tabs" role="tablist" aria-label={t('已打开的工作台工具')}>
-        {openedViewIds.map((id) => {
+        {openedViewIds.map((id, index) => {
           const contribution = contributions.find((item) => item.viewId === id)
           return contribution ? (
             <div
@@ -181,7 +182,12 @@ export default function WorkbenchTabs({
                 }}
               >
                 <Icon contribution={contribution} />
-                <span>{contribution.title}</span>
+                <span className="workbench-tab-title">{contribution.title}</span>
+                {index < 9 ? (
+                  <kbd className="workbench-tab-shortcut" aria-hidden="true">
+                    {shortcutLabel(String(index + 1))}
+                  </kbd>
+                ) : null}
               </button>
               <button
                 className="workbench-tab-close"

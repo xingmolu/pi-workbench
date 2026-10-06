@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import type { WorkbenchCommand, WorkbenchContribution } from '../../../shared/contracts'
 import SandboxedPluginPane from './SandboxedPluginPane'
@@ -7,12 +8,15 @@ import { t } from '../../../shared/i18n'
 /** A plugin page opened from the activity rail, filling the window right of the rail. */
 export default function PluginPage({
   contribution,
+  windowControls,
   visible,
   onClose,
   onWorkbenchCommand,
   onWorkbenchError
 }: {
   contribution: WorkbenchContribution
+  /** Back, forward and the sidebar switch, at the start of the header. */
+  windowControls?: ReactNode
   /** False while a dialog or overlay sits above, so the native page does not cover it. */
   visible: boolean
   onClose: () => void
@@ -22,6 +26,7 @@ export default function PluginPage({
   return (
     <main className="plugin-page" aria-label={contribution.title}>
       <header className="plugin-page-head">
+        {windowControls}
         <ContributionIcon contribution={contribution} />
         <h1>{contribution.title}</h1>
         <button

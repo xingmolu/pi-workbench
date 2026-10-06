@@ -22,7 +22,7 @@ import {
 } from 'react'
 import { applyDocumentTheme, useResolvedTheme } from './store/theme'
 import { applyThemeOverrides, usePluginThemes } from './store/plugin-themes'
-import { PanelRight } from 'lucide-react'
+import { Maximize2, Minimize2, PanelRight } from 'lucide-react'
 import { useDesktopSettings } from './store/desktop-settings'
 import './assets/desktop-settings.css'
 import type {
@@ -33,6 +33,14 @@ import type {
   WorkbenchSnapshot
 } from '../../shared/contracts'
 import ActivityRail from './components/ActivityRail'
+import WindowControls from './components/WindowControls'
+import {
+  EMPTY_HISTORY,
+  canStep,
+  step,
+  visit,
+  type HistoryLocation
+} from './store/navigation-history'
 import PluginPage from './components/PluginPage'
 import Sidebar from './components/Sidebar'
 import { shortcutLabel } from './components/shortcut-label'
@@ -59,6 +67,8 @@ import { INITIAL_WORKBENCH_SELECTION, workbenchSelectionReducer } from './store/
 import { INITIAL_WORKBENCH_STATUS, workbenchStatusReducer } from './store/workbench-status'
 import { INITIAL_WORKSPACE_LAYOUT, workspaceLayoutReducer } from './store/workspace-layout'
 import { t } from '../../shared/i18n'
+// Last, so the title bar rules override the components' own sheets.
+import './assets/titlebar.css'
 
 export default function App(): React.JSX.Element {
   useEffect(() => {
@@ -170,6 +180,12 @@ export default function App(): React.JSX.Element {
   const [pluginCommands, setPluginCommands] = useState<PluginCommandSummary[]>([])
   const [pluginApprovals, setPluginApprovals] = useState<PluginApproval[]>([])
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  /** The workbench takes the conversation's room too; folding the workbench ends it. */
+  const [workbenchMaximized, setWorkbenchMaximized] = useState(false)
+  useEffect(() => {
+    if (!workbenchOpen) setWorkbenchMaximized(false)
+  }, [workbenchOpen])
+  const [history, setHistory] = useState(EMPTY_HISTORY)
   const [subagentDirectoryOpen, setSubagentDirectoryOpen] = useState(false)
   const directoryPreviousWorkbench = useRef(false)
   const closeDirectory = useCallback((): void => {
@@ -351,7 +367,19 @@ export default function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileOpen?.revision])
 
-  const shortcuts = useRef({ newSession: () => {}, openTerminal: () => {} })
+  const shortcuts = useRef<{
+    newSession: () => void
+    openTerminal: () => void
+    back: () => void
+    forward: () => void
+    selectTab: (index: number) => void
+  }>({
+    newSession: () => {},
+    openTerminal: () => {},
+    back: () => {},
+    forward: () => {},
+    selectTab: () => {}
+  })
   useEffect(() => {
     let composing = false
     const startComposition = (): void => {
@@ -409,6 +437,13 @@ export default function App(): React.JSX.Element {
       } else if (key === 'j') {
         event.preventDefault()
         shortcuts.current.openTerminal()
+      } else if (key === '[' || key === ']') {
+        event.preventDefault()
+        if (key === '[') shortcuts.current.back()
+        else shortcuts.current.forward()
+      } else if (/^[1-9]$/.test(key)) {
+        event.preventDefault()
+        shortcuts.current.selectTab(Number(key) - 1)
       }
     }
     // Holding the modifier for a moment reveals the shortcuts on the controls that have one.
@@ -593,7 +628,41 @@ export default function App(): React.JSX.Element {
     [setClientError, setSnapshot]
   )
 
+  // Back and forward move between the conversations and plugin pages visited in this window.
+  const location: HistoryLocation | null = pageViewId
+    ? { kind: 'page', viewId: pageViewId }
+    : snapshot.project && snapshot.activeSessionPath
+      ? { kind: 'session', cwd: snapshot.project.path, path: snapshot.activeSessionPath }
+      : null
+  const locationKey = location ? JSON.stringify(location) : null
+  useEffect(() => {
+    if (location) setHistory((current) => visit(current, location))
+    // The key captures every field of the location.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationKey])
+  const locationExists = (target: HistoryLocation): boolean =>
+    target.kind === 'session' || pageViews.current.includes(target.viewId)
+  const goHistory = (delta: -1 | 1): void => {
+    const next = step(history, delta, locationExists)
+    if (!next) return
+    setHistory(next.history)
+    const target = next.target
+    if (target.kind === 'page') {
+      setPageViewId(target.viewId)
+      return
+    }
+    setPageViewId(null)
+    if (target.cwd !== snapshot.project?.path || target.path !== snapshot.activeSessionPath)
+      void navigateProject(target.cwd, target.path)
+  }
+
   shortcuts.current = {
+    back: () => goHistory(-1),
+    forward: () => goHistory(1),
+    selectTab: (index) => {
+      const viewId = workbenchSelection.openedViewIds[index]
+      if (viewId) selectWorkbenchView(viewId)
+    },
     newSession: () => {
       if (snapshot.ready && snapshot.project) void navigateProject(snapshot.project.path)
     },
@@ -674,9 +743,42 @@ export default function App(): React.JSX.Element {
     [workbenchStatus.snapshot]
   )
 
+  const toggleSidebar = (): void => {
+    // From a plugin page, the sessions entry returns to the conversation.
+    if (page) {
+      setPageViewId(null)
+      if (layout.sidebarCollapsed) dispatchLayout({ type: 'sidebar:toggle' })
+    } else dispatchLayout({ type: 'sidebar:toggle' })
+  }
+  const windowControls = (
+    <WindowControls
+      canGoBack={canStep(history, -1, locationExists)}
+      canGoForward={canStep(history, 1, locationExists)}
+      onBack={() => goHistory(-1)}
+      onForward={() => goHistory(1)}
+      sidebarOpen={!layout.sidebarCollapsed && !page}
+      sidebarLocked={layout.settingsOpen}
+      onToggleSidebar={toggleSidebar}
+    />
+  )
+  const workbenchActions = !subagentPreview && !subagentDirectoryOpen && !page
+
   return (
-    <div className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}`}>
-      {!subagentPreview && !subagentDirectoryOpen && !page && (
+    <div
+      className={`shell${navigator.platform.includes('Mac') ? ' native-mac' : ''}${layout.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+    >
+      {workbenchActions && workbenchOpen && (
+        <button
+          className="icon-btn workbench-maximize"
+          aria-label={workbenchMaximized ? t('还原工作台') : t('最大化工作台')}
+          title={workbenchMaximized ? t('还原工作台') : t('最大化工作台')}
+          aria-pressed={workbenchMaximized}
+          onClick={() => setWorkbenchMaximized((maximized) => !maximized)}
+        >
+          {workbenchMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
+      )}
+      {workbenchActions && (
         <button
           className="icon-btn workbench-toggle"
           aria-label={workbenchOpen ? t('折叠工作台') : t('展开工作台')}
@@ -692,13 +794,7 @@ export default function App(): React.JSX.Element {
         sidebarOpen={!layout.sidebarCollapsed}
         sidebarLocked={layout.settingsOpen}
         sessionsActive={!page}
-        onToggleSidebar={() => {
-          // From a plugin page, the sessions entry returns to the conversation.
-          if (page) {
-            setPageViewId(null)
-            if (layout.sidebarCollapsed) dispatchLayout({ type: 'sidebar:toggle' })
-          } else dispatchLayout({ type: 'sidebar:toggle' })
-        }}
+        onToggleSidebar={toggleSidebar}
         onOpenSearch={() => openPalette()}
         subagents={
           snapshot.project && !subagentPreview
@@ -723,6 +819,7 @@ export default function App(): React.JSX.Element {
       {page ? (
         <PluginPage
           contribution={page}
+          windowControls={windowControls}
           visible={!layout.settingsOpen && activeOverlay === null}
           onClose={() => setPageViewId(null)}
           onWorkbenchCommand={sendWorkbench}
@@ -732,6 +829,9 @@ export default function App(): React.JSX.Element {
       <div className="shell-content" hidden={Boolean(page)}>
         <Sidebar
           collapsed={layout.sidebarCollapsed}
+          windowControls={windowControls}
+          onOpenSearch={() => openPalette()}
+          onOpenSettings={openSettings}
           snapshot={snapshot}
           runtimePicker={
             runtimeCount > 1 ? (
@@ -759,9 +859,11 @@ export default function App(): React.JSX.Element {
 
         <WorkspacePanels
           collapsed={!workbenchOpen}
+          maximized={workbenchMaximized && workbenchOpen}
           conversation={
             <Conversation
               snapshot={snapshot}
+              headLeading={layout.sidebarCollapsed ? windowControls : undefined}
               onInspectSubagent={inspectChild}
               approvals={snapshot.approvals}
               loading={loading}

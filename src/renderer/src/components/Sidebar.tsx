@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigationLibrary } from '../store/navigation-library'
 import { performNavigationAction } from '../store/navigation-feedback'
-import { FolderOpen, MessageSquarePlus } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { ChevronDown, FolderPlus, Search, Settings2, SquarePen } from 'lucide-react'
 import type { AgentSnapshot } from '../../../shared/contracts'
 import { canCreateSession } from '../../../shared/session-presentation'
 import ProjectSessionList from './ProjectSessionList'
@@ -11,6 +12,10 @@ import { shortcutLabel } from './shortcut-label'
 import { t } from '../../../shared/i18n'
 
 type SidebarProps = {
+  /** Back, forward and the sidebar switch, in the title bar row. */
+  windowControls?: ReactNode
+  onOpenSearch?: () => void
+  onOpenSettings?: () => void
   runtimePicker?: ReactNode
   collapsed: boolean
   snapshot: AgentSnapshot
@@ -24,6 +29,9 @@ type SidebarProps = {
 }
 
 export default function Sidebar({
+  windowControls,
+  onOpenSearch,
+  onOpenSettings,
   runtimePicker,
   collapsed,
   snapshot,
@@ -82,11 +90,50 @@ export default function Sidebar({
 
   return (
     <aside className="sidebar" aria-label={t('项目和会话')} style={{ width, flexBasis: width }}>
-      <div className="sidebar-head">
-        <div className="brand">
-          <span className="brand-mark">π</span>
-          <span className="brand-name">Pi Desktop</span>
-        </div>
+      <div className="sidebar-head">{windowControls}</div>
+
+      <div className="sidebar-brand-row">
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger className="brand" aria-label={t('Pi Desktop 菜单')}>
+            <span className="brand-mark">π</span>
+            <span className="brand-name">Pi Desktop</span>
+            <ChevronDown className="brand-chevron" size={14} aria-hidden="true" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="brand-menu" sideOffset={6} align="start">
+              <DropdownMenu.Item disabled={!newSessionEnabled} onSelect={onNewSession}>
+                <SquarePen size={15} />
+                <span>{t('新会话')}</span>
+                <kbd>{shortcutLabel('N')}</kbd>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item disabled={Boolean(reason)} onSelect={onChooseProject}>
+                <FolderPlus size={15} />
+                <span>{t('添加项目')}</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onOpenSearch?.()}>
+                <Search size={15} />
+                <span>{t('搜索所有会话')}</span>
+                <kbd>{shortcutLabel('K')}</kbd>
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className="brand-menu-separator" />
+              <DropdownMenu.Item onSelect={() => onOpenSettings?.()}>
+                <Settings2 size={15} />
+                <span>{t('设置')}</span>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        <button
+          type="button"
+          className="sidebar-add-project"
+          onClick={onChooseProject}
+          disabled={Boolean(reason)}
+          data-navigation-pending={pendingOnly}
+          aria-label={t('添加项目')}
+          title={reason ?? t('添加项目')}
+        >
+          <FolderPlus size={16} />
+        </button>
       </div>
 
       <div className="sidebar-project-actions">
@@ -103,23 +150,11 @@ export default function Sidebar({
               t('在当前项目中新建会话（{value}）', { value: snapshot.runtime?.label ?? 'Pi' })
             }
           >
-            <MessageSquarePlus size={15} />
-
+            <SquarePen size={15} />
             {t('新会话')}
           </button>
           {runtimePicker}
         </div>
-        <button
-          type="button"
-          className="sidebar-add-project"
-          onClick={onChooseProject}
-          disabled={Boolean(reason)}
-          data-navigation-pending={pendingOnly}
-          aria-label={t('添加项目')}
-          title={reason ?? t('添加项目')}
-        >
-          <FolderOpen size={15} />
-        </button>
       </div>
       <ProjectSessionList
         snapshot={snapshot}

@@ -91,6 +91,8 @@ import { t } from '../../../shared/i18n'
 
 type ConversationProps = {
   snapshot: AgentSnapshot
+  /** Window controls, shown at the start of the header while the sidebar is folded. */
+  headLeading?: React.ReactNode
   onInspectSubagent?: (child: SubagentSummary) => void
   approvals: ApprovalRequest[]
   loading: boolean
@@ -1298,6 +1300,7 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
     <main className={`conversation${hasNodes ? ' has-session' : home ? ' is-home' : ''}`}>
       {snapshot.project ? (
         <header className="conversation-head">
+          {props.headLeading}
           <span className="conversation-session-title" title={sessionHeader.title}>
             {sessionHeader.title}
           </span>
@@ -1373,6 +1376,8 @@ export default function Conversation(props: ConversationProps): React.JSX.Elemen
             />
           </div>
         </header>
+      ) : props.headLeading ? (
+        <header className="conversation-head is-bare">{props.headLeading}</header>
       ) : null}
 
       <div

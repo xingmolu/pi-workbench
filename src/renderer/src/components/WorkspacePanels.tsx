@@ -19,10 +19,13 @@ export const useWorkspaceResizing = (): boolean => useContext(ResizeContext)
 
 export default function WorkspacePanels({
   collapsed,
+  maximized = false,
   conversation,
   workbench
 }: {
   collapsed: boolean
+  /** The workbench fills the row; the conversation stays mounted but hidden. */
+  maximized?: boolean
   conversation: ReactNode
   workbench: ReactNode
 }): React.JSX.Element {
@@ -65,7 +68,7 @@ export default function WorkspacePanels({
   return (
     <ResizeContext.Provider value={resizing}>
       <ResizablePanelGroup
-        className={`workspace-panels${collapsed ? ' is-workbench-collapsed' : ''}`}
+        className={`workspace-panels${collapsed ? ' is-workbench-collapsed' : ''}${maximized ? ' is-workbench-maximized' : ''}`}
         orientation="horizontal"
         resizeTargetMinimumSize={{ fine: 10, coarse: 20 }}
         elementRef={group}

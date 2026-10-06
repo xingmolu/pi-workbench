@@ -1,0 +1,320 @@
+/* The title bar: one 48px row across the window. The activity rail's top joins the sidebar
+   head, every column's header shares one divider line, and back, forward and the sidebar
+   switch follow the window buttons. */
+.shell {
+  --titlebar: 48px;
+  /* Where the window controls start: after the macOS window buttons, or by the rail. */
+  --titlebar-start: calc(var(--activity-rail) + 8px);
+}
+.shell.native-mac {
+  --titlebar-start: 80px;
+}
+
+.window-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+.window-control {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.window-control:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.window-control:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.window-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Activity rail: its first row is title bar, so the buttons start below it. With the sidebar
+   open, the rail's divider starts below the title bar too and the two read as one strip. */
+.shell .activity-rail,
+.native-mac .activity-rail {
+  padding-top: calc(var(--titlebar) + 8px);
+  border-right: 0;
+  background:
+    linear-gradient(var(--line-soft), var(--line-soft)) 0 calc(var(--titlebar) - 1px) / 100% 1px
+      no-repeat,
+    linear-gradient(var(--line-soft), var(--line-soft)) 100% 0 / 1px 100% no-repeat,
+    var(--raised);
+}
+.shell:not(.is-sidebar-collapsed):not(:has(.plugin-page)) .activity-rail {
+  background:
+    linear-gradient(var(--line-soft), var(--line-soft)) 0 calc(var(--titlebar) - 1px) / 100% 1px
+      no-repeat,
+    linear-gradient(var(--line-soft), var(--line-soft)) 100% var(--titlebar) / 1px 100% no-repeat,
+    var(--raised);
+}
+
+/* Sidebar: the title bar row, then the product menu, then new chat. */
+.shell .sidebar-head,
+.native-mac .sidebar-head {
+  height: var(--titlebar);
+  min-height: var(--titlebar);
+  flex: 0 0 var(--titlebar);
+  padding: 0 8px 0 max(8px, calc(var(--titlebar-start) - var(--activity-rail)));
+  border-bottom: 1px solid var(--line-soft);
+}
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px 4px 8px;
+}
+.sidebar-brand-row .brand {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-strong);
+  cursor: pointer;
+}
+.sidebar-brand-row .brand:hover,
+.sidebar-brand-row .brand[data-state='open'] {
+  background: var(--surface-hover);
+}
+.sidebar-brand-row .brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.sidebar-brand-row .brand-name {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brand-chevron {
+  flex: none;
+  color: var(--text-tertiary);
+}
+.sidebar-brand-row .sidebar-add-project {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.sidebar-brand-row .sidebar-add-project:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.sidebar-brand-row .sidebar-add-project:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.brand-menu {
+  z-index: 120;
+  min-width: 220px;
+  padding: 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-floating);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 18%);
+  -webkit-app-region: no-drag;
+}
+.brand-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  outline: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.brand-menu [role='menuitem'] > svg {
+  color: var(--text-secondary);
+}
+.brand-menu [role='menuitem'] > kbd {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font: 500 11px var(--font);
+}
+.brand-menu [data-highlighted] {
+  background: var(--surface-hover);
+}
+.brand-menu [data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.brand-menu-separator {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--line-soft);
+}
+
+/* New chat reads as the first row of the list rather than a raised button. */
+.shell .sidebar-project-actions {
+  padding: 0 10px 8px;
+}
+.shell .sidebar-project-actions .sidebar-new-session {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.shell .sidebar-project-actions .sidebar-new-session:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.shell .sidebar-project-actions .runtime-picker-split {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.shell .sidebar-project-actions .runtime-picker-split:hover:not(:disabled),
+.shell .sidebar-project-actions .runtime-picker-split[data-state='open'] {
+  background: var(--surface-hover);
+}
+
+/* Conversation header: title first, quiet 28px actions. With the sidebar folded it carries
+   the window controls, after the macOS window buttons. */
+.shell .conversation-head {
+  padding-left: 20px;
+}
+.shell .conversation-head > .window-controls {
+  margin-right: 8px;
+}
+.shell.is-sidebar-collapsed .conversation-head,
+.native-mac:not(:has(.sidebar)) .conversation-head {
+  padding-left: max(12px, calc(var(--titlebar-start) - var(--activity-rail)));
+}
+.shell .conversation-session-title {
+  color: var(--text-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.shell .conversation-actions {
+  gap: 2px;
+}
+.shell .conversation-actions .session-action {
+  min-width: 28px;
+  min-height: 28px;
+  justify-content: center;
+  padding: 0 7px;
+  border-radius: 7px;
+}
+
+/* Plugin pages carry the window controls the same way. */
+.plugin-page-head {
+  padding-left: max(12px, calc(var(--titlebar-start) - var(--activity-rail)));
+}
+.plugin-page-head > .window-controls {
+  margin-right: 8px;
+}
+
+/* Workbench tabs: rounded chips with the ⌘ number that selects them. */
+.workbench-tabs-head {
+  padding-left: 10px;
+}
+.workbench-tabs {
+  align-items: center;
+  gap: 4px;
+}
+.workbench-tab {
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.workbench-tab:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.workbench-tab[data-active='true'] {
+  border-color: var(--line);
+  background: var(--chip);
+  color: var(--text-strong);
+}
+.workbench-tab button[role='tab'] {
+  gap: 7px;
+  padding: 0 4px 0 10px;
+  height: 30px;
+}
+.workbench-tab-title {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workbench-tab-shortcut {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text), transparent 92%);
+  color: var(--text-tertiary);
+  font: 500 10.5px/1.5 var(--font);
+}
+.workbench-tab:not([data-active='true']):not(:hover) .workbench-tab-shortcut {
+  visibility: hidden;
+}
+.workbench-tab .workbench-tab-close {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+}
+.workbench-tab .workbench-tab-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.workbench-add {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+/* Maximize sits left of the workbench switch, in the room the tab header keeps clear. */
+.workbench-maximize {
+  position: fixed;
+  top: 9px;
+  right: 44px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+.workspace-panels.is-workbench-maximized > #conversation,
+.workspace-panels.is-workbench-maximized > .workspace-resize-handle {
+  /* The panel library styles its panels inline. */
+  display: none !important;
+}
+.workspace-panels.is-workbench-maximized > #workbench {
+  flex: 1 1 0 !important;
+  max-width: none !important;
+}
