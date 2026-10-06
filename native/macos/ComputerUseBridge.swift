@@ -157,12 +157,18 @@ struct VisibleWindow {
     let frame: CGRect
 }
 
-func visibleWindows(pid: pid_t) -> [VisibleWindow] {
+/// The app's on-screen windows. Normal windows sit on layer 0; with `floating`, the app's
+/// panels above them (search popups, palettes, HUDs) count too, below the system's own
+/// screen-saver and overlay levels.
+func visibleWindows(pid: pid_t, floating: Bool = false) -> [VisibleWindow] {
     guard let raw = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return [] }
+    let screenSaverLevel = Int(CGWindowLevelForKey(.screenSaverWindow))
     return raw.compactMap { item in
         guard (item[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
-              (item[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+              let layer = (item[kCGWindowLayer as String] as? NSNumber)?.intValue,
+              floating ? (layer > 0 && layer < screenSaverLevel) : layer == 0,
+              (item[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
               let number = item[kCGWindowNumber as String] as? NSNumber,
               let bounds = item[kCGWindowBounds as String] as? [String: Any],
               let x = bounds["X"] as? NSNumber,
@@ -176,6 +182,14 @@ func visibleWindows(pid: pid_t) -> [VisibleWindow] {
                           width: width.doubleValue, height: height.doubleValue)
         )
     }
+}
+
+/// The on-screen windows whose frame is the focused accessibility window's. A normal window
+/// wins; only when none matches does a floating panel of the app count.
+func windowsMatching(pid: pid_t, frame: CGRect) -> [VisibleWindow] {
+    let normal = visibleWindows(pid: pid).filter { sameWindowFrame($0.frame, frame) }
+    if !normal.isEmpty { return normal }
+    return visibleWindows(pid: pid, floating: true).filter { sameWindowFrame($0.frame, frame) }
 }
 
 func axWindowFrame(_ window: AXUIElement) -> CGRect? {
@@ -212,11 +226,8 @@ func foregroundWindow() -> [String: Any] {
     guard !isSessionLocked(), let application = NSWorkspace.shared.frontmostApplication else {
         return ["ok": false, "error": "no-foreground-window"]
     }
-    let candidates = visibleWindows(pid: application.processIdentifier)
-    guard !candidates.isEmpty else {
-        return ["ok": false, "error": "no-foreground-window"]
-    }
-    var matches = candidates
+    let pid = application.processIdentifier
+    var matches = visibleWindows(pid: pid)
     if AXIsProcessTrusted() {
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, 0.2)
@@ -226,7 +237,9 @@ func foregroundWindow() -> [String: Any] {
               let frame = axWindowFrame(unsafeBitCast(focusedRaw, to: AXUIElement.self)) else {
             return ["ok": false, "error": "no-focused-window"]
         }
-        matches = candidates.filter { sameWindowFrame($0.frame, frame) }
+        matches = windowsMatching(pid: pid, frame: frame)
+    } else if matches.isEmpty {
+        return ["ok": false, "error": "no-foreground-window"]
     }
     guard matches.count == 1, let window = matches.first else {
         return ["ok": false, "error": "ambiguous-foreground-window"]
@@ -349,8 +362,7 @@ func dumpAccessibility() -> [String: Any] {
 
     var target: [String: Any]?
     if let focusedWindow, let frame = axWindowFrame(focusedWindow) {
-        let matches = visibleWindows(pid: application.processIdentifier)
-            .filter { sameWindowFrame($0.frame, frame) }
+        let matches = windowsMatching(pid: application.processIdentifier, frame: frame)
         if matches.count == 1,
            let first = tree.nodes.first,
            let x = first["x"] as? NSNumber, let y = first["y"] as? NSNumber,
