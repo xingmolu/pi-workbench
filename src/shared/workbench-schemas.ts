@@ -365,7 +365,15 @@ export const workbenchEventSchema: z.ZodType<WorkbenchEvent> = z.discriminatedUn
       detail: z.string().max(20_000)
     })
     .strict(),
-  z.object({ type: z.literal('plugin-approval-closed'), id: z.string().uuid() }).strict()
+  z.object({ type: z.literal('plugin-approval-closed'), id: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal('chat-draft'),
+      pluginId: identifierSchema,
+      text: z.string().min(1).max(20_000)
+    })
+    .strict(),
+  z.object({ type: z.literal('open-settings'), section: z.enum(['forges']) }).strict()
 ])
 
 export const pluginPanelContextSchema: z.ZodType<PluginPanelContext> = z

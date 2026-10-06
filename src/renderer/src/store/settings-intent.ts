@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 /** Something another surface asked Settings to show when it next opens. */
-type SettingsIntent = 'add-api'
+type SettingsIntent = 'add-api' | 'forges'
 
 export const useSettingsIntent = create<{
   intent: SettingsIntent | null

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode, type RefObject } from 're
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   ArchiveRestore,
+  GitPullRequest,
   KeyRound,
   Monitor,
   Palette,
@@ -21,6 +22,8 @@ import type { AgentSnapshot, WorkbenchCommand, WorkbenchSnapshot } from '../../.
 import EngineAccounts from './EngineAccounts'
 import PluginSettings from './PluginSettings'
 import LibrarySettings from './LibrarySettings'
+import ForgeSettings from './ForgeSettings'
+import { useSettingsIntent } from '../store/settings-intent'
 import {
   SettingsDraftProvider,
   confirmDiscardSettingsDraft,
@@ -79,6 +82,13 @@ const sections = [
     keywords: t('远程 配对 二维码 tailscale gateway')
   },
   {
+    id: 'forges',
+    label: t('代码托管'),
+    group: t('连接'),
+    icon: GitPullRequest,
+    keywords: t('github gitee 代码审查 拉取请求 pull request 令牌 token gh')
+  },
+  {
     id: 'skills',
     label: t('Skills 技能'),
     group: t('Agent 能力'),
@@ -132,6 +142,7 @@ function SettingsDialogContent({
 
   useEffect(() => {
     if (!open) setQuery('')
+    else if (useSettingsIntent.getState().take('forges')) setSection('forges')
   }, [open])
 
   const visibleSections = useMemo(() => {
@@ -246,6 +257,8 @@ function SettingsDialogContent({
                   <AppearanceSettings />
                 ) : section === 'library' ? (
                   <LibrarySettings />
+                ) : section === 'forges' ? (
+                  <ForgeSettings />
                 ) : section === 'mobile' ? (
                   <MobileGatewaySettings />
                 ) : section === 'skills' ? (

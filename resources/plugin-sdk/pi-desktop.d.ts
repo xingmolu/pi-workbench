@@ -35,11 +35,14 @@ declare namespace PiDesktop {
     | 'storage'
     | 'fs.read'
     | 'git.read'
+    | 'forge.read'
+    | 'chat.draft'
     | 'clipboard.write'
     | 'shell.openExternal'
     | 'fs.write'
     | 'git.write'
     | 'git.push'
+    | 'forge.write'
     | 'agent.tools'
     | 'agent.skills'
     | 'mcp.local'
@@ -68,6 +71,53 @@ declare namespace PiDesktop {
     subject: string
     author: string
     date: string
+  }
+
+  /** The project's code host and pull requests; see `src/shared/forge.ts` in Pi Desktop. */
+  interface ForgeRepository {
+    provider: 'github' | 'gitee' | null
+    host: string | null
+    owner: string | null
+    repo: string | null
+    webUrl: string | null
+    signedIn: boolean
+    viewer: string | null
+    reason?: string
+  }
+
+  interface ForgePullSummary {
+    number: number
+    title: string
+    author: string
+    draft: boolean
+    headRef: string
+    baseRef: string
+    updatedAt: string
+    url: string
+  }
+
+  interface ForgePullDetail extends ForgePullSummary {
+    body: string
+    state: 'open' | 'closed' | 'merged'
+    mergeable: boolean | null
+    mergeableState: string | null
+    headSha: string
+    additions: number
+    deletions: number
+    changedFiles: number
+    comments: number
+    checks: { name: string; status: string; conclusion: string | null; url: string | null }[]
+    reviews: { author: string; state: string; submittedAt: string | null }[]
+    stack: { number: number; title: string; current: boolean }[]
+  }
+
+  interface ForgePullFile {
+    path: string
+    previousPath?: string
+    status: string
+    additions: number
+    deletions: number
+    patch?: string
   }
 
   /** Host methods by name, with their parameters and results. Paths are relative to the
@@ -111,6 +161,41 @@ declare namespace PiDesktop {
     'git.commit': { params: { message: string }; result: { hash: string } }
     /** `git.push`: always asks the user, at every approval level. */
     'git.push': { params: Record<string, never>; result: { remote: string; branch: string } }
+    /** Commits on the current branch that its remote does not have, with their patch. */
+    'git.outgoing': {
+      params: Record<string, never>
+      result: {
+        branch: string | null
+        base: string | null
+        commits: GitCommit[]
+        moreCommits: number
+        patch: string
+      }
+    }
+    'forge.repository': { params: Record<string, never>; result: ForgeRepository }
+    'forge.pulls': {
+      params: Record<string, never>
+      result: {
+        viewer: string | null
+        mine: ForgePullSummary[]
+        reviewRequested: ForgePullSummary[]
+        others: ForgePullSummary[]
+      }
+    }
+    'forge.pull': { params: { number: number }; result: ForgePullDetail }
+    'forge.pullFiles': { params: { number: number }; result: ForgePullFile[] }
+    /** Always asks the user; merges only if the head is still `headSha`. */
+    'forge.merge': {
+      params: { number: number; method: 'merge' | 'squash' | 'rebase'; headSha: string }
+      result: void
+    }
+    /** Always asks the user. */
+    'forge.comment': { params: { number: number; body: string }; result: { url: string } }
+    /** A new conversation in the open project with `text` in its composer; never sends. */
+    'chat.draft': { params: { text: string }; result: void }
+    'ui.openSettings': { params: { section: 'forges' }; result: void }
+    /** Opens an https link in the user's browser. */
+    'shell.openExternal': { params: { url: string }; result: void }
   }
 
   type HostMethod = keyof HostMethods
