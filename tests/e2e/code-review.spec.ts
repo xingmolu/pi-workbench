@@ -51,7 +51,7 @@ function fakeGitHub(): Server {
       pull(8, 'Tax rules', 'alice', { requested_reviewers: [{ login: 'me' }] })
     ],
     'GET /repos/acme/shop/pulls/7': pull(7, 'Add cart totals', 'me', {
-      body: 'Totals now include tax.',
+      body: '## Why\n\nTotals now include **tax**.\n\n- Adds `rate`\n- [x] Tested',
       state: 'open',
       mergeable: true,
       mergeable_state: 'clean',
@@ -192,7 +192,30 @@ const clickButton = (label: string): Promise<void> =>
     `[...document.querySelectorAll('#detail button')].find((button) => button.textContent === ${JSON.stringify(label)})?.click()`
   )
 
+/** Saves the review page in the light theme and again in the dark one. Xvfb has no system
+ * theme to follow, so the dark capture emulates the media query in the page itself. */
 async function capture(name: string): Promise<void> {
+  await shot(name)
+  await emulateDark(true)
+  await shot(name.replace('.png', '-dark.png'))
+  await emulateDark(false)
+}
+
+function emulateDark(dark: boolean): Promise<void> {
+  return app.evaluate(async ({ webContents }, on) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((candidate) => candidate.getURL().endsWith('/views/review.html'))
+    if (!contents) return
+    if (!contents.debugger.isAttached()) contents.debugger.attach()
+    await contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-color-scheme', value: on ? 'dark' : 'light' }]
+    })
+    await new Promise((done) => setTimeout(done, 100))
+  }, dark)
+}
+
+async function shot(name: string): Promise<void> {
   const png = await app.evaluate(async ({ webContents }) => {
     const contents = webContents
       .getAllWebContents()
@@ -209,7 +232,7 @@ test('the code review page shows local changes and pull requests, merges and han
   await entry.click()
   await expect(page.getByRole('main', { name: '代码审查' })).toBeVisible()
 
-  await expect.poll(() => text('#repo')).toBe('acme/shop')
+  await expect.poll(() => text('#repo')).toContain('acme/shop')
   await expect
     .poll(() => text('#sections'))
     .toMatch(/未提交的改动.*未推送的提交.*Add cart totals.*Tax rules/s)
@@ -222,7 +245,10 @@ test('the code review page shows local changes and pull requests, merges and han
   await expect.poll(() => text('#detail .diffs')).toContain('+export const rate = 0.1')
 
   await clickItem('Add cart totals')
-  await expect.poll(() => text('#detail .description')).toBe('Totals now include tax.')
+  // The description is Markdown, rendered as elements rather than raw text.
+  await expect.poll(() => text('#detail .description h3')).toBe('Why')
+  expect(await text('#detail .description strong')).toBe('tax')
+  expect(await text('#detail .description li code')).toBe('rate')
   expect(await text('#detail .facts')).toContain('可以合并，没有冲突')
   expect(await text('#detail .checks')).toContain('verify')
   await capture('summary.png')
@@ -232,11 +258,13 @@ test('the code review page shows local changes and pull requests, merges and han
   await review(`[...document.querySelectorAll('.tab')][0].click()`)
 
   // Merging leaves the machine, so it is confirmed; it sends the head the user saw.
-  await review(`(() => {
-    const select = document.querySelector('.merge select')
-    select.value = 'squash'
-    select.dispatchEvent(new Event('change'))
-  })()`)
+  await review(`document.querySelector('[aria-label="合并方式"]').click()`)
+  await review(
+    `[...document.querySelectorAll('[role="menuitemradio"]')].find((item) => item.textContent === '压缩合并').click()`
+  )
+  await expect
+    .poll(() => review<string>(`document.querySelector('.split-main').title`))
+    .toBe('压缩合并')
   await clickButton('合并')
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText('合并拉取请求 #7')
