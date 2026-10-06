@@ -432,14 +432,61 @@ describe('plugin writes, approvals and view calls', () => {
           push: async (plan) => {
             calls.push(`push ${plan.remote} ${plan.remoteBranch}`)
             return { remote: plan.remote, branch: plan.remoteBranch }
-          }
+          },
+          outgoing: async () => ({
+            branch: 'main',
+            base: 'origin/main',
+            commits: [],
+            moreCommits: 0,
+            patch: ''
+          })
+        },
+        forge: {
+          repository: async () => ({
+            provider: 'github',
+            host: 'github.com',
+            owner: 'acme',
+            repo: 'shop',
+            webUrl: 'https://github.com/acme/shop',
+            signedIn: true,
+            viewer: 'me'
+          }),
+          client: async () =>
+            ({
+              pull: async (number: number) => ({
+                number,
+                title: 'Add cart',
+                headRef: 'cart',
+                baseRef: 'main',
+                url: `https://github.com/acme/shop/pull/${number}`,
+                headSha: 'a'.repeat(40)
+              }),
+              merge: async (number: number, method: string, sha: string) => {
+                calls.push(`merge ${number} ${method} ${sha.slice(0, 1)}`)
+              },
+              comment: async (number: number, body: string) => {
+                calls.push(`comment ${number} ${body}`)
+                return { url: 'https://github.com/c' }
+              }
+            }) as never
         }
-      }
+      },
+      chatDraft: (pluginId, text) => calls.push(`draft ${pluginId} ${text}`)
     })
     const view = {
       pluginId: 'acme.git',
       name: 'Git',
-      granted: new Set(['ui.view', 'fs.read', 'fs.write', 'git.read', 'git.write', 'git.push']),
+      granted: new Set([
+        'ui.view',
+        'fs.read',
+        'fs.write',
+        'git.read',
+        'git.write',
+        'git.push',
+        'forge.read',
+        'forge.write',
+        'chat.draft'
+      ]),
       commands: [],
       views: new Map()
     }
@@ -497,6 +544,43 @@ describe('plugin writes, approvals and view calls', () => {
     expect(detail[0]).toContain('https://example.com/shop.git')
     expect(detail[0]).toContain('fffffff ship it')
     expect(calls).toEqual(['push origin main'])
+  })
+
+  it('always asks before merging or commenting, and merges only the head the user saw', async () => {
+    const { runtime, view, calls, approvals } = withServices('open')
+    await expect(
+      runtime.callFromView(view, 'forge.merge', {
+        number: 7,
+        method: 'squash',
+        headSha: 'b'.repeat(40)
+      })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(approvals).toEqual([])
+    await runtime.callFromView(view, 'forge.merge', {
+      number: 7,
+      method: 'squash',
+      headSha: 'a'.repeat(40)
+    })
+    await runtime.callFromView(view, 'forge.comment', { number: 7, body: 'Looks good' })
+    expect(approvals).toEqual(['合并拉取请求 #7', '在拉取请求 #7 上发表评论'])
+    expect(calls).toEqual(['merge 7 squash a', 'comment 7 Looks good'])
+    await runtime.callFromView(view, 'chat.draft', { text: 'Review PR #7' })
+    expect(calls.at(-1)).toBe('draft acme.git Review PR #7')
+    await expect(
+      runtime.callFromView({ ...view, granted: new Set(['ui.view']) }, 'forge.pulls', {})
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+  })
+
+  it('does not merge when the merge is refused', async () => {
+    const { runtime, view, calls } = withServices('open', false)
+    await expect(
+      runtime.callFromView(view, 'forge.merge', {
+        number: 7,
+        method: 'merge',
+        headSha: 'a'.repeat(40)
+      })
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    expect(calls).toEqual([])
   })
 
   it('does not push when the push is refused', async () => {

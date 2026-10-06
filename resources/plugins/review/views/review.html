@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code review</title>
+    <link rel="stylesheet" href="./review.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="list" aria-label="审查列表" id="list-pane">
+        <header class="list-head">
+          <div class="repo" id="repo">—</div>
+          <button type="button" class="icon" id="refresh" aria-label="刷新" title="刷新">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5V5h-2.5" />
+            </svg>
+          </button>
+        </header>
+        <div class="account" id="account" hidden></div>
+        <nav id="sections"></nav>
+      </aside>
+      <main class="detail" id="detail" aria-live="polite"></main>
+    </div>
+    <div class="notice" id="notice" role="status" hidden></div>
+    <script src="./review.js"></script>
+  </body>
+</html>

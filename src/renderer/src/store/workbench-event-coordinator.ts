@@ -7,7 +7,11 @@ type WorkbenchEventCoordinatorOptions = {
   onReveal(viewId: string): void
   onError(message: string): void
   onToast?(pluginId: string, message: string): void
-  onApproval?(event: Extract<WorkbenchEvent, { type: 'plugin-approval' | 'plugin-approval-closed' }>): void
+  onApproval?(
+    event: Extract<WorkbenchEvent, { type: 'plugin-approval' | 'plugin-approval-closed' }>
+  ): void
+  onChatDraft?(pluginId: string, text: string): void
+  onOpenSettings?(section: 'forges'): void
 }
 
 function errorMessage(error: unknown): string {
@@ -65,6 +69,10 @@ export function startWorkbenchEventCoordinator(
       if (!cancelled) options.onToast?.(event.pluginId, event.message)
     } else if (event.type === 'plugin-approval' || event.type === 'plugin-approval-closed') {
       if (!cancelled) options.onApproval?.(event)
+    } else if (event.type === 'chat-draft') {
+      if (!cancelled) options.onChatDraft?.(event.pluginId, event.text)
+    } else if (event.type === 'open-settings') {
+      if (!cancelled) options.onOpenSettings?.(event.section)
     } else if (!initialized) {
       pendingReveals.push(event.viewId)
       refresh()

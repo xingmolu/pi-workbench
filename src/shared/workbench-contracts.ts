@@ -143,6 +143,9 @@ export type WorkbenchEvent =
       detail: string
     }
   | { type: 'plugin-approval-closed'; id: string }
+  /** A plugin asked for a new conversation with this text in its composer. */
+  | { type: 'chat-draft'; pluginId: string; text: string }
+  | { type: 'open-settings'; section: 'forges' }
 
 export type PluginPanelContext = {
   pluginId: string

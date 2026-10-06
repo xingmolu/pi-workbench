@@ -121,6 +121,8 @@ import { WorkspaceFiles } from './workspace-files'
 import { GIT_REVIEW_CHANNEL, gitReviewCommandSchema } from '../shared/git-review'
 import { GitReview } from './git-review'
 import { GitReviewProcess } from './git-review-process'
+import { ForgeService } from './forge/service'
+import { FORGE_ACCOUNTS_CHANNEL, FORGE_HOSTS, type ForgeAccountsCommand } from '../shared/forge'
 import { createUserGitPushRunner, PluginFileService, PluginGitService } from './plugin-services'
 import { TerminalManager } from './terminal-manager'
 import { TERMINAL_CHANNEL, TERMINAL_EVENT_CHANNEL } from '../shared/terminal'
@@ -758,6 +760,8 @@ type Preferences = {
   engineGrants?: import('../shared/engine-credentials').CredentialGrant[]
   /** Read-only GitHub token for update checks against the private repository (encrypted). */
   updateToken?: string
+  /** Code review tokens by host, each encrypted with safeStorage. */
+  forgeTokens?: Record<string, string>
 }
 
 function errorMessage(error: unknown): string {
@@ -1818,6 +1822,41 @@ const appUpdates = new AppUpdates({
   }
 })
 
+/** Code review on the project's code host; created with the plugin services. */
+let forgeService: ForgeService | null = null
+
+function createForgeService(
+  remoteUrl: (projectPath: string) => Promise<string | null>
+): ForgeService {
+  return new ForgeService({
+    remoteUrl,
+    tokens: {
+      read: (host) => {
+        const stored = preferenceStore().get('forgeTokens')?.[host]
+        if (!stored || !safeStorage.isEncryptionAvailable()) return undefined
+        try {
+          return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+        } catch {
+          return undefined
+        }
+      },
+      write: (host, token) => {
+        const tokens = { ...(preferenceStore().get('forgeTokens') ?? {}) }
+        if (!token) delete tokens[host]
+        else {
+          if (!safeStorage.isEncryptionAvailable()) throw new Error(t('这台电脑无法安全保存令牌'))
+          tokens[host] = safeStorage.encryptString(token).toString('base64')
+        }
+        preferenceStore().set('forgeTokens', tokens)
+      }
+    },
+    fetch: (url, init) => net.fetch(url, init),
+    ...(E2E_MODE && process.env.PI_DESKTOP_E2E_GITHUB_API
+      ? { githubApi: process.env.PI_DESKTOP_E2E_GITHUB_API, ghToken: async () => null }
+      : {})
+  })
+}
+
 // Crash dumps stay on this machine; Settings › 常规 › 诊断 summarises what went wrong.
 crashReporter.start({ uploadToServer: false })
 let diagnosticsInstance: Diagnostics | null = null
@@ -1900,6 +1939,25 @@ function registerIpc(): void {
     if (value.type === 'token:set' && typeof value.token !== 'string')
       throw new Error(t('无效的令牌'))
     return appUpdates.handle(value)
+  })
+  ipcMain.handle(FORGE_ACCOUNTS_CHANNEL, async (event, command: unknown) => {
+    assertTrustedRenderer(event)
+    const value = command as ForgeAccountsCommand | undefined
+    if (!forgeService) throw new Error(t('代码托管服务尚未就绪'))
+    if (!value || typeof value !== 'object') throw new Error(t('无效的操作'))
+    if (value.type === 'list') return forgeService.accounts()
+    if (
+      (value.type === 'token:set' || value.type === 'token:clear') &&
+      (FORGE_HOSTS as readonly string[]).includes(value.host)
+    ) {
+      if (value.type === 'token:set') {
+        const token = typeof value.token === 'string' ? value.token.trim() : ''
+        if (!/^[\w-]{20,255}$/.test(token)) throw new Error(t('无效的令牌'))
+        await forgeService.saveToken(value.host, token)
+      } else await forgeService.saveToken(value.host, null)
+      return forgeService.accounts()
+    }
+    throw new Error(t('无效的操作'))
   })
   ipcMain.handle(NAVIGATION_LIBRARY_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
@@ -2708,26 +2766,28 @@ function createWindow(): void {
     developmentRoots: () => pluginDevelopment?.roots() ?? Promise.resolve([]),
     logs: pluginLogs,
     appearance: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
+    openExternal: (url) => {
+      if (/^https:\/\//i.test(url)) void shell.openExternal(url)
+    },
     pluginServices: (() => {
       mkdirSync(app.getPath('sessionData'), { recursive: true })
       const hooksPath = mkdtempSync(join(app.getPath('sessionData'), 'plugin-git-hooks-'))
-      return {
-        fs: new PluginFileService(),
-        git: new PluginGitService(
-          new GitReviewProcess({
-            gitPath: hostGit.path,
-            hooksPath,
-            trustedEnv: {
-              ...hostGit.env,
-              HOME: homedir(),
-              TMPDIR: app.getPath('temp'),
-              LC_ALL: 'C'
-            }
-          }),
-          gitCommitIdentity,
-          createUserGitPushRunner({ gitPath: hostGit.path, hooksPath })
-        )
-      }
+      const git = new PluginGitService(
+        new GitReviewProcess({
+          gitPath: hostGit.path,
+          hooksPath,
+          trustedEnv: {
+            ...hostGit.env,
+            HOME: homedir(),
+            TMPDIR: app.getPath('temp'),
+            LC_ALL: 'C'
+          }
+        }),
+        gitCommitIdentity,
+        createUserGitPushRunner({ gitPath: hostGit.path, hooksPath })
+      )
+      forgeService = createForgeService((projectPath) => git.remoteUrl(projectPath))
+      return { fs: new PluginFileService(), git, forge: forgeService }
     })(),
     onEvent: (event) => {
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send(WORKBENCH_EVENT_CHANNEL, event)
