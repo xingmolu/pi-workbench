@@ -1,4 +1,5 @@
 import { useSettingsIntent } from './store/settings-intent'
+import { useComposerPrefill } from './store/composer-prefill'
 import SubagentDirectory from './components/SubagentDirectory'
 import RuntimePicker from './components/RuntimePicker'
 import { useRuntimeCatalog } from './store/runtime-catalog'
@@ -176,6 +177,11 @@ export default function App(): React.JSX.Element {
   const workbenchRevision = useRef(-1)
   const availableWorkbenchViews = useRef<readonly string[]>([])
   const pageViews = useRef<readonly string[]>([])
+  /** What plugin events ask of the window; refreshed each render so they see current state. */
+  const pluginActions = useRef<{
+    chatDraft: (text: string) => Promise<void>
+    openForges: () => void
+  }>({ chatDraft: async () => undefined, openForges: () => undefined })
   /** A plugin page opened from the activity rail; it covers everything right of the rail. */
   const [pageViewId, setPageViewId] = useState<string | null>(null)
   const pluginNames = useRef(new Map<string, string>())
@@ -348,6 +354,8 @@ export default function App(): React.JSX.Element {
               ? [...current.filter(({ id }) => id !== event.id), event]
               : current.filter(({ id }) => id !== event.id)
           ),
+        onChatDraft: (_pluginId, text) => void pluginActions.current.chatDraft(text),
+        onOpenSettings: () => pluginActions.current.openForges(),
         onToast: (pluginId, message) =>
           useNavigationFeedback.getState().notify({
             message: `${pluginNames.current.get(pluginId) ?? t('插件')}：${message}`
@@ -738,6 +746,22 @@ export default function App(): React.JSX.Element {
     if (!subagentPreview) subagentRestoreWorkbench.current = workbenchOpen
     setSubagentPreview({ child, owner })
     setWorkbenchOpen(true)
+  }
+
+  pluginActions.current = {
+    // A plugin's review request opens a fresh conversation in this project with the text in
+    // its composer; the user reads it and sends it.
+    chatDraft: async (text) => {
+      const project = usePiStore.getState().snapshot.project
+      if (!project) return
+      setPageViewId(null)
+      await navigateProject(project.path)
+      useComposerPrefill.getState().request(text)
+    },
+    openForges: () => {
+      useSettingsIntent.getState().request('forges')
+      openSettings()
+    }
   }
 
   const pageContributions = workbenchStatus.snapshot.contributions.filter(

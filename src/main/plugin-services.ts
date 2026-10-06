@@ -376,6 +376,92 @@ export class PluginGitService {
   }
 
   /** Everything the confirmation shows is read here, through the hardened runner. */
+  /** The remote the current branch tracks, else `origin`, else the only remote. */
+  private async remoteName(root: string, branch: string | null): Promise<string | null> {
+    const configured = branch
+      ? await this.optional(root, ['config', '--get', `branch.${branch}.remote`])
+      : null
+    if (configured && configured !== '.') return configured
+    const remotes = ((await this.optional(root, ['remote'])) ?? '').split('\n').filter(Boolean)
+    return remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0] : null
+  }
+
+  /** The fetch URL of the branch's remote, without credentials; null without a remote. */
+  async remoteUrl(projectPath: string): Promise<string | null> {
+    const root = await this.root(projectPath)
+    const branch = await this.optional(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    const remote = await this.remoteName(root, branch)
+    if (!remote) return null
+    const url = await this.optional(root, ['config', '--get', `remote.${remote}.url`])
+    return url ? redactUrl(url) : null
+  }
+
+  /**
+   * What the current branch has that its remote does not: commits since its upstream, or
+   * since it left the remote's default branch when it was never pushed.
+   */
+  async outgoing(projectPath: string): Promise<{
+    branch: string | null
+    base: string | null
+    commits: { hash: string; subject: string; author: string; date: string }[]
+    moreCommits: number
+    patch: string
+  }> {
+    const root = await this.root(projectPath)
+    const branch = await this.optional(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    const head = await this.optional(root, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+    const empty = { branch, base: null, commits: [], moreCommits: 0, patch: '' }
+    if (!head) return empty
+    let base: string | null = null
+    const upstream = branch
+      ? await this.optional(root, [
+          'rev-parse',
+          '--abbrev-ref',
+          '--symbolic-full-name',
+          `${branch}@{upstream}`
+        ])
+      : null
+    if (upstream) base = upstream
+    else {
+      const remote = await this.remoteName(root, branch)
+      const defaultBranch = remote
+        ? await this.optional(root, [
+            'symbolic-ref',
+            '--quiet',
+            '--short',
+            `refs/remotes/${remote}/HEAD`
+          ])
+        : null
+      if (defaultBranch) base = defaultBranch
+    }
+    if (!base) return empty
+    const mergeBase = await this.optional(root, ['merge-base', base, head])
+    if (!mergeBase) return { ...empty, base }
+    const range = `${mergeBase}..${head}`
+    const total = Number((await this.optional(root, ['rev-list', '--count', range])) ?? 0)
+    if (total === 0) return { ...empty, base }
+    const log =
+      (await this.optional(root, [
+        'log',
+        '--max-count=50',
+        '--format=%H%x1f%s%x1f%an%x1f%aI',
+        range
+      ])) ?? ''
+    const commits = log
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, subject, author, date] = line.split('\x1f')
+        return { hash, subject, author, date }
+      })
+    const patch = await this.run(
+      root,
+      ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', range, '--', '.'],
+      'patch'
+    )
+    return { branch, base, commits, moreCommits: Math.max(0, total - commits.length), patch }
+  }
+
   async pushPlan(projectPath: string): Promise<PluginGitPushPlan> {
     const root = await this.root(projectPath)
     const branch = await this.optional(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])

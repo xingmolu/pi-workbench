@@ -124,6 +124,8 @@ export type WorkbenchHostDependencies = {
   appearance?: () => 'light' | 'dark'
   spawnPlugin?: PluginRuntimeDependencies['spawn']
   pluginServices?: PluginRuntimeDependencies['services']
+  /** Opens an https URL a plugin asked for in the user's browser. */
+  openExternal?: (url: string) => void
   /** The foreground session's approval level; plugin writes follow it. */
   permissionMode?: () => PermissionMode
   approvalTimeoutMs?: number
@@ -583,6 +585,10 @@ export function createWorkbenchHost(dependencies: WorkbenchHostDependencies): Wo
           dependencies.onEvent?.({ type: 'toast', pluginId, message: message.slice(0, 600) })
         },
         openView: (viewId) => dependencies.onEvent?.({ type: 'reveal', viewId }),
+        chatDraft: (pluginId, text) =>
+          dependencies.onEvent?.({ type: 'chat-draft', pluginId, text }),
+        openSettings: (section) => dependencies.onEvent?.({ type: 'open-settings', section }),
+        ...(dependencies.openExternal ? { openExternal: dependencies.openExternal } : {}),
         audit: pluginAuditWriter(join(dependencies.agentDir, 'pi-desktop', 'plugin-audit.jsonl')),
         settings: {
           get: (pluginId) => state.pluginSettings(pluginId),

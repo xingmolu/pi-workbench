@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "works.pi.review",
+  "version": "0.1.0",
+  "name": {
+    "en": "Code review",
+    "zh-CN": "代码审查"
+  },
+  "description": {
+    "en": "Local changes and the project's pull requests in one page; review them with Pi. Shipped with Pi Desktop.",
+    "zh-CN": "在一个页面里看本地改动和项目的拉取请求，并让 Pi 审查。随 Pi Desktop 分发。"
+  },
+  "engines": {
+    "piDesktop": ">=0.1.0"
+  },
+  "permissions": [
+    "ui.view",
+    "git.read",
+    "git.write",
+    "git.push",
+    "forge.read",
+    "forge.write",
+    "chat.draft",
+    "shell.openExternal"
+  ],
+  "contributes": {
+    "views": [
+      {
+        "id": "page",
+        "title": {
+          "zh-CN": "代码审查",
+          "en": "Code review"
+        },
+        "icon": "git-review",
+        "entry": "views/review.html",
+        "activation": "onProject",
+        "placement": "page"
+      }
+    ]
+  }
+}

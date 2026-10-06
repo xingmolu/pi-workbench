@@ -884,10 +884,11 @@ function Composer({
 
   const prefill = useComposerPrefill((state) => state.pending)
   useEffect(() => {
-    if (!prefill) return
+    // Kept until the composer can take it, e.g. while a new conversation is still starting.
+    if (!prefill || !canCompose || editOpen || submitting) return
     const mode = useComposerPrefill.getState().mode
     const request = useComposerPrefill.getState().consume()
-    if (!request || !canCompose || editOpen || submitting) return
+    if (!request) return
     const text =
       mode === 'append' && draft.trim() ? `${draft.replace(/\s+$/u, '')}\n\n${request}` : request
     setDraft(text)

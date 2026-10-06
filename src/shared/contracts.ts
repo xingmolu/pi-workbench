@@ -704,6 +704,10 @@ export type PiDesktopAPI = {
   appUpdate: (
     command: import('./app-updates').AppUpdateCommand
   ) => Promise<import('./app-updates').AppUpdateStatus>
+  /** Code host accounts for code review: where each token comes from, saving one. */
+  forgeAccounts: (
+    command: import('./forge').ForgeAccountsCommand
+  ) => Promise<import('./forge').ForgeAccount[]>
   /** Local logs and crash records; export writes a redacted report the user chooses to share. */
   diagnostics: <Command extends import('./diagnostics').DiagnosticsCommand>(
     command: Command
