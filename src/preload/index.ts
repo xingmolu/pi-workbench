@@ -20,6 +20,7 @@ import {
 import { DESKTOP_CONTROL_CHANNEL } from '../shared/desktop-control'
 import { DIAGNOSTICS_CHANNEL } from '../shared/diagnostics'
 import { FORGE_ACCOUNTS_CHANNEL } from '../shared/forge'
+import { GATEWAY_PROBE_CHANNEL } from '../shared/gateway'
 import { APP_UPDATE_CHANNEL, APP_UPDATE_EVENT_CHANNEL, type AppUpdateStatus } from '../shared/app-updates'
 import { createDesktopControlClient } from './desktop-control-client'
 import {
@@ -122,6 +123,7 @@ const api: PiDesktopAPI = {
   appUpdate: (command) => ipcRenderer.invoke(APP_UPDATE_CHANNEL, command),
   diagnostics: (command) => ipcRenderer.invoke(DIAGNOSTICS_CHANNEL, command),
   forgeAccounts: (command) => ipcRenderer.invoke(FORGE_ACCOUNTS_CHANNEL, command),
+  gatewayProbe: (input) => ipcRenderer.invoke(GATEWAY_PROBE_CHANNEL, input),
   onAppUpdate: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
       listener(value as AppUpdateStatus)

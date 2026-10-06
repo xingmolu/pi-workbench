@@ -139,3 +139,61 @@ test('Codex chats on a ChatGPT account Pi lends it after the user allows it', as
   )
   expect(leaked).toContain('仅供宿主内部使用')
 })
+
+test('one gateway added in Settings serves Pi and Codex, and Codex chats through it', async () => {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const section = page.getByRole('region', { name: '自定义端点' })
+  await section.getByRole('button', { name: '添加端点', exact: true }).click()
+  const panel = page.getByRole('group', { name: '添加端点' })
+  await panel.getByRole('button', { name: /^自定义/ }).click()
+  await panel.getByLabel('名称', { exact: true }).fill('团队网关')
+  // The root address is enough: the desktop finds the /v1 API itself.
+  await panel.getByLabel('服务地址', { exact: true }).fill(fixture.baseUrl.replace(/\/v1$/, ''))
+  await panel.getByLabel('API Key', { exact: true }).fill('gateway-key')
+  await panel.getByRole('button', { name: '测试并拉取模型', exact: true }).click()
+  const detected = panel.getByRole('group', { name: '检测结果' })
+  await expect(detected.locator('li.is-ok')).toHaveText(['OpenAI Responses'])
+  await expect(panel.getByLabel('服务地址', { exact: true })).toHaveValue(fixture.baseUrl)
+  await expect(panel.getByLabel('接口协议', { exact: true })).toHaveValue('openai-responses')
+  const engines = panel.getByRole('group', { name: '用于哪些引擎' })
+  await expect(engines.getByLabel('Codex')).toBeChecked()
+  // Claude Code is offered nothing here: the gateway has no Anthropic route.
+  const claudeReady = await page.evaluate(async () =>
+    (await window.pi.runtimeAccounts()).some(
+      (engine) => engine.runtimeId === 'claude' && !engine.error
+    )
+  )
+  await expect(engines.getByLabel('Claude Code')).toHaveCount(0)
+  if (claudeReady) await expect(panel).toContainText('Claude Code 只支持 Anthropic Messages 协议')
+  await panel.screenshot({ path: join(screenshots, 'gateway-detected.png') })
+  await panel.getByRole('button', { name: '保存端点', exact: true }).click()
+  await expect(panel).toHaveCount(0)
+
+  // One service, one row, used by both engines.
+  const row = section.locator('.acct-endpoint-row', { hasText: '团队网关' })
+  await expect(row).toHaveCount(1)
+  await expect(row.locator('.acct-engine-tag')).toHaveText(['Pi', 'Codex'])
+  await page.screenshot({ path: join(screenshots, 'gateway-list.png') })
+  await page.getByRole('button', { name: '关闭设置' }).click()
+
+  // A Codex chat on the gateway sends the gateway's key and the chosen model.
+  await page.getByRole('button', { name: '选择 Agent 引擎' }).click()
+  await page.getByRole('menuitem', { name: /Codex/ }).click()
+  await expect.poll(async () => (await state()).runtime?.label).toBe('Codex')
+  const gateway = await expect
+    .poll(async () => (await state()).accounts.find((account) => account.name === '团队网关')?.id)
+    .toMatch(/^codex-api-/)
+    .then(async () => (await state()).accounts.find((account) => account.name === '团队网关')!.id)
+  await page.evaluate(
+    (providerId) => window.pi.send({ type: 'model:set', providerId, modelId: 'fixture-model' }),
+    gateway
+  )
+  const before = fixture.requests.length
+  await page.getByRole('textbox', { name: '任务输入' }).fill('hello gateway')
+  await page.getByRole('button', { name: '发送任务', exact: true }).click()
+  await expect(page.getByText('Codex fixture reply.', { exact: true })).toBeVisible()
+  expect(fixture.requests.slice(before)[0]).toMatchObject({
+    authorization: 'Bearer gateway-key',
+    model: 'fixture-model'
+  })
+})

@@ -97,6 +97,62 @@ const nodes = (state: AgentSnapshot, type: string) =>
   state.nodes.filter((node) => node.type === type)
 
 describe.skipIf(!executable)('Codex app-server runtime', () => {
+  it('reaches a gateway through the Responses API with its own key and models', async () => {
+    const { make, cwd, fixture, storage } = await setup()
+    const settings = make()
+    await settings.handle({ type: 'bootstrap' })
+    await settings.handle({
+      type: 'account:api-key:set',
+      providerId: 'new',
+      label: 'Team gateway',
+      baseUrl: fixture.baseUrl,
+      apiKey: 'gw-secret',
+      modelIds: ['team-model', 'team-mini']
+    })
+    const gateway = settings.getState().accounts.find((account) => account.name === 'Team gateway')
+    expect(gateway).toMatchObject({
+      authType: 'api_key',
+      endpoint: new URL(fixture.baseUrl).hostname
+    })
+    // The key lives in the desktop's own file, readable only by the user.
+    const saved = await readFile(join(storage.config, 'desktop-gateways.json'), 'utf8')
+    expect(saved).toContain('gw-secret')
+
+    // A chat started elsewhere picks the gateway up when it refreshes.
+    const host = make()
+    await host.handle({ type: 'bootstrap' })
+    await host.handle({ type: 'runtime:refresh' })
+    await host.handle({ type: 'project:open', cwd })
+    expect(
+      host
+        .getState()
+        .models.filter((model) => model.provider === gateway!.id)
+        .map((model) => model.id)
+    ).toEqual(['team-model', 'team-mini'])
+    await host.handle({ type: 'model:set', providerId: gateway!.id, modelId: 'team-mini' })
+    const before = fixture.requests.length
+    await send(host, 'hello gateway')
+    await waitFor(() => !host.getState().busy)
+    expect(fixture.requests.slice(before)[0]).toMatchObject({
+      authorization: 'Bearer gw-secret',
+      model: 'team-mini'
+    })
+    expect(nodes(host.getState(), 'assistant')).toMatchObject([
+      { markdown: 'Codex fixture reply.' }
+    ])
+    // The chat is bound to the gateway; another service needs a new chat.
+    await expect(
+      host.handle({
+        type: 'model:set',
+        providerId: CONFIGURED_CONNECTION,
+        modelId: 'fixture-model'
+      })
+    ).rejects.toThrow()
+
+    await settings.handle({ type: 'account:remove', providerId: gateway!.id })
+    expect(settings.getState().accounts.some((account) => account.id === gateway!.id)).toBe(false)
+  }, 120_000)
+
   it('chats, asks before running commands, resumes and lends the chosen ChatGPT account', async () => {
     const { make, cwd, fixture, credentialRequests } = await setup()
     const host = make()

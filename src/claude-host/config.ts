@@ -19,7 +19,9 @@ const apiSchema = z
     id: z.string().regex(/^claude-api-[a-z0-9]{6,16}$/),
     label: z.string().max(80).optional(),
     apiKey: z.string().min(1),
-    baseUrl: z.string().url().optional()
+    baseUrl: z.string().url().optional(),
+    /** The service wants the key as a bearer token (`ANTHROPIC_AUTH_TOKEN`). */
+    bearer: z.boolean().optional()
   })
   .strict()
 const configSchema = z
@@ -77,7 +79,7 @@ export async function saveConfig(storage: ClaudeStorage, config: ClaudeConfig): 
 /** Remove inherited provider credentials, CLI overrides and auth helpers before SDK startup. */
 export function claudeEnvironment(
   storage: ClaudeStorage,
-  config: Pick<ClaudeConfig, 'apiKey' | 'baseUrl'>,
+  config: Pick<ClaudeConfig, 'apiKey' | 'baseUrl'> & { bearer?: boolean },
   parent = process.env,
   configHome = storage.config
 ): Record<string, string | undefined> {
@@ -88,7 +90,8 @@ export function claudeEnvironment(
   env.CLAUDE_CONFIG_DIR = configHome
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
   env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS = '1'
-  if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey
+  if (config.apiKey)
+    env[config.bearer ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'] = config.apiKey
   if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl
   return env
 }
