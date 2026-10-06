@@ -2657,7 +2657,10 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'Pi Desktop',
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
+    ...(process.platform === 'darwin'
+      ? // The window buttons sit centred in the 48px title bar row.
+        { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 17 } }
+      : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#181818' : '#ffffff',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {

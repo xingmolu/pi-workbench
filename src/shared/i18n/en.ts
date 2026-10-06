@@ -3029,6 +3029,13 @@ export const en: Readonly<Record<string, string>> = {
   '在 Pi Desktop 中点停止即可中止。': 'Click Stop in Pi Desktop to end it.',
   '后台子任务不能使用 Computer Use：桌面操作需要用户在场确认。请把这一步交回主会话完成。':
     'Background subtasks cannot use Computer Use: desktop control needs the user present to approve it. Hand this step back to the main conversation.',
+  还原工作台: 'Restore workbench',
+  最大化工作台: 'Maximize workbench',
+  'Pi Desktop 菜单': 'Pi Desktop menu',
+  窗口导航: 'Window navigation',
+  '后退（{shortcut}）': 'Back ({shortcut})',
+  '前进（{shortcut}）': 'Forward ({shortcut})',
+  收起侧栏: 'Collapse sidebar',
   已保存的令牌: 'Saved token',
   '环境变量 GH_TOKEN / GITHUB_TOKEN': 'GH_TOKEN / GITHUB_TOKEN environment variable',
   'GitHub CLI（gh auth login）': 'GitHub CLI (gh auth login)',
