@@ -456,3 +456,134 @@
   height: 24px;
   font-size: 12px;
 }
+
+/* The workbench start page: tools as a two-column list with their shortcuts, then the sites
+   visited recently in the browser. */
+.workbench-launcher {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  max-height: none;
+  height: 100%;
+  margin: 0;
+  padding: 22px 20px 28px;
+  gap: 28px;
+}
+.workbench-launcher-section {
+  display: grid;
+  gap: 12px;
+}
+.workbench-launcher-section h2 {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+.workbench-launcher-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.workbench-launcher .workbench-launcher-tool {
+  height: 46px;
+  gap: 10px;
+  padding: 0 12px 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--chip);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 13.5px;
+}
+.workbench-launcher .workbench-launcher-tool:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+}
+.workbench-launcher-tool > svg {
+  color: var(--text-secondary);
+}
+.workbench-launcher-title {
+  flex: 1;
+}
+.workbench-launcher-tool > kbd {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text), transparent 91%);
+  color: var(--text-tertiary);
+  font: 500 11px/1.6 var(--font);
+}
+.workbench-launcher-sites {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+.workbench-launcher-site {
+  position: relative;
+}
+.workbench-launcher .workbench-launcher-site-open {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+.workbench-launcher .workbench-launcher-site-open:hover {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+}
+.workbench-launcher-site-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  place-items: center;
+  border-radius: 10px;
+  background: hsl(var(--site-hue) 55% 45%);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+}
+.workbench-launcher-site-title {
+  max-width: 100%;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.workbench-launcher-site-open > small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-launcher .workbench-launcher-site-forget {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+  opacity: 0;
+}
+.workbench-launcher-site:hover .workbench-launcher-site-forget,
+.workbench-launcher-site-forget:focus-visible {
+  opacity: 1;
+}
+.workbench-launcher .workbench-launcher-site-forget:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}

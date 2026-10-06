@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { CircleAlert, MonitorCog } from 'lucide-react'
 import WorkbenchTabs, { WorkbenchLauncher } from './WorkbenchTabs'
-import { useBrowserState } from '../store/browser-state'
+import { openInBrowser, useBrowserState } from '../store/browser-state'
 import { isBrowserContribution, workbenchTabId } from '../store/workbench-tab-items'
 import type {
   AgentSnapshot,
@@ -219,6 +219,12 @@ export default function Workbench({
             <WorkbenchLauncher
               contributions={workbenchSnapshot.contributions}
               onSelect={onSelectView}
+              onOpenSite={(url) => {
+                const browser = workbenchSnapshot.contributions.find(isBrowserContribution)
+                if (!browser) return
+                // Open the page first, so showing the browser does not add a blank one.
+                void openInBrowser(url).then(() => onSelectView(browser.viewId))
+              }}
             />
           )}
         </div>
