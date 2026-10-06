@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { CircleAlert, MonitorCog } from 'lucide-react'
 import WorkbenchTabs, { WorkbenchLauncher } from './WorkbenchTabs'
+import { useBrowserState } from '../store/browser-state'
+import { isBrowserContribution, workbenchTabId } from '../store/workbench-tab-items'
 import type {
   AgentSnapshot,
   WorkbenchCommand,
@@ -152,6 +154,11 @@ export default function Workbench({
   const selectedContribution = workbenchSnapshot.contributions.find(
     ({ viewId }) => viewId === selectedViewId
   )
+  const selectedBrowser = Boolean(
+    selectedContribution && isBrowserContribution(selectedContribution)
+  )
+  const browserPages = useBrowserState((store) => store.state.pages.length > 0)
+  const activeBrowserPage = useBrowserState((store) => store.state.activePageId)
   return (
     <aside
       className={`workbench${collapsed ? ' is-collapsed' : ''}`}
@@ -179,7 +186,14 @@ export default function Workbench({
           className="workbench-stage-body"
           id="workbench-active-panel"
           role={selectedViewId ? 'tabpanel' : undefined}
-          aria-labelledby={selectedViewId ? `workbench-tab-${selectedViewId}` : undefined}
+          aria-labelledby={
+            selectedViewId
+              ? workbenchTabId(
+                  selectedViewId,
+                  selectedBrowser && browserPages ? activeBrowserPage : null
+                )
+              : undefined
+          }
         >
           <TerminalPane
             projectPath={agentSnapshot.project?.path ?? null}

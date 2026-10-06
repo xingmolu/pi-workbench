@@ -3035,5 +3035,8 @@ export const en: Readonly<Record<string, string>> = {
   窗口导航: 'Window navigation',
   '后退（{shortcut}）': 'Back ({shortcut})',
   '前进（{shortcut}）': 'Forward ({shortcut})',
-  收起侧栏: 'Collapse sidebar'
+  收起侧栏: 'Collapse sidebar',
+  搜索或输入网址: 'Search or enter address',
+  浏览器更多操作: 'More browser actions',
+  在系统浏览器中打开: 'Open in system browser'
 }

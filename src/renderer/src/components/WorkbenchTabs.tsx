@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import {
   Blocks,
   Files,
@@ -7,6 +7,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe2,
+  LoaderCircle,
   Plus,
   Puzzle,
   TerminalSquare,
@@ -15,6 +16,14 @@ import {
 } from 'lucide-react'
 import type { WorkbenchContribution, WorkbenchIcon } from '../../../shared/contracts'
 import { shortcutLabel } from './shortcut-label'
+import { browserOperate, followBrowserState, useBrowserState } from '../store/browser-state'
+import {
+  isActiveTab,
+  isBrowserContribution,
+  workbenchTabId,
+  workbenchTabItems,
+  type WorkbenchTabItem
+} from '../store/workbench-tab-items'
 import { t } from '../../../shared/i18n'
 import '../assets/workbench-tabs.css'
 const icons: Record<WorkbenchIcon, LucideIcon> = {
@@ -111,10 +120,14 @@ export default function WorkbenchTabs({
   const root = useRef<HTMLElement>(null)
   const restoreFocus = useRef(false)
   const focusedTab = useRef<string | null>(null)
+  useEffect(followBrowserState, [])
+  const browser = useBrowserState((store) => store.state)
+  const items = workbenchTabItems(contributions, openedViewIds, browser, t('新标签页'))
+  const itemKeys = items.map(({ key }) => key).join('\n')
   useLayoutEffect(() => {
     if (
       focusedTab.current &&
-      !openedViewIds.includes(focusedTab.current) &&
+      !itemKeys.split('\n').includes(focusedTab.current) &&
       document.activeElement === document.body
     )
       restoreFocus.current = true
@@ -124,65 +137,97 @@ export default function WorkbenchTabs({
       root.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
       root.current?.parentElement?.querySelector<HTMLElement>('.workbench-launcher button')
     target?.focus()
-  }, [openedViewIds])
-  const close = (id: string): void => {
-    restoreFocus.current = true
-    onClose(id)
+  }, [itemKeys])
+  const select = (item: WorkbenchTabItem): void => {
+    onSelect(item.viewId)
+    if (item.pageId && item.pageId !== browser.activePageId)
+      void browserOperate({ action: 'select_tab', pageId: item.pageId })
   }
-  if (!openedViewIds.length) return <header className="workbench-tabs-head" ref={root} />
+  const close = (item: WorkbenchTabItem): void => {
+    restoreFocus.current = true
+    // A browser page closes on its own; the last one closes the browser.
+    if (item.pageId && browser.pages.length > 1)
+      void browserOperate({ action: 'close_tab', pageId: item.pageId })
+    else onClose(item.viewId)
+  }
+  const open = (contribution: WorkbenchContribution): void => {
+    onSelect(contribution.viewId)
+    // With the browser already open, asking for it again means another page.
+    if (
+      isBrowserContribution(contribution) &&
+      openedViewIds.includes(contribution.viewId) &&
+      browser.pages.length
+    )
+      void browserOperate({ action: 'new_tab' })
+  }
+  if (!items.length) return <header className="workbench-tabs-head" ref={root} />
   return (
     <header
       className="workbench-tabs-head"
       ref={root}
       onFocusCapture={(event) => {
         focusedTab.current =
-          (event.target as HTMLElement).closest<HTMLElement>('[data-view-id]')?.dataset.viewId ??
+          (event.target as HTMLElement).closest<HTMLElement>('[data-tab-key]')?.dataset.tabKey ??
           null
       }}
     >
       <div className="workbench-tabs" role="tablist" aria-label={t('已打开的工作台工具')}>
-        {openedViewIds.map((id, index) => {
-          const contribution = contributions.find((item) => item.viewId === id)
-          return contribution ? (
+        {items.map((item, index) => {
+          const active = isActiveTab(item, selectedViewId, browser)
+          const id = workbenchTabId(item.viewId, item.pageId)
+          return (
             <div
               className="workbench-tab"
-              key={id}
-              data-view-id={id}
-              data-active={selectedViewId === id}
+              key={item.key}
+              data-view-id={item.viewId}
+              data-tab-key={item.key}
+              data-tool={item.contribution.title}
+              data-active={active}
             >
               <button
                 role="tab"
-                title={contribution.title}
-                id={`workbench-tab-${id}`}
+                title={item.title}
+                id={id}
                 aria-controls="workbench-active-panel"
-                tabIndex={selectedViewId === id ? 0 : -1}
-                aria-selected={selectedViewId === id}
-                onClick={() => onSelect(id)}
+                tabIndex={active ? 0 : -1}
+                aria-selected={active}
+                onClick={() => select(item)}
                 onKeyDown={(event) => {
-                  const index = openedViewIds.indexOf(id)
                   const next =
                     event.key === 'Home'
                       ? 0
                       : event.key === 'End'
-                        ? openedViewIds.length - 1
+                        ? items.length - 1
                         : event.key === 'ArrowRight'
-                          ? (index + 1) % openedViewIds.length
+                          ? (index + 1) % items.length
                           : event.key === 'ArrowLeft'
-                            ? (index + openedViewIds.length - 1) % openedViewIds.length
+                            ? (index + items.length - 1) % items.length
                             : -1
                   if (event.key === 'Delete') {
                     event.preventDefault()
-                    close(id)
+                    close(item)
                     return
                   }
                   if (next < 0) return
                   event.preventDefault()
-                  onSelect(openedViewIds[next])
-                  document.getElementById(`workbench-tab-${openedViewIds[next]}`)?.focus()
+                  select(items[next])
+                  root.current
+                    ?.querySelector<HTMLElement>(
+                      `[data-tab-key="${CSS.escape(items[next].key)}"] [role="tab"]`
+                    )
+                    ?.focus()
                 }}
               >
-                <Icon contribution={contribution} />
-                <span className="workbench-tab-title">{contribution.title}</span>
+                {item.pageId ? (
+                  item.loading ? (
+                    <LoaderCircle className="spin" size={15} aria-hidden="true" />
+                  ) : (
+                    <Globe2 size={15} aria-hidden="true" />
+                  )
+                ) : (
+                  <Icon contribution={item.contribution} />
+                )}
+                <span className="workbench-tab-title">{item.title}</span>
                 {index < 9 ? (
                   <kbd className="workbench-tab-shortcut" aria-hidden="true">
                     {shortcutLabel(String(index + 1))}
@@ -191,13 +236,13 @@ export default function WorkbenchTabs({
               </button>
               <button
                 className="workbench-tab-close"
-                aria-label={t('关闭{title}标签', { title: contribution.title })}
-                onClick={() => close(id)}
+                aria-label={t('关闭{title}标签', { title: item.title })}
+                onClick={() => close(item)}
               >
                 <X size={12} />
               </button>
             </div>
-          ) : null
+          )
         })}
       </div>
       <DropdownMenu.Root open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -220,7 +265,7 @@ export default function WorkbenchTabs({
               <DropdownMenu.Item
                 key={contribution.viewId}
                 title={contribution.title}
-                onSelect={() => onSelect(contribution.viewId)}
+                onSelect={() => open(contribution)}
               >
                 <Icon contribution={contribution} />
                 <span>{contribution.title}</span>

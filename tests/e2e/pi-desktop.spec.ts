@@ -1418,7 +1418,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         }
       })
 
-    const addressInput = page.getByPlaceholder('输入网址')
+    const addressInput = page.getByPlaceholder('搜索或输入网址')
     await addressInput.fill(fixtureUrl)
     await addressInput.press('Enter')
     await expect
@@ -1605,8 +1605,12 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         operation: { action: 'click', ref }
       })
     }, popupRef!)
-    await expect(page.locator('.browser-tab')).toHaveCount(2)
-    await expect(page.locator('.browser-tab.is-active')).toContainText('Popup Evidence')
+    // Every browser page is a workbench tab of its own.
+    const browserTabs = page.locator('.workbench-tab[data-tool="浏览器"]')
+    await expect(browserTabs).toHaveCount(2)
+    await expect(browserTabs.and(page.locator('[data-active="true"]'))).toContainText(
+      'Popup Evidence'
+    )
 
     const popupState = await page.evaluate(async () => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({ type: 'state:get' })
@@ -1619,7 +1623,7 @@ test.describe.serial('Pi Desktop real Electron app', () => {
         operation: { action: 'close_tab', pageId }
       })
     }, popupPage!.id)
-    await expect(page.locator('.browser-tab')).toHaveCount(1)
+    await expect(browserTabs).toHaveCount(1)
 
     const originalState = await page.evaluate(async () => {
       return (window as unknown as Window & { pi: PiDesktopAPI }).pi.browser({ type: 'state:get' })

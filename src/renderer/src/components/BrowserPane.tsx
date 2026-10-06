@@ -1,31 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
   CircleStop,
+  Copy,
+  ExternalLink,
   Globe2,
-  LoaderCircle,
   LockKeyhole,
-  Plus,
+  MoreHorizontal,
   RefreshCw,
-  X
+  ShieldCheck
 } from 'lucide-react'
-import type {
-  BrowserCommand,
-  BrowserOperation,
-  BrowserPageSummary,
-  BrowserState,
-  WorkbenchCommand
-} from '../../../shared/contracts'
+import type { BrowserPageSummary, BrowserState, WorkbenchCommand } from '../../../shared/contracts'
+import {
+  addressTarget,
+  browserCommand,
+  browserOperate,
+  followBrowserState,
+  useBrowserState
+} from '../store/browser-state'
 import { t } from '../../../shared/i18n'
-
-const EMPTY_BROWSER_STATE: BrowserState = {
-  available: false,
-  visible: false,
-  pages: [],
-  activePageId: null,
-  controller: 'idle'
-}
 
 function activePage(state: BrowserState): BrowserPageSummary | undefined {
   return state.pages.find((page) => page.id === state.activePageId)
@@ -38,10 +33,12 @@ function isExpectedHideCancellation(message: string): boolean {
   return /superseded|disposed|unavailable|no longer current/i.test(message)
 }
 
+/** The workbench browser. Its pages are tabs in the workbench header; this pane holds the
+ * toolbar and the native page view. */
 export default function BrowserPane({
   viewId,
   projectReady,
-  visible = true,
+  visible: shown = true,
   onWorkbenchCommand,
   onWorkbenchError
 }: {
@@ -53,44 +50,17 @@ export default function BrowserPane({
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const addressFocused = useRef(false)
-  const [state, setState] = useState<BrowserState>(EMPTY_BROWSER_STATE)
+  const state = useBrowserState((store) => store.state)
+  const clientError = useBrowserState((store) => store.error)
   const [address, setAddress] = useState('')
-  const [clientError, setClientError] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  // The native page would cover the menu, so it steps aside while the menu is open.
+  const visible = shown && !menuOpen
   const page = useMemo(() => activePage(state), [state])
+  const operate = browserOperate
+  const command = browserCommand
 
-  const command = useCallback(async (value: BrowserCommand): Promise<void> => {
-    try {
-      const result = await window.pi.browser(value)
-      setState(result.state)
-      setClientError(null)
-    } catch (error) {
-      setClientError(error instanceof Error ? error.message : String(error))
-    }
-  }, [])
-
-  const operate = useCallback(
-    (operation: BrowserOperation): void => void command({ type: 'operate', operation }),
-    [command]
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    const unsubscribe = window.pi.onBrowserEvent((event) => {
-      if (!cancelled) setState(event.data)
-    })
-    void window.pi
-      .browser({ type: 'state:get' })
-      .then((result) => {
-        if (!cancelled) setState(result.state)
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setClientError(error instanceof Error ? error.message : String(error))
-      })
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
+  useEffect(followBrowserState, [])
 
   useEffect(() => {
     if (!addressFocused.current) setAddress(page?.url === 'about:blank' ? '' : (page?.url ?? ''))
@@ -155,53 +125,19 @@ export default function BrowserPane({
     }
   }, [onWorkbenchCommand, onWorkbenchError, projectReady, viewId, visible])
 
+  const notice =
+    state.controller === 'agent'
+      ? t('Agent 正在控制{value}', { value: state.lastAction ? ` · ${state.lastAction}` : '' })
+      : (state.error ?? clientError)
+  const webPage = page && /^https?:/.test(page.url) ? page : undefined
+
   return (
     <div className="browser-pane">
-      <div className="browser-tabs" role="tablist" aria-label={t('浏览器标签页')}>
-        {state.pages.map((tab) => (
-          <div className={`browser-tab${tab.active ? ' is-active' : ''}`} key={tab.id}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab.active}
-              title={tab.title || tab.url}
-              onClick={() => operate({ action: 'select_tab', pageId: tab.id })}
-            >
-              {tab.loading ? (
-                <LoaderCircle className="spin" size={12} />
-              ) : (
-                <span className="tab-dot" />
-              )}
-              <span>{tab.title || t('新标签页')}</span>
-            </button>
-            <button
-              className="browser-tab-close"
-              type="button"
-              title={t('关闭标签页')}
-              aria-label={t('关闭 {title}', { title: tab.title || t('标签页') })}
-              onClick={() => operate({ action: 'close_tab', pageId: tab.id })}
-            >
-              <X size={11} />
-            </button>
-          </div>
-        ))}
-        <button
-          className="browser-new-tab"
-          type="button"
-          title={t('新建标签页')}
-          aria-label={t('新建浏览器标签页')}
-          disabled={!projectReady}
-          onClick={() => operate({ action: 'new_tab' })}
-        >
-          <Plus size={14} />
-        </button>
-      </div>
-
       <form
         className="browser-toolbar"
         onSubmit={(event) => {
           event.preventDefault()
-          if (address.trim()) operate({ action: 'navigate', url: address.trim() })
+          if (address.trim()) void operate({ action: 'navigate', url: addressTarget(address) })
         }}
       >
         <div className="browser-nav-group">
@@ -210,39 +146,47 @@ export default function BrowserPane({
             title={t('后退')}
             aria-label={t('浏览器后退')}
             disabled={!page?.canGoBack}
-            onClick={() => operate({ action: 'back' })}
+            onClick={() => void operate({ action: 'back' })}
           >
-            <ArrowLeft size={14} />
+            <ArrowLeft size={15} />
           </button>
           <button
             type="button"
             title={t('前进')}
             aria-label={t('浏览器前进')}
             disabled={!page?.canGoForward}
-            onClick={() => operate({ action: 'forward' })}
+            onClick={() => void operate({ action: 'forward' })}
           >
-            <ArrowRight size={14} />
+            <ArrowRight size={15} />
           </button>
+          <span className="browser-nav-divider" aria-hidden="true" />
           <button
             type="button"
             title={t('重新加载')}
             aria-label={t('重新加载页面')}
             disabled={!page}
-            onClick={() => operate({ action: 'reload' })}
+            onClick={() => void operate({ action: 'reload' })}
           >
-            <RefreshCw size={13} />
+            <RefreshCw size={14} />
           </button>
         </div>
-        <label className="browser-address">
+        <label className={`browser-address${address ? ' has-value' : ''}`}>
           <span className="sr-only">{t('网址')}</span>
-          {page?.url.startsWith('https://') ? <LockKeyhole size={11} /> : <Globe2 size={11} />}
+          {webPage ? (
+            webPage.url.startsWith('https://') ? (
+              <LockKeyhole size={12} aria-hidden="true" />
+            ) : (
+              <Globe2 size={12} aria-hidden="true" />
+            )
+          ) : null}
           <input
             value={address}
             disabled={!projectReady}
             spellCheck={false}
-            placeholder={projectReady ? t('输入网址') : t('选择工作区后可浏览')}
-            onFocus={() => {
+            placeholder={projectReady ? t('搜索或输入网址') : t('选择工作区后可浏览')}
+            onFocus={(event) => {
               addressFocused.current = true
+              event.currentTarget.select()
             }}
             onBlur={() => {
               addressFocused.current = false
@@ -251,23 +195,54 @@ export default function BrowserPane({
             onChange={(event) => setAddress(event.target.value)}
           />
         </label>
+        <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenu.Trigger className="browser-round-button" aria-label={t('浏览器更多操作')}>
+            <MoreHorizontal size={16} />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="browser-menu" sideOffset={6} align="end">
+              <DropdownMenu.Item
+                disabled={!webPage}
+                onSelect={() => {
+                  if (webPage) void navigator.clipboard.writeText(webPage.url).catch(() => {})
+                }}
+              >
+                <Copy size={14} />
+                <span>{t('复制链接')}</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled={!webPage}
+                onSelect={() => {
+                  if (webPage) window.open(webPage.url, '_blank')
+                }}
+              >
+                <ExternalLink size={14} />
+                <span>{t('在系统浏览器中打开')}</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className="browser-menu-separator" />
+              <div className="browser-menu-note">
+                <ShieldCheck size={14} aria-hidden="true" />
+                <span>{t('独立浏览器资料 · 网页内容不受信任')}</span>
+              </div>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </form>
 
-      <div className={`browser-control${state.controller === 'agent' ? ' is-agent' : ''}`}>
-        <span className="browser-control-dot" />
-        <span>
-          {state.controller === 'agent'
-            ? t('Agent 正在控制{value}', {
-                value: state.lastAction ? ` · ${state.lastAction}` : ''
-              })
-            : state.error || clientError || t('独立浏览器资料 · 网页内容不受信任')}
-        </span>
-        {state.controller === 'agent' ? (
-          <button type="button" onClick={() => void command({ type: 'agent:stop' })}>
-            <CircleStop size={12} /> {t('停止')}
-          </button>
-        ) : null}
-      </div>
+      {notice ? (
+        <div
+          className={`browser-control${state.controller === 'agent' ? ' is-agent' : ' is-error'}`}
+          role="status"
+        >
+          <span className="browser-control-dot" />
+          <span>{notice}</span>
+          {state.controller === 'agent' ? (
+            <button type="button" onClick={() => void command({ type: 'agent:stop' })}>
+              <CircleStop size={12} /> {t('停止')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="browser-viewport" ref={viewportRef}>
         {!projectReady ? (
