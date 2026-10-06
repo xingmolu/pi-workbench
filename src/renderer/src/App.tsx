@@ -35,6 +35,8 @@ import type {
 } from '../../shared/contracts'
 import ActivityRail from './components/ActivityRail'
 import WindowControls from './components/WindowControls'
+import { browserOperate, useBrowserState } from './store/browser-state'
+import { workbenchTabItems } from './store/workbench-tab-items'
 import {
   EMPTY_HISTORY,
   canStep,
@@ -668,8 +670,17 @@ export default function App(): React.JSX.Element {
     back: () => goHistory(-1),
     forward: () => goHistory(1),
     selectTab: (index) => {
-      const viewId = workbenchSelection.openedViewIds[index]
-      if (viewId) selectWorkbenchView(viewId)
+      const browser = useBrowserState.getState().state
+      const item = workbenchTabItems(
+        panelSnapshot.contributions,
+        workbenchSelection.openedViewIds,
+        browser,
+        ''
+      )[index]
+      if (!item) return
+      selectWorkbenchView(item.viewId)
+      if (item.pageId && item.pageId !== browser.activePageId)
+        void browserOperate({ action: 'select_tab', pageId: item.pageId })
     },
     newSession: () => {
       if (snapshot.ready && snapshot.project) void navigateProject(snapshot.project.path)
