@@ -22,8 +22,8 @@
 - **No more juggling three terminals**: in one project, run Pi on DeepSeek in one session, Claude
   Code in another and Codex in a third, each on its own.
 - **One ChatGPT subscription, two engines**: sign in once in Pi and Codex borrows the account.
-- **Bring any gateway**: any OpenAI / Anthropic compatible API works with a URL and a key, and its
-  model list is fetched for you.
+- **One gateway, all three engines**: enter its address and key once; the app detects which
+  OpenAI / Anthropic protocols it speaks, ticks the engines that can use it and fetches its models.
 - **See it, approve it, undo it**: every read, edit and command is laid out; approve file changes
   before they happen and undo a whole turn with one click.
 - **Local and private**: accounts and keys stay on your computer. Open source, MIT licensed.
@@ -41,11 +41,41 @@ Claude Code and Codex programs are downloaded from their official npm packages o
 **Three engines, chosen per session**
 - **Pi**: many model providers. Sign in with a ChatGPT subscription or use an API key
   (OpenRouter, DeepSeek, Kimi, Anthropic, or any OpenAI / Anthropic compatible gateway).
-- **Claude Code**: the official Claude Agent SDK, with a Claude subscription or an API key.
-- **Codex**: the official Codex CLI, using the ChatGPT account you signed in to in Pi (it asks for
-  your permission the first time).
+- **Claude Code**: the official Claude Agent SDK, with a Claude subscription or any
+  Anthropic-compatible API or gateway (`x-api-key` or Bearer authentication).
+- **Codex**: the official Codex CLI, with the ChatGPT account you signed in to in Pi (it asks for
+  your permission the first time) or any gateway that offers the OpenAI Responses API.
 - The Claude Code and Codex programs are not bundled. They are downloaded from their official npm
   packages on first use, checked against pinned digests, and interrupted downloads resume.
+
+**Models and gateways**
+
+Settings › Engines & accounts lists subscription accounts by email, and API keys and gateways one
+service per row, tagged with the engines that use it.
+
+![Engines & accounts: three engines, subscriptions and one gateway shared by all three](.github/screenshots/engines.png)
+
+Adding a gateway takes its address and key once. "Test and fetch models" checks which protocols it
+speaks (no tokens are spent) and ticks the engines that can use it:
+
+| Engine | Protocol it uses |
+|---|---|
+| Pi | Any of OpenAI Chat Completions, OpenAI Responses, Anthropic Messages |
+| Claude Code | Anthropic Messages (at the gateway root or `/anthropic`; `x-api-key` or Bearer is detected) |
+| Codex | OpenAI Responses |
+
+<table>
+<tr>
+<td width="50%"><img src=".github/screenshots/gateway.png" alt="Adding a gateway: the detected protocols and the engines that can use it"></td>
+<td width="50%"><img src=".github/screenshots/models.png" alt="Switching account and model from the composer"></td>
+</tr>
+<tr>
+<td align="center">Detect the protocols, choose the engines</td>
+<td align="center">Switch account and model from the composer</td>
+</tr>
+</table>
+
+The screenshots show the Chinese interface; the app follows your system language.
 
 **Work you can see and control**
 - Each turn's reads, edits and commands fold into a "work" section with details and timings.
@@ -58,7 +88,16 @@ Claude Code and Codex programs are downloaded from their official npm packages o
 ![Approve before files change](.github/screenshots/approval.png)
 
 **Workbench**
-- Built-in browser (the agent can drive it), terminal, Git (stage, commit, push) and file browser.
+- Four columns: activity rail, projects and sessions, conversation, workbench; back / forward in the
+  title bar, and the workbench can be maximized.
+- Workbench tools: files, change review, Git (stage, commit, push), terminal and a browser whose
+  pages are tabs (the agent can drive it); `⌘/Ctrl + 1…9` switches tabs, and an empty workbench
+  lists the tools and recently visited sites.
+- Code review: uncommitted changes, unpushed commits and GitHub pull requests in one place to read
+  diffs, merge and comment; hand a review to Pi, or ask about a pull request directly.
+
+![Code review: a pull request's summary, checks and question box](.github/screenshots/code-review.png)
+
 - MCP servers (including OAuth sign-in for HTTP servers), skills, and plugins (views, commands,
   agent tools, themes), installed and updated from a folder, a zip or a Git URL.
 - Phone companion: pair on the local network with a code, or reach it from anywhere through
@@ -92,16 +131,24 @@ Windows and AppImage builds update in place; macOS and deb builds open the downl
 
 Open the app and pick a project folder. Without an account yet, the home page lists the ways to connect:
 
-![Connect a model](.github/screenshots/connect.png)
-
 - **ChatGPT account**: sign in to a Plus / Pro subscription in the browser; Pi and Codex can both use it.
-- **API key**: add one in Settings › Engines & accounts, pick the provider and paste the key.
+- **API key / gateway**: in Settings › Engines & accounts › Add endpoint, pick a provider or Custom,
+  enter the address and key, then "Test and fetch models" (see [Models and gateways](#features)).
 - **Claude account**: switch to the Claude Code engine, let it download, then sign in.
 
 ### 3. Work
 
-Describe the task in the composer. `⌘/Ctrl + K` opens the command palette, `⌘/Ctrl + J` toggles
-the terminal and `⌘/Ctrl + N` starts a new session.
+Describe the task in the composer. Handy shortcuts:
+
+| Shortcut | Does |
+|---|---|
+| `⌘/Ctrl + K` | Command palette (search sessions, run commands) |
+| `⌘/Ctrl + N` | New session |
+| `⌘/Ctrl + P` | Search project files |
+| `⌘/Ctrl + J` | Open the terminal |
+| `⌘/Ctrl + 1…9` | Switch workbench tabs |
+| `⌘/Ctrl + [` / `]` | Back / forward |
+| `⌘/Ctrl + \` | Show / hide the workbench |
 
 ## Privacy and security
 
@@ -132,6 +179,7 @@ npm run demo       # offline demo with a local fake model, no account needed
 npm test           # unit tests
 npm run test:e2e   # end-to-end tests (Playwright + Electron)
 npm run build && npx electron-builder --linux   # package (or --win; on macOS run npm run build:native:mac, then --mac)
+# regenerate the README screenshots: see the top of tests/e2e/readme-screenshots.spec.ts
 ```
 
 Architecture, implementation notes and testing: [DEVELOPMENT.md](./DEVELOPMENT.md) (Chinese).
