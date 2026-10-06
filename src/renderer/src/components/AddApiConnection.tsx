@@ -524,9 +524,7 @@ export default function AddApiConnection({
                 checked={bearer}
                 onChange={(event) => setBearer(event.target.checked)}
               />
-              <span>
-                {t('Claude Code 以 Bearer 方式发送密钥（网关只认 Authorization 头时勾选）')}
-              </span>
+              <span>{t('以 Bearer 方式发送密钥（网关只认 Authorization 头时勾选）')}</span>
             </label>
           ) : null}
 

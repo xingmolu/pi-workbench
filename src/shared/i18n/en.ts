@@ -3102,8 +3102,8 @@ export const en: Readonly<Record<string, string>> = {
     "Codex only speaks the OpenAI Responses protocol, which this service doesn't offer, so it can't be used with Codex.",
   'Claude Code 只支持 Anthropic Messages 协议。':
     'Claude Code only speaks the Anthropic Messages protocol.',
-  'Claude Code 以 Bearer 方式发送密钥（网关只认 Authorization 头时勾选）':
-    'Claude Code sends the key as a Bearer token (check this when the gateway only accepts the Authorization header)',
+  '以 Bearer 方式发送密钥（网关只认 Authorization 头时勾选）':
+    'Send the key as a Bearer token (check this when the gateway only accepts the Authorization header)',
   'Pi 已保存，但 {engine} 中的同一端点未更新：{message}':
     'Saved in Pi, but the same endpoint in {engine} was not updated: {message}',
   '，Claude Code 的每个账号各用一个独立配置目录，Codex 的网关密钥在它自己的配置目录里。桌面端不复制 token。':
