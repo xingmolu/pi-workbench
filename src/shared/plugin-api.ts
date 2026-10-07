@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { t } from './i18n'
+import { UTILITY_LIMITS } from './utility-model'
 
 /** Permission names follow the common plugin vocabulary where one exists. */
 export const PLUGIN_PERMISSIONS = {
@@ -14,6 +15,8 @@ export const PLUGIN_PERMISSIONS = {
   'forge.read': 'medium',
   /** Pre-fill a new conversation in the open project; the user still sends it. */
   'chat.draft': 'medium',
+  /** Send text to the user's model for a short answer, on the user's account. */
+  'ai.complete': 'medium',
   'clipboard.write': 'medium',
   'shell.openExternal': 'medium',
   'fs.write': 'high',
@@ -227,6 +230,18 @@ export const PLUGIN_HOST_METHODS = {
   'chat.draft': {
     permission: 'chat.draft',
     params: z.object({ text: z.string().trim().min(1).max(20_000) }).strict()
+  },
+  /** A short answer from the user's model (titles, summaries, commit messages). Small fast
+   * models are preferred; the user can pick one in Settings. */
+  'ai.complete': {
+    permission: 'ai.complete',
+    params: z
+      .object({
+        system: z.string().max(UTILITY_LIMITS.system).optional(),
+        prompt: z.string().trim().min(1).max(UTILITY_LIMITS.prompt),
+        maxTokens: z.number().int().min(16).max(UTILITY_LIMITS.maxTokens).default(800)
+      })
+      .strict()
   },
   /** Opens an https link in the user's browser. */
   'shell.openExternal': {

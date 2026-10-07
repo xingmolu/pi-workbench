@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DEFAULT_DESKTOP_SETTINGS, type DesktopSettings } from '../../../shared/desktop-settings'
 import { useDesktopSettings } from '../store/desktop-settings'
 import {
@@ -14,6 +14,7 @@ import '../assets/desktop-settings.css'
 import AppUpdateSettings from './AppUpdateSettings'
 import DiagnosticsSettings from './DiagnosticsSettings'
 import { t } from '../../../shared/i18n'
+import type { UtilityModelOption } from '../../../shared/utility-model'
 
 /** Status line and "restore defaults" for a page of desktop preferences. */
 export function PreferencesFooter({
@@ -40,7 +41,75 @@ export function PreferencesFooter({
 const generalDefaults: Partial<DesktopSettings> = {
   sendShortcut: DEFAULT_DESKTOP_SETTINGS.sendShortcut,
   workDetails: DEFAULT_DESKTOP_SETTINGS.workDetails,
-  showUsage: DEFAULT_DESKTOP_SETTINGS.showUsage
+  showUsage: DEFAULT_DESKTOP_SETTINGS.showUsage,
+  autoTitle: DEFAULT_DESKTOP_SETTINGS.autoTitle,
+  utilityModel: DEFAULT_DESKTOP_SETTINGS.utilityModel
+}
+
+/** Session titles, commit messages and plugin requests: on or off, and which model writes them. */
+function GenerationSettings({ disabled }: { disabled: boolean }): React.JSX.Element {
+  const { settings, save } = useDesktopSettings()
+  const [models, setModels] = useState<UtilityModelOption[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    window.pi
+      .utilityModels()
+      .then((list) => {
+        if (alive) setModels(list)
+      })
+      .catch(() => {
+        if (alive) setFailed(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+  const chosen = settings.utilityModel ?? ''
+  const listed = models?.some((model) => `${model.providerId}/${model.modelId}` === chosen)
+  return (
+    <SettingsGroup title={t('自动生成')}>
+      <SettingsRow
+        label={t('自动命名会话')}
+        description={t('新会话的第一轮结束后，根据你的问题生成标题；你改过的名称不会被替换。')}
+      >
+        <Switch
+          label={t('自动命名会话')}
+          checked={settings.autoTitle}
+          disabled={disabled}
+          onChange={(autoTitle) => void save({ autoTitle })}
+        />
+      </SettingsRow>
+      <SettingsRow
+        label={t('生成用的模型')}
+        description={
+          failed
+            ? t('暂时无法读取 Pi 的模型列表。')
+            : t(
+                '用于会话标题、提交信息和插件的生成请求，使用 Pi 的账号与 API。自动时先试 Haiku、GPT mini、Gemini Flash 等小模型，再用当前会话的模型。'
+              )
+        }
+      >
+        <SelectControl
+          label={t('生成用的模型')}
+          value={chosen}
+          disabled={disabled}
+          onChange={(value) => void save({ utilityModel: value || null })}
+        >
+          <option value="">{t('自动')}</option>
+          {chosen && !listed ? <option value={chosen}>{chosen}</option> : null}
+          {(models ?? []).map((model) => (
+            <option
+              key={`${model.providerId}/${model.modelId}`}
+              value={`${model.providerId}/${model.modelId}`}
+            >
+              {`${model.name} · ${model.providerId}`}
+            </option>
+          ))}
+        </SelectControl>
+      </SettingsRow>
+    </SettingsGroup>
+  )
 }
 
 /** The language picker; each language is named in itself so it can be found from either one. */
@@ -130,6 +199,7 @@ export default function GeneralSettings(): React.JSX.Element {
           />
         </SettingsRow>
       </SettingsGroup>
+      <GenerationSettings disabled={disabled} />
       <AppUpdateSettings />
       <DiagnosticsSettings />
       <PreferencesFooter resetPatch={generalDefaults} />

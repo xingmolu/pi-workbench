@@ -5,6 +5,7 @@ import { sessionSearchCommandSchema, projectSearchCommandSchema, sessionSearchRe
 import { skillsListSchema, skillsDetailSchema, skillsCatalogSchema, skillDetailSchema } from './skills'
 import { mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpLoginSchema, mcpLogoutSchema, mcpSnapshotSchema } from './mcp'
 import { accountQuotaCommandSchema, accountQuotaSchema } from './account-quota'
+import { utilityCompleteCommandSchema, utilityCompletionSchema } from './utility-model'
 import { messageFeedbackCommandSchema, messageFeedbackDataSchema } from './message-actions'
 import {
   checkpointPlanCommandSchema,
@@ -726,6 +727,7 @@ const commandSchemas = [
   mcpListSchema, mcpShutdownSchema, mcpSaveSchema, mcpToggleSchema, mcpReloadSchema, mcpLoginSchema, mcpLogoutSchema,
   accountQuotaCommandSchema,
   accountTokenCommandSchema,
+  utilityCompleteCommandSchema,
   messageFeedbackCommandSchema,
   checkpointPlanCommandSchema,
   checkpointRestoreCommandSchema,
@@ -786,6 +788,7 @@ export const hostRequestSchema: z.ZodType<HostRequest> = z.union([
   mcpLogoutSchema.extend(requestIdShape),
   accountQuotaCommandSchema.extend(requestIdShape),
   accountTokenCommandSchema.extend(requestIdShape),
+  utilityCompleteCommandSchema.extend(requestIdShape),
   messageFeedbackCommandSchema.extend(requestIdShape),
   checkpointPlanCommandSchema.extend(requestIdShape),
   checkpointRestoreCommandSchema.extend(requestIdShape),
@@ -837,6 +840,7 @@ export const hostResultSchema: z.ZodType<HostResult> = z.discriminatedUnion('kin
   z.object({ kind: z.literal('skills-detail'), detail: skillDetailSchema }).strict(),
   z.object({ kind: z.literal('mcp'), result: mcpSnapshotSchema }).strict(),
   z.object({ kind: z.literal('account-quota'), quota: accountQuotaSchema }).strict(),
+  z.object({ kind: z.literal('utility-completion'), result: utilityCompletionSchema }).strict(),
   z.object({ kind: z.literal('account-token'), token: z.object({ accessToken: z.string().min(1), chatgptAccountId: z.string().min(1), planType: z.string().nullable() }).strict() }).strict(),
   z.object({kind:z.literal('project-catalog'),catalog:z.object({
     projects:z.array(z.object({

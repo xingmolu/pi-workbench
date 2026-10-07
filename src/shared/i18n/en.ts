@@ -3114,5 +3114,23 @@ export const en: Readonly<Record<string, string>> = {
     'This conversation started on another service; start a new conversation to use this one',
   'Codex 只能用 API Key 连接网关': 'Codex connects to gateways with an API key only',
   'Codex 连接网关需要服务地址、API Key 和至少一个模型':
-    'Connecting Codex to a gateway needs an address, an API key and at least one model'
+    'Connecting Codex to a gateway needs an address, an API key and at least one model',
+  自动生成: 'Generated text',
+  自动命名会话: 'Name conversations automatically',
+  '新会话的第一轮结束后，根据你的问题生成标题；你改过的名称不会被替换。':
+    'After the first turn of a new conversation, title it from your question. A name you gave it is never replaced.',
+  生成用的模型: 'Model for generated text',
+  '暂时无法读取 Pi 的模型列表。': "Can't read Pi's models right now.",
+  '用于会话标题、提交信息和插件的生成请求，使用 Pi 的账号与 API。自动时先试 Haiku、GPT mini、Gemini Flash 等小模型，再用当前会话的模型。':
+    "Writes conversation titles, commit messages and plugin requests with Pi's accounts and APIs. Automatic tries small models such as Haiku, GPT mini and Gemini Flash first, then the conversation's own model.",
+  'Pi 没有返回生成结果': 'Pi returned no generated text',
+  自动命名会话失败: 'Could not name the conversation automatically',
+  此环境不能调用模型: "Models can't be called here",
+  上一次生成还没有结束: 'The previous generation has not finished',
+  '同时进行的生成太多，请稍后再试': 'Too many generations at once; try again shortly',
+  '没有可用于生成的模型：请先在「设置 › 引擎与账号」连接一个账号或 API':
+    'No model to write with: connect an account or API in Settings › Engines & accounts first',
+  模型没有完成回答: 'The model did not finish its answer',
+  模型没有返回文字: 'The model returned no text',
+  '生成失败：{reason}': 'Generation failed: {reason}'
 }

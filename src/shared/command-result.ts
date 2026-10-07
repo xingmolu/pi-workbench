@@ -22,6 +22,8 @@ export function expectedHostResultKind(command: HostCommand): HostResult['kind']
       return 'account-quota'
     case 'account:token':
       return 'account-token'
+    case 'utility:complete':
+      return 'utility-completion'
     case 'project:catalog':
       return 'project-catalog'
     case 'session:edit:prepare':

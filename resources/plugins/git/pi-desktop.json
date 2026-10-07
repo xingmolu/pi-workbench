@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "name": "Git",
   "description": {
-    "en": "Review, stage, commit and push changes in the current project. Shipped with Pi Desktop.",
-    "zh-CN": "查看改动、暂存、提交和推送当前项目。随 Pi Desktop 分发。"
+    "en": "Review, stage, commit and push changes in the current project, and write commit messages from the diff. Shipped with Pi Desktop.",
+    "zh-CN": "查看改动、暂存、提交和推送当前项目，并根据改动生成提交信息。随 Pi Desktop 分发。"
   },
   "engines": {
     "piDesktop": ">=0.1.0"
   },
-  "permissions": ["ui.view", "git.read", "git.write", "git.push"],
+  "permissions": ["ui.view", "git.read", "git.write", "git.push", "ai.complete"],
   "contributes": {
     "views": [
       {

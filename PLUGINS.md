@@ -101,7 +101,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | 风险 | 权限 |
 |---|---|
 | 低 | `ui.view`、`ui.command`、`ui.theme`、`notify`、`storage` |
-| 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`forge.read`、`chat.draft`、`clipboard.write`、`shell.openExternal` |
+| 中 | `fs.read`（限定在 `manifest.fs.read` 范围）、`git.read`、`forge.read`、`chat.draft`、`ai.complete`、`clipboard.write`、`shell.openExternal` |
 | 高 | `fs.write`、`git.write`、`git.push`、`forge.write`、`agent.tools`、`agent.skills`、`mcp.local`、`mcp.remote`、`net.fetch`（限定在 `manifest.net.domains`） |
 
 - `fs` 与 `net` 范围默认拒绝：未声明即无访问。`project` 表示当前项目根目录，按解析符号链接后的真实路径判断。
@@ -133,6 +133,7 @@ Main ── PluginBroker ── 权限网关 ── 宿主服务（fs / git / ui
 | `pi.git`（续） | `outgoing`：当前分支相对上游（没有上游时相对远程默认分支）还没推送的提交和合并后的补丁 | `git.read` |
 | `pi.forge` | `repository`、`pulls`、`pull`、`pullFiles`；`merge`、`comment`（始终确认），见第 24 节 | `forge.read` / `forge.write` |
 | `pi.chat` | `draft`：在当前项目新建会话并把文字放进输入框，由用户决定是否发送 | `chat.draft` |
+| `pi.ai` | `complete({ system?, prompt, maxTokens? })`：用用户的模型做一次简短生成（标题、摘要、提交信息），返回 `{ text, model }`，见第 25 节 | `ai.complete` |
 | `pi.ui`（续） | `openSettings`（目前只有 `forges`）；`shell.openExternal` 打开 https 链接 | 无 / `shell.openExternal` |
 | `pi.agent` | `registerTool`（与 manifest 声明对应，已实现）、`onTurnEnd`（只读：本轮改动摘要，未实现） | `agent.tools` |
 
@@ -417,4 +418,14 @@ module.exports = {
 - 代码托管（forge）由 Main 实现（`src/main/forge`）：根据远程地址判断平台（`github.com` → GitHub，`gitee.com` → Gitee，其余暂不支持），GitHub 先实现，Gitee 留了同样的接口。令牌按优先级取「设置 › 代码托管」里保存的令牌（safeStorage 加密）、`GH_TOKEN` / `GITHUB_TOKEN`、`gh auth token`。令牌只在 Main 使用，插件页面只拿到整理过的数据。
 - 合并会先重新读取拉取请求，只合并用户看到的那个 head（`headSha`）；评论和合并在任何档位都需要用户确认。
 - 第三方插件同样可以申请 `forge.read` / `forge.write` / `chat.draft`，启用时逐项授权。
+
+## 25. 一次性生成（`ai.complete`）
+
+会话标题、提交信息和插件的生成请求都不属于任何对话，由宿主统一做一次性调用。
+
+- 宿主原语：Main 的 `UtilityModelService`（`src/main/utility-model-service.ts`）把请求交给 Pi：当前（或该会话所在）的 Pi 会话进程能用到 Pi 扩展注册的模型；其他情况交给 Pi 的配置宿主，只有账号和 `models.json` 里的端点。Pi 端在 `src/agent-host/utility-completion.ts` 按顺序尝试候选模型，失败、超时（30 秒）或没有文字就换下一个。
+- 候选顺序（`src/shared/utility-model.ts`）：用户在「设置 › 常规 › 自动生成」选的模型 → 最多两个内置小模型（按模型 id 匹配 Haiku、GPT mini、Gemini Flash、DeepSeek chat、Qwen flash/turbo、GLM air/flash、GPT nano，跳过图像、语音、推理等变体）→ 当前 Pi 会话的模型。Claude Code 和 Codex 的会话不提供最后一项，因为 Pi 没有它们的模型。
+- 限制：`system` ≤ 8000 字符，`prompt` ≤ 100,000 字符，`maxTokens` 16–2000（默认 800），结果 ≤ 20,000 字符。每个插件同时只能有一个请求，全应用同时最多三个；超出时返回 `CONFLICT`。失败时以 `INTERNAL` 拒绝，`message` 是可以直接显示给用户的原因。
+- 权限 `ai.complete` 是中风险：它把插件提供的文字发给用户的模型服务并消耗用量，但不能读取任何插件拿不到的内容。调用不需要逐次确认。
+- 内置用法：Git 插件的「生成提交信息」按钮（读取暂存区的 diff，没有暂存时读取工作区的 diff 和新文件名，并参考最近 10 条提交的写法）；会话自动命名（`src/main/session-auto-title.ts`）只在本窗口新建的会话第一轮正常结束后命名一次，从历史打开的会话、子 Agent 会话、用户改过名的会话都不会被改名，可以在设置里关闭。
 

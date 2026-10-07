@@ -37,6 +37,7 @@ declare namespace PiDesktop {
     | 'git.read'
     | 'forge.read'
     | 'chat.draft'
+    | 'ai.complete'
     | 'clipboard.write'
     | 'shell.openExternal'
     | 'fs.write'
@@ -193,6 +194,12 @@ declare namespace PiDesktop {
     'forge.comment': { params: { number: number; body: string }; result: { url: string } }
     /** A new conversation in the open project with `text` in its composer; never sends. */
     'chat.draft': { params: { text: string }; result: void }
+    /** `ai.complete`: a short answer from the user's model. Small fast models are tried first
+     * (or the one chosen in Settings), then the open session's. `model` is `provider/model`. */
+    'ai.complete': {
+      params: { system?: string; prompt: string; maxTokens?: number }
+      result: { text: string; model: string }
+    }
     'ui.openSettings': { params: { section: 'forges' }; result: void }
     /** Opens an https link in the user's browser. */
     'shell.openExternal': { params: { url: string }; result: void }
@@ -242,6 +249,11 @@ declare namespace PiDesktop {
       stat(path: string): Promise<HostMethods['fs.stat']['result']>
       readText(path: string): Promise<{ text: string }>
       writeText(path: string, content: string): Promise<void>
+    }
+    ai: {
+      complete(
+        request: HostMethods['ai.complete']['params']
+      ): Promise<HostMethods['ai.complete']['result']>
     }
     git: {
       status(): Promise<GitStatus>

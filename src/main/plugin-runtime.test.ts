@@ -631,3 +631,80 @@ describe('plugin writes, approvals and view calls', () => {
     ])
   })
 })
+
+describe('ai.complete', () => {
+  function aiSetup(complete?: (pluginId: string, request: unknown) => Promise<unknown>): {
+    runtime: PluginRuntime
+    view: RuntimePlugin
+    requests: { pluginId: string; request: unknown }[]
+    audit: PluginAuditEntry[]
+  } {
+    const requests: { pluginId: string; request: unknown }[] = []
+    const audit: PluginAuditEntry[] = []
+    const runtime = new PluginRuntime({
+      spawn: () => new FakeProcess(),
+      context: () => ({ projectPath: '/work/shop' }),
+      storage: { get: () => undefined, set: () => undefined },
+      toast: () => undefined,
+      openView: () => undefined,
+      audit: (entry) => audit.push(entry),
+      onChange: () => undefined,
+      ...(complete
+        ? {
+            complete: async (pluginId, request) => {
+              requests.push({ pluginId, request })
+              return (await complete(pluginId, request)) as { text: string; model: string }
+            }
+          }
+        : {})
+    })
+    const view = plugin({ granted: new Set(['ui.view', 'ai.complete']), commands: [] })
+    return { runtime, view, requests, audit }
+  }
+
+  it('asks the user model with a default token budget and returns its text', async () => {
+    const { runtime, view, requests } = aiSetup(async () => ({
+      text: 'feat: add export',
+      model: 'anthropic/claude-haiku-4-5'
+    }))
+    await expect(
+      runtime.callFromView(view, 'ai.complete', { system: 'Write it', prompt: 'diff' })
+    ).resolves.toEqual({ text: 'feat: add export', model: 'anthropic/claude-haiku-4-5' })
+    expect(requests).toEqual([
+      { pluginId: 'acme.notes', request: { system: 'Write it', prompt: 'diff', maxTokens: 800 } }
+    ])
+  })
+
+  it('needs the ai.complete permission and a bounded request', async () => {
+    const { runtime, view, requests } = aiSetup(async () => ({ text: 'x', model: 'p/m' }))
+    await expect(
+      runtime.callFromView({ ...view, granted: new Set(['ui.view']) }, 'ai.complete', {
+        prompt: 'diff'
+      })
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    await expect(
+      runtime.callFromView(view, 'ai.complete', { prompt: 'diff', maxTokens: 50_000 })
+    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(runtime.callFromView(view, 'ai.complete', { prompt: '  ' })).rejects.toMatchObject(
+      { code: 'INVALID_ARGUMENT' }
+    )
+    expect(requests).toEqual([])
+  })
+
+  it("passes the host's reason on when generation fails", async () => {
+    const { runtime, view, audit } = aiSetup(async () => {
+      throw new Error('No model to write with')
+    })
+    await expect(
+      runtime.callFromView(view, 'ai.complete', { prompt: 'diff' })
+    ).rejects.toMatchObject({ code: 'INTERNAL', message: 'No model to write with' })
+    expect(audit).toEqual([{ pluginId: 'acme.notes', method: 'ai.complete', outcome: 'INTERNAL' }])
+  })
+
+  it('is unsupported where the host offers no model', async () => {
+    const { runtime, view } = aiSetup()
+    await expect(
+      runtime.callFromView(view, 'ai.complete', { prompt: 'diff' })
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED' })
+  })
+})

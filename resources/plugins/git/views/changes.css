@@ -216,6 +216,32 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.compose-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.compose-actions .primary {
+  flex: 1;
+}
+
+.icon.generate {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.icon.generate.spinning svg {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .primary {
   height: 30px;
   border: 0;
@@ -499,6 +525,11 @@ textarea:focus {
 
 :root[data-pi-surface='mobile'] textarea {
   font-size: 16px;
+}
+
+:root[data-pi-surface='mobile'] .icon.generate {
+  width: 36px;
+  height: 36px;
 }
 
 :root[data-pi-surface='mobile'] .primary,

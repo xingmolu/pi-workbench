@@ -102,6 +102,8 @@ import {
   type UsageMetrics
 } from '../shared/contracts'
 import { hostResultMatchesCommand } from '../shared/command-result'
+import type { UtilityCompleteCommand, UtilityCompletion } from '../shared/utility-model'
+import { runUtilityCompletion } from './utility-completion'
 import type { PiPackageRootsMessage } from '../shared/workbench-host-contracts'
 import {
   browserCapabilityResponseSchema,
@@ -563,6 +565,9 @@ class PiDesktopHost {
   async handle(request: HostRequest): Promise<HostResult> {
     displayQuarantine.assertHealthy()
     await this.initialize()
+    // Touches no session, so it neither waits for nor blocks session transitions.
+    if (request.type === 'utility:complete')
+      return { kind: 'utility-completion', result: await this.utilityComplete(request) }
     if (request.type === 'session:search' || request.type === 'project:search') {
       if (!this.sdk) throw new Error(t('Pi SDK 尚未加载'))
       const options = {
@@ -1935,6 +1940,12 @@ class PiDesktopHost {
     )
     const authed = new Set(checks.filter(([, auth]) => auth).map(([id]) => id))
     return runtime.getModels().filter((model) => authed.has(model.provider))
+  }
+
+  private async utilityComplete(request: UtilityCompleteCommand): Promise<UtilityCompletion> {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error(t('Pi 引擎尚未连接'))
+    return runUtilityCompletion(runtime, await this.currentAvailable(runtime), request)
   }
 
   private async refreshAuthProjection(): Promise<void> {

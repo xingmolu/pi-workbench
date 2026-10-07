@@ -90,9 +90,9 @@ The screenshots show the Chinese interface; the app follows your system language
 **Workbench**
 - Four columns: activity rail, projects and sessions, conversation, workbench; back / forward in the
   title bar, and the workbench can be maximized.
-- Workbench tools: files, change review, Git (stage, commit, push), terminal and a browser whose
-  pages are tabs (the agent can drive it); `⌘/Ctrl + 1…9` switches tabs, and an empty workbench
-  lists the tools and recently visited sites.
+- Workbench tools: files, change review, Git (stage, commit, push, and a commit message written
+  from the diff), terminal and a browser whose pages are tabs (the agent can drive it);
+  `⌘/Ctrl + 1…9` switches tabs, and an empty workbench lists the tools and recently visited sites.
 - Code review: uncommitted changes, unpushed commits and GitHub pull requests in one place to read
   diffs, merge and comment; hand a review to Pi, or ask about a pull request directly.
 
@@ -109,6 +109,8 @@ The screenshots show the Chinese interface; the app follows your system language
 - English and Chinese interface: follows the system language, or choose one in Settings › General.
 - Subscription quota, a model picker with capabilities and recents, session search and archive,
   light and dark themes with accent colours.
+- New conversations are titled after their first turn; titles and commit messages come from a
+  small, fast model, which you can choose or switch off in Settings › General.
 - In-app update checks, and a diagnostics report you can export from Settings (keys and tokens are
   removed).
 

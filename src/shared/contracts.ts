@@ -543,6 +543,8 @@ export type HostCommand =
   | { type: 'account:quota'; providerId: string }
   /** Main-only: a fresh ChatGPT access token for another engine; never routed from a renderer. */
   | { type: 'account:token'; providerId: string }
+  /** Main-only: one generation outside any conversation (titles, commit messages, plugins). */
+  | import('./utility-model').UtilityCompleteCommand
   | { type: 'account:login:respond'; promptId: string; value?: string }
   | { type: 'account:alias:add'; slug: string }
   | { type: 'account:add'; platform: SubscriptionPlatform; method: LoginMethod }
@@ -575,7 +577,7 @@ export type AckHostCommand = Exclude<
   | AttachmentHostCommand
   | SessionEditCommand
   | ProjectCatalogCommand
-  | Extract<HostCommand, { type: 'account:quota' | 'account:token' }>
+  | Extract<HostCommand, { type: 'account:quota' | 'account:token' | 'utility:complete' }>
   | CheckpointCommand
   | SessionSearchCommand | ProjectSearchCommand
   | import('./mcp').McpCommand
@@ -605,6 +607,7 @@ export type HostResult =
   | { kind: 'mcp'; result: import('./mcp').McpSnapshot }
   | { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
   | { kind: 'account-token'; token: import('./engine-credentials').ChatgptAccessToken }
+  | { kind: 'utility-completion'; result: import('./utility-model').UtilityCompletion }
   | { kind: 'project-catalog'; catalog: ProjectCatalog }
   | { kind: 'subagent-inspection'; snapshot: AgentSnapshot }
   | { kind: 'session-edit'; result: SessionEditResult }
@@ -631,6 +634,8 @@ export type HostResultFor<Command extends HostCommand> = Command extends { type:
   ? { kind: 'account-quota'; quota: import('./account-quota').AccountQuota }
   : Command extends { type: 'account:token' }
   ? { kind: 'account-token'; token: import('./engine-credentials').ChatgptAccessToken }
+  : Command extends { type: 'utility:complete' }
+  ? { kind: 'utility-completion'; result: import('./utility-model').UtilityCompletion }
   : Command extends ProjectCatalogCommand
   ? { kind: 'project-catalog'; catalog: ProjectCatalog }
   : Command extends SessionEditCommand
@@ -712,6 +717,8 @@ export type PiDesktopAPI = {
   forgeAccounts: (
     command: import('./forge').ForgeAccountsCommand
   ) => Promise<import('./forge').ForgeAccount[]>
+  /** Pi's available models, to choose the one for titles, commit messages and plugins. */
+  utilityModels: () => Promise<import('./utility-model').UtilityModelOption[]>
   /** Which protocols a gateway speaks, from one address and key; nothing is saved. */
   gatewayProbe: (
     input: import('./gateway').GatewayProbeInput

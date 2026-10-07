@@ -39,7 +39,22 @@
           aria-label="提交信息"
           spellcheck="false"
         ></textarea>
-        <button type="button" class="primary" id="commit" disabled>提交</button>
+        <div class="compose-actions">
+          <button type="button" class="primary" id="commit" disabled>提交</button>
+          <button
+            type="button"
+            class="icon generate"
+            id="generate"
+            disabled
+            aria-label="生成提交信息"
+            title="根据改动生成提交信息"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 2.5 9.2 6l3.3 1.2-3.3 1.2L8 12 6.8 8.4 3.5 7.2 6.8 6z" />
+              <path d="M12.5 11v3M11 12.5h3" />
+            </svg>
+          </button>
+        </div>
       </section>
 
       <section class="group" id="staged-group" hidden>

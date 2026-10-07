@@ -119,6 +119,7 @@ const COMMAND_FEATURE: Record<HostCommand['type'], RuntimeFeature | null> = {
   'account:remove': 'auth-login',
   'account:quota': 'account-quota',
   'account:token': 'account-aliases',
+  'utility:complete': 'model-selection',
   'endpoint:list': 'custom-endpoints',
   'endpoint:save': 'custom-endpoints',
   'endpoint:remove': 'custom-endpoints',

@@ -17,7 +17,11 @@ export const desktopSettingsSchema = z.strictObject({
   workDetails: z.enum(['compact', 'expanded']),
   showUsage: z.boolean(),
   /** Interface language; `system` follows the computer. Applied after a restart. */
-  language: z.enum(LANGUAGE_SETTINGS).default('system')
+  language: z.enum(LANGUAGE_SETTINGS).default('system'),
+  /** Name a new conversation from its first turn with a small model. */
+  autoTitle: z.boolean().default(true),
+  /** `provider/model` for titles, commit messages and plugin requests; null picks a small one. */
+  utilityModel: z.string().min(3).max(330).nullable().default(null)
 })
 export type DesktopSettings = z.infer<typeof desktopSettingsSchema>
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
@@ -31,7 +35,9 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   sendShortcut: 'enter',
   workDetails: 'compact',
   showUsage: false,
-  language: 'system'
+  language: 'system',
+  autoTitle: true,
+  utilityModel: null
 }
 export const desktopSettingsCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('get') }),

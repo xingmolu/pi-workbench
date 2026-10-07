@@ -113,6 +113,10 @@ const pi = Object.freeze({
     readText: (path: string) => call('fs.readText', { path }),
     writeText: (path: string, content: string) => call('fs.writeText', { path, content })
   }),
+  ai: Object.freeze({
+    complete: (request: { system?: string; prompt: string; maxTokens?: number }) =>
+      call('ai.complete', request)
+  }),
   git: Object.freeze({
     status: () => call('git.status'),
     diff: (options: { path?: string; staged?: boolean } = {}) => call('git.diff', options),

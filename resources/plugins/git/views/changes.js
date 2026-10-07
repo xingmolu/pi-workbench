@@ -28,6 +28,8 @@ if (english) {
   set('message', 'placeholder', 'Commit message (⌘/Ctrl + Enter to commit)')
   $('message')?.setAttribute('aria-label', 'Commit message')
   set('commit', 'textContent', 'Commit')
+  set('generate', 'title', 'Write a commit message from the changes')
+  $('generate')?.setAttribute('aria-label', 'Write commit message')
   set('unstage-all', 'textContent', 'Unstage all')
   $('staged')?.setAttribute('aria-label', 'Staged changes')
   set('stage-all', 'textContent', 'Stage all')
@@ -48,6 +50,7 @@ const state = {
   status: null,
   open: null, // { path, staged }
   busy: false,
+  generating: false,
   loading: false,
   error: null,
   epoch: 0 // bumped by explicit refreshes so an open diff reloads
@@ -291,6 +294,9 @@ function render() {
         ? tr('暂存全部并提交', 'Stage all and commit')
         : tr('提交', 'Commit')
   commit.disabled = state.busy || !message || status.files.length === 0
+  const generate = $('generate')
+  generate.disabled = state.busy || state.generating || status.files.length === 0
+  generate.classList.toggle('spinning', state.generating)
 }
 
 async function loadLog() {
@@ -410,6 +416,92 @@ async function commit() {
   }
 }
 
+/** The diff a commit message is written from is cut here; the subject needs the gist. */
+const MAX_DIFF_CHARS = 60000
+
+const COMMIT_SYSTEM = [
+  'You write git commit messages.',
+  "Follow the style of the repository's recent commits: their language, prefixes such as",
+  'feat: or fix:, and capitalization. Without recent commits, write a short imperative subject.',
+  'The subject line is at most 72 characters. Add a blank line and a short body only when the',
+  'change needs explaining; wrap it at 72 characters.',
+  'Reply with the commit message only: no code fences, no quotes, no commentary.'
+].join('\n')
+
+/** Drops a code fence or quotes a model wraps the message in. */
+function cleanMessage(text) {
+  let body = text.trim()
+  const fence = /^```[\w-]*\n([\s\S]*?)\n```$/.exec(body)
+  if (fence) body = fence[1].trim()
+  return body
+    .split('\n')
+    .map((line) => line.replace(/\s+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** Writes a commit message from what will be committed: the staged changes, else all of them. */
+async function generateMessage() {
+  const status = state.status
+  if (!status || state.busy || state.generating) return
+  const staged = status.files.some((file) => file.index !== ' ' && file.index !== '?')
+  const untracked = staged
+    ? []
+    : status.files.filter((file) => file.worktree === '?').map((file) => file.path)
+  const before = $('message').value
+  state.generating = true
+  showNotice(null)
+  render()
+  try {
+    const [{ patch }, recent] = await Promise.all([
+      api.call('git.diff', { staged }),
+      api.call('git.log', { limit: 10 }).catch(() => ({ commits: [] }))
+    ])
+    if (!patch.trim() && untracked.length === 0) {
+      showNotice(tr('没有可用于生成的文本改动', 'No text changes to write a message from'))
+      return
+    }
+    const diff =
+      patch.length > MAX_DIFF_CHARS
+        ? `${patch.slice(0, MAX_DIFF_CHARS)}\n[... diff truncated ...]`
+        : patch
+    const prompt = [
+      recent.commits.length
+        ? `Recent commits:\n${recent.commits.map((commit) => `- ${commit.subject}`).join('\n')}`
+        : 'This repository has no commits yet.',
+      before.trim() ? `The user's draft or hint for this message:\n${before.trim()}` : '',
+      untracked.length ? `New files:\n${untracked.map((path) => `- ${path}`).join('\n')}` : '',
+      `Changes to commit:\n${diff}`
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    const result = await api.call('ai.complete', { system: COMMIT_SYSTEM, prompt, maxTokens: 400 })
+    const message = cleanMessage(result.text)
+    if (!message) {
+      showNotice(tr('模型没有给出提交信息', 'The model gave no commit message'))
+      return
+    }
+    // Typing while it was being written wins over the generated text.
+    if ($('message').value !== before) return
+    $('message').value = message
+    $('message').focus()
+    showNotice(
+      tr(
+        `由 ${result.model} 生成，请检查后提交`,
+        `Written by ${result.model}; check it before committing`
+      ),
+      'info'
+    )
+  } catch (error) {
+    const text = describeError(error)
+    if (text) showNotice(text)
+  } finally {
+    state.generating = false
+    render()
+  }
+}
+
 async function push() {
   const result = await act('git.push', null, {})
   if (result)
@@ -428,6 +520,7 @@ $('refresh').addEventListener('click', () => {
 })
 $('push').addEventListener('click', push)
 $('commit').addEventListener('click', commit)
+$('generate').addEventListener('click', generateMessage)
 $('stage-all').addEventListener('click', () => {
   const paths = (state.status?.files || []).filter((f) => f.worktree !== ' ').map((f) => f.path)
   if (paths.length) act('git.stage', paths)

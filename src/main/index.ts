@@ -27,6 +27,15 @@ import {
 import { piPackageRootsMessageSchema } from '../shared/workbench-host-schemas'
 import { GlobalConfigurationGate } from './global-configuration-gate'
 import { handleDesktopSettings } from './desktop-settings'
+import { UtilityModelService } from './utility-model-service'
+import { SESSION_TITLE_SYSTEM, SessionAutoTitler, sessionTitlePrompt } from './session-auto-title'
+import {
+  UTILITY_MODELS_CHANNEL,
+  cleanGeneratedLine,
+  parseUtilityModel,
+  type UtilityModelOption,
+  type UtilityModelRef
+} from '../shared/utility-model'
 import { DesktopControlService } from './desktop-control-service'
 import { NativePaletteFocus } from './native-palette-focus'
 import {
@@ -513,6 +522,57 @@ function broadcast(event: DesktopEvent): void {
   for (const window of BrowserWindow.getAllWindows())
     if (!window.isDestroyed()) window.webContents.send('pi:event', event)
 }
+/** Background generations run on Pi's models in its configuration host. */
+const utilityModels = new UtilityModelService({
+  run: async (command, worker) => {
+    const result = worker
+      ? await sessionWorkers.requestWorker(worker, command)
+      : await runtimeDirectory.request('pi', command)
+    if (result.kind !== 'utility-completion') throw new Error(t('Pi 没有返回生成结果'))
+    return result.result
+  },
+  preferred: () =>
+    parseUtilityModel(handleDesktopSettings(preferenceStore(), { type: 'get' }).utilityModel)
+})
+
+/** For a Pi conversation in front: its worker, which reaches every model the conversation
+ * can use, and its model as the last one to try. */
+function foregroundUtilityTarget(): { worker?: string; fallback?: UtilityModelRef } {
+  const scope = sessionWorkers.selectedScope
+  const snapshot = scope ? sessionWorkers.tryGetSnapshot(scope.workerId) : null
+  if (!scope || snapshot?.runtime?.id !== 'pi') return {}
+  return {
+    worker: scope.workerId,
+    ...(snapshot.activeProvider && snapshot.activeModel
+      ? { fallback: { providerId: snapshot.activeProvider, modelId: snapshot.activeModel } }
+      : {})
+  }
+}
+
+const sessionAutoTitler = new SessionAutoTitler({
+  enabled: () => handleDesktopSettings(preferenceStore(), { type: 'get' }).autoTitle,
+  isTaskWorker: (workerId) => sessionWorkers.isTaskWorker(workerId),
+  generate: async (input) => {
+    const result = await utilityModels.complete('session-title', {
+      system: SESSION_TITLE_SYSTEM,
+      prompt: sessionTitlePrompt(input),
+      maxTokens: 200,
+      ...(input.fallback ? { fallback: input.fallback } : {}),
+      ...(input.worker ? { worker: input.worker } : {})
+    })
+    return cleanGeneratedLine(result.text)
+  },
+  rename: async (target, title) => {
+    await navigationLibrary().dispatch({
+      type: 'session:rename',
+      cwd: target.cwd,
+      path: target.path,
+      name: title
+    })
+  },
+  onError: (error) => console.warn(t('自动命名会话失败'), errorMessage(error))
+})
+
 const credentialBroker = new EngineCredentialBroker({
   accounts: async () => {
     const result = await runtimeDirectory.request('pi', { type: 'state:get' })
@@ -609,12 +669,14 @@ const sessionWorkers = new SessionWorkerSupervisor({
     void sessionWorkers.resyncWorker(workerId).catch(() => {})
   },
   onWorkerEvent: (workerId, snapshot) => {
+    sessionAutoTitler.observe(workerId, snapshot)
     if (snapshot && snapshot.status !== 'running' && snapshot.status !== 'awaiting-approval')
       computerUseIndicator.end(workerId)
     foregroundCapabilities.invalidate()
     publishMobileWorker(workerId, snapshot)
   },
   onExit: (workerId, error) => {
+    sessionAutoTitler.forget(workerId)
     computerUseIndicator.end(workerId)
     foregroundCapabilities.cancelOwner(workerId)
     mutationCapabilities.exit(workerId)
@@ -1970,7 +2032,33 @@ function registerIpc(): void {
   })
   ipcMain.handle(NAVIGATION_LIBRARY_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
+    const rename = command as { type?: unknown; path?: unknown } | null
+    if (rename?.type === 'session:rename' && typeof rename.path === 'string')
+      sessionAutoTitler.userRenamed(rename.path)
     return navigationLibrary().dispatch(command)
+  })
+  ipcMain.handle(UTILITY_MODELS_CHANNEL, async (event): Promise<UtilityModelOption[]> => {
+    assertTrustedRenderer(event)
+    // Open Pi conversations also have the models Pi extensions register; the configuration
+    // host has the accounts and endpoints alone.
+    const result = await runtimeDirectory.request('pi', { type: 'state:get' })
+    const snapshots = [
+      ...(result.kind === 'snapshot' ? [result.snapshot] : []),
+      ...sessionWorkers
+        .getLiveSummaries()
+        .map((summary) => sessionWorkers.tryGetSnapshot(summary.workerId))
+        .filter((snapshot) => snapshot?.runtime?.id === 'pi')
+    ]
+    const options = new Map<string, UtilityModelOption>()
+    for (const snapshot of snapshots)
+      for (const model of snapshot?.models ?? [])
+        if (!model.unavailableReason)
+          options.set(`${model.provider}/${model.id}`, {
+            providerId: model.provider,
+            modelId: model.id,
+            name: model.name
+          })
+    return [...options.values()]
   })
   ipcMain.handle(DESKTOP_SETTINGS_CHANNEL, (event, command: unknown) => {
     assertTrustedRenderer(event)
@@ -2453,10 +2541,14 @@ function registerIpc(): void {
         'runtime:shutdown',
         'runtime:refresh',
         'bootstrap',
-        'account:token'
+        'account:token',
+        'utility:complete'
       ].includes(parsed.data.type)
     )
       throw new Error(t('该命令仅供宿主内部使用'))
+    // A name the user gives a conversation is never replaced by an automatic one.
+    if (parsed.data.type === 'session:rename' && activeSessionPath)
+      sessionAutoTitler.userRenamed(activeSessionPath)
     if (parsed.data.type === 'attachment:prompt' || parsed.data.type === 'attachment:query')
       throw new Error(t('文本附件必须通过文件选择入口发送'))
     if (parsed.data.type === 'project:open') {
@@ -2780,6 +2872,13 @@ function createWindow(): void {
     appearance: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
     openExternal: (url) => {
       if (/^https:\/\//i.test(url)) void shell.openExternal(url)
+    },
+    complete: async (pluginId, request) => {
+      const result = await utilityModels.complete(`plugin:${pluginId}`, {
+        ...request,
+        ...foregroundUtilityTarget()
+      })
+      return { text: result.text, model: `${result.providerId}/${result.modelId}` }
     },
     pluginServices: (() => {
       mkdirSync(app.getPath('sessionData'), { recursive: true })

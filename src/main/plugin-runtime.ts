@@ -77,6 +77,11 @@ export type PluginRuntimeDependencies = {
   }
   /** Opens a new conversation in the open project with this text in its composer. */
   chatDraft?(pluginId: string, text: string): void
+  /** A short answer from the user's model; rejects with a message fit to show the plugin. */
+  complete?(
+    pluginId: string,
+    request: { system?: string; prompt: string; maxTokens: number }
+  ): Promise<{ text: string; model: string }>
   openSettings?(section: 'forges'): void
   /** Opens an https URL in the user's browser. */
   openExternal?(url: string): void
@@ -716,6 +721,23 @@ export class PluginRuntime {
           throw new PluginApiError('UNSUPPORTED', t('此环境不能新建会话'))
         this.dependencies.chatDraft(plugin.pluginId, args.text as string)
         return undefined
+      }
+      case 'ai.complete': {
+        const complete = this.dependencies.complete
+        if (!complete) throw new PluginApiError('UNSUPPORTED', t('此环境不能调用模型'))
+        try {
+          return await complete(plugin.pluginId, {
+            ...(args.system ? { system: args.system as string } : {}),
+            prompt: args.prompt as string,
+            maxTokens: args.maxTokens as number
+          })
+        } catch (error) {
+          if (error instanceof PluginApiError) throw error
+          throw new PluginApiError(
+            'INTERNAL',
+            (error instanceof Error ? error.message : String(error)).slice(0, 500)
+          )
+        }
       }
       case 'shell.openExternal':
         if (!this.dependencies.openExternal)
